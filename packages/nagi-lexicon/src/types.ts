@@ -41,6 +41,7 @@ export type NagiPost = {
   text: string;
   facets?: Facet[];
   langs?: string[];
+  labels?: SelfLabels;
   createdAt: string;
   /**
    * 作成時に本文または画像へ CW があった投稿。true になった投稿は編集で戻さず、
@@ -69,6 +70,10 @@ export type NagiPost = {
         record: StrongRef;
         images?: NagiImage[];
       };
+};
+export type SelfLabels = {
+  $type: "com.atproto.label.defs#selfLabels";
+  values: Array<{ val: string }>;
 };
 /** ユーザーが作るチャンネル。作成者の PDS に置くレコード。 */
 export type NagiChannel = {
@@ -200,10 +205,7 @@ export type BluemojiItem = {
   name: string;
   alt?: string;
   adultOnly?: boolean;
-  labels?: {
-    $type: "com.atproto.label.defs#selfLabels";
-    values: Array<{ val: string }>;
-  };
+  labels?: SelfLabels;
   copyOf?: string;
   fallbackText?: string;
   createdAt: string;
@@ -308,6 +310,10 @@ export type PostView = {
   /** text 内の ||...|| から導出した、区切りを除く UTF-8 バイト範囲。 */
   contentWarning?: { byteStart: number; byteEnd: number };
   langs?: string[];
+  /** 投稿者自身がレコードへ埋め込んだNagiセルフラベル。 */
+  selfLabels?: string[];
+  /** AppViewが信頼するAmateras DIDから現在CIDへ付与されたラベル。 */
+  moderationLabels?: string[];
   createdAt: string;
   indexedAt: string;
   reply?: { root: StrongRef; parent: StrongRef };

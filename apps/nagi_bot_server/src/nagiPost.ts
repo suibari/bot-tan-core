@@ -1,4 +1,4 @@
-import { NAGI, type NagiPost } from "@bsky-affirmative-bot/nagi-lexicon";
+import { NAGI, type NagiPost, type SelfLabels } from "@bsky-affirmative-bot/nagi-lexicon";
 import { agent } from "./agent.js";
 import { trackedCreateRecord, trackedPutRecord } from "@bsky-affirmative-bot/clients";
 import { buildNagiPostAttachments } from "./nagiLinkCards.js";
@@ -20,6 +20,8 @@ export type PublishNagiPostRequest = NagiPostFields & {
   label?: string;
   /** 指定時は同じ rkey へ putRecord、未指定時は createRecord する。 */
   rkey?: string;
+  /** 呼び出し側が付けたいセルフラベル。ai-generated は buildNagiPostRecord が必ず足す。 */
+  labels?: SelfLabels;
 };
 
 /**
@@ -33,6 +35,7 @@ export async function buildNagiPostRecord(
     autoLinkExclusions,
     label = "NAGI_POST",
     rkey: _rkey,
+    labels: requestedLabels,
     ...fields
   }: PublishNagiPostRequest,
   resolver?: EmojiResolver,
@@ -49,6 +52,15 @@ export async function buildNagiPostRecord(
       resolver,
       autoLinkExclusions,
     )),
+    // botたんのNagi投稿は生成経路にかかわらずAI生成であることをレコードへ明記する。
+    // 呼び出し側のNSFWラベルは保ちつつ、AIラベルだけは誤って外せないようにする。
+    labels: {
+      $type: "com.atproto.label.defs#selfLabels",
+      values: [
+        ...(requestedLabels?.values.filter(({ val }) => val !== "ai-generated") ?? []),
+        { val: "ai-generated" },
+      ],
+    },
   };
 }
 

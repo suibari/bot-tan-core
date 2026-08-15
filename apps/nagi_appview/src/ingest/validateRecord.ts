@@ -163,6 +163,16 @@ const selfLabels = (value: any) =>
       label.val.length > 0 &&
       label.val.length <= 128,
   );
+const NAGI_POST_SELF_LABELS = new Set([
+  "ai-generated",
+  "porn",
+  "sexual",
+  "nudity",
+  "graphic-media",
+]);
+const postSelfLabels = (value: any) =>
+  selfLabels(value) &&
+  value.values.every((label: any) => NAGI_POST_SELF_LABELS.has(label.val));
 const atUri = (value: unknown) =>
   typeof value === "string" && /^at:\/\/[^/\s]+\/[^/\s]+\/[^/\s]+$/.test(value);
 const normalizedBlob = (
@@ -264,6 +274,7 @@ export function validateRecord(
       return false;
     if (value.facets !== undefined && !facets(value.facets, value.text))
       return false;
+    if (value.labels !== undefined && !postSelfLabels(value.labels)) return false;
     if (value.kossori !== undefined && typeof value.kossori !== "boolean")
       return false;
     if (value.botSilent !== undefined && typeof value.botSilent !== "boolean")

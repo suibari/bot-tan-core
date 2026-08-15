@@ -316,6 +316,14 @@ export async function hydratePostViews(
         ? { contentWarning: contentWarning.range }
         : {}),
       langs: (post.langs as string[] | null) ?? undefined,
+      selfLabels: Array.isArray(record?.labels?.values)
+        ? record.labels.values.flatMap((label: any) =>
+            typeof label?.val === "string" ? [label.val] : [],
+          )
+        : undefined,
+      moderationLabels: post.moderationLabels.length
+        ? post.moderationLabels
+        : undefined,
       createdAt: post.recordCreatedAt.toISOString(),
       indexedAt: post.indexedAt.toISOString(),
       edited: post.edited || undefined,

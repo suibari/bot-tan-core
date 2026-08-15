@@ -25,6 +25,7 @@ RESTART_LABELER=false
 RESTART_DISCORD=false
 RESTART_NAGI_APPVIEW=false
 RESTART_SEARXNG=false
+RESTART_AMATERAS=false
 PUSH_DB=false
 PUBLISH_LEXICON=false
 
@@ -37,6 +38,7 @@ if echo "$DIFF_FILES" | grep -q "packages/"; then
     RESTART_LABELER=true
     RESTART_DISCORD=true
     RESTART_NAGI_APPVIEW=true
+    RESTART_AMATERAS=true
 fi
 
 if echo "$DIFF_FILES" | grep -q "apps/bsky_bot_server/"; then
@@ -63,6 +65,10 @@ if echo "$DIFF_FILES" | grep -q "apps/nagi_appview/"; then
     RESTART_NAGI_APPVIEW=true
 fi
 
+if echo "$DIFF_FILES" | grep -q "apps/nagi_amateras/"; then
+    RESTART_AMATERAS=true
+fi
+
 # SearXNG は grounding の検索段。唯一 systemd ではなく Docker で動かしている。
 if echo "$DIFF_FILES" | grep -q "^searxng/"; then
     RESTART_SEARXNG=true
@@ -81,7 +87,7 @@ fi
 
 if [ "$PUSH_DB" = true ]; then
     echo "♻️  Pushing DB..."
-    pnpm --filter ./packages/database exec drizzle-kit push --config=drizzle.config.cjs
+    pnpm --filter ./packages/database drizzle:push
 fi
 
 # 実際の再起動処理
@@ -133,6 +139,11 @@ fi
 if [ "$RESTART_DISCORD" = true ]; then
     echo "♻️  Restarting Discord Bot..."
     sudo systemctl restart discord-bot.service
+fi
+
+if [ "$RESTART_AMATERAS" = true ]; then
+    echo "♻️  Restarting Nagi Amateras (Labeler)..."
+    sudo systemctl restart nagi-amateras.service
 fi
 
 if [ "$RESTART_NAGI_APPVIEW" = true ]; then

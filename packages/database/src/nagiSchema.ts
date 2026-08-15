@@ -100,6 +100,10 @@ export const nagiPosts = nagiSchema.table(
     tags: text("tags").array(),
     langs: jsonb("langs"),
     recordJson: jsonb("record_json"),
+    /** 現在CIDについてAmaterasが返した表示用ラベル。署名ラベル本体はLabelerが保持する。 */
+    moderationLabels: text("moderation_labels").array().default([]).notNull(),
+    /** nullは未評価の既存行。ルール更新時は値を変えて再評価できる。 */
+    moderationVersion: text("moderation_version"),
     replyRootUri: text("reply_root_uri"),
     replyParentUri: text("reply_parent_uri"),
     embedImages: jsonb("embed_images"),
@@ -152,6 +156,29 @@ export const nagiPosts = nagiSchema.table(
     // 語彙検索: 日本語も部分一致できるよう trigram GIN（要 pg_trgm 拡張）。
     index("nagi_posts_text_trgm_idx").using("gin", t.text.op("gin_trgm_ops")),
   ],
+);
+
+/**
+ * AppViewへ本文を保存しないと判断した投稿の最小tombstone。
+ * PDSが真実源なので本文・画像・record_json・OpenAIのraw responseは保持しない。
+ */
+export const nagiModerationRejections = nagiSchema.table(
+  "moderation_rejections",
+  {
+    uri: text("uri").primaryKey(),
+    cid: text("cid").notNull(),
+    did: text("did").notNull(),
+    category: text("category").notNull(),
+    labels: text("labels").array().notNull(),
+    ruleVersion: text("rule_version").default("amateras-v1").notNull(),
+    decidedAt: timestamp("decided_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [index("nagi_moderation_rejections_did_idx").on(t.did)],
 );
 /** ユーザーが作るチャンネル（com.suibari.nagi.channel）。作成者の PDS が真実源。 */
 export const nagiChannels = nagiSchema.table(

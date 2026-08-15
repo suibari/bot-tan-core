@@ -1,0 +1,29 @@
+{
+  "name": "nagi_amateras",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "benchmark": "tsx scripts/benchmark-moderation.ts",
+    "register": "tsx scripts/register-labeler.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@atproto/api": "^0.18.21",
+    "@skyware/labeler": "^0.2.0",
+    "dotenv": "^16.4.7",
+    "fastify": "^5.2.1",
+    "openai": "^4.86.1",
+    "pg": "^8.13.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.8",
+    "@types/pg": "^8.11.11",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2",
+    "vitest": "^3.0.7"
+  }
+}

@@ -72,10 +72,18 @@ test("the common post record builder always detects tag facets", async () => {
     text: "定期投稿です #botたん",
     label: "TEST",
     langs: ["ja"],
+    labels: {
+      $type: "com.atproto.label.defs#selfLabels",
+      values: [{ val: "sexual" }],
+    },
   });
 
   assert.equal(record.$type, "com.suibari.nagi.post");
   assert.deepEqual(record.langs, ["ja"]);
+  assert.deepEqual(record.labels, {
+    $type: "com.atproto.label.defs#selfLabels",
+    values: [{ val: "sexual" }, { val: "ai-generated" }],
+  });
   assert.deepEqual(
     record.facets?.flatMap((facet) => facet.features),
     [{ $type: "app.bsky.richtext.facet#tag", tag: "botたん" }],

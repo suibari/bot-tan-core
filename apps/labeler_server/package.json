@@ -15,11 +15,9 @@
     "@atproto/api": "^0.18.21",
     "@skyware/labeler": "^0.2.0",
     "dotenv": "^16.4.5",
-    "express": "^5.0.0",
-    "fastify": "^4.28.1"
+    "fastify": "^5.12.0"
   },
   "devDependencies": {
-    "@types/express": "^5.0.0",
     "@types/node": "^22.0.0",
     "tsx": "^4.7.1",
     "typescript": "^5.8.3"

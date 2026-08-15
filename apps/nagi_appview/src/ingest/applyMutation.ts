@@ -10,6 +10,7 @@ import {
   nagiDiaries,
   nagiEmojis,
   nagiIngestState,
+  nagiModerationRejections,
   nagiNotifications,
   nagiNews,
   nagiNewsReviewJobs,
@@ -40,6 +41,11 @@ import {
 import { reconciledIndexedAt } from "./reconcileOrder.js";
 import { shouldAcceptSemanticRecord } from "./semanticRecord.js";
 import { validateRecord } from "./validateRecord.js";
+import {
+  AMATERAS_RULE_VERSION,
+  evaluateNagiPost,
+  type AmaterasDecision,
+} from "../services/amateras.js";
 import {
   hasContentWarning,
   parseContentWarning,
@@ -155,6 +161,7 @@ export async function applyMutation(
       );
     }
   }
+  let moderationDecision: AmaterasDecision | undefined;
   const id = trackJetstream
     ? `${did}:${evt.time_us}:${commit.rev ?? ""}:${collection}:${commit.rkey}`
     : undefined;
@@ -196,6 +203,63 @@ export async function applyMutation(
         resolved.adultOnly
       )
         return { cursorAdvanced: false };
+    }
+  }
+  if (
+    collection === NAGI.post &&
+    commit.operation !== "delete" &&
+    validateRecord(collection, commit.record)
+  ) {
+    // Jetstream replay・reconcile・同一イベント再試行で同じCIDを再送しない。
+    // 保存拒否済みCIDは本文を復活させず、受理済みCIDは既存ラベルを再利用する。
+    const [rejected] = await db
+      .select({
+        cid: nagiModerationRejections.cid,
+        category: nagiModerationRejections.category,
+        labels: nagiModerationRejections.labels,
+        ruleVersion: nagiModerationRejections.ruleVersion,
+      })
+      .from(nagiModerationRejections)
+      .where(eq(nagiModerationRejections.uri, uri))
+      .limit(1);
+    if (
+      rejected?.cid === commit.cid &&
+      rejected.ruleVersion === AMATERAS_RULE_VERSION
+    ) {
+      moderationDecision = {
+        action: "drop",
+        labels: rejected.labels,
+        maxScore: 0,
+        highestCategory: rejected.category,
+      };
+    } else {
+      const [indexed] = await db
+        .select({
+          cid: nagiPosts.cid,
+          labels: nagiPosts.moderationLabels,
+          version: nagiPosts.moderationVersion,
+        })
+        .from(nagiPosts)
+        .where(and(eq(nagiPosts.uri, uri), isNull(nagiPosts.deletedAt)))
+        .limit(1);
+      if (
+        indexed?.cid === commit.cid &&
+        indexed.version === AMATERAS_RULE_VERSION
+      ) {
+        moderationDecision = {
+          action: indexed.labels.length ? "label" : "none",
+          labels: indexed.labels,
+          maxScore: 0,
+          highestCategory: "",
+        };
+      } else {
+        moderationDecision = await evaluateNagiPost({
+          uri,
+          cid: commit.cid,
+          did,
+          record: commit.record,
+        });
+      }
     }
   }
   // トランザクション内で実際に挿入できた通知だけを収集し、コミット成功後に
@@ -244,6 +308,9 @@ export async function applyMutation(
         : [];
     if (commit.operation === "delete") {
       if (collection === NAGI.post) {
+        await tx
+          .delete(nagiModerationRejections)
+          .where(eq(nagiModerationRejections.uri, uri));
         const quotingSourceUris = (
           await tx
             .select({ uri: nagiPosts.uri })
@@ -338,6 +405,56 @@ export async function applyMutation(
         await tx.delete(nagiProfiles).where(eq(nagiProfiles.did, did));
       if (collection === BLUEMOJI_ITEM)
         await tx.delete(nagiEmojis).where(eq(nagiEmojis.uri, uri));
+    } else if (
+      collection === NAGI.post &&
+      moderationDecision?.action === "drop"
+    ) {
+      // 本文・画像・record_jsonをAppViewに保持しない。既存投稿の編集が拒否された場合も
+      // 旧本文を残さず、PDSから再判定できる最小tombstoneだけを保存する。
+      await tx
+        .update(nagiPosts)
+        .set({
+          text: "",
+          facets: null,
+          tags: null,
+          langs: null,
+          recordJson: null,
+          embedImages: null,
+          quoteUri: null,
+          quoteCid: null,
+          embedding: null,
+          deletedAt: new Date(),
+        })
+        .where(eq(nagiPosts.uri, uri));
+      await tx
+        .delete(nagiTranslations)
+        .where(eq(nagiTranslations.postUri, uri));
+      await tx
+        .delete(nagiNotifications)
+        .where(eq(nagiNotifications.subjectUri, uri));
+      await tx
+        .delete(nagiCommunityAffirmations)
+        .where(eq(nagiCommunityAffirmations.sourceUri, uri));
+      await tx
+        .insert(nagiModerationRejections)
+        .values({
+          uri,
+          cid: commit.cid,
+          did,
+          category: moderationDecision.highestCategory || "unknown",
+          labels: moderationDecision.labels,
+          ruleVersion: AMATERAS_RULE_VERSION,
+        })
+        .onConflictDoUpdate({
+          target: nagiModerationRejections.uri,
+          set: {
+            cid: commit.cid,
+            category: moderationDecision.highestCategory || "unknown",
+            labels: moderationDecision.labels,
+            ruleVersion: AMATERAS_RULE_VERSION,
+            updatedAt: new Date(),
+          },
+        });
     } else if (validateRecord(collection, commit.record)) {
       const value: any = commit.record;
       const createdAt = new Date(value.createdAt);
@@ -346,6 +463,9 @@ export async function applyMutation(
           ? reconciledIndexedAt(createdAt)
           : undefined;
       if (collection === NAGI.post) {
+        await tx
+          .delete(nagiModerationRejections)
+          .where(eq(nagiModerationRejections.uri, uri));
         // 既存投稿 かつ cid が変わった＝投稿後編集。翻訳キャッシュ破棄と edited フラグ立てに使う。
         const isEdit = !!existingPost[0] && existingPost[0].cid !== commit.cid;
         // 所属チャンネルはこっそりと同じくスレッドルートが所有する。返信は自分のレコードの
@@ -412,6 +532,13 @@ export async function applyMutation(
             tags: extractTags(value),
             langs: value.langs,
             recordJson: value,
+            moderationLabels:
+              moderationDecision?.action === "label"
+                ? moderationDecision.labels
+                : [],
+            moderationVersion: moderationDecision
+              ? AMATERAS_RULE_VERSION
+              : null,
             replyRootUri: value.reply?.root.uri,
             replyParentUri: value.reply?.parent.uri,
             embedImages: value.embed?.images,
@@ -444,6 +571,15 @@ export async function applyMutation(
               tags: extractTags(value),
               langs: value.langs,
               recordJson: value,
+              ...(moderationDecision
+                ? {
+                    moderationLabels:
+                      moderationDecision.action === "label"
+                        ? moderationDecision.labels
+                        : [],
+                    moderationVersion: AMATERAS_RULE_VERSION,
+                  }
+                : {}),
               replyRootUri: value.reply?.root.uri ?? null,
               replyParentUri: value.reply?.parent.uri ?? null,
               embedImages: value.embed?.images ?? null,
