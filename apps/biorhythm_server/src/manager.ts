@@ -13,10 +13,12 @@ import EventEmitter from "events";
 import { MemoryService } from "@bsky-affirmative-bot/clients";
 import type {
   NagiStats,
+  RecentBotMemoryImpression,
   RepoWritePointUsage,
   RoomEvent,
   TopPost,
 } from "@bsky-affirmative-bot/database";
+import { getRecentBotMemoryImpressions } from "@bsky-affirmative-bot/database";
 import { getCachedHealthSnapshot, type HealthSnapshot } from "./healthMonitor.js";
 import { getFullDateAndTimeString } from "@bsky-affirmative-bot/shared-configs";
 import { LanguageName } from "@bsky-affirmative-bot/shared-configs";
@@ -71,11 +73,13 @@ interface BotStat {
   repoWritePoints: RepoWritePointUsage;
   health: HealthSnapshot | null;
   topPost: TopPost | null;
+  memoryImpressions: RecentBotMemoryImpression[];
 }
 
 const ENERGY_MAXIMUM = 10000;
 const NAGI_STATS_TTL_MS = 60_000;
 const REPO_WRITE_POINTS_TTL_MS = 10_000;
+const MEMORY_IMPRESSIONS_TTL_MS = 5 * 60_000;
 
 export class BiorhythmManager extends EventEmitter {
   private status: Status = 'Sleep';
@@ -95,6 +99,10 @@ export class BiorhythmManager extends EventEmitter {
   private nagiStatsCache: { at: number; value: NagiStats } | null = null;
   private repoWritePointsCache: { at: number; value: RepoWritePointUsage } | null =
     null;
+  private memoryImpressionsCache: {
+    at: number;
+    value: RecentBotMemoryImpression[];
+  } | null = null;
   private firstStepDone = false;
   private lastGoodNightPostDate?: string;
   private lastGoodMorningPostDate?: string;
@@ -291,12 +299,31 @@ export class BiorhythmManager extends EventEmitter {
     return value;
   }
 
+  private async getMemoryImpressionsCached(): Promise<RecentBotMemoryImpression[]> {
+    if (
+      this.memoryImpressionsCache &&
+      Date.now() - this.memoryImpressionsCache.at < MEMORY_IMPRESSIONS_TTL_MS
+    ) {
+      return this.memoryImpressionsCache.value;
+    }
+    try {
+      const value = await getRecentBotMemoryImpressions(20);
+      this.memoryImpressionsCache = { at: Date.now(), value };
+      return value;
+    } catch (error) {
+      // 補助表示の失敗でダッシュボード全体のsnapshotを落とさない。
+      console.error("[ERROR][BIO] Failed to load recent memory impressions:", error);
+      return this.memoryImpressionsCache?.value ?? [];
+    }
+  }
+
   async getCurrentState(): Promise<BotStat> {
     const dailyStats = await MemoryService.getDailyStats();
     const totalStats = await MemoryService.getTotalStats();
     const nagiStats = await this.getNagiStatsCached();
     const repoWritePoints = await this.getRepoWritePointsCached();
     const topPost = await MemoryService.getTopPost();
+    const memoryImpressions = await this.getMemoryImpressionsCached();
 
     const now = new Date();
     const hour = now.getHours();
@@ -331,6 +358,7 @@ export class BiorhythmManager extends EventEmitter {
       repoWritePoints,
       health: getCachedHealthSnapshot(),
       topPost,
+      memoryImpressions,
     };
   }
 

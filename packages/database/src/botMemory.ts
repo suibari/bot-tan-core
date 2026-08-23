@@ -17,6 +17,7 @@ import {
   bot_memory_documents,
   bot_memory_impressions,
   bot_memory_impression_scans,
+  bot_memory_pronunciations,
   bot_memory_usages,
   db,
 } from "./db.js";
@@ -96,6 +97,38 @@ export interface DailyPlanMemoryImpression extends BotMemoryImpressionInput {
   id: number;
   source: "bsky" | "nagi" | "youtube";
   occurredAt: Date;
+}
+
+/** bot-tan.com で公開する、最近の会話から抽出された話題と任意の読み。 */
+export interface RecentBotMemoryImpression {
+  label: string;
+  spokenForm: string | null;
+  occurredAt: Date;
+}
+
+interface RecentBotMemoryImpressionRow extends RecentBotMemoryImpression {
+  pronunciationStatus: string | null;
+}
+
+/**
+ * 同じ話題が続いた場合は最新だけを残す。読みは active のときだけ公開し、
+ * ignored / disabled や競合確認中の空値をフリガナとして扱わない。
+ */
+export function selectRecentBotMemoryImpressions(
+  rows: RecentBotMemoryImpressionRow[],
+  limit = 20,
+): RecentBotMemoryImpression[] {
+  const selected = new Map<string, RecentBotMemoryImpression>();
+  for (const row of rows) {
+    if (selected.has(row.label)) continue;
+    selected.set(row.label, {
+      label: row.label,
+      spokenForm: row.pronunciationStatus === "active" ? row.spokenForm : null,
+      occurredAt: row.occurredAt,
+    });
+    if (selected.size >= Math.max(1, Math.min(50, limit))) break;
+  }
+  return [...selected.values()];
 }
 
 export function selectReplyMemoryContext(
@@ -488,6 +521,45 @@ export async function getDailyPlanMemoryImpressions(
     source: impressionSource(row.sourceType),
     occurredAt: row.occurredAt,
   }));
+}
+
+/**
+ * bot-tan.com 用。daily plan のクールダウンや使用済み更新とは独立して、
+ * 現在も有効な公開会話の話題を会話日時の新しい順で返す。
+ */
+export async function getRecentBotMemoryImpressions(
+  limit = 20,
+): Promise<RecentBotMemoryImpression[]> {
+  const clampedLimit = Math.max(1, Math.min(50, limit));
+  const rows = await db
+    .select({
+      label: bot_memory_impressions.label,
+      spokenForm: bot_memory_pronunciations.spoken_form,
+      pronunciationStatus: bot_memory_pronunciations.status,
+      occurredAt: bot_memory_documents.occurred_at,
+    })
+    .from(bot_memory_impressions)
+    .innerJoin(
+      bot_memory_documents,
+      eq(bot_memory_documents.id, bot_memory_impressions.document_id),
+    )
+    .innerJoin(
+      bot_memory_impression_scans,
+      eq(bot_memory_impression_scans.document_id, bot_memory_documents.id),
+    )
+    .leftJoin(
+      bot_memory_pronunciations,
+      eq(bot_memory_pronunciations.surface, bot_memory_impressions.label),
+    )
+    .where(and(
+      isNull(bot_memory_documents.deleted_at),
+      inArray(bot_memory_documents.source_type, IMPRESSION_SOURCE_TYPES),
+      eq(bot_memory_impression_scans.content_hash, bot_memory_documents.content_hash),
+    ))
+    .orderBy(desc(bot_memory_documents.occurred_at), desc(bot_memory_impressions.id))
+    // 重複が多い会話でも20種類に届きやすいよう、表示数より広めに読む。
+    .limit(clampedLimit * 10);
+  return selectRecentBotMemoryImpressions(rows, clampedLimit);
 }
 
 export async function markDailyPlanMemoryImpressionsUsed(

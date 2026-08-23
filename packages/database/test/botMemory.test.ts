@@ -7,6 +7,7 @@ import {
   isBotMemorySourceType,
   isBotMemoryImpressionSourceType,
   mergeBotMemoryRanks,
+  selectRecentBotMemoryImpressions,
   shouldRememberAffirmedPost,
   shouldRememberBskyLike,
   selectReplyMemoryContext,
@@ -63,6 +64,42 @@ test("daily plan theme cooldown encodes Date as a timestamp string", () => {
     .toSQL();
 
   assert.deepEqual(query.params, [cooldown.toISOString()]);
+});
+
+test("recent public impressions keep newest unique labels and active readings only", () => {
+  const rows = [
+    {
+      label: "攻殻機動隊",
+      spokenForm: "コウカク、キドウタイ",
+      pronunciationStatus: "active",
+      occurredAt: new Date("2026-08-23T03:00:00Z"),
+    },
+    {
+      label: "攻殻機動隊",
+      spokenForm: "コウカク、キドウタイ",
+      pronunciationStatus: "active",
+      occurredAt: new Date("2026-08-22T03:00:00Z"),
+    },
+    {
+      label: "別の作品",
+      spokenForm: "ベツノサクヒン",
+      pronunciationStatus: "disabled",
+      occurredAt: new Date("2026-08-21T03:00:00Z"),
+    },
+  ];
+
+  assert.deepEqual(selectRecentBotMemoryImpressions(rows, 20), [
+    {
+      label: "攻殻機動隊",
+      spokenForm: "コウカク、キドウタイ",
+      occurredAt: rows[0].occurredAt,
+    },
+    {
+      label: "別の作品",
+      spokenForm: null,
+      occurredAt: rows[2].occurredAt,
+    },
+  ]);
 });
 
 test("affirmed post memory keeps Nagi AI posts and subscriber-only Bluesky AI posts", () => {
