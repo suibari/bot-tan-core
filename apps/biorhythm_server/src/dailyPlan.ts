@@ -44,26 +44,41 @@ const MIN_DURATION = 5;
 const MAX_DURATION = 90;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/**
- * モデルに自由選択させると、クラスメイト設定のことみちゃんへ偏るため日付で決める。
- * 連続する4 bot日で全員が1回ずつ登場し、ことみちゃんとラテちゃんは必ず同頻度になる。
- * 日付だけを使うので、同日の再生成やプロセス再起動でも選択は変わらない。
- */
-const DAILY_COMPANION_CYCLE = [
-  "ことみちゃん",
-  "モルフォ",
-  "ラテちゃん",
+/** 「ひとり」、各1人、各2人組、3人全員のすべての組み合わせ。 */
+export const DAILY_COMPANION_OPTIONS = [
   "ひとり",
+  "ことみちゃん",
+  "ラテちゃん",
+  "モルフォ",
+  "ことみちゃん・ラテちゃん",
+  "ことみちゃん・モルフォ",
+  "ラテちゃん・モルフォ",
+  "ことみちゃん・ラテちゃん・モルフォ",
 ] as const;
 
-export function selectDailyCompanion(botDate: string): string {
+/**
+ * 固定周期にはせず、その日に一緒に過ごす組み合わせをランダムに選ぶ。
+ * 保存済みプランがちょうど前日なら完全に同じ組み合わせだけを候補から外す。
+ * 一部の相手が前日と重なることは許す。
+ */
+export function selectDailyCompanion(
+  botDate: string,
+  previousPlan?: Pick<DailyPlan, "botDate" | "companion">,
+  random: () => number = Math.random,
+): string {
   const timestamp = Date.parse(`${botDate}T00:00:00Z`);
   if (!Number.isFinite(timestamp)) throw new Error(`Invalid bot date: ${botDate}`);
-  const dayIndex = Math.floor(timestamp / DAY_MS);
-  const cycleIndex =
-    ((dayIndex % DAILY_COMPANION_CYCLE.length) + DAILY_COMPANION_CYCLE.length) %
-    DAILY_COMPANION_CYCLE.length;
-  return DAILY_COMPANION_CYCLE[cycleIndex];
+  const previousTimestamp = previousPlan
+    ? Date.parse(`${previousPlan.botDate}T00:00:00Z`)
+    : Number.NaN;
+  const previousCompanion =
+    Number.isFinite(previousTimestamp) && timestamp - previousTimestamp === DAY_MS
+      ? previousPlan?.companion
+      : undefined;
+  const candidates = DAILY_COMPANION_OPTIONS.filter(
+    (companion) => companion !== previousCompanion,
+  );
+  return candidates[Math.floor(random() * candidates.length)] ?? candidates[0];
 }
 
 export interface PlannedEvent {
@@ -195,7 +210,7 @@ const DAILY_PLAN_SCHEMA = {
     outfit: { type: Type.STRING, description: "今日の服装（1文）" },
     companion: {
       type: Type.STRING,
-      description: "今日いっしょに過ごす相手（ことみちゃん / ラテちゃん / モルフォ / ひとり）",
+      description: `今日いっしょに過ごす相手の組み合わせ（${DAILY_COMPANION_OPTIONS.join(" / ")}）`,
     },
     moodDirection: { type: Type.STRING, description: "今日の気分の方向（1文）" },
     events: {
@@ -244,8 +259,9 @@ export function buildDailyPlanPrompt(input: {
 # ルール
 - ステータスに合わない行動を混ぜないこと（Sleep は夢の中の出来事だけ、Study は勉強だけ）。
 - 同じ行動を2回書かないこと。1日ぶんの幅が出るよう、屋内・屋外・ひとり・誰かと、をばらけさせること。
-- companion は今日の「主な同行者」であり、全25件の行動へ登場させる意味ではない。「ひとり」以外なら自然な3〜5件だけに登場させ、残りはひとりの行動にすること。
-- ことみちゃん・ラテちゃん・モルフォのうち、今日の companion ではない相手を行動へ登場させないこと。
+- companion は今日の「主な同行者の組み合わせ」であり、全25件の行動へ登場させる意味ではない。「ひとり」以外なら、companion に含まれる相手が登場する行動を合計3〜5件だけ作り、残りはひとりの行動にすること。
+- companion に複数の相手が含まれる場合は、その全員が一緒に過ごす行動を少なくとも1件作ること。それ以外の同行者ありの行動では、一部の相手だけと過ごしてもよい。
+- ことみちゃん・ラテちゃん・モルフォのうち、今日の companion に含まれない相手を行動へ登場させないこと。
 - **クラスメイトはことみちゃんだけ。ラテちゃんは学校・教室・授業・校庭の行動には登場させず、放課後や休日など学校の外だけで交流させること。**
 - **モルフォは学校へ連れて行かない。学校・教室・授業・校庭の行動には、companion がモルフォの日でも絶対にモルフォを登場させないこと。**
 - 記念日が今日にあれば、そのうち1つか2つを行動に反映すること。
@@ -304,9 +320,9 @@ export async function ensureDailyPlan(
   now: Date = new Date(),
 ): Promise<DailyPlan | undefined> {
   const botDate = botDayRange(now).date;
-  const companion = selectDailyCompanion(botDate);
   const existing = await loadPlan();
   if (isPlanFresh(existing, botDate)) return existing;
+  const companion = selectDailyCompanion(botDate, existing);
 
   try {
     const [works, memoryCandidates] = await Promise.all([

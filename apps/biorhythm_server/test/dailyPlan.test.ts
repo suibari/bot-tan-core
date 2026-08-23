@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   buildDailyPlanPrompt,
   buildPlannedEventSection,
+  DAILY_COMPANION_OPTIONS,
   isPlanFresh,
   parseDailyPlan,
   selectDailyCompanion,
@@ -138,15 +139,46 @@ test("予定表が無ければフォールバック側には何も足さない",
   assert.equal(buildPlannedEventSection(plan(), undefined), "");
 });
 
-test("同行者は4日間で均等に巡回し、同じ日なら選択が変わらない", () => {
-  const dates = ["2026-08-20", "2026-08-21", "2026-08-22", "2026-08-23"];
-  const companions = dates.map(selectDailyCompanion);
-
-  assert.deepEqual(
-    [...companions].sort(),
-    ["ことみちゃん", "ひとり", "モルフォ", "ラテちゃん"].sort(),
+test("ひとり・各1人・各2人組・3人全員を選択対象にする", () => {
+  const selected = DAILY_COMPANION_OPTIONS.map((_, index) =>
+    selectDailyCompanion(
+      "2026-08-20",
+      undefined,
+      () => (index + 0.5) / DAILY_COMPANION_OPTIONS.length,
+    ),
   );
-  assert.equal(selectDailyCompanion(dates[0]), companions[0]);
+
+  assert.deepEqual(selected, [...DAILY_COMPANION_OPTIONS]);
+});
+
+test("前日と完全に同じ同行者は選ばず、一部が重なる組み合わせは許す", () => {
+  const previousPlan = {
+    botDate: "2026-08-19",
+    companion: "ラテちゃん",
+  };
+  const possible = Array.from({ length: 7 }, (_, index) =>
+    selectDailyCompanion(
+      "2026-08-20",
+      previousPlan,
+      () => (index + 0.5) / 7,
+    ),
+  );
+
+  assert.equal(possible.includes("ラテちゃん"), false);
+  assert.equal(possible.includes("ことみちゃん・ラテちゃん"), true);
+  assert.equal(possible.includes("ラテちゃん・モルフォ"), true);
+  assert.equal(possible.length, 7);
+});
+
+test("保存済みプランが前日以外なら同行者の除外には使わない", () => {
+  assert.equal(
+    selectDailyCompanion(
+      "2026-08-20",
+      { botDate: "2026-08-18", companion: "ひとり" },
+      () => 0,
+    ),
+    "ひとり",
+  );
 });
 
 test("予定生成と描写の両方で、同行者の固定と学校のモルフォ禁止を指示する", () => {
@@ -164,7 +196,9 @@ test("予定生成と描写の両方で、同行者の固定と学校のモル�
   );
 
   assert.match(prompt, /必ず「ラテちゃん」と出力/);
-  assert.match(prompt, /自然な3〜5件だけに登場/);
+  assert.match(prompt, /同行者の組み合わせ/);
+  assert.match(prompt, /全員が一緒に過ごす行動を少なくとも1件/);
+  assert.match(prompt, /companion に含まれない相手を行動へ登場させない/);
   assert.match(prompt, /クラスメイトはことみちゃんだけ/);
   assert.match(prompt, /ラテちゃん.*学校・教室・授業・校庭.*登場させず/);
   assert.match(prompt, /学校・教室・授業・校庭.*絶対にモルフォを登場させない/);
