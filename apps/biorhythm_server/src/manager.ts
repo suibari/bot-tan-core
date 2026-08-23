@@ -52,6 +52,12 @@ import {
   shouldConsiderWhimsicalPost,
   shouldPostGoodMorning,
 } from "./scheduledPostGate.js";
+import {
+  DEFAULT_STEP_INTERVAL_MS,
+  getNextStepTime,
+  getStartupStepDelayMs,
+  resolveStartupStepSchedule,
+} from "./biorhythmSchedule.js";
 
 // WebSocket用にlangプロパティを配列に変換したDailyStatsの型を定義
 interface DailyStatsForWebSocket extends Omit<DailyReport, 'lang'> { // DailyStatsをDailyReportに変更
@@ -108,6 +114,7 @@ export class BiorhythmManager extends EventEmitter {
   private lastGoodMorningPostDate?: string;
   /** bottan_live.comments のうち energy へ反映済みの最大 id。null は初回未設定。 */
   private liveCommentEnergyCursor: number | null = null;
+  private stepTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
     super();
@@ -135,6 +142,12 @@ export class BiorhythmManager extends EventEmitter {
     } else {
       this.status = "Sleep";
     }
+    if (
+      typeof state.nextStepTime === "string"
+      && Number.isFinite(Date.parse(state.nextStepTime))
+    ) {
+      this.nextStepTime = state.nextStepTime;
+    }
     this.lastGoodNightPostDate = state.lastGoodNightPostDate;
     this.lastGoodMorningPostDate = state.lastGoodMorningPostDate;
     if (Number.isSafeInteger(state.liveCommentEnergyCursor) && state.liveCommentEnergyCursor >= 0) {
@@ -148,6 +161,43 @@ export class BiorhythmManager extends EventEmitter {
     await this.updateFollowerCount();
     setInterval(() => this.refreshDailyTopPost(), 10 * 60 * 1000);
     setInterval(() => this.updateFollowerCount(), 10 * 60 * 1000);
+  }
+
+  /**
+   * 永続化済みの次回時刻からループを再開する。再デプロイが予定時刻より前なら、
+   * mood は更新せず残り時間だけ待つ。旧データまたは期限超過時だけ即時実行する。
+   */
+  async start() {
+    const schedule = resolveStartupStepSchedule(this.nextStepTime);
+    this.nextStepTime = schedule.nextStepTime;
+    if (schedule.needsPersistence) {
+      await MemoryService.updateBiorhythmState({ nextStepTime: this.nextStepTime });
+      console.log(`[INFO][BIORHYTHM] Initialized first scheduled step at ${this.nextStepTime}`);
+    } else if (schedule.delayMs > 0) {
+      console.log(`[INFO][BIORHYTHM] Resuming scheduled step at ${this.nextStepTime}`);
+    } else {
+      console.log(`[INFO][BIORHYTHM] Scheduled step is due; starting now (${this.nextStepTime})`);
+    }
+    this.armStepTimer(schedule.delayMs);
+  }
+
+  private armStepTimer(delayMs: number) {
+    if (this.stepTimer) clearTimeout(this.stepTimer);
+    this.stepTimer = setTimeout(() => {
+      this.stepTimer = null;
+      void this.step().catch((error) => {
+        console.error("[ERROR][BIORHYTHM] Unexpected step failure:", error);
+        void this.scheduleNextStep(DEFAULT_STEP_INTERVAL_MS).catch((scheduleError) => {
+          console.error("[ERROR][BIORHYTHM] Failed to schedule step retry:", scheduleError);
+        });
+      });
+    }, delayMs);
+  }
+
+  private async scheduleNextStep(intervalMs: number) {
+    this.nextStepTime = getNextStepTime(intervalMs);
+    await MemoryService.updateBiorhythmState({ nextStepTime: this.nextStepTime });
+    this.armStepTimer(getStartupStepDelayMs(this.nextStepTime));
   }
 
   // --------
@@ -405,9 +455,8 @@ export class BiorhythmManager extends EventEmitter {
     if (!(await MemoryService.checkRPD())) {
       console.log(`[INFO][BIORHYTHM] RPD exceeded, skipping step.`);
       const nextInterval = 24 * 60 * 60 * 1000;
-      this.nextStepTime = new Date(Date.now() + nextInterval).toISOString();
+      await this.scheduleNextStep(nextInterval);
       this.emit('statsChange', await this.getCurrentState());
-      setTimeout(() => this.step(), nextInterval); // 24時間後に再実行
       return;
     }
 
@@ -422,7 +471,8 @@ export class BiorhythmManager extends EventEmitter {
     });
 
     let duration_minutes = 60;
-    let nextInterval = 60 * 60 * 1000;
+    let nextInterval = DEFAULT_STEP_INTERVAL_MS;
+    let nextStepSaved = false;
 
     try {
       const result = await this.resolveStatus({
@@ -446,9 +496,9 @@ export class BiorhythmManager extends EventEmitter {
       const duration = Math.max(5, Math.min(duration_minutes, 180));
       nextInterval = process.env.NODE_ENV === "development" ? 5 * 60 * 1000 :
         duration * 60 * 1000;
-      this.nextStepTime = new Date(Date.now() + nextInterval).toISOString();
-
+      this.nextStepTime = getNextStepTime(nextInterval);
       await this.setOutput(status_text, status_text_en);
+      nextStepSaved = true;
 
       // 活動ログをDBに保存
       await MemoryService.addBiorhythmHistory(this.status, status_text, status_text_en, Math.round(this.getEnergy));
@@ -533,16 +583,10 @@ export class BiorhythmManager extends EventEmitter {
     // リプライ既読処理
     await MemoryService.markRepliesRead();
 
-    if (!this.firstStepDone) {
-      // 起動時にサーバスタートが画像生成より先だと404が返るため、
-      // 初回実行時のみPromiseを返し、step完了を待てるようにする
-      return new Promise(resolve => {
-        setTimeout(() => {
-          this.step().then(resolve);
-        }, nextInterval);
-      });
+    if (nextStepSaved) {
+      this.armStepTimer(getStartupStepDelayMs(this.nextStepTime));
     } else {
-      setTimeout(() => this.step(), nextInterval);
+      await this.scheduleNextStep(nextInterval);
     }
   }
 
@@ -745,6 +789,7 @@ ${buildRoomEventsSection(roomEvents)}
       mood: this.moodPrev,
       mood_en: this.moodPrevEn,
       status: this.status,
+      nextStepTime: this.nextStepTime,
       ...(this.liveCommentEnergyCursor === null
         ? {}
         : { liveCommentEnergyCursor: this.liveCommentEnergyCursor }),

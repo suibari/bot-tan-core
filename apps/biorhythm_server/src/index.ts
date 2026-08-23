@@ -187,7 +187,7 @@ server.listen(Number(PORT), HOST, async () => {
     scheduleRoomInteractionSync(manager);
     const { scheduleLiveCommentEnergySync } = await import("./liveCommentEnergySync.js");
     scheduleLiveCommentEnergySync(manager);
-    await manager.step();
+    await manager.start();
     console.log("[INFO] Biorhythm loop started.");
   } catch (e) {
     console.error("[CRITICAL] Biorhythm startup failed:", e);
