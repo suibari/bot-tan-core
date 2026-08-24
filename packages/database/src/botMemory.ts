@@ -480,15 +480,23 @@ export function dailyPlanImpressionCooldownCondition(cooldown: Date) {
   );
 }
 
-/** daily plan 用。削除済み原文を除き、半年以内かつ14日間未使用の候補を返す。 */
+/**
+ * daily plan 用。削除済み原文を除き、半年以内かつ14日間未使用の候補を返す。
+ *
+ * **label 単位に畳んでから引く。** impressions は document ごとに保存するので、
+ * 同じ話題が会話に出るたび行が増える（実測で「艦これ」だけ 2459行中199行）。
+ * 畳まずに occurred_at の新しい順で8件引くと、候補が丸ごと同じ話題で埋まり、
+ * 予定表が毎日その話になる。代表は会話がいちばん新しい行。
+ */
 export async function getDailyPlanMemoryImpressions(
   now = new Date(),
   limit = 8,
 ): Promise<DailyPlanMemoryImpression[]> {
   const since = new Date(now.getTime() - 180 * 24 * 60 * 60 * 1000);
   const cooldown = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
-  const rows = await db
-    .select({
+  const labelKey = sql`lower(${bot_memory_impressions.label})`;
+  const unique = db
+    .selectDistinctOn([labelKey], {
       id: bot_memory_impressions.id,
       kind: bot_memory_impressions.kind,
       label: bot_memory_impressions.label,
@@ -511,7 +519,14 @@ export async function getDailyPlanMemoryImpressions(
       gte(bot_memory_documents.occurred_at, since),
       dailyPlanImpressionCooldownCondition(cooldown),
     ))
-    .orderBy(desc(bot_memory_documents.occurred_at))
+    // DISTINCT ON は先頭が畳む式でないと通らない。新しさで代表を決めるのが第2キー
+    .orderBy(labelKey, desc(bot_memory_documents.occurred_at))
+    .as("unique_impressions");
+
+  const rows = await db
+    .select()
+    .from(unique)
+    .orderBy(desc(unique.occurredAt))
     .limit(Math.max(1, Math.min(20, limit)));
   return rows.map((row) => ({
     id: row.id,

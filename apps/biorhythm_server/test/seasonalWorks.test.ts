@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  applyUsedMarks,
   buildSeasonalWorksSection,
   findGenericMediaEvents,
   isInFailureBackoff,
   isSeasonalWorksFresh,
+  markSeasonalWorksUsed,
+  normalizeForMatch,
   parseSeasonalWorks,
+  recentlyUsedTitles,
   seasonKey,
   seasonLabel,
   type SeasonalWorksState,
@@ -89,16 +93,16 @@ test("実在の出来事を主題とするものは除外し、フィクショ�
   assert.deepEqual(works, [{ kind: "movie", title: "深紅のスプラッターハウス" }]);
 });
 
-test("種別ごと4件・合計32件の上限で丸める", () => {
+test("種別ごと8件・合計64件の上限で丸める", () => {
   const lines: string[] = [];
   for (const kind of ["anime", "manga", "game", "drama", "movie", "novel", "music", "hobby"]) {
-    for (let i = 0; i < 8; i += 1) lines.push(`${kind}\t${kind}作品${i}`);
+    for (let i = 0; i < 12; i += 1) lines.push(`${kind}\t${kind}作品${i}`);
   }
   const works = parseSeasonalWorks(lines.join("\n"));
 
-  assert.equal(works.length, 32);
-  assert.equal(works.filter((work) => work.kind === "anime").length, 4);
-  assert.equal(works.filter((work) => work.kind === "hobby").length, 4);
+  assert.equal(works.length, 64);
+  assert.equal(works.filter((work) => work.kind === "anime").length, 8);
+  assert.equal(works.filter((work) => work.kind === "hobby").length, 8);
 });
 
 test("一部の種別が0件でも壊れない", () => {
@@ -231,4 +235,83 @@ test("候補が空なら検査しない（無い日を責めない）", () => {
 test("会話由来の作品名も固有名詞として一般名詞検査に使う", () => {
   const events = [{ status: "FreeTime", activity: "葬送のフリーレンのアニメを見る" }];
   assert.deepEqual(findGenericMediaEvents(events, [], ["葬送のフリーレン"]), []);
+});
+
+// ── 使った作品を覚えて、しばらく避ける ──────────────────
+//
+// music の候補は4件しかないのに、キャッシュは7日もつ。使用済みを持たないと
+// 同じ曲が週に何度も予定表に載る。2026-08-24 の配信で botたんが同じ曲の話を
+// 61発話中14回したのは、これが元。
+
+test("表記が揺れても同じ作品として突き合わせる", () => {
+  // LLM は全角・半角や大小文字を勝手に変える。素の includes だと印が付かない。
+  assert.equal(normalizeForMatch("ＦＬＡＳＨＢＵＬＢ"), normalizeForMatch("flashbulb"));
+  assert.equal(normalizeForMatch(" 蒼穹の カノン "), normalizeForMatch("蒼穹のカノン"));
+});
+
+test("予定に出た作品にだけ使用済みの印を付ける", () => {
+  const works = [
+    { kind: "music", title: "FLASHBULB" },
+    { kind: "anime", title: "蒼穹のカノン" },
+  ] as const;
+  const marked = applyUsedMarks([...works], ["ｆｌａｓｈｂｕｌｂ"], "2026-08-24T12:00:00Z");
+
+  assert.ok(marked);
+  assert.equal(marked[0].lastUsedAt, "2026-08-24T12:00:00Z");
+  assert.equal(marked[1].lastUsedAt, undefined);
+});
+
+test("どれにも当たらなければ書き戻さない", () => {
+  const works = [{ kind: "music", title: "FLASHBULB" }] as const;
+  assert.equal(applyUsedMarks([...works], ["別の曲"], "2026-08-24T12:00:00Z"), undefined);
+  assert.equal(applyUsedMarks([...works], [], "2026-08-24T12:00:00Z"), undefined);
+});
+
+test("使った作品は保存され、件数が返る", async () => {
+  const saved: SeasonalWorksState[] = [];
+  const state: SeasonalWorksState = {
+    season: "2026-summer",
+    fetchedAt: "2026-08-17T20:28:08.130Z",
+    works: [{ kind: "music", title: "FLASHBULB" }, { kind: "anime", title: "蒼穹のカノン" }],
+  };
+  const marked = await markSeasonalWorksUsed(["FLASHBULB"], new Date("2026-08-24T12:00:00Z"), {
+    load: async () => state,
+    save: async (next) => void saved.push(next),
+  });
+
+  assert.equal(marked, 1);
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].works[0].lastUsedAt, "2026-08-24T12:00:00.000Z");
+  // 取得日時などは保つ。ここを落とすとキャッシュが即座に失効する
+  assert.equal(saved[0].fetchedAt, state.fetchedAt);
+});
+
+test("直近3日で使った作品だけを「避けて」に挙げる", () => {
+  const now = new Date("2026-08-24T12:00:00Z");
+  const titles = recentlyUsedTitles([
+    { kind: "music", title: "きのう使った", lastUsedAt: "2026-08-23T12:00:00Z" },
+    { kind: "music", title: "先週使った", lastUsedAt: "2026-08-17T12:00:00Z" },
+    { kind: "music", title: "使っていない" },
+    { kind: "music", title: "壊れた日時", lastUsedAt: "not a date" },
+  ], now);
+
+  assert.deepEqual(titles, ["きのう使った"]);
+});
+
+test("直近で使った作品はプロンプトで避けさせる（候補からは外さない）", () => {
+  const now = new Date("2026-08-24T12:00:00Z");
+  const section = buildSeasonalWorksSection([
+    { kind: "music", title: "FLASHBULB", lastUsedAt: "2026-08-23T12:00:00Z" },
+    { kind: "music", title: "べつの曲" },
+  ], now);
+
+  assert.match(section, /今日は次の候補を避けてください/);
+  assert.match(section, /「FLASHBULB」/);
+  // 候補一覧からは消さない。music は候補が数件しかなく、外すと枠ごと消える
+  assert.match(section, /\{"kind":"music","title":"FLASHBULB"\}/);
+});
+
+test("避ける候補が無ければ、その行は出さない", () => {
+  const section = buildSeasonalWorksSection([{ kind: "music", title: "べつの曲" }]);
+  assert.doesNotMatch(section, /今日は次の候補を避けてください/);
 });

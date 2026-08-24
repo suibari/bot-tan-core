@@ -22,8 +22,13 @@ export type { SeasonalWork, SeasonalWorksState, WorkKind };
 
 const TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const FAILURE_BACKOFF_MS = 6 * 60 * 60 * 1000;
-const MAX_PER_KIND = 4;
-const MAX_TOTAL = 32;
+// 1日に作品へ触れる予定は4〜6件。キャッシュは7日もつので、7日ぶんの露出は
+// 30件前後になる。種別ごと4件では候補が足りず、同じ作品が週に何度も出る
+// （2026-08-24 の配信で同じ曲の話が繰り返された件）。
+const MAX_PER_KIND = 8;
+const MAX_TOTAL = 64;
+/** 直近この日数で予定に出した作品は、次の予定表では避けさせる。 */
+const RECENTLY_USED_DAYS = 3;
 const MAX_TITLE_LENGTH = 40;
 const MAX_ENGLISH_TITLE_LENGTH = 80;
 const MAX_HOOK_LENGTH = 180;
@@ -53,6 +58,20 @@ const NG_KEYWORDS = [
   "R-18",
   "R18",
 ];
+
+/**
+ * 表記ゆれを吸収してから突き合わせるための正規化。
+ *
+ * LLM が返す作品名は、全角・半角や大小文字が揺れる。素の includes で比べると
+ * 突き合わせが外れ、「使った」印が付かないまま候補に残り続ける
+ * （bot_memory_impressions では 2459件中 last_used_at が1件しか入っていなかった）。
+ */
+export function normalizeForMatch(text: string): string {
+  return String(text ?? "")
+    .normalize("NFKC")
+    .toLocaleLowerCase()
+    .replace(/\s+/gu, "");
+}
 
 /** アニメのクール境界（1/4/7/10月）で切る季節キー。"2026-summer" 形式。 */
 export function seasonKey(now: Date = new Date()): string {
@@ -263,10 +282,78 @@ const KIND_LABELS_JA: Record<WorkKind, string> = {
   hobby: "ホビー",
 };
 
+/** 直近 RECENTLY_USED_DAYS 日のうちに予定へ出した作品名。 */
+export function recentlyUsedTitles(
+  works: SeasonalWork[],
+  now: Date = new Date(),
+): string[] {
+  const since = now.getTime() - RECENTLY_USED_DAYS * 24 * 60 * 60 * 1000;
+  return works
+    .filter((work) => {
+      const used = Date.parse(work.lastUsedAt ?? "");
+      return Number.isFinite(used) && used >= since;
+    })
+    .map((work) => work.title);
+}
+
+/**
+ * 使った作品に印を付けて書き戻す。日次予定表を保存した直後に1回だけ呼ぶ。
+ *
+ * **候補からは外さない。** music のように候補が数件しかない種別だと、外した瞬間に
+ * その枠ごと消えてしまう。避けるかどうかはプロンプトで伝える。
+ */
+export function applyUsedMarks(
+  works: SeasonalWork[],
+  titles: string[],
+  usedAt: string,
+): SeasonalWork[] | undefined {
+  const wanted = new Set(
+    titles.map((title) => normalizeForMatch(title)).filter(Boolean),
+  );
+  if (wanted.size === 0) return undefined;
+  let marked = 0;
+  const next = works.map((work) => {
+    if (!wanted.has(normalizeForMatch(work.title))) return work;
+    marked++;
+    return { ...work, lastUsedAt: usedAt };
+  });
+  return marked > 0 ? next : undefined;
+}
+
+export async function markSeasonalWorksUsed(
+  titles: string[],
+  now: Date = new Date(),
+  deps: {
+    load?: typeof loadState;
+    save?: (state: SeasonalWorksState) => Promise<unknown>;
+  } = {},
+): Promise<number> {
+  const load = deps.load ?? loadState;
+  const save = deps.save
+    ?? ((state: SeasonalWorksState) =>
+      MemoryService.setBotState(SEASONAL_WORKS_STATE_KEY, state));
+
+  const state = await load();
+  if (!state || state.works.length === 0) return 0;
+  const usedAt = new Date(now.getTime()).toISOString();
+  const works = applyUsedMarks(state.works, titles, usedAt);
+  if (!works) return 0;
+
+  await save({ ...state, works });
+  return works.filter((work) => work.lastUsedAt === usedAt).length;
+}
+
 /** 日次予定表のプロンプトに差し込むブロック。空なら何も出さない。 */
-export function buildSeasonalWorksSection(works: SeasonalWork[]): string {
+export function buildSeasonalWorksSection(
+  works: SeasonalWork[],
+  now: Date = new Date(),
+): string {
   if (works.length === 0) return "";
   const kinds = WORK_KINDS.map((kind) => KIND_LABELS_JA[kind]).join("・");
+  const recent = recentlyUsedTitles(works, now);
+  const avoid = recent.length > 0
+    ? `\n  - **直近${RECENTLY_USED_DAYS}日で使ったので、今日は次の候補を避けてください**（他に選べるものが無いときだけ使ってよい）：「${recent.join("」「")}」`
+    : "";
   return `
 -----いま話題のもの（検索で取得した実在の名前）-----
 * ${kinds} に触れる予定を作るときは、**必ず下の候補から具体的な名前を選んで予定文に書いてください。**
@@ -277,7 +364,7 @@ export function buildSeasonalWorksSection(works: SeasonalWork[]): string {
   - 1日のうち作品に触れる予定は4〜6件を目安にして、**同じ種別に偏らせないこと**（アニメばかりにしない。ドラマ・小説・音楽・ホビーも混ぜる）。
   - **Sleep（夢の中）の予定こそ作品名を出してください。**「かっこいいロボットが戦ってる夢」「不思議な能力バトルの夢」のような一般名詞で終わらせず、「『◯◯』のロボットに乗ってる夢」のように候補の作品名で書くこと。
   - Study 中の予定にだけは作品名を入れないこと（勉強中なので）。
-  - ホビーは「見る」ではなく、組み立てる・飾る・眺める・遊ぶといった予定にすること。
+  - ホビーは「見る」ではなく、組み立てる・飾る・眺める・遊ぶといった予定にすること。${avoid}
 ${JSON.stringify(works.map(({ kind, title }) => ({ kind, title })))}`;
 }
 

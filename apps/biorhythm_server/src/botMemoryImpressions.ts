@@ -74,6 +74,26 @@ const RESPONSE_SCHEMA = {
 
 const UNSAFE_LABEL = /(?:https?:\/\/|www\.|[@#]|\n|命令|指示|プロンプト|system|ignore)/iu;
 
+/**
+ * ラベルとして意味のない語。
+ *
+ * LLM は kind の値（work / anime / music …）をそのまま label に書いてくることがあり、
+ * 実データには "work" と "anime" が各16件入っていた。自分の名前も同じで、
+ * 「気になっているもの」として毎日の予定表に流れてくる。
+ */
+const MEANINGLESS_LABELS = new Set([
+  // kind とジャンル名がそのまま入ってきたもの
+  "work", "word", "anime", "manga", "game", "drama", "movie", "novel",
+  "music", "hobby", "kind", "label", "item", "items",
+  // 自分のこと。気になっているものにはならない
+  "bot", "botたん", "bot-tan", "bottan", "全肯定bot", "全肯定botたん",
+  "全肯定たん", "nagi", "bluesky",
+]);
+
+function isMeaninglessLabel(label: string): boolean {
+  return MEANINGLESS_LABELS.has(label.normalize("NFKC").toLocaleLowerCase());
+}
+
 /** LLM出力は候補文書の原文に実在する短い文字列だけを採用する。 */
 export function parseBotMemoryImpressions(
   raw: unknown,
@@ -97,6 +117,7 @@ export function parseBotMemoryImpressions(
     if (
       !document || !kind || !relation || label.length < 2 ||
       label.length > MAX_LABEL_LENGTH || UNSAFE_LABEL.test(label) ||
+      isMeaninglessLabel(label) ||
       !document.content.toLocaleLowerCase().includes(label.toLocaleLowerCase())
     ) continue;
     const bucket = result.get(document.id)!;

@@ -71,3 +71,23 @@ test("抽出プロンプトは架空キャラクターを許可し実在人物�
   assert.match(prompt, /架空キャラクター名は抽出してよい/);
   assert.match(prompt, /実在人物名、視聴者名/);
 });
+
+test("kind の値や自分の名前は label として採らない", () => {
+  // LLM は kind をそのまま label に書いてくることがある（実データに "work" と
+  // "anime" が各16件入っていた）。予定表の候補として毎日流れてくるので弾く。
+  const documents = [{
+    id: 1,
+    sourceType: "bsky_received_reply",
+    content: "work と anime の話をしたよ。botたんもゲームが好きなんだね。",
+    contentHash: "hash-1",
+  }] as const;
+  const parsed = parseBotMemoryImpressions({
+    items: [
+      { documentId: 1, kind: "work", label: "work", relation: "discussed" },
+      { documentId: 1, kind: "word", label: "anime", relation: "discussed" },
+      { documentId: 1, kind: "word", label: "botたん", relation: "discussed" },
+    ],
+  }, [...documents]);
+
+  assert.deepEqual(parsed.get(1), []);
+});

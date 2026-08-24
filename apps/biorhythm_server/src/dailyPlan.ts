@@ -16,6 +16,8 @@ import { Type } from "@google/genai";
 import {
   buildSeasonalWorksSection,
   ensureSeasonalWorks,
+  markSeasonalWorksUsed,
+  normalizeForMatch,
   findGenericMediaEvents,
 } from "./seasonalWorks.js";
 import {
@@ -339,7 +341,7 @@ export async function ensureDailyPlan(
       companion,
       whatDay: getWhatDay(),
       eventSamples: input.eventSamples,
-      worksSection: buildSeasonalWorksSection(works),
+      worksSection: buildSeasonalWorksSection(works, now),
       memoryImpressionsSection: buildMemoryImpressionsSection(memoryImpressions),
     });
 
@@ -397,11 +399,28 @@ ${generic.map((event) => `  - ${event.activity}`).join("\n")}
     }
 
     await savePlan(plan);
+    // 予定に出た名前へ「使った」印を付ける。**正規化してから突き合わせること。**
+    // 素の includes は大小文字と全角半角を区別するので、LLM が表記を変えた瞬間に
+    // 印が付かない。実際 bot_memory_impressions は 2459件のうち last_used_at が
+    // 1件しか入っておらず、14日のクールダウンが効いていなかった。
+    const activities = plan.events.map((event) => normalizeForMatch(event.activity));
+    const mentioned = (label: string) => {
+      const needle = normalizeForMatch(label);
+      return needle.length > 0 && activities.some((text) => text.includes(needle));
+    };
     const usedImpressionIds = memoryImpressions
-      .filter((item) => plan.events.some((event) => event.activity.includes(item.label)))
+      .filter((item) => mentioned(item.label))
       .map((item) => item.id);
     await markDailyPlanMemoryImpressionsUsed(usedImpressionIds, now).catch((error) => {
       console.error("[WARN][BIORHYTHM] Failed to mark memory impressions used", error);
+    });
+    // 話題作にも同じ印を付ける。候補は種別ごとに数件しかないので、これが無いと
+    // 同じ作品が7日のキャッシュのあいだ何度も予定に載る
+    await markSeasonalWorksUsed(
+      works.filter((work) => mentioned(work.title)).map((work) => work.title),
+      now,
+    ).catch((error) => {
+      console.error("[WARN][BIORHYTHM] Failed to mark seasonal works used", error);
     });
     console.log(
       `[INFO][BIORHYTHM] Daily plan for ${botDate}: ${plan.events.length} events, companion=${plan.companion}`,
