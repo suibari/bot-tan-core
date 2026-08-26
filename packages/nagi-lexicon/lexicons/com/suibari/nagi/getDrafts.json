@@ -1,0 +1,36 @@
+{
+  "lexicon": 1,
+  "id": "com.suibari.nagi.getDrafts",
+  "defs": {
+    "main": {
+      "type": "query",
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["drafts", "limit"],
+          "properties": {
+            "drafts": {
+              "type": "array",
+              "maxLength": 30,
+              "items": { "type": "ref", "ref": "#draftSummary" }
+            },
+            "limit": { "type": "integer", "minimum": 1, "maximum": 30 }
+          }
+        }
+      },
+      "errors": [{ "name": "AuthRequired" }]
+    },
+    "draftSummary": {
+      "type": "object",
+      "required": ["id", "text", "linkCardCount", "createdAt", "updatedAt"],
+      "properties": {
+        "id": { "type": "string", "maxLength": 36 },
+        "text": { "type": "string", "maxLength": 30000, "maxGraphemes": 3000 },
+        "linkCardCount": { "type": "integer", "minimum": 0, "maximum": 4 },
+        "createdAt": { "type": "string", "format": "datetime" },
+        "updatedAt": { "type": "string", "format": "datetime" }
+      }
+    }
+  }
+}

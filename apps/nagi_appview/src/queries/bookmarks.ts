@@ -1,6 +1,7 @@
 import {
   db,
   nagiBookmarkFolders,
+  nagiBookmarkPreferences,
   nagiBookmarks,
   nagiDiaries,
   nagiNews,
@@ -100,31 +101,46 @@ export async function getBookmarkFolders(
   lang: "ja" | "en",
 ): Promise<BookmarkFoldersView> {
   await ensureDefaultFolder(ownerDid, lang);
-  const rows = await db
-    .select({
-      folder: nagiBookmarkFolders,
-      bookmarkCount: count(nagiBookmarks.id),
-    })
-    .from(nagiBookmarkFolders)
-    .leftJoin(
-      nagiBookmarks,
-      and(
-        eq(nagiBookmarks.ownerDid, nagiBookmarkFolders.ownerDid),
-        eq(nagiBookmarks.folderId, nagiBookmarkFolders.id),
+  const [rows, preferenceRows] = await Promise.all([
+    db
+      .select({
+        folder: nagiBookmarkFolders,
+        bookmarkCount: count(nagiBookmarks.id),
+      })
+      .from(nagiBookmarkFolders)
+      .leftJoin(
+        nagiBookmarks,
+        and(
+          eq(nagiBookmarks.ownerDid, nagiBookmarkFolders.ownerDid),
+          eq(nagiBookmarks.folderId, nagiBookmarkFolders.id),
+        ),
+      )
+      .where(eq(nagiBookmarkFolders.ownerDid, ownerDid))
+      .groupBy(nagiBookmarkFolders.ownerDid, nagiBookmarkFolders.id)
+      .orderBy(
+        desc(nagiBookmarkFolders.isDefault),
+        nagiBookmarkFolders.createdAt,
       ),
-    )
-    .where(eq(nagiBookmarkFolders.ownerDid, ownerDid))
-    .groupBy(nagiBookmarkFolders.ownerDid, nagiBookmarkFolders.id)
-    .orderBy(
-      desc(nagiBookmarkFolders.isDefault),
-      nagiBookmarkFolders.createdAt,
-    );
+    db
+      .select()
+      .from(nagiBookmarkPreferences)
+      .where(eq(nagiBookmarkPreferences.did, ownerDid))
+      .limit(1),
+  ]);
+  const preference = preferenceRows[0];
   return {
     folders: rows.map((row) =>
       folderView(row.folder, Number(row.bookmarkCount)),
     ),
     folderLimit: BOOKMARK_FOLDER_LIMIT,
     bookmarkLimit: BOOKMARK_LIMIT,
+    ...(preference?.lastFolderId &&
+    rows.some((row) => row.folder.id === preference.lastFolderId)
+      ? { lastFolderId: preference.lastFolderId }
+      : {}),
+    ...(preference
+      ? { lastFolderUpdatedAt: preference.updatedAt.toISOString() }
+      : {}),
   };
 }
 
@@ -357,12 +373,24 @@ export async function putBookmark(
         ),
       )
       .limit(1);
-    if (existing)
+    if (existing) {
+      await tx
+        .insert(nagiBookmarkPreferences)
+        .values({
+          did: ownerDid,
+          lastFolderId: existing.folderId,
+          updatedAt: new Date(),
+        })
+        .onConflictDoUpdate({
+          target: nagiBookmarkPreferences.did,
+          set: { lastFolderId: existing.folderId, updatedAt: sql`now()` },
+        });
       return {
         subjectUri,
         folderId: existing.folderId,
         createdAt: existing.createdAt.toISOString(),
       };
+    }
     const [total] = await tx
       .select({ value: count(nagiBookmarks.id) })
       .from(nagiBookmarks)
@@ -377,6 +405,17 @@ export async function putBookmark(
       .insert(nagiBookmarks)
       .values({ ownerDid, folderId, subjectUri, subjectType })
       .returning();
+    await tx
+      .insert(nagiBookmarkPreferences)
+      .values({
+        did: ownerDid,
+        lastFolderId: created.folderId,
+        updatedAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: nagiBookmarkPreferences.did,
+        set: { lastFolderId: created.folderId, updatedAt: sql`now()` },
+      });
     return {
       subjectUri,
       folderId: created.folderId,

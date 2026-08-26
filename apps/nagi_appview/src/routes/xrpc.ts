@@ -73,6 +73,13 @@ import {
   getCards,
 } from "../queries/cards.js";
 import { getCommunityAffirmations } from "../queries/communityAffirmations.js";
+import { putCommunityAffirmationDismissals } from "../queries/communityAffirmationDismissals.js";
+import {
+  deleteDraft,
+  getDraft,
+  getDrafts,
+  putDraft,
+} from "../queries/drafts.js";
 import { getProfileWebsiteCard } from "../services/profileWebsite.js";
 import { config } from "../config.js";
 import {
@@ -150,9 +157,9 @@ xrpc.post(
   guestAffirmationLimiter,
   async (req, res, next) => {
     try {
-      res.set("Cache-Control", "private, no-store").json(
-        await createGuestAffirmation(req.body),
-      );
+      res
+        .set("Cache-Control", "private, no-store")
+        .json(await createGuestAffirmation(req.body));
     } catch (error) {
       next(error);
     }
@@ -160,18 +167,18 @@ xrpc.post(
 );
 xrpc.post(`/${NAGI.getGuestAffirmation}`, async (req, res, next) => {
   try {
-    res.set("Cache-Control", "private, no-store").json(
-      await getGuestAffirmation(req.body),
-    );
+    res
+      .set("Cache-Control", "private, no-store")
+      .json(await getGuestAffirmation(req.body));
   } catch (error) {
     next(error);
   }
 });
 xrpc.post(`/${NAGI.deleteGuestAffirmation}`, async (req, res, next) => {
   try {
-    res.set("Cache-Control", "private, no-store").json(
-      await deleteGuestAffirmation(req.body),
-    );
+    res
+      .set("Cache-Control", "private, no-store")
+      .json(await deleteGuestAffirmation(req.body));
   } catch (error) {
     next(error);
   }
@@ -200,6 +207,75 @@ xrpc.get(
         cursor: String(req.query.cursor ?? "") || undefined,
       });
       res.set("Cache-Control", "private, no-store").json(data);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+xrpc.post(
+  `/${NAGI.putCommunityAffirmationDismissals}`,
+  requiredServiceAuth(NAGI.putCommunityAffirmationDismissals),
+  async (req, res, next) => {
+    try {
+      res
+        .set("Cache-Control", "private, no-store")
+        .json(
+          await putCommunityAffirmationDismissals(req.viewerDid!, req.body),
+        );
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+xrpc.get(
+  `/${NAGI.getDrafts}`,
+  requiredServiceAuth(NAGI.getDrafts),
+  async (req, res, next) => {
+    try {
+      res
+        .set("Cache-Control", "private, no-store")
+        .json(await getDrafts(req.viewerDid!));
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+xrpc.get(
+  `/${NAGI.getDraft}`,
+  requiredServiceAuth(NAGI.getDraft),
+  async (req, res, next) => {
+    try {
+      res
+        .set("Cache-Control", "private, no-store")
+        .json(await getDraft(req.viewerDid!, req.query.id));
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+xrpc.post(
+  `/${NAGI.putDraft}`,
+  requiredServiceAuth(NAGI.putDraft),
+  async (req, res, next) => {
+    try {
+      res
+        .set("Cache-Control", "private, no-store")
+        .json(await putDraft(req.viewerDid!, req.body));
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+xrpc.post(
+  `/${NAGI.deleteDraft}`,
+  requiredServiceAuth(NAGI.deleteDraft),
+  async (req, res, next) => {
+    try {
+      res
+        .set("Cache-Control", "private, no-store")
+        .json(await deleteDraft(req.viewerDid!, req.body?.id));
     } catch (error) {
       next(error);
     }
@@ -408,8 +484,7 @@ xrpc.get(
       const view = (["trend", "list", "mine"] as const).find(
         (candidate) => candidate === rawView,
       );
-      if (!view)
-        throw new ApiError(400, "invalid_request", "view is invalid");
+      if (!view) throw new ApiError(400, "invalid_request", "view is invalid");
       if ((view === "list" || view === "mine") && !req.viewerDid)
         throw new ApiError(
           401,
@@ -1169,13 +1244,19 @@ xrpc.post(
           "reactionUri must be a string",
         );
       if (guestToken !== undefined && typeof guestToken !== "string")
-        throw new ApiError(400, "invalid_request", "guestToken must be a string");
+        throw new ApiError(
+          400,
+          "invalid_request",
+          "guestToken must be a string",
+        );
       // 記念日は抽選ではなく「その日が記念日の人へ配る」ので、1日1回の枠とは別経路。
-      res.set("Cache-Control", "private, no-store").json(
-        source === "anniversary"
-          ? await claimAnniversaryCards(req.viewerDid!)
-          : await drawCard(req.viewerDid!, source, reactionUri, guestToken),
-      );
+      res
+        .set("Cache-Control", "private, no-store")
+        .json(
+          source === "anniversary"
+            ? await claimAnniversaryCards(req.viewerDid!)
+            : await drawCard(req.viewerDid!, source, reactionUri, guestToken),
+        );
     } catch (e) {
       next(e);
     }

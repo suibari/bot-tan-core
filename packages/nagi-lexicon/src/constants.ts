@@ -18,6 +18,12 @@ export const NAGI = {
   getAffirmation: "com.suibari.nagi.getAffirmation",
   /** 作者名や本文を出さない、右サイドバー用の匿名要約候補。 */
   getCommunityAffirmations: "com.suibari.nagi.getCommunityAffirmations",
+  putCommunityAffirmationDismissals:
+    "com.suibari.nagi.putCommunityAffirmationDismissals",
+  getDrafts: "com.suibari.nagi.getDrafts",
+  getDraft: "com.suibari.nagi.getDraft",
+  putDraft: "com.suibari.nagi.putDraft",
+  deleteDraft: "com.suibari.nagi.deleteDraft",
   getThread: "com.suibari.nagi.getThread",
   getProfile: "com.suibari.nagi.getProfile",
   /** app.bsky.actor.profile の website を安全なリンクカードとして返す公開ビュー。 */

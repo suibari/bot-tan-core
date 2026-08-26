@@ -4,7 +4,7 @@
   "defs": {
     "main": {
       "type": "query",
-      "description": "端末をまたいで同期する本人の設定（my Nagi の既読位置とお気に入り絵文字）を返す。他ユーザーからは参照できない。",
+      "description": "端末をまたいで同期する本人の設定（既読位置、お気に入り絵文字、フィードタブ、投稿・翻訳言語、最後のブックマークフォルダ）を返す。他ユーザーからは参照できない。",
       "output": {
         "encoding": "application/json",
         "schema": {
@@ -18,12 +18,12 @@
               "description": "botたんからの返信確率（0〜100%）。Bluesky側のfreq設定と共用。"
             },
             "preferredName": {
-        "type": "string",
-        "maxLength": 120,
-        "maxGraphemes": 40,
-        "description": "botたんに呼んでほしい名前。省略時は未設定＝表示名で呼ばれる。"
-      },
-      "readPositions": {
+              "type": "string",
+              "maxLength": 120,
+              "maxGraphemes": 40,
+              "description": "botたんに呼んでほしい名前。省略時は未設定＝表示名で呼ばれる。"
+            },
+            "readPositions": {
               "type": "array",
               "items": { "type": "ref", "ref": "#readPosition" }
             },
@@ -48,6 +48,19 @@
               "type": "string",
               "format": "datetime",
               "description": "省略時は、この利用者がまだ一度もタブをカスタムしていないことを表す（クライアントは既定タブを使う）。"
+            },
+            "languagePreferences": {
+              "type": "ref",
+              "ref": "#languagePreferences"
+            },
+            "languagePreferencesUpdatedAt": {
+              "type": "string",
+              "format": "datetime"
+            },
+            "lastBookmarkFolderId": { "type": "string", "maxLength": 64 },
+            "lastBookmarkFolderUpdatedAt": {
+              "type": "string",
+              "format": "datetime"
             }
           }
         }
@@ -92,6 +105,19 @@
           "maxLength": 64,
           "description": "表示名のスナップショット。権威は uri / query 側。"
         }
+      }
+    },
+    "languagePreferences": {
+      "type": "object",
+      "required": ["post", "translation", "provider", "autoTranslate"],
+      "properties": {
+        "post": { "type": "string", "maxLength": 16 },
+        "translation": { "type": "string", "maxLength": 16 },
+        "provider": {
+          "type": "string",
+          "knownValues": ["kagi", "deepl", "google"]
+        },
+        "autoTranslate": { "type": "boolean" }
       }
     },
     "readPosition": {

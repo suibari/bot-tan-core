@@ -535,6 +535,8 @@ export type BookmarkFoldersView = {
   folders: BookmarkFolderView[];
   folderLimit: number;
   bookmarkLimit: number;
+  lastFolderId?: string;
+  lastFolderUpdatedAt?: string;
 };
 export type BookmarksPage = {
   items: BookmarkItemView[];
@@ -609,6 +611,54 @@ export type FeedTab = {
 };
 /** タブ数の上限。チャンネル追加の上限（50）より意図的に少ない。 */
 export const FEED_TABS_LIMIT = 16;
+export const NAGI_SUPPORTED_LANGUAGES = [
+  "ar",
+  "bn",
+  "bg",
+  "zh",
+  "hr",
+  "cs",
+  "da",
+  "nl",
+  "en",
+  "et",
+  "fi",
+  "fr",
+  "de",
+  "el",
+  "he",
+  "hi",
+  "hu",
+  "id",
+  "it",
+  "ja",
+  "ko",
+  "lv",
+  "lt",
+  "no",
+  "pl",
+  "pt",
+  "ro",
+  "ru",
+  "sr",
+  "sk",
+  "sl",
+  "es",
+  "sw",
+  "sv",
+  "th",
+  "tr",
+  "uk",
+  "vi",
+] as const;
+export type NagiSupportedLanguage = (typeof NAGI_SUPPORTED_LANGUAGES)[number];
+export type SyncedLanguagePreference = "browser" | NagiSupportedLanguage;
+export type SyncedLanguagePreferences = {
+  post: SyncedLanguagePreference;
+  translation: SyncedLanguagePreference;
+  provider: "kagi" | "deepl" | "google";
+  autoTranslate: boolean;
+};
 export type PreferencesView = {
   readPositions: ReadPosition[];
   emojiFavorites: EmojiFavorite[];
@@ -621,6 +671,10 @@ export type PreferencesView = {
   replyFreq?: number;
   /** botたんに呼んでほしい名前。未設定なら undefined＝表示名で呼ばれる。 */
   preferredName?: string;
+  languagePreferences?: SyncedLanguagePreferences;
+  languagePreferencesUpdatedAt?: string;
+  lastBookmarkFolderId?: string;
+  lastBookmarkFolderUpdatedAt?: string;
 };
 export type PutPreferencesInput = {
   readPositions?: ReadPosition[];
@@ -637,8 +691,40 @@ export type PutPreferencesInput = {
    * 送らなければ変更しない（他の項目と同じく差分更新）。
    */
   preferredName?: string;
+  languagePreferences?: SyncedLanguagePreferences;
+  languagePreferencesUpdatedAt?: string;
+  lastBookmarkFolderId?: string | null;
+  lastBookmarkFolderUpdatedAt?: string;
 };
 export type PutPreferencesResult = PreferencesView;
+
+export type DraftLinkCard = {
+  uri: string;
+  title: string;
+  description?: string;
+};
+export type DraftContent = {
+  text: string;
+  mentions: Array<{ start: number; end: number; did: string; handle: string }>;
+  channels: Array<{ start: number; end: number; uri: string; name: string }>;
+  emojis: Array<{ start: number; end: number; uri: string }>;
+  linkCards: DraftLinkCard[];
+  dismissedUrls: string[];
+  quoteUri?: string;
+};
+export type DraftView = DraftContent & {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+};
+export type DraftSummary = {
+  id: string;
+  text: string;
+  linkCardCount: number;
+  createdAt: string;
+  updatedAt: string;
+};
+export type DraftsView = { drafts: DraftSummary[]; limit: number };
 
 // ---------------------------------------------------------------------------
 // 全肯定カード（1日1回引けるトレカ）

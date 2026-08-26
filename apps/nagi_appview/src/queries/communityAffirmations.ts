@@ -1,7 +1,9 @@
 import {
   db,
   nagiCommunityAffirmations,
+  nagiCommunityAffirmationDismissals,
   nagiPosts,
+  nagiReactions,
 } from "@bsky-affirmative-bot/database";
 import type {
   CommunityAffirmationPage,
@@ -11,7 +13,7 @@ import {
   and,
   desc,
   eq,
-  gte,
+  gt,
   isNotNull,
   isNull,
   lt,
@@ -24,7 +26,7 @@ import { loadMutes, muteVisibility, type MuteSet } from "./mutes.js";
 import { getBotActor } from "./timeline.js";
 
 const ONE_HOUR_MS = 60 * 60 * 1_000;
-const SEVEN_DAYS_MS = 7 * 24 * ONE_HOUR_MS;
+export const COMMUNITY_AFFIRMATION_WINDOW_MS = 7 * 24 * ONE_HOUR_MS;
 
 /**
  * カーソルの基準は「要約を生成した時刻」（community_affirmations.updated_at）。
@@ -64,12 +66,23 @@ export function communityAffirmationVisibility(opts: {
     isNull(nagiPosts.deletedAt),
     isNull(nagiPosts.replyParentUri),
     ne(nagiPosts.did, opts.viewerDid),
-    gte(
+    gt(
       nagiPosts.recordCreatedAt,
-      new Date(opts.now.getTime() - SEVEN_DAYS_MS),
+      new Date(opts.now.getTime() - COMMUNITY_AFFIRMATION_WINDOW_MS),
     ),
     sql`coalesce((${nagiPosts.recordJson} ->> 'cwRestricted')::boolean, false) = false`,
     sql`${nagiPosts.text} not like '%||%'`,
+    sql`not exists (
+      select 1 from ${nagiCommunityAffirmationDismissals} dismissal
+      where dismissal.viewer_did = ${opts.viewerDid}
+        and dismissal.source_uri = ${nagiPosts.uri}
+        and dismissal.expires_at > ${opts.now}
+    )`,
+    sql`not exists (
+      select 1 from ${nagiReactions} viewer_reaction
+      where viewer_reaction.did = ${opts.viewerDid}
+        and viewer_reaction.subject_uri = ${nagiPosts.uri}
+    )`,
     sql`not exists (
       select 1
       from jsonb_array_elements(coalesce(${nagiPosts.embedImages}, '[]'::jsonb)) as image
@@ -161,9 +174,7 @@ export async function getCommunityAffirmations(opts: {
             {
               url: `/api/blob/${encodeURIComponent(row.authorDid)}/${encodeURIComponent(cid)}`,
               alt: item.alt,
-              ...(item.contentWarning === true
-                ? { contentWarning: true }
-                : {}),
+              ...(item.contentWarning === true ? { contentWarning: true } : {}),
               ...(item.aspectRatio ? { aspectRatio: item.aspectRatio } : {}),
             },
           ];
@@ -171,10 +182,7 @@ export async function getCommunityAffirmations(opts: {
       : undefined;
     const linkCards = Array.isArray((row.recordJson as any)?.linkCards)
       ? ((row.recordJson as any).linkCards as any[]).flatMap((card: any) => {
-          if (
-            typeof card?.uri !== "string" ||
-            typeof card?.title !== "string"
-          )
+          if (typeof card?.uri !== "string" || typeof card?.title !== "string")
             return [];
           const cid = card.thumb?.ref?.$link;
           return [

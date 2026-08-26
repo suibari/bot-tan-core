@@ -817,6 +817,75 @@ export const nagiBookmarks = nagiSchema.table(
   ],
 );
 
+/** 最後に使ったブックマークフォルダ。本人の端末間だけで同期する。 */
+export const nagiBookmarkPreferences = nagiSchema.table(
+  "bookmark_preferences",
+  {
+    did: text("did").primaryKey(),
+    lastFolderId: uuid("last_folder_id").references(
+      () => nagiBookmarkFolders.id,
+      {
+        onDelete: "set null",
+      },
+    ),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [index("nagi_bookmark_preferences_updated_idx").on(t.updatedAt)],
+);
+
+/**
+ * 本人限定の投稿下書き。画像やサムネイルのバイナリは保存しない。
+ * content は AppView が検証したテキスト・参照情報だけを保持する。
+ */
+export const nagiDrafts = nagiSchema.table(
+  "drafts",
+  {
+    id: uuid("id").primaryKey(),
+    ownerDid: text("owner_did").notNull(),
+    content: jsonb("content").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [index("nagi_drafts_owner_updated_idx").on(t.ownerDid, t.updatedAt)],
+);
+
+/** 「みんなで全肯定」で本人が見送った候補。候補期間と同時に失効する。 */
+export const nagiCommunityAffirmationDismissals = nagiSchema.table(
+  "community_affirmation_dismissals",
+  {
+    viewerDid: text("viewer_did").notNull(),
+    sourceUri: text("source_uri")
+      .notNull()
+      .references(() => nagiPosts.uri, { onDelete: "cascade" }),
+    dismissedAt: timestamp("dismissed_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.viewerDid, t.sourceUri] }),
+    index("nagi_community_dismissals_expiry_idx").on(t.expiresAt),
+  ],
+);
+
+/** 投稿・翻訳に関するアカウント設定。UI言語とテーマは端末設定のまま。 */
+export const nagiLanguagePreferences = nagiSchema.table(
+  "language_preferences",
+  {
+    did: text("did").primaryKey(),
+    postLanguage: text("post_language").notNull(),
+    translationLanguage: text("translation_language").notNull(),
+    translationProvider: text("translation_provider").notNull(),
+    autoTranslate: boolean("auto_translate").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [index("nagi_language_preferences_updated_idx").on(t.updatedAt)],
+);
+
 /**
  * 購読（参加）中のチャンネル。private_list_members と同じ設計で、
  * PDS レコードにはせず AppView だけが持ち、認証した本人にしか返さない

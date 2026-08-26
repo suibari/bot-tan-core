@@ -8,6 +8,7 @@ import {
   followers,
   nagiActors,
   nagiBookmarkFolders,
+  nagiBookmarkPreferences,
   nagiBookmarks,
   nagiActorAnalyses,
   nagiAnalysisJobs,
@@ -18,11 +19,14 @@ import {
   nagiChannels,
   nagiChannelSubscriptions,
   nagiCommunityAffirmations,
+  nagiCommunityAffirmationDismissals,
   nagiDiaries,
   nagiBotReplyJobs,
   nagiEmojis,
   nagiEmojiFavorites,
   nagiFeedTabs,
+  nagiDrafts,
+  nagiLanguagePreferences,
   nagiPreferredNames,
   nagiMutes,
   nagiNotifications,
@@ -253,6 +257,16 @@ export async function deleteAccountData(did: string) {
     await tx.delete(nagiReadPositions).where(eq(nagiReadPositions.did, did));
     await tx.delete(nagiEmojiFavorites).where(eq(nagiEmojiFavorites.did, did));
     await tx.delete(nagiFeedTabs).where(eq(nagiFeedTabs.did, did));
+    await tx.delete(nagiDrafts).where(eq(nagiDrafts.ownerDid, did));
+    await tx
+      .delete(nagiCommunityAffirmationDismissals)
+      .where(eq(nagiCommunityAffirmationDismissals.viewerDid, did));
+    await tx
+      .delete(nagiLanguagePreferences)
+      .where(eq(nagiLanguagePreferences.did, did));
+    await tx
+      .delete(nagiBookmarkPreferences)
+      .where(eq(nagiBookmarkPreferences.did, did));
     // 呼んでほしい名前。本人が申告した情報なので必ず消す。
     await tx.delete(nagiPreferredNames).where(eq(nagiPreferredNames.did, did));
 

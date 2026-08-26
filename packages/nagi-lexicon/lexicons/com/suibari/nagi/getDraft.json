@@ -1,0 +1,22 @@
+{
+  "lexicon": 1,
+  "id": "com.suibari.nagi.getDraft",
+  "defs": {
+    "main": {
+      "type": "query",
+      "parameters": {
+        "type": "params",
+        "required": ["id"],
+        "properties": { "id": { "type": "string", "maxLength": 64 } }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "ref",
+          "ref": "com.suibari.nagi.putDraft#draftView"
+        }
+      },
+      "errors": [{ "name": "AuthRequired" }, { "name": "NotFound" }]
+    }
+  }
+}

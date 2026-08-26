@@ -3,6 +3,9 @@ import {
   followers,
   nagiEmojiFavorites,
   nagiFeedTabs,
+  nagiBookmarkFolders,
+  nagiBookmarkPreferences,
+  nagiLanguagePreferences,
   nagiPreferredNames,
   nagiReadPositions,
 } from "@bsky-affirmative-bot/database";
@@ -10,6 +13,7 @@ import {
   EMOJI_FAVORITES_LIMIT,
   FEED_TAB_KINDS,
   FEED_TABS_LIMIT,
+  NAGI_SUPPORTED_LANGUAGES,
   READ_POSITION_SECTIONS,
   type EmojiFavorite,
   type FeedTab,
@@ -18,12 +22,20 @@ import {
   type PutPreferencesInput,
   type ReadPosition,
   type ReadPositionSection,
+  type SyncedLanguagePreferences,
 } from "@bsky-affirmative-bot/nagi-lexicon";
 import { eq, sql } from "drizzle-orm";
 import { ApiError } from "../middleware/errors.js";
 
 const MAX_URI_LENGTH = 2048;
 const MAX_UNICODE_EMOJI_LENGTH = 64;
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const LANGUAGE_VALUES = new Set<string>([
+  "browser",
+  ...NAGI_SUPPORTED_LANGUAGES,
+]);
+const TRANSLATION_PROVIDERS = new Set(["kagi", "deepl", "google"]);
 
 const isSection = (value: unknown): value is ReadPositionSection =>
   READ_POSITION_SECTIONS.includes(value as ReadPositionSection);
@@ -90,7 +102,8 @@ function parseEmojiFavorites(input: unknown): EmojiFavorite[] {
       const value = emoji[key];
       if (typeof value !== "string" || !value) invalid("emojiFavorites");
     }
-    if ((emoji.uri as string).length > MAX_URI_LENGTH) invalid("emojiFavorites");
+    if ((emoji.uri as string).length > MAX_URI_LENGTH)
+      invalid("emojiFavorites");
     return { kind: "custom" as const, emoji } as EmojiFavorite;
   });
 }
@@ -103,6 +116,27 @@ function parseUpdatedAt(field: string, input: unknown): Date {
       `${field} is required with ${field.replace("UpdatedAt", "")}`,
     );
   return new Date(input);
+}
+
+export function parseLanguagePreferences(
+  input: unknown,
+): SyncedLanguagePreferences {
+  if (!input || typeof input !== "object") invalid("languagePreferences");
+  const item = input as Record<string, unknown>;
+  if (!LANGUAGE_VALUES.has(String(item.post)))
+    invalid("languagePreferences.post");
+  if (!LANGUAGE_VALUES.has(String(item.translation)))
+    invalid("languagePreferences.translation");
+  if (!TRANSLATION_PROVIDERS.has(String(item.provider)))
+    invalid("languagePreferences.provider");
+  if (typeof item.autoTranslate !== "boolean")
+    invalid("languagePreferences.autoTranslate");
+  return {
+    post: item.post as SyncedLanguagePreferences["post"],
+    translation: item.translation as SyncedLanguagePreferences["translation"],
+    provider: item.provider as SyncedLanguagePreferences["provider"],
+    autoTranslate: item.autoTranslate as boolean,
+  };
 }
 
 const isFeedTabKind = (value: unknown): value is FeedTabKind =>
@@ -161,9 +195,10 @@ function parseFeedTabs(input: unknown): FeedTab[] {
         typeof item.query === "string" ? (item.query as string).trim() : "";
       if (!query || query.length > MAX_TAB_QUERY_LENGTH)
         invalid("feedTabs.query");
-      if (item.queryKind !== undefined && !["keyword", "tag"].includes(
-        item.queryKind as string,
-      ))
+      if (
+        item.queryKind !== undefined &&
+        !["keyword", "tag"].includes(item.queryKind as string)
+      )
         invalid("feedTabs.queryKind");
       tab.query = query;
       tab.queryKind = (item.queryKind as "keyword" | "tag") ?? "keyword";
@@ -192,14 +227,27 @@ function parsePreferredName(input: unknown): string | null | undefined {
 
 function parseReplyFreq(input: unknown): number | undefined {
   if (input === undefined) return undefined;
-  if (typeof input !== "number" || !Number.isInteger(input) || input < 0 || input > 100) {
+  if (
+    typeof input !== "number" ||
+    !Number.isInteger(input) ||
+    input < 0 ||
+    input > 100
+  ) {
     invalid("replyFreq");
   }
   return input as number;
 }
 
 async function selectPreferences(did: string): Promise<PreferencesView> {
-  const [positions, favorites, feedTabs, preferredNames, followerRows] = await Promise.all([
+  const [
+    positions,
+    favorites,
+    feedTabs,
+    preferredNames,
+    followerRows,
+    languageRows,
+    bookmarkRows,
+  ] = await Promise.all([
     db
       .select({
         section: nagiReadPositions.section,
@@ -231,11 +279,23 @@ async function selectPreferences(did: string): Promise<PreferencesView> {
       .from(followers)
       .where(eq(followers.did, did))
       .limit(1),
+    db
+      .select()
+      .from(nagiLanguagePreferences)
+      .where(eq(nagiLanguagePreferences.did, did))
+      .limit(1),
+    db
+      .select()
+      .from(nagiBookmarkPreferences)
+      .where(eq(nagiBookmarkPreferences.did, did))
+      .limit(1),
   ]);
   const favoritesRow = favorites[0];
   const feedTabsRow = feedTabs[0];
   const preferredName = preferredNames[0]?.name;
   const followerRow = followerRows[0];
+  const languageRow = languageRows[0];
+  const bookmarkRow = bookmarkRows[0];
   return {
     readPositions: positions
       .filter((row) => isSection(row.section))
@@ -261,6 +321,27 @@ async function selectPreferences(did: string): Promise<PreferencesView> {
     replyFreq: followerRow?.reply_freq != null ? followerRow.reply_freq : 100,
     // 未設定なら省略する。クライアントはこれを「表示名で呼ばれる」の合図に使う。
     ...(preferredName ? { preferredName } : {}),
+    ...(languageRow
+      ? {
+          languagePreferences: {
+            post: languageRow.postLanguage as SyncedLanguagePreferences["post"],
+            translation:
+              languageRow.translationLanguage as SyncedLanguagePreferences["translation"],
+            provider:
+              languageRow.translationProvider as SyncedLanguagePreferences["provider"],
+            autoTranslate: languageRow.autoTranslate,
+          },
+          languagePreferencesUpdatedAt: languageRow.updatedAt.toISOString(),
+        }
+      : {}),
+    ...(bookmarkRow
+      ? {
+          ...(bookmarkRow.lastFolderId
+            ? { lastBookmarkFolderId: bookmarkRow.lastFolderId }
+            : {}),
+          lastBookmarkFolderUpdatedAt: bookmarkRow.updatedAt.toISOString(),
+        }
+      : {}),
   };
 }
 
@@ -288,6 +369,31 @@ export async function putPreferences(
     : undefined;
   const preferredName = parsePreferredName(input.preferredName);
   const replyFreq = parseReplyFreq(input.replyFreq);
+  const hasLanguagePreferences = input.languagePreferences !== undefined;
+  const languagePreferences = hasLanguagePreferences
+    ? parseLanguagePreferences(input.languagePreferences)
+    : undefined;
+  const languagePreferencesUpdatedAt = hasLanguagePreferences
+    ? parseUpdatedAt(
+        "languagePreferencesUpdatedAt",
+        input.languagePreferencesUpdatedAt,
+      )
+    : undefined;
+  const hasLastBookmarkFolder = input.lastBookmarkFolderId !== undefined;
+  const lastBookmarkFolderId = input.lastBookmarkFolderId;
+  if (
+    hasLastBookmarkFolder &&
+    lastBookmarkFolderId !== null &&
+    (typeof lastBookmarkFolderId !== "string" ||
+      !UUID_RE.test(lastBookmarkFolderId))
+  )
+    invalid("lastBookmarkFolderId");
+  const lastBookmarkFolderUpdatedAt = hasLastBookmarkFolder
+    ? parseUpdatedAt(
+        "lastBookmarkFolderUpdatedAt",
+        input.lastBookmarkFolderUpdatedAt,
+      )
+    : undefined;
 
   if (readPositions.length) {
     await db
@@ -333,7 +439,9 @@ export async function putPreferences(
   if (preferredName !== undefined) {
     if (preferredName === null) {
       // 空文字＝解除。行を消せば以後は表示名に戻る。
-      await db.delete(nagiPreferredNames).where(eq(nagiPreferredNames.did, did));
+      await db
+        .delete(nagiPreferredNames)
+        .where(eq(nagiPreferredNames.did, did));
     } else {
       await db
         .insert(nagiPreferredNames)
@@ -379,6 +487,58 @@ export async function putPreferences(
           updatedAt: sql`excluded.updated_at`,
         },
         setWhere: sql`excluded.updated_at > feed_tabs.updated_at`,
+      });
+  }
+
+  if (languagePreferences && languagePreferencesUpdatedAt) {
+    await db
+      .insert(nagiLanguagePreferences)
+      .values({
+        did,
+        postLanguage: languagePreferences.post,
+        translationLanguage: languagePreferences.translation,
+        translationProvider: languagePreferences.provider,
+        autoTranslate: languagePreferences.autoTranslate,
+        updatedAt: languagePreferencesUpdatedAt,
+      })
+      .onConflictDoUpdate({
+        target: nagiLanguagePreferences.did,
+        set: {
+          postLanguage: sql`excluded.post_language`,
+          translationLanguage: sql`excluded.translation_language`,
+          translationProvider: sql`excluded.translation_provider`,
+          autoTranslate: sql`excluded.auto_translate`,
+          updatedAt: sql`excluded.updated_at`,
+        },
+        setWhere: sql`excluded.updated_at > language_preferences.updated_at`,
+      });
+  }
+
+  if (lastBookmarkFolderUpdatedAt) {
+    if (lastBookmarkFolderId !== null) {
+      const [owned] = await db
+        .select({ id: nagiBookmarkFolders.id })
+        .from(nagiBookmarkFolders)
+        .where(
+          sql`${nagiBookmarkFolders.id} = ${lastBookmarkFolderId} and ${nagiBookmarkFolders.ownerDid} = ${did}`,
+        )
+        .limit(1);
+      if (!owned) invalid("lastBookmarkFolderId");
+    }
+    await db
+      .insert(nagiBookmarkPreferences)
+      .values({
+        did,
+        lastFolderId: lastBookmarkFolderId as string | null,
+        updatedAt: lastBookmarkFolderUpdatedAt,
+      })
+      .onConflictDoUpdate({
+        target: nagiBookmarkPreferences.did,
+        set: {
+          lastFolderId: sql`excluded.last_folder_id`,
+          updatedAt: sql`excluded.updated_at`,
+        },
+        setWhere: sql`excluded.updated_at > bookmark_preferences.updated_at`,
       });
   }
 
