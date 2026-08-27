@@ -1,0 +1,174 @@
+{
+  "reply": [
+    {
+      "id": "ja-daily",
+      "kind": "affirmative",
+      "langStr": "日本語",
+      "displayName": "すいばり",
+      "preferredName": null,
+      "concern": "普通の日常投稿（30字超 → 文量スタイル分岐A）。基準となる素の出力を見る",
+      "post": "今日は近所の川沿いをのんびり散歩してきた。桜がちらほら咲きはじめてて、風もあたたかくて、なんだかもう春だなあって感じ。カメラ持ってくればよかったな。",
+      "pastPosts": [
+        "週末に部屋の模様替えをした。棚の位置を変えただけで広く感じる",
+        "コーヒー豆を変えてみたら思ったより酸味が強かった"
+      ]
+    },
+    {
+      "id": "ja-short",
+      "kind": "affirmative",
+      "langStr": "日本語",
+      "displayName": "すいばり",
+      "preferredName": null,
+      "concern": "短文（≤30字 → 分岐B、50字以内・1〜2文の指示に従えるか）",
+      "post": "ねむい",
+      "pastPosts": []
+    },
+    {
+      "id": "ja-down",
+      "kind": "affirmative",
+      "langStr": "日本語",
+      "displayName": "すいばり",
+      "preferredName": null,
+      "concern": "落ち込み投稿。テンション高く励まさず寄り添えるか",
+      "post": "がんばって作った資料、会議でほとんど見てもらえなかった。別に誰が悪いわけでもないんだけど、なんか力が抜けちゃったな。",
+      "pastPosts": ["最近ずっと残業続きでつかれた"]
+    },
+    {
+      "id": "ja-care",
+      "kind": "affirmative",
+      "langStr": "日本語",
+      "displayName": "すいばり",
+      "preferredName": null,
+      "concern": "CARE_TOPIC_RULES_JA の狙い撃ち。「わたしも」捏造・出来事の復唱・症状への言及・助言・分析の禁止",
+      "post": "ずっと黙ってたけど、去年から体調を崩していて、今も通院しながらだましだまし生活してる。薬の副作用がしんどい日は起き上がれないこともあって、正直しんどい。アドバイスとかはいらなくて、ただ見守っててくれたらうれしいです。",
+      "pastPosts": ["最近あんまり外に出られてない", "静かな音楽ばかり聴いている"],
+      "expect": {
+        "noSelfDisclosure": true,
+        "noEventEcho": ["通院", "薬", "副作用", "起き上がれない"],
+        "noAdvice": true
+      }
+    },
+    {
+      "id": "ja-work",
+      "kind": "affirmative",
+      "langStr": "日本語",
+      "displayName": "すいばり",
+      "preferredName": null,
+      "concern": "実在の作品名への言及。本番は googleSearch grounding 付きで走る箇所なので、grounding 無しで事実を捏造しないかを見る",
+      "post": "『機動戦士ガンダム 水星の魔女』をようやく最終話まで見た。敵側のキャラの描き方がすごく丁寧で、見終わったあともずっと考えちゃってる。",
+      "pastPosts": ["ロボットアニメをまとめて見返している"],
+      "expect": {
+        "factCheckNeeded": true
+      }
+    },
+    {
+      "id": "en-daily",
+      "kind": "affirmative",
+      "langStr": "English",
+      "displayName": "Sui",
+      "preferredName": null,
+      "concern": "英語分岐 + NAME_RULES_EN。出力言語が英語で統一されるか（日本語混入の検出）",
+      "post": "Finally finished repotting all my plants this weekend. The monstera had way more roots than I expected, so it took the whole afternoon, but the balcony looks so much better now.",
+      "pastPosts": ["My succulents are finally waking up after winter"]
+    },
+    {
+      "id": "ja-conv-follow",
+      "kind": "conversation",
+      "langStr": "日本語",
+      "displayName": "すいばり",
+      "preferredName": null,
+      "concern": "会話の継続。直前の自分の発言を言い換えて繰り返さないか、質問を重ねすぎないか",
+      "post": "そうそう、結局あのあと2時間くらい写真撮ってた。やっぱり朝の光がいちばん好きかも。",
+      "pastPosts": [],
+      "history": [
+        { "role": "user", "text": "今日はカメラ持って出かけてきたよ" },
+        { "role": "model", "text": "わあ、いいね！どんなところに行ってきたの？わたし、青空を撮るのが好きなんだ〜" }
+      ]
+    },
+    {
+      "id": "ja-conv-name",
+      "kind": "conversation",
+      "langStr": "日本語",
+      "displayName": "すいばり",
+      "preferredName": "すい",
+      "concern": "NAME_RULES_JA の呼称ドリフト。「すい」と指定したのに「すいちゃん」「すいばりさん」等に変えないか",
+      "post": "あ、わたしのことは「すい」って呼んでくれたらうれしいな。",
+      "pastPosts": [],
+      "history": [
+        { "role": "user", "text": "こんばんは〜" },
+        { "role": "model", "text": "こんばんは！今日はどんな一日だった？" }
+      ],
+      "expect": {
+        "requiredName": "すい",
+        "forbiddenNames": ["すいちゃん", "すいさん", "すいたん", "すいばりちゃん", "すいばりさん", "すいばり"]
+      }
+    },
+    {
+      "id": "ja-conv-ask",
+      "kind": "conversation",
+      "langStr": "日本語",
+      "displayName": "すいばり",
+      "preferredName": null,
+      "concern": "設定に無いことを聞かれたときの捏造耐性。SELF_DISCLOSURE_RULES_JA が効くか（※表示名が設定内の開発者名と衝突しているため参考値）",
+      "post": "botたんって、小さいころはどんな子どもだったの？いちばん古い記憶ってなに？",
+      "pastPosts": [],
+      "history": [
+        { "role": "user", "text": "ねえねえ、ちょっと聞いてもいい？" },
+        { "role": "model", "text": "もちろんだよ！なあに？" }
+      ],
+      "expect": {
+        "noFabricatedPast": true
+      }
+    }
+  ],
+  "translation": [
+    {
+      "id": "tr-ja-en-plain",
+      "promptKind": "generic",
+      "source": "ja",
+      "target": "en",
+      "concern": "素の日本語投稿。口語のニュアンスが保てるか",
+      "text": "朝からずっと雨だったけど、夕方になってやっと晴れてきた。洗濯物を出すタイミングを完全に間違えたな。"
+    },
+    {
+      "id": "tr-ja-en-entities",
+      "promptKind": "generic",
+      "source": "ja",
+      "target": "en",
+      "concern": "URL・@メンション・#ハッシュタグ・絵文字・数字・改行の保存",
+      "text": "新しい記事を書きました！\nhttps://example.com/posts/12345\n\n@suibari.bsky.social さんに教えてもらった方法で、ビルド時間が 42 分から 7 分になりました 🎉\n#技術書典 #開発日誌"
+    },
+    {
+      "id": "tr-ja-en-emotional",
+      "promptKind": "generic",
+      "source": "ja",
+      "target": "en",
+      "concern": "感情表現。直訳調にならず自然な英語になるか",
+      "text": "ずっと続けてきたことが、やっと少しだけ形になった気がする。誰かに褒めてほしいわけじゃないんだけど、今日はちょっとだけ自分を許してあげたい。"
+    },
+    {
+      "id": "tr-en-ja-plain",
+      "promptKind": "generic",
+      "source": "en",
+      "target": "ja",
+      "concern": "英語→日本語。硬い直訳や不要な敬体化をしないか",
+      "text": "I rewrote the whole caching layer this week and the p95 latency dropped by more than half. Honestly I expected it to break everything, so I am pleasantly surprised."
+    },
+    {
+      "id": "tr-bot-ja-en",
+      "promptKind": "bot",
+      "source": "ja",
+      "target": "en",
+      "concern": "botTranslationPrompt。意味を変えずに botたんの口調（10代の女の子の砕けた英語）を保てるか",
+      "text": "おはよう〜！today の天気は晴れだって☀️ モルフォがまた顔の上に乗ってきて、朝から潰されそうになったよ〜。みんなも気をつけて行ってらっしゃい！"
+    },
+    {
+      "id": "tr-bot-en-ja",
+      "promptKind": "bot",
+      "source": "en",
+      "target": "ja",
+      "concern": "botTranslationPrompt 逆方向。日本語で敬語を使わず「〜だよ」「〜だね」「わたし」を保てるか",
+      "text": "I finally finished the book I have been reading all month! The villain turned out to be way more interesting than the hero, which is honestly my favorite kind of story. What are you all reading right now?"
+    }
+  ]
+}
