@@ -114,6 +114,10 @@ test("new prompt removes the fixed triad and emoji work while pinning attributio
   assert.match(prompt, /尊敬している相手/);
   assert.match(prompt, /別の開発者/);
   assert.match(prompt, /作品ネタを使わなくても/);
+  assert.match(prompt, /根拠にしてよいのは <user_posts> にユーザー自身が書いた内容だけ/);
+  assert.match(prompt, /botたんが本文へ加えた感想・比喩・カオス要素は、称号の材料にしてはいけません/);
+  assert.match(prompt, /本人が自分の投稿から自然に思い当たれるもの/);
+  assert.match(prompt, /title_en は title_ja と同じ称号の自然な英訳/);
   assert.match(prompt, /500文字を多少超えても構いません/);
   assert.match(prompt, /<media_reference id="movie-star-wars".*usage="optional"/);
   assert.match(prompt, /プロトン魚雷/);
@@ -208,6 +212,10 @@ test("English prompt keeps the same attribution, privacy, and chaos rules", () =
   assert.match(prompt, /Final check \(highest priority\)/i);
   assert.match(prompt, /people they respect/i);
   assert.match(prompt, /Supporting context remains required/i);
+  assert.match(prompt, /Ground title_ja and title_en exclusively in content the user personally wrote/i);
+  assert.match(prompt, /chaotic detour Bot-tan adds to the diary body/i);
+  assert.match(prompt, /naturally recognize from what they wrote/i);
+  assert.match(prompt, /title_en a natural translation of the same title as title_ja/i);
   assert.match(prompt, /exceeding 1,000 characters somewhat is acceptable/i);
 });
 

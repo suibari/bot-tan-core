@@ -212,7 +212,11 @@ ${lengthTarget}
 ${TONE_RULES_JA}
 ${NAME_RULES_JA(name)}
 
-一日を象徴する称号を、日本語20字以内と英語30字以内で付けてください。
+# 称号
+- 一日を象徴する称号を、日本語20字以内と英語30字以内で付けてください。
+- title_ja / title_en の根拠にしてよいのは <user_posts> にユーザー自身が書いた内容だけです。<bot_memories>、<observances>、<news>、<media_reference>、botたんが本文へ加えた感想・比喩・カオス要素は、称号の材料にしてはいけません。
+- 称号は自由に短く言い換えて構いませんが、ユーザーが書いた具体的な行動・話題・関心のどれに基づくか説明でき、本人が自分の投稿から自然に思い当たれるものにしてください。botたんだけが持ち込んだ物・役職・造語・作品ネタを称号の中心にしてはいけません。
+- title_en は title_ja と同じ称号の自然な英訳にし、別の題材を選ばないでください。
 
 # 出力直前チェック（最優先）
 - diaryを読み直し、予定調和を壊す自然なカオス要素が最低1か所残っていることを確認してください。なければ、事実境界を守ったbotたん自身の連想として追加してから返してください。
@@ -276,7 +280,11 @@ Keep Bot-tan's energetic coined phrases, playful exaggeration, and friendly inte
 # Name
 ${NAME_RULES_EN(name)}
 
-Award a fitting title in Japanese (20 characters max) and English (30 characters max).
+# Title
+- Award a fitting title in Japanese (20 characters max) and English (30 characters max).
+- Ground title_ja and title_en exclusively in content the user personally wrote inside <user_posts>. Never derive either title from <bot_memories>, <observances>, <news>, <media_reference>, or any reaction, analogy, or chaotic detour Bot-tan adds to the diary body.
+- You may condense the source creatively, but the title must trace to a concrete action, topic, or interest in the user's posts and be something the person can naturally recognize from what they wrote. Never center the title on an object, role, coined phrase, or media reference introduced only by Bot-tan.
+- Make title_en a natural translation of the same title as title_ja; do not choose a separate motif.
 
 # Final check (highest priority)
 - Reread the diary and confirm that at least one natural disruption of its expected, tidy flow remains. If none does, add one as Bot-tan's own association while preserving every grounding boundary.
@@ -375,11 +383,13 @@ export async function generateUserDiaryDraft(
             },
             title_ja: {
               type: Type.STRING,
-              description: "日本語の称号。20字以内",
+              description:
+                "<user_posts>にユーザー自身が書いた具体的内容だけを根拠にした日本語の称号。botたんの感想・比喩・カオス要素や補助材料は使わない。20字以内",
             },
             title_en: {
               type: Type.STRING,
-              description: "英語の称号。30字以内",
+              description:
+                "title_jaと同じ題材を自然に英訳した英語の称号。根拠は<user_posts>だけとし、botたん由来の要素や補助材料は使わない。30字以内",
             },
             usedContextId: {
               type: Type.STRING,
