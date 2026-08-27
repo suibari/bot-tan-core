@@ -3,7 +3,7 @@ import {
   nagiCommunityAffirmationDismissals,
   nagiPosts,
 } from "@bsky-affirmative-bot/database";
-import { inArray, sql } from "drizzle-orm";
+import { eq, inArray, lt, notExists, or, sql } from "drizzle-orm";
 import { ApiError } from "../middleware/errors.js";
 import { COMMUNITY_AFFIRMATION_WINDOW_MS } from "./communityAffirmations.js";
 
@@ -63,13 +63,21 @@ export async function putCommunityAffirmationDismissals(
   return { accepted: uris.length };
 }
 
+export const communityAffirmationDismissalCleanupCondition = (now: Date) =>
+  or(
+    lt(nagiCommunityAffirmationDismissals.expiresAt, now),
+    notExists(
+      db
+        .select({ uri: nagiPosts.uri })
+        .from(nagiPosts)
+        .where(eq(nagiPosts.uri, nagiCommunityAffirmationDismissals.sourceUri)),
+    ),
+  )!;
+
 export async function cleanupCommunityAffirmationDismissals(now = new Date()) {
-  await db.delete(nagiCommunityAffirmationDismissals)
-    .where(sql`${nagiCommunityAffirmationDismissals.expiresAt} < ${now}
-      or not exists (
-        select 1 from ${nagiPosts}
-        where ${nagiPosts.uri} = ${nagiCommunityAffirmationDismissals.sourceUri}
-      )`);
+  await db
+    .delete(nagiCommunityAffirmationDismissals)
+    .where(communityAffirmationDismissalCleanupCondition(now));
 }
 
 export function startCommunityAffirmationDismissalCleanup() {

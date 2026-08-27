@@ -141,6 +141,12 @@ test("migration-backed upsert and backfill are idempotent", {
     );
     assert.equal(currentLive?.broadcastId, "valid-live");
     assert.equal(
+      (await memory.MemoryService.getTodayYoutubeLiveBroadcast(
+        new Date("2026-08-22T12:30:00Z"),
+      ))?.broadcastId,
+      "valid-live",
+    );
+    assert.equal(
       await memory.MemoryService.getTodayYoutubeLiveBroadcast(
         new Date("2026-08-22T12:50:00Z"),
       ),

@@ -230,6 +230,12 @@ export class MemoryService {
   ): Promise<YoutubeLiveBroadcast | null> {
     const bounds = getYoutubeLivePromotionBounds(now);
     if (now < bounds.promotionStart) return null;
+    // bottan_live は Drizzle のスキーマ定義外なので、Date を raw sql へ直接渡さない。
+    // postgres.js が型を推論できず ERR_INVALID_ARG_TYPE になるため、ISO 文字列を
+    // timestamptz として明示する（詳細はリポジトリ直下の AGENTS.md を参照）。
+    const dayStart = bounds.dayStart.toISOString();
+    const nextDayStart = bounds.nextDayStart.toISOString();
+    const currentTime = now.toISOString();
     try {
       const rows = await db.execute<{
         broadcast_id: string;
@@ -240,10 +246,10 @@ export class MemoryService {
       }>(sql`
         SELECT broadcast_id, url, title, scheduled_start_at, scheduled_end_at
         FROM bottan_live.broadcasts
-        WHERE scheduled_start_at >= ${bounds.dayStart}
-          AND scheduled_start_at < ${bounds.nextDayStart}
+        WHERE scheduled_start_at >= ${dayStart}::timestamptz
+          AND scheduled_start_at < ${nextDayStart}::timestamptz
           AND scheduled_end_at IS NOT NULL
-          AND ${now} < scheduled_end_at - interval '10 minutes'
+          AND ${currentTime}::timestamptz < scheduled_end_at - interval '10 minutes'
           AND ended_at IS NULL
         ORDER BY prepared_at DESC NULLS LAST, created_at DESC
         LIMIT 5

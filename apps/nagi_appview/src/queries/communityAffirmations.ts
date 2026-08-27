@@ -18,9 +18,11 @@ import {
   isNull,
   lt,
   ne,
+  notExists,
   or,
   sql,
 } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { getReactionViews } from "./reactions.js";
 import { loadMutes, muteVisibility, type MuteSet } from "./mutes.js";
 import { getBotActor } from "./timeline.js";
@@ -56,6 +58,11 @@ export function communityAffirmationVisibility(opts: {
   lang: "ja" | "en";
   mutes: MuteSet;
 }) {
+  const dismissal = alias(
+    nagiCommunityAffirmationDismissals,
+    "community_affirmation_dismissal",
+  );
+  const viewerReaction = alias(nagiReactions, "viewer_reaction");
   return [
     eq(nagiCommunityAffirmations.state, "posted"),
     opts.lang === "ja"
@@ -72,17 +79,29 @@ export function communityAffirmationVisibility(opts: {
     ),
     sql`coalesce((${nagiPosts.recordJson} ->> 'cwRestricted')::boolean, false) = false`,
     sql`${nagiPosts.text} not like '%||%'`,
-    sql`not exists (
-      select 1 from ${nagiCommunityAffirmationDismissals} dismissal
-      where dismissal.viewer_did = ${opts.viewerDid}
-        and dismissal.source_uri = ${nagiPosts.uri}
-        and dismissal.expires_at > ${opts.now}
-    )`,
-    sql`not exists (
-      select 1 from ${nagiReactions} viewer_reaction
-      where viewer_reaction.did = ${opts.viewerDid}
-        and viewer_reaction.subject_uri = ${nagiPosts.uri}
-    )`,
+    notExists(
+      db
+        .select({ sourceUri: dismissal.sourceUri })
+        .from(dismissal)
+        .where(
+          and(
+            eq(dismissal.viewerDid, opts.viewerDid),
+            eq(dismissal.sourceUri, nagiPosts.uri),
+            gt(dismissal.expiresAt, opts.now),
+          ),
+        ),
+    ),
+    notExists(
+      db
+        .select({ subjectUri: viewerReaction.subjectUri })
+        .from(viewerReaction)
+        .where(
+          and(
+            eq(viewerReaction.did, opts.viewerDid),
+            eq(viewerReaction.subjectUri, nagiPosts.uri),
+          ),
+        ),
+    ),
     sql`not exists (
       select 1
       from jsonb_array_elements(coalesce(${nagiPosts.embedImages}, '[]'::jsonb)) as image

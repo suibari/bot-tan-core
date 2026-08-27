@@ -47,6 +47,11 @@ test("匿名候補のSQLはCID・CW・自分・ミュートを再検証する", 
   assert.ok(text.includes("community_affirmation_dismissals"));
   assert.ok(text.includes("not exists"));
   assert.ok(text.includes('"reactions"'));
+  assert.ok(
+    query.params.every((param) => !(param instanceof Date)),
+    "timestamp parameters must be encoded through their Drizzle columns",
+  );
+  assert.ok(query.params.includes(now.toISOString()));
   assert.ok(query.params.includes("did:plc:muted"));
   assert.ok(
     query.params.includes("at://did:plc:owner/com.suibari.nagi.channel/one"),
