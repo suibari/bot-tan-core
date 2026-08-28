@@ -1,3 +1,5 @@
+import type { EmojiView, NagiPost } from "@bsky-affirmative-bot/nagi-lexicon";
+
 /**
  * AppView のサービス間通信用エンドポイントを叩くヘルパ。
  *
@@ -59,6 +61,7 @@ async function postInternalJson<T>(path: string, body: unknown): Promise<T> {
  */
 export function createKossoriReply(input: {
   text: string;
+  facets?: NagiPost["facets"];
   langs?: string[];
   createdAt?: string;
   reply: {
@@ -69,6 +72,18 @@ export function createKossoriReply(input: {
   rkey?: string;
 }): Promise<{ uri: string; cid: string }> {
   return postInternalJson("/internal/kossori-replies", input);
+}
+
+export type EmojiAliasRequest = { name: string; preferredUri?: string };
+
+/** 生成文のショートコードを、AppView が表示可能と判定した Bluemoji へ解決する。 */
+export async function resolveBluemojiAliases(
+  aliases: EmojiAliasRequest[],
+): Promise<Array<{ name: string; emoji?: EmojiView }>> {
+  const result = await postInternalJson<{
+    aliases: Array<{ name: string; emoji?: EmojiView }>;
+  }>("/internal/emoji/resolve-aliases", { aliases });
+  return result.aliases;
 }
 
 /**

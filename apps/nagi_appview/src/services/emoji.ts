@@ -4,7 +4,7 @@ import {
   type BluemojiItem,
   type EmojiView,
 } from "@bsky-affirmative-bot/nagi-lexicon";
-import { and, desc, eq, ilike, lt, or, sql } from "drizzle-orm";
+import { and, desc, eq, ilike, inArray, lt, or, sql } from "drizzle-orm";
 import {
   isNormalizedBluemojiFormats,
   normalizeBluemojiFormats,
@@ -14,8 +14,23 @@ import { ApiError } from "../middleware/errors.js";
 import { resolvePdsUrl } from "../util/pds.js";
 
 export type EmojiRow = typeof nagiEmojis.$inferSelect;
+export type EmojiAliasRequest = { name: string; preferredUri?: string };
+export type EmojiAliasResolution = { name: string; emoji?: EmojiView };
 // drizzle のトランザクションもこの形を満たすので、ingest からは tx を渡せる。
 type Executor = Pick<typeof db, "select" | "insert" | "update" | "delete">;
+
+const displayableEmoji = and(
+  eq(nagiEmojis.adultOnly, false),
+  sql<boolean>`
+    ${nagiEmojis.formats}->>'version' = '1'
+    and ${nagiEmojis.formats}->'asset'->>'kind' in ('blob', 'bytes')
+    and length(${nagiEmojis.formats}->'asset'->>'value') > 0
+    and (
+      ${nagiEmojis.formats}->'asset'->>'mediaType' like 'image/%'
+      or ${nagiEmojis.formats}->'asset'->>'mediaType' = 'application/lottie+zip'
+    )
+  `,
+)!;
 
 export function emojiView(row: EmojiRow): EmojiView | null {
   if (!isNormalizedBluemojiFormats(row.formats)) return null;
@@ -150,6 +165,51 @@ export async function getEmoji(uri: string) {
   return { emoji: view };
 }
 
+/**
+ * 同名候補が複数あるときは、返信元が実際に使った URI を最優先し、それ以外は
+ * ピッカー検索と同じ indexedAt / URI の降順で先頭を選ぶ。
+ */
+export function selectEmojiAliasResolutions(
+  requests: EmojiAliasRequest[],
+  candidates: EmojiView[],
+): EmojiAliasResolution[] {
+  return requests.map((request) => {
+    const emoji =
+      (request.preferredUri
+        ? candidates.find(
+            (candidate) =>
+              candidate.uri === request.preferredUri &&
+              candidate.name === request.name,
+          )
+        : undefined) ??
+      candidates.find((candidate) => candidate.name === request.name);
+    return { name: request.name, ...(emoji ? { emoji } : {}) };
+  });
+}
+
+/** botたんの生成文にあるエイリアスを、表示可能なインデックス済み絵文字へ一括解決する。 */
+export async function resolveEmojiAliases(
+  requests: EmojiAliasRequest[],
+): Promise<EmojiAliasResolution[]> {
+  if (!requests.length) return [];
+  const names = [...new Set(requests.map((request) => request.name))];
+  const preferredUris = [
+    ...new Set(requests.flatMap((request) => request.preferredUri ?? [])),
+  ];
+  const identity = preferredUris.length
+    ? or(inArray(nagiEmojis.name, names), inArray(nagiEmojis.uri, preferredUris))
+    : inArray(nagiEmojis.name, names);
+  const rows = await db
+    .select()
+    .from(nagiEmojis)
+    .where(and(displayableEmoji, identity))
+    .orderBy(desc(nagiEmojis.indexedAt), desc(nagiEmojis.uri));
+  return selectEmojiAliasResolutions(
+    requests,
+    rows.flatMap((row) => emojiView(row) ?? []),
+  );
+}
+
 export async function searchEmojis(params: {
   q?: string;
   repo?: string;
@@ -159,20 +219,8 @@ export async function searchEmojis(params: {
 }) {
   const { q, repo, excludeRepo, limit, cursor } = params;
   const conditions = [
-    // adultOnly の絵文字はピッカーに出さない（表示前の警告UIが無いため）。
-    eq(nagiEmojis.adultOnly, false),
-    // limit/cursor を適用した後に emojiView で旧形式行を落とすと、移行中は
-    // emojis=[] のまま cursor だけ返り、1ページしか読まないピッカーが空になる。
-    // 表示可能な正規化済み行だけをSQLページングの母集団にする。
-    sql<boolean>`
-      ${nagiEmojis.formats}->>'version' = '1'
-      and ${nagiEmojis.formats}->'asset'->>'kind' in ('blob', 'bytes')
-      and length(${nagiEmojis.formats}->'asset'->>'value') > 0
-      and (
-        ${nagiEmojis.formats}->'asset'->>'mediaType' like 'image/%'
-        or ${nagiEmojis.formats}->'asset'->>'mediaType' = 'application/lottie+zip'
-      )
-    `,
+    // adultOnly・旧形式・表示不能な資産はピッカーにもbotたんにも渡さない。
+    displayableEmoji,
   ];
   if (q)
     conditions.push(

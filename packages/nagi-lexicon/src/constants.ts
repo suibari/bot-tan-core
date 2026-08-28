@@ -129,6 +129,8 @@ export const NAGI = {
 
 /** Bluemoji (moji.blue) の絵文字定義レコード。カスタム絵文字はユーザー自身のPDSに置く。 */
 export const BLUEMOJI_ITEM = "blue.moji.collection.item";
+/** Nagi が本文・リアクションで扱う Bluemoji のコロン付きエイリアス。 */
+export const BLUEMOJI_NAME_RE = /^:[a-zA-Z0-9_-]{1,32}:$/;
 
 export const NAGI_LANGUAGES = [
   { code: "ar", name: "Arabic" },

@@ -2,6 +2,10 @@ import { RichText } from "@atproto/api";
 import { getLinkMetadata, getLinkThumbnail } from "@bsky-affirmative-bot/nagi-linkcard";
 import type { NagiPost } from "@bsky-affirmative-bot/nagi-lexicon";
 import { agent } from "./agent.js";
+import {
+  resolveNagiBluemojiFacets,
+  type EmojiResolver,
+} from "./nagiBluemojiFacets.js";
 
 // Nagi の lexicon 上、linkCards は最大 4 件。
 const MAX_LINK_CARDS = 4;
@@ -41,6 +45,27 @@ export function detectNagiFacets(text: string): { facets: NagiFacet[]; urls: str
     }
   }
   return { facets, urls };
+}
+
+/** リンク・タグに重ならない位置へBluemoji facetを加える、bot投稿共通のfacet生成。 */
+export async function buildNagiPostFacets(
+  text: string,
+  sourceFacets?: NagiPost["facets"],
+  resolver?: EmojiResolver,
+): Promise<{ facets: NagiFacet[]; urls: string[] }> {
+  const detected = detectNagiFacets(text);
+  const emojis = await resolveNagiBluemojiFacets(
+    text,
+    sourceFacets,
+    detected.facets,
+    resolver,
+  );
+  return {
+    facets: [...detected.facets, ...emojis].sort(
+      (a, b) => a.index.byteStart - b.index.byteStart,
+    ),
+    urls: detected.urls,
+  };
 }
 
 /**
@@ -101,9 +126,11 @@ export async function buildLinkCards(urls: string[]): Promise<NagiLinkCardRecord
  */
 export async function buildNagiPostAttachments(
   text: string,
+  sourceFacets?: NagiPost["facets"],
+  resolver?: EmojiResolver,
 ): Promise<{ facets?: NagiFacet[]; linkCards?: NagiLinkCardRecord[] }> {
   try {
-    const { facets, urls } = detectNagiFacets(text);
+    const { facets, urls } = await buildNagiPostFacets(text, sourceFacets, resolver);
     if (!facets.length) return {};
     const linkCards = await buildLinkCards(urls);
     return {

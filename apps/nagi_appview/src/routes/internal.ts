@@ -1,11 +1,16 @@
 import { Router } from "express";
 import { cidForCbor } from "@atproto/common";
 import { db, nagiNotifications } from "@bsky-affirmative-bot/database";
-import { NAGI, appviewRecordUri } from "@bsky-affirmative-bot/nagi-lexicon";
+import {
+  BLUEMOJI_NAME_RE,
+  NAGI,
+  appviewRecordUri,
+} from "@bsky-affirmative-bot/nagi-lexicon";
 import { config } from "../config.js";
 import { applyMutation } from "../ingest/applyMutation.js";
 import { createKossoriPost } from "../queries/kossoriPosts.js";
 import { dispatchPush } from "../services/pushDispatch.js";
+import { resolveEmojiAliases } from "../services/emoji.js";
 import {
   isNagiPostUri,
   normalizeSeedEntries,
@@ -22,6 +27,33 @@ import {
  * ⚠ このルーターを公開リスナー側に mount してはいけない。認可が消える。
  */
 export const internal = Router();
+
+/** botたんの生成文に含まれる Bluemoji エイリアスを投稿前に一括解決する。 */
+internal.post("/emoji/resolve-aliases", async (req, res, next) => {
+  try {
+    const aliases = req.body?.aliases;
+    if (
+      !Array.isArray(aliases) ||
+      aliases.length > 100 ||
+      aliases.some(
+        (alias) =>
+          !alias ||
+          typeof alias !== "object" ||
+          typeof alias.name !== "string" ||
+          !BLUEMOJI_NAME_RE.test(alias.name) ||
+          (alias.preferredUri !== undefined &&
+            (typeof alias.preferredUri !== "string" ||
+              !alias.preferredUri.startsWith("at://"))),
+      )
+    ) {
+      res.status(400).json({ error: "aliases must be valid Bluemoji names" });
+      return;
+    }
+    res.status(200).json({ aliases: await resolveEmojiAliases(aliases) });
+  } catch (e) {
+    next(e);
+  }
+});
 
 /**
  * 自動分析（名刺）の更新通知を作る。
@@ -122,6 +154,7 @@ internal.post("/kossori-replies", async (req, res, next) => {
     }
     const created = await createKossoriPost(config.botDid, {
       text,
+      ...(req.body?.facets !== undefined ? { facets: req.body.facets } : {}),
       langs: req.body?.langs,
       createdAt: req.body?.createdAt ?? new Date().toISOString(),
       reply,

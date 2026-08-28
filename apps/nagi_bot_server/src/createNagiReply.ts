@@ -31,6 +31,7 @@ import {
   loadNagiReplyAuthor,
 } from "./nagiReplyContext.js";
 import { publishNagiPost } from "./nagiPost.js";
+import { resolveNagiBluemojiFacets } from "./nagiBluemojiFacets.js";
 import type { NagiReplyMode } from "./nagiAiQuota.js";
 import { nagiAiRouteForAttempt } from "./nagiReplyRetry.js";
 import type { NagiAiRouteDetails } from "./nagiReplyRetry.js";
@@ -249,8 +250,13 @@ export async function createNagiReply(
   // rkey は PDS 側の putRecord と同じくソース由来で決め打ちし、ジョブのリトライで
   // 二重投稿にならないようにする（親と同じ authority なので接尾辞で衝突を避ける）。
   if (isAppviewOwnedUri(job.sourceUri)) {
+    const facets = await resolveNagiBluemojiFacets(
+      generated.comment,
+      Array.isArray(record.facets) ? record.facets : undefined,
+    );
     const created = await createKossoriReply({
       text: generated.comment,
+      ...(facets.length ? { facets } : {}),
       langs: [language.code],
       reply: replyRef,
       rkey: `${sourceRkey}-bot`,
@@ -266,6 +272,7 @@ export async function createNagiReply(
 
   const response = await publishNagiPost({
     text: generated.comment,
+    sourceFacets: Array.isArray(record.facets) ? record.facets : undefined,
     label: "NAGI_REPLY",
     rkey: sourceRkey,
     langs: [language.code],

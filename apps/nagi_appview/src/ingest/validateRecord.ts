@@ -1,5 +1,6 @@
 import {
   BLUEMOJI_ITEM,
+  BLUEMOJI_NAME_RE,
   NAGI,
   type BluemojiItem,
   type BluemojiFormats,
@@ -74,7 +75,7 @@ const facets = (value: unknown, text: string) => {
         return (
           did(feature.did) &&
           feature.name === label &&
-          BLUEMOJI_NAME.test(feature.name) &&
+          BLUEMOJI_NAME_RE.test(feature.name) &&
           feature.adultOnly !== true &&
           feature.formats?.$type === "blue.moji.richtext.facet#formats_v0"
         );
@@ -84,7 +85,7 @@ const facets = (value: unknown, text: string) => {
           feature.ref.uri.split("/")[3] === BLUEMOJI_ITEM &&
           feature.ref.uri.split("/")[2] === feature.did &&
           feature.name === label &&
-          BLUEMOJI_NAME.test(feature.name) &&
+          BLUEMOJI_NAME_RE.test(feature.name) &&
           typeof feature.mediaType === "string" &&
           (feature.mediaType.startsWith("image/") ||
             feature.mediaType === "application/lottie+zip") &&
@@ -121,8 +122,6 @@ const linkCard = (value: any) => {
         value.thumb.size <= 1_000_000))
   );
 };
-/** Nagi のリアクション参照で利用できる Bluemoji エイリアス。新規作成UIもこの範囲にする。 */
-const BLUEMOJI_NAME = /^:[a-zA-Z0-9_-]{1,32}:$/;
 const FORMATS_V0 = `${BLUEMOJI_ITEM}#formats_v0`;
 const CID = /^[a-zA-Z0-9]+$/;
 const blobAsset = (
@@ -228,7 +227,7 @@ const bluemojiRef = (value: any) =>
   typeof value?.cid === "string" &&
   /^[a-zA-Z0-9]+$/.test(value.cid) &&
   typeof value?.name === "string" &&
-  BLUEMOJI_NAME.test(value.name) &&
+  BLUEMOJI_NAME_RE.test(value.name) &&
   (value.alt === undefined ||
     (typeof value.alt === "string" && graphemes(value.alt) <= 100));
 

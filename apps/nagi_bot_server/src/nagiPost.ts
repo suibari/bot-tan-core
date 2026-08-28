@@ -3,6 +3,7 @@ import { agent } from "./agent.js";
 import { trackedCreateRecord, trackedPutRecord } from "@bsky-affirmative-bot/clients";
 import { buildNagiPostAttachments } from "./nagiLinkCards.js";
 import { clipNagiPostText } from "./nagiPostText.js";
+import type { EmojiResolver } from "./nagiBluemojiFacets.js";
 
 type NagiPostFields = Omit<
   NagiPost,
@@ -11,6 +12,8 @@ type NagiPostFields = Omit<
 
 export type PublishNagiPostRequest = NagiPostFields & {
   text: string;
+  /** 返信元が実際に使った同名Bluemojiを優先解決するためのfacet。レコード自体には複製しない。 */
+  sourceFacets?: NagiPost["facets"];
   /** ログ上で本文切り詰めの発生元を識別するラベル。 */
   label?: string;
   /** 指定時は同じ rkey へ putRecord、未指定時は createRecord する。 */
@@ -21,19 +24,23 @@ export type PublishNagiPostRequest = NagiPostFields & {
  * botたんが作る Nagi 投稿の共通レコード生成経路。
  * facet のバイト位置を本文と一致させるため、切り詰め後に必ず自動検出する。
  */
-export async function buildNagiPostRecord({
-  text: sourceText,
-  label = "NAGI_POST",
-  rkey: _rkey,
-  ...fields
-}: PublishNagiPostRequest): Promise<NagiPost> {
+export async function buildNagiPostRecord(
+  {
+    text: sourceText,
+    sourceFacets,
+    label = "NAGI_POST",
+    rkey: _rkey,
+    ...fields
+  }: PublishNagiPostRequest,
+  resolver?: EmojiResolver,
+): Promise<NagiPost> {
   const text = clipNagiPostText(sourceText, label);
   return {
     $type: NAGI.post,
     text,
     createdAt: new Date().toISOString(),
     ...fields,
-    ...(await buildNagiPostAttachments(text)),
+    ...(await buildNagiPostAttachments(text, sourceFacets, resolver)),
   };
 }
 

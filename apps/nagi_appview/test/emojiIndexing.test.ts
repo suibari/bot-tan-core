@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { indexEmoji } from "../src/services/emoji.js";
+import type { EmojiView } from "@bsky-affirmative-bot/nagi-lexicon";
+import {
+  indexEmoji,
+  selectEmojiAliasResolutions,
+} from "../src/services/emoji.js";
 
 type StoredEmoji = {
   uri: string;
@@ -102,4 +106,30 @@ test("updates the current value of an existing Bluemoji URI", async () => {
 
   assert.equal(target.rows.get(uri)?.cid, "bafyreinew");
   assert.equal(target.rows.get(uri)?.name, ":thanks:");
+});
+
+test("resolves an alias to the source URI before the newest same-name candidate", () => {
+  const emoji = (uri: string, name = ":thx:"): EmojiView => ({
+    uri,
+    cid: `bafy${uri.slice(-3)}`,
+    did: uri.split("/")[2],
+    name,
+    url: "/api/emoji-asset/test",
+    mediaType: "image/webp",
+  });
+  const newest = emoji("at://did:plc:new/blue.moji.collection.item/new");
+  const source = emoji("at://did:plc:source/blue.moji.collection.item/src");
+
+  const resolved = selectEmojiAliasResolutions(
+    [
+      { name: ":thx:", preferredUri: source.uri },
+      { name: ":thx:" },
+      { name: ":missing:" },
+    ],
+    [newest, source],
+  );
+
+  assert.equal(resolved[0].emoji?.uri, source.uri);
+  assert.equal(resolved[1].emoji?.uri, newest.uri);
+  assert.equal(resolved[2].emoji, undefined);
 });
