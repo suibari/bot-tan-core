@@ -270,6 +270,11 @@ export function validateRecord(
     if (value.botSilent !== undefined && typeof value.botSilent !== "boolean")
       return false;
     if (
+      value.silentReply !== undefined &&
+      typeof value.silentReply !== "boolean"
+    )
+      return false;
+    if (
       value.cwRestricted !== undefined &&
       typeof value.cwRestricted !== "boolean"
     )

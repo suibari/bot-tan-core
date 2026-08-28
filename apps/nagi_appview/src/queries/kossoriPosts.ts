@@ -134,6 +134,7 @@ export type CreateKossoriPostInput = {
   langs?: unknown;
   createdAt: unknown;
   botSilent?: unknown;
+  silentReply?: unknown;
   reply?: {
     root: { uri: string; cid: string };
     parent: { uri: string; cid: string };
@@ -160,6 +161,7 @@ export async function createKossoriPost(
     createdAt: input.createdAt,
     kossori: true,
     ...(input.botSilent === true ? { botSilent: true } : {}),
+    ...(input.reply && input.silentReply === true ? { silentReply: true } : {}),
     ...(input.reply ? { reply: input.reply } : {}),
   };
   if (!validateRecord(NAGI.post, record))

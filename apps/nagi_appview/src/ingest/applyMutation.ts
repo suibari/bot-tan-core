@@ -30,6 +30,10 @@ import { indexEmoji, resolveEmoji, type EmojiRow } from "../services/emoji.js";
 import { dispatchPushAll, type PushJob } from "../services/pushDispatch.js";
 import { postPushBody } from "../services/pushPayload.js";
 import {
+  mentionNotificationRecipients,
+  shouldNotifyReply,
+} from "../util/notificationPolicy.js";
+import {
   shouldStartEnglishPrewarm,
   startEnglishPrewarm,
 } from "../services/translation.js";
@@ -942,51 +946,55 @@ export async function applyMutation(
           )
           .limit(1);
         if (parent[0] && parent[0].did !== did) {
+          // サイレント時も返信先を覚え、同じ相手への mention 通知へ迂回させない。
           replyRecipientDid = parent[0].did;
-          const inserted = await tx
-            .insert(nagiNotifications)
-            .values({
-              recipientDid: parent[0].did,
-              type: "reply",
-              actorDid: did,
-              subjectUri: parent[0].uri,
-              reasonUri: uri,
-            })
-            .onConflictDoNothing()
-            .returning({ id: nagiNotifications.id });
-          if (inserted.length)
-            pushJobs.push({
-              recipientDid: parent[0].did,
-              type: "reply",
-              actorDid: did,
-              notificationId: inserted[0].id,
-              contentText: postPushBody({
-                text: value.text,
-                contentWarning: hasContentWarning(value.text),
-                hasImages: Array.isArray(value.embed?.images),
-                hasQuote: value.embed?.$type === `${NAGI.post}#quote`,
-              }),
-            });
+          if (shouldNotifyReply(value)) {
+            const inserted = await tx
+              .insert(nagiNotifications)
+              .values({
+                recipientDid: parent[0].did,
+                type: "reply",
+                actorDid: did,
+                subjectUri: parent[0].uri,
+                reasonUri: uri,
+              })
+              .onConflictDoNothing()
+              .returning({ id: nagiNotifications.id });
+            if (inserted.length)
+              pushJobs.push({
+                recipientDid: parent[0].did,
+                type: "reply",
+                actorDid: did,
+                notificationId: inserted[0].id,
+                contentText: postPushBody({
+                  text: value.text,
+                  contentWarning: hasContentWarning(value.text),
+                  hasImages: Array.isArray(value.embed?.images),
+                  hasQuote: value.embed?.$type === `${NAGI.post}#quote`,
+                }),
+              });
+          }
         }
       }
       if (collection === NAGI.post && Array.isArray(value.facets)) {
-        const mentionedDids = [
-          ...new Set<string>(
-            value.facets.flatMap((facet: any) =>
-              Array.isArray(facet?.features)
-                ? facet.features
-                    .filter(
-                      (feature: any) =>
-                        feature?.$type === "app.bsky.richtext.facet#mention" &&
-                        typeof feature.did === "string",
-                    )
-                    .map((feature: any) => feature.did as string)
-                : [],
+        const mentionedDids = mentionNotificationRecipients(
+          [
+            ...new Set<string>(
+              value.facets.flatMap((facet: any) =>
+                Array.isArray(facet?.features)
+                  ? facet.features
+                      .filter(
+                        (feature: any) =>
+                          feature?.$type === "app.bsky.richtext.facet#mention" &&
+                          typeof feature.did === "string",
+                      )
+                      .map((feature: any) => feature.did as string)
+                  : [],
+              ),
             ),
-          ),
-        ].filter(
-          (recipientDid) =>
-            recipientDid !== did && recipientDid !== replyRecipientDid,
+          ],
+          did,
+          replyRecipientDid,
         );
         if (mentionedDids.length) {
           const profiles = await tx

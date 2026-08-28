@@ -23,6 +23,10 @@
             },
             "createdAt": { "type": "string", "format": "datetime" },
             "botSilent": { "type": "boolean" },
+            "silentReply": {
+              "type": "boolean",
+              "description": "true の返信は直接の返信先へ通知しない。返信以外では効果を持たない。"
+            },
             "reply": {
               "type": "ref",
               "ref": "com.suibari.nagi.post#replyRef",
