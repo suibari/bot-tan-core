@@ -579,6 +579,9 @@ xrpc.get(
     try {
       const uri = String(req.query.uri ?? "");
       if (!uri) throw new ApiError(400, "invalid_request", "uri is required");
+      const filter = String(req.query.filter ?? "posts");
+      if (!["posts", "media"].includes(filter))
+        throw new ApiError(400, "invalid_request", "Invalid filter");
       res
         .set(
           "Cache-Control",
@@ -590,6 +593,7 @@ xrpc.get(
             limit: limit(req.query.limit),
             cursor: String(req.query.cursor ?? "") || undefined,
             viewerDid: req.viewerDid,
+            filter: filter as "posts" | "media",
           }),
         );
     } catch (e) {

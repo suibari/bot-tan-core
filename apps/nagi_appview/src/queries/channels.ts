@@ -387,12 +387,18 @@ export function getChannelTimeline(opts: {
   limit: number;
   cursor?: string;
   viewerDid?: string;
+  /** media はメディアグリッド用。画像付き投稿だけを投稿単位で返す。 */
+  filter?: "posts" | "media";
 }) {
+  const media = opts.filter === "media";
   return getTimeline({
     limit: opts.limit,
     cursor: opts.cursor,
     viewerDid: opts.viewerDid,
     channelUri: opts.uri,
-    group: true,
+    ...(media ? { filter: "media" as const } : {}),
+    // グリッドは1画像1タイルなので、スレッドの代表1件に畳む会話グループ化は使わない。
+    // 畳むと同じスレッドの2枚目以降の画像が落ちてしまう。
+    group: !media,
   });
 }

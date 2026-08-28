@@ -9,6 +9,12 @@
         "required": ["uri"],
         "properties": {
           "uri": { "type": "string" },
+          "filter": {
+            "type": "string",
+            "knownValues": ["posts", "media"],
+            "default": "posts",
+            "description": "media returns image-bearing posts one row each (no conversation grouping), for the media grid."
+          },
           "limit": { "type": "integer", "minimum": 1, "maximum": 100, "default": 50 },
           "cursor": { "type": "string" }
         }
