@@ -232,6 +232,7 @@ export function diaryView(
       createdAt: row.recordCreatedAt.toISOString(),
       indexedAt: row.indexedAt.toISOString(),
     };
+  const canReadInvolvedActors = row.subjectDid === viewerDid;
   return {
     uri: row.uri,
     cid: row.cid,
@@ -242,8 +243,13 @@ export function diaryView(
     titleEn: row.titleEn ?? undefined,
     postCount: row.postCount ?? undefined,
     isPrivate: row.isPrivate || undefined,
-    involvedActors: involvedActors?.length ? involvedActors : undefined,
-    involvedActorsHasMore: involvedActorsHasMore || undefined,
+    // リアクション・返信・引用から作る関係性情報は、日記本文が公開でも本人限定。
+    involvedActors:
+      canReadInvolvedActors && involvedActors?.length
+        ? involvedActors
+        : undefined,
+    involvedActorsHasMore:
+      (canReadInvolvedActors && involvedActorsHasMore) || undefined,
     langs: (row.langs as string[] | null) ?? undefined,
     createdAt: row.recordCreatedAt.toISOString(),
     indexedAt: row.indexedAt.toISOString(),
@@ -303,6 +309,13 @@ export async function getDiaries(opts: {
       )
       .orderBy(asc(nagiDiaries.diaryDate));
     if (!rows.length) return { items: [], hasMore: false };
+
+    // 「この日のつながり」は本人用。第三者には返さず、集計クエリ自体も走らせない。
+    if (opts.viewerDid !== opts.actor)
+      return {
+        items: rows.map((row) => diaryView(row, opts.viewerDid)),
+        hasMore: false,
+      };
 
     const windows = rows.map((row) => diaryInteractionWindow(row));
     const start = new Date(

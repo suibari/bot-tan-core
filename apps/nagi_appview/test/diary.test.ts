@@ -52,7 +52,7 @@ test("rejects invalid post counts", () => {
   }
 });
 
-test("diary view exposes activity and involved actors without legacy emoji", () => {
+test("diary view exposes involved actors only to the diary owner", () => {
   const base = {
     uri: "at://did:plc:bot/com.suibari.nagi.diary/alice-2026-08-02",
     cid: "bafyreidiary",
@@ -89,17 +89,30 @@ test("diary view exposes activity and involved actors without legacy emoji", () 
   );
 
   const involved = [{ did: "did:plc:bob", handle: "bob.test" }];
-  const view = diaryView(
+  const hiddenView = diaryView(
     { ...base, emoji: "🍜🚃🎸", postCount: 4 },
     undefined,
+    involved,
+  );
+  assert.equal(hiddenView.postCount, 4);
+  assert.equal(hiddenView.involvedActors, undefined);
+  assert.equal(hiddenView.involvedActorsHasMore, undefined);
+
+  const view = diaryView(
+    { ...base, emoji: "🍜🚃🎸", postCount: 4 },
+    base.subjectDid,
     involved,
   );
   assert.equal(view.postCount, 4);
   assert.deepEqual(view.involvedActors, involved);
   assert.equal(view.involvedActorsHasMore, undefined);
   assert.equal(
-    diaryView({ ...base, emoji: null, postCount: 4 }, undefined, involved, true)
-      .involvedActorsHasMore,
+    diaryView(
+      { ...base, emoji: null, postCount: 4 },
+      base.subjectDid,
+      involved,
+      true,
+    ).involvedActorsHasMore,
     true,
   );
   assert.equal("emoji" in view, false);

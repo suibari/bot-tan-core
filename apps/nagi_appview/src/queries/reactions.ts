@@ -4,6 +4,7 @@ import {
   nagiEmojis,
   nagiProfiles,
   nagiReactions,
+  nagiPosts,
 } from "@bsky-affirmative-bot/database";
 import type { ReactionView } from "@bsky-affirmative-bot/nagi-lexicon";
 import { desc, eq, inArray } from "drizzle-orm";
@@ -23,6 +24,7 @@ export async function getReactionViews(
       emoji: nagiReactions.emoji,
       emojiKey: nagiReactions.emojiKey,
       emojiUri: nagiReactions.emojiUri,
+      subjectDid: nagiPosts.did,
       did: nagiReactions.did,
       uri: nagiReactions.uri,
       handle: nagiActors.handle,
@@ -31,6 +33,7 @@ export async function getReactionViews(
       emojiItem: nagiEmojis,
     })
     .from(nagiReactions)
+    .leftJoin(nagiPosts, eq(nagiPosts.uri, nagiReactions.subjectUri))
     .leftJoin(nagiActors, eq(nagiActors.did, nagiReactions.did))
     .leftJoin(nagiProfiles, eq(nagiProfiles.did, nagiReactions.did))
     .leftJoin(nagiEmojis, eq(nagiEmojis.uri, nagiReactions.emojiUri))

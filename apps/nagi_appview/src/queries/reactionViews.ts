@@ -8,6 +8,7 @@ export type ReactionViewRow = {
   emoji: string;
   emojiKey: string;
   emojiUri: string | null;
+  subjectDid: string | null;
   did: string;
   uri: string;
   handle: string | null;
@@ -39,16 +40,26 @@ export function groupReactionViews(
       };
       subject.set(row.emojiKey, item);
     }
-    if (item.reactors.length < 5) {
-      item.reactors.push({
-        did: row.did,
-        handle: row.handle ?? row.did,
-        displayName: row.displayName ?? undefined,
-        avatar: row.avatarCid
-          ? `/api/blob/${encodeURIComponent(row.did)}/${row.avatarCid}`
-          : undefined,
-      });
-    } else {
+    // 誰が誰へ頻繁に反応しているかを第三者が追跡できないよう、送信者の一覧は
+    // リアクションを受け取った投稿者本人にだけ返す。ニュースなど投稿者を持たない
+    // subject も匿名側に倒す。
+    const canSeeReactors = Boolean(viewerDid && row.subjectDid === viewerDid);
+    if (canSeeReactors) {
+      if (item.reactors.length < 5) {
+        item.reactors.push({
+          did: row.did,
+          handle: row.handle ?? row.did,
+          displayName: row.displayName ?? undefined,
+          avatar: row.avatarCid
+            ? `/api/blob/${encodeURIComponent(row.did)}/${row.avatarCid}`
+            : undefined,
+        });
+      } else {
+        item.hasMoreReactors = true;
+      }
+    } else if (!viewerDid || row.did !== viewerDid) {
+      // 人数は公開しない。自分が解除した後にも匿名の反応が残るかどうかだけを、
+      // 楽観更新が絵文字グループを誤って消さないための既存フラグで保持する。
       item.hasMoreReactors = true;
     }
     if (viewerDid && row.did === viewerDid) {

@@ -111,6 +111,10 @@ export async function getReactedFeed(opts: {
   viewerDid?: string;
   lang: NewsLang;
 }) {
+  // 他人のプロフィールから「誰が誰へ反応したか」を時系列で追えないよう、
+  // リアクション履歴は本人にだけ返す。古いクライアントにも安全な空ページで応答する。
+  if (!canReadReactionHistory(opts.actorDid, opts.viewerDid))
+    return { items: [], hasMore: false };
   const point = decodeCursor(opts.cursor);
   const eligiblePost = exists(
     db
@@ -269,3 +273,8 @@ export async function getReactedFeed(opts: {
     hasMore: rows.length > opts.limit,
   };
 }
+
+export const canReadReactionHistory = (
+  actorDid: string,
+  viewerDid?: string,
+): boolean => actorDid === viewerDid;

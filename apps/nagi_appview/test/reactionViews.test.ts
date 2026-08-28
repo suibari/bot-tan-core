@@ -14,6 +14,7 @@ const row = (
   emoji: "🎉",
   emojiKey: "🎉",
   emojiUri: null,
+  subjectDid: "did:example:author",
   did,
   uri: `at://${did}/com.suibari.nagi.reaction/reaction`,
   handle: null,
@@ -22,7 +23,7 @@ const row = (
   ...overrides,
 });
 
-test("groups reactions, caps visible actors, and retains viewer removal state", () => {
+test("hides reactor identities from third parties while retaining viewer removal state", () => {
   const viewerDid = "did:example:viewer";
   const rows = [
     ...Array.from({ length: 5 }, (_, index) => row(`did:example:${index}`)),
@@ -32,14 +33,48 @@ test("groups reactions, caps visible actors, and retains viewer removal state", 
     .get(rows[0].subjectUri)
     ?.at(0);
 
-  assert.equal(reaction?.reactors.length, 5);
+  assert.deepEqual(reaction?.reactors, []);
   assert.equal(reaction?.hasMoreReactors, true);
   assert.equal(reaction?.reactedByMe, true);
   assert.equal(reaction?.viewerReactionUri, rows[5].uri);
-  assert.equal(
-    reaction?.reactors.some((actor) => actor.did === viewerDid),
-    false,
+});
+
+test("shows capped reactor identities only to the receiving post author", () => {
+  const viewerDid = "did:example:author";
+  const rows = Array.from({ length: 6 }, (_, index) =>
+    row(`did:example:${index}`),
   );
+  const reaction = groupReactionViews(rows, viewerDid)
+    .get(rows[0].subjectUri)
+    ?.at(0);
+
+  assert.equal(reaction?.reactors.length, 5);
+  assert.equal(reaction?.hasMoreReactors, true);
+  assert.equal(reaction?.reactedByMe, undefined);
+});
+
+test("does not expose reactor identities for anonymous or non-post subjects", () => {
+  for (const viewerDid of [undefined, "did:example:viewer"]) {
+    const reaction = groupReactionViews([
+      row("did:example:reactor", { subjectDid: null }),
+    ], viewerDid)
+      .values()
+      .next().value?.[0];
+
+    assert.deepEqual(reaction?.reactors, []);
+    assert.equal(reaction?.hasMoreReactors, true);
+  }
+});
+
+test("marks a third party viewer's lone reaction without inventing anonymous others", () => {
+  const viewerDid = "did:example:viewer";
+  const reaction = groupReactionViews([row(viewerDid)], viewerDid)
+    .values()
+    .next().value?.[0];
+
+  assert.deepEqual(reaction?.reactors, []);
+  assert.equal(reaction?.hasMoreReactors, undefined);
+  assert.equal(reaction?.reactedByMe, true);
 });
 
 test("keeps custom emoji and subjects in separate groups", () => {
