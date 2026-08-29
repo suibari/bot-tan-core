@@ -221,3 +221,17 @@ test("会話由来のテーマを検索由来作品とは別セクションで�
   assert.match(prompt, /みんなとのやりとりで印象に残ったもの/);
   assert.match(prompt, /作品B/);
 });
+
+test("日次予定プロンプトはbotDateから曜日を確定する", () => {
+  const prompt = buildDailyPlanPrompt({
+    botDate: "2026-08-29",
+    isWeekend: true,
+    companion: "ひとり",
+    whatDay: ["焼き肉の日"],
+    eventSamples: {},
+    worksSection: "",
+  });
+
+  assert.match(prompt, /2026-08-29（土曜日・休日）/);
+  assert.doesNotMatch(prompt, /金曜日/);
+});

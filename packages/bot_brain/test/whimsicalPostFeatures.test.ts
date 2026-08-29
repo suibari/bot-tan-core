@@ -92,6 +92,24 @@ test("botContext が無ければ記憶の節は付かない", () => {
   assert.match(prompt, /Do not contradict the activity history/);
 });
 
+test("企画プロンプトはJSTの正しい曜日を明示する", () => {
+  const prompt = buildWhimsicalPlanPrompt({
+    params: {
+      langStr: "日本語",
+      currentMood: "くつろいでいます",
+      now: new Date("2026-08-29T10:12:00Z"),
+    },
+    history: [],
+    whatDay: ["焼き肉の日"],
+    positiveNewsCandidates: [],
+    botFunction: "占い",
+  });
+
+  assert.match(prompt, /2026年8月29日（土曜日）19時12分/);
+  assert.match(prompt, /weekday.*authoritative/i);
+  assert.doesNotMatch(prompt, /プレミアムフライデー/);
+});
+
 const youtubeLive = {
   url: "https://www.youtube.com/watch?v=today-live",
   scheduledStartAt: new Date("2026-08-22T12:00:00.000Z"), // JST 21:00

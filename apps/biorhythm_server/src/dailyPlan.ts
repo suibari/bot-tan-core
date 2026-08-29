@@ -9,7 +9,8 @@ import {
   BOT_TASTE_BRIEF_JA,
   SYSTEM_INSTRUCTION,
   botDayRange,
-  getWhatDay,
+  getWhatDayForCalendarDate,
+  getWeekdayJaForCalendarDate,
   type Status,
 } from "@bsky-affirmative-bot/shared-configs";
 import { Type } from "@google/genai";
@@ -243,10 +244,12 @@ export function buildDailyPlanPrompt(input: {
   worksSection: string;
   memoryImpressionsSection?: string;
 }): string {
+  const [year, month, date] = input.botDate.split("-").map(Number);
+  const weekday = getWeekdayJaForCalendarDate(year, month, date);
   return `全肯定botたんの「今日1日の予定」を立ててください。
 各 step の細かい描写はこのあと別のAIが担当します。あなたはその素材になる骨組みだけを作ります。
 
-今日: ${input.botDate}（${input.isWeekend ? "休日" : "平日"}）
+今日: ${input.botDate}（${weekday}・${input.isWeekend ? "休日" : "平日"}）
 今日はなんの日: ${JSON.stringify(input.whatDay)}
 
 # 出力するもの
@@ -335,11 +338,12 @@ export async function ensureDailyPlan(
       }),
     ]);
     const memoryImpressions = selectDailyMemoryImpressions(memoryCandidates, botDate);
+    const [year, month, date] = botDate.split("-").map(Number);
     const basePrompt = buildDailyPlanPrompt({
       botDate,
       isWeekend: input.isWeekend,
       companion,
-      whatDay: getWhatDay(),
+      whatDay: getWhatDayForCalendarDate(year, month, date),
       eventSamples: input.eventSamples,
       worksSection: buildSeasonalWorksSection(works, now),
       memoryImpressionsSection: buildMemoryImpressionsSection(memoryImpressions),

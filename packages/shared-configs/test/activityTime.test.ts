@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { formatJstActivityTime } from "../src/util/common.js";
+import {
+  formatJstActivityTime,
+  getFullDateAndTimeString,
+  getWhatDayForCalendarDate,
+} from "../src/util/common.js";
 
 const now = new Date("2026-08-10T05:00:00Z"); // JST 8/10 14:00
 
@@ -67,4 +71,54 @@ test("サーバーのタイムゾーンに依存しない", () => {
     if (original === undefined) delete process.env.TZ;
     else process.env.TZ = original;
   }
+});
+
+test("現在日時はJSTの曜日を明示し、サーバーのタイムゾーンに依存しない", () => {
+  // UTCでは8/28だが、JSTでは土曜日の8/29。
+  assert.equal(
+    getFullDateAndTimeString(new Date("2026-08-28T15:30:00Z")),
+    "2026年8月29日（土曜日）0時30分",
+  );
+});
+
+test("プレミアムフライデーは対象年の月末金曜日だけに加える", () => {
+  assert.equal(
+    getWhatDayForCalendarDate(2025, 8, 29).includes("プレミアムフライデー"),
+    true,
+  );
+  assert.equal(
+    getWhatDayForCalendarDate(2026, 8, 29).includes("プレミアムフライデー"),
+    false,
+  );
+  assert.equal(
+    getWhatDayForCalendarDate(2026, 8, 28).includes("プレミアムフライデー"),
+    true,
+  );
+});
+
+test("11月の曜日依存記念日はそれぞれの規則で年ごとに判定する", () => {
+  const greenFriday = getWhatDayForCalendarDate(2024, 11, 22);
+  const blackFriday = getWhatDayForCalendarDate(2024, 11, 29);
+  assert.equal(greenFriday.includes("グリーンフライデー"), true);
+  assert.equal(greenFriday.includes("ブラックフライデー"), false);
+  assert.equal(blackFriday.includes("ブラックフライデー"), true);
+  assert.equal(blackFriday.includes("グリーンフライデー"), false);
+});
+
+test("2025年に固定されていた祝日と家族の日を対象年から算出する", () => {
+  const cases: Array<[number, number, string]> = [
+    [1, 12, "成人の日"],
+    [3, 20, "春分の日"],
+    [5, 10, "母の日"],
+    [6, 21, "父の日"],
+    [7, 20, "海の日"],
+    [9, 21, "敬老の日"],
+    [9, 23, "秋分の日"],
+    [10, 12, "スポーツの日"],
+  ];
+  for (const [month, date, name] of cases) {
+    assert.equal(getWhatDayForCalendarDate(2026, month, date).includes(name), true, name);
+  }
+  assert.equal(getWhatDayForCalendarDate(2026, 1, 13).includes("成人の日"), false);
+  assert.equal(getWhatDayForCalendarDate(2026, 5, 11).includes("母の日"), false);
 });
