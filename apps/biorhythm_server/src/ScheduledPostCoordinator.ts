@@ -303,9 +303,13 @@ async function snapshotDailyMetrics(currentFollowers: number) {
     MemoryService.getNagiStats(),
   ]);
 
+  // クラウド（Gemini）とローカル（Ollama）は別カウンタ。合算しない。
   const rpd = daily.rpd ?? 0;
   const rpdError = daily.rpdError ?? 0;
   const requests = rpd + rpdError;
+  const localRpd = daily.localRpd ?? 0;
+  const localRpdError = daily.localRpdError ?? 0;
+  const localRequests = localRpd + localRpdError;
 
   await MemoryService.saveDailyMetrics(jstDate(), {
     bsky: {
@@ -328,9 +332,14 @@ async function snapshotDailyMetrics(currentFollowers: number) {
       totalChannels: nagi.totalChannels,
     },
     common: {
+      // aiRequests は移行前からクラウド(Gemini)のみを数えている。推移の意味を変えない
+      // ため、ローカル分は合算せず別キーで足す。
       aiRequests: rpd,
       aiErrors: rpdError,
       aiErrorRate: requests > 0 ? rpdError / requests : 0,
+      localAiRequests: localRpd,
+      localAiErrors: localRpdError,
+      localAiErrorRate: localRequests > 0 ? localRpdError / localRequests : 0,
     },
   });
 }

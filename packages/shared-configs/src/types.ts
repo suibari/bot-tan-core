@@ -281,8 +281,12 @@ export interface DailyReport {
   /** おすすめ投稿がどちらのネットワークのものか。 */
   topPostNetwork: 'bsky' | 'nagi';
   bskyrate: number;
+  /** クラウドLLM（Gemini）の呼び出し数。Geminiの日次上限判定に使うので混ぜないこと。 */
   rpd: number;
   rpdError: number;
+  /** ローカルLLM（Ollama）の呼び出し数。課金枠を消費しないので上限判定には使わない。 */
+  localRpd: number;
+  localRpdError: number;
   lastInitializedDate: string;
 }
 
@@ -301,7 +305,11 @@ export interface Stats {
   recap: number;
   lang: Map<LanguageName, number>;
   bskyrate: number;
+  /** クラウドLLM（Gemini）の呼び出し数。Geminiの日次上限判定に使うので混ぜないこと。 */
   rpd: number;
   rpdError: number;
+  /** ローカルLLM（Ollama）の呼び出し数。課金枠を消費しないので上限判定には使わない。 */
+  localRpd: number;
+  localRpdError: number;
 }
 export type Status = 'WakeUp' | 'Study' | 'FreeTime' | 'Relax' | 'Sleep';

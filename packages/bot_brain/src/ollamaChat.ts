@@ -4,6 +4,7 @@ import {
   ollamaNativeUrl,
 } from "@bsky-affirmative-bot/shared-configs";
 import type { AiFeatureKey } from "@bsky-affirmative-bot/shared-configs";
+import { reportAiCallAsync } from "./gemini/aiCallStats.js";
 
 export type OllamaMessage = { role: string; content: string };
 
@@ -40,23 +41,30 @@ export async function ollamaChat(
 ): Promise<string> {
   const baseUrl = process.env.OLLAMA_BASE_URL;
   if (!isOllamaConfigured()) throw new Error("Ollama is not configured");
-  const response = await fetch(`${ollamaNativeUrl(baseUrl!)}/api/chat`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: aiModel(feature),
-      messages,
-      stream: false,
-      think: false,
-      options: {
-        num_ctx: OLLAMA_TEXT_CONTEXT_LENGTH,
-        temperature: options.temperature ?? 0,
-        num_predict: options.maxTokens,
-      },
-    }),
-    signal: AbortSignal.timeout(options.timeoutMs ?? 30_000),
-  });
-  if (!response.ok) throw new Error(`Ollama HTTP ${response.status}`);
-  const data = (await response.json()) as any;
-  return (data?.message?.content ?? "").trim();
+  // ここは generateContentForProvider を通らないので、呼び出し回数を自分で数える。
+  try {
+    const response = await fetch(`${ollamaNativeUrl(baseUrl!)}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: aiModel(feature),
+        messages,
+        stream: false,
+        think: false,
+        options: {
+          num_ctx: OLLAMA_TEXT_CONTEXT_LENGTH,
+          temperature: options.temperature ?? 0,
+          num_predict: options.maxTokens,
+        },
+      }),
+      signal: AbortSignal.timeout(options.timeoutMs ?? 30_000),
+    });
+    if (!response.ok) throw new Error(`Ollama HTTP ${response.status}`);
+    const data = (await response.json()) as any;
+    reportAiCallAsync("ollama", "ok");
+    return (data?.message?.content ?? "").trim();
+  } catch (error) {
+    reportAiCallAsync("ollama", "error");
+    throw error;
+  }
 }

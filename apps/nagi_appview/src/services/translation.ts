@@ -1,4 +1,5 @@
 import {
+  MemoryService,
   db,
   nagiPosts,
   nagiTranslations,
@@ -280,6 +281,19 @@ type TranslationRequestDependencies = {
   sleep?: (milliseconds: number) => Promise<void>;
   now?: () => number;
   log?: (message: string) => void;
+  /** ローカルLLMの呼び出し回数の計上。テストは no-op を渡してDBへ触らせない。 */
+  reportCall?: (outcome: "ok" | "error") => void;
+};
+
+/**
+ * 翻訳はダッシュボードの「ローカルLLM呼び出し数」に入る。クラウド側の `rpd` とは
+ * 別カウンタで、Geminiの日次上限判定には影響しない。
+ */
+const defaultReportCall = (outcome: "ok" | "error") => {
+  void MemoryService.incrementStats(
+    outcome === "ok" ? "localRpd" : "localRpdError",
+    1,
+  ).catch(() => {});
 };
 
 const wait = (milliseconds: number) =>
@@ -296,6 +310,7 @@ export async function requestTranslationWithRetry(
   const sleep = dependencies.sleep ?? wait;
   const now = dependencies.now ?? Date.now;
   const log = dependencies.log ?? console.warn;
+  const reportAiCall = dependencies.reportCall ?? defaultReportCall;
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     const startedAt = now();
     try {
@@ -321,6 +336,7 @@ export async function requestTranslationWithRetry(
             signal: AbortSignal.timeout(30_000),
           });
         } catch (error) {
+          reportAiCall("error");
           const reason =
             error instanceof Error &&
             (error.name === "TimeoutError" || error.name === "AbortError")
@@ -333,6 +349,7 @@ export async function requestTranslationWithRetry(
           );
         }
         if (!response.ok) {
+          reportAiCall("error");
           const isClientError = response.status >= 400 && response.status < 500;
           throw new TranslationGenerationError(
             "upstream_unavailable",
@@ -340,6 +357,9 @@ export async function requestTranslationWithRetry(
             !isClientError,
           );
         }
+        // 応答が返った時点でローカルLLMの呼び出しは成立している。この先の解析失敗は
+        // 出力の問題なので、呼び出し回数としては成功に数える。
+        reportAiCall("ok");
         let data: any;
         try {
           data = await response.json();

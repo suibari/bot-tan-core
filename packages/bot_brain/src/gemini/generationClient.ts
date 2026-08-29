@@ -3,6 +3,7 @@ import {
   type AiProvider,
 } from "@bsky-affirmative-bot/shared-configs";
 import { gemini } from "./googleClient.js";
+import { reportAiCallAsync } from "./aiCallStats.js";
 
 type Message = {
   role: "system" | "user" | "assistant";
@@ -202,10 +203,26 @@ export async function generateOllamaContent(params: any): Promise<any> {
   };
 }
 
+/**
+ * 生成の唯一の出口。クラウド／ローカルの呼び出し回数をここで数える。
+ *
+ * 呼び出し側（util.ts の再試行ラッパ、conversation、routedGeneration、grounding の
+ * planner と Gemini 調査）で個別に数えると、経路が増えるたびに数え漏れと二重計上が
+ * 起きる。実際、移行直後は grounding の Gemini 呼び出しが誰にも数えられていなかった。
+ */
 export async function generateContentForProvider(
   provider: AiProvider,
   params: any,
 ): Promise<any> {
-  if (provider === "ollama") return generateOllamaContent(params);
-  return gemini.models.generateContent(params);
+  try {
+    const response =
+      provider === "ollama"
+        ? await generateOllamaContent(params)
+        : await gemini.models.generateContent(params);
+    reportAiCallAsync(provider, "ok");
+    return response;
+  } catch (error) {
+    reportAiCallAsync(provider, "error");
+    throw error;
+  }
 }

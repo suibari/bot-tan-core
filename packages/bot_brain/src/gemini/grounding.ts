@@ -143,7 +143,7 @@ ${forced ? "Research is required for this task, so needed must be true." : "Set 
 }
 
 /**
- * Gemini調査の結果を死活監視とRPDへ記録する。
+ * Gemini調査の死活監視。呼び出し回数は generateContentForProvider が数えるのでここでは触らない。
  *
  * `@bsky-affirmative-bot/database` は import しただけで dotenv を読み Postgres クライアントを
  * 作るので、静的importにするとgroundingを呼ばないユニットテストまで巻き込む。実際に
@@ -151,19 +151,13 @@ ${forced ? "Research is required for this task, so needed must be true." : "Set 
  */
 async function reportGeminiResearch(error?: unknown): Promise<void> {
   try {
-    const { MemoryService, reportHealthFailure, reportHeartbeat } =
+    const { reportHealthFailure, reportHeartbeat } =
       await import("@bsky-affirmative-bot/database");
     if (error !== undefined) {
-      await Promise.allSettled([
-        MemoryService.incrementStats("rpdError", 1),
-        reportHealthFailure("gemini", error),
-      ]);
+      await reportHealthFailure("gemini", error);
       return;
     }
-    await Promise.allSettled([
-      MemoryService.incrementStats("rpd", 1),
-      reportHeartbeat("gemini"),
-    ]);
+    await reportHeartbeat("gemini");
   } catch {
     // 記録の失敗で調査そのものを落とさない。
   }

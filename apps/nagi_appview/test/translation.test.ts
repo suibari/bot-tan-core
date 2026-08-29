@@ -25,6 +25,9 @@ const {
 
 const validUri = "at://did:plc:example/com.suibari.nagi.post/3mtranslation";
 const english = { code: "en", name: "English" } as any;
+// 呼び出し回数の計上はダッシュボード向けの副作用なので、テストではDBへ触らせない。
+const reportCall = () => {};
+
 // Ollamaネイティブ /api/chat の応答形。OpenAI互換の choices[] ではない。
 const successResponse = (text = "Translated text") =>
   new Response(JSON.stringify({ message: { content: text } }), {
@@ -158,9 +161,10 @@ test("sends the requested model and temperature, defaulting to the shared Gemma 
     bodies.push(JSON.parse(init.body));
     return successResponse();
   }) as any;
-  await requestTranslationWithRetry("prompt", english, { fetcher });
+  await requestTranslationWithRetry("prompt", english, { fetcher, reportCall });
   await requestTranslationWithRetry("prompt", english, {
     fetcher,
+    reportCall,
     model,
     temperature: 0.3,
   });
@@ -180,6 +184,7 @@ test("retries once after a timeout without holding the retry delay", async () =>
   let calls = 0;
   const sleeps: number[] = [];
   const result = await requestTranslationWithRetry("prompt", english, {
+    reportCall,
     fetcher: async () => {
       calls += 1;
       if (calls === 1) throw new DOMException("timed out", "TimeoutError");
@@ -198,6 +203,7 @@ test("retries once after a timeout without holding the retry delay", async () =>
 test("retries once after a server error and succeeds", async () => {
   let calls = 0;
   const result = await requestTranslationWithRetry("prompt", english, {
+    reportCall,
     fetcher: async () => {
       calls += 1;
       return calls === 1
@@ -214,6 +220,7 @@ test("retries once after a server error and succeeds", async () => {
 test("retries once after an empty response and succeeds", async () => {
   let calls = 0;
   const result = await requestTranslationWithRetry("prompt", english, {
+    reportCall,
     fetcher: async () => {
       calls += 1;
       return successResponse(calls === 1 ? " \n" : "Translated text");
@@ -229,6 +236,7 @@ test("returns failure after two temporary upstream errors", async () => {
   let calls = 0;
   await assert.rejects(
     requestTranslationWithRetry("prompt", english, {
+      reportCall,
       fetcher: async () => {
         calls += 1;
         return new Response("", { status: 503 });
@@ -247,6 +255,7 @@ test("does not retry a client error", async () => {
   const sleeps: number[] = [];
   await assert.rejects(
     requestTranslationWithRetry("prompt", english, {
+      reportCall,
       fetcher: async () => {
         calls += 1;
         return new Response("", { status: 400 });

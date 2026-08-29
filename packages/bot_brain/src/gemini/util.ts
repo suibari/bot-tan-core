@@ -232,9 +232,7 @@ export async function generateContentWithRetry(
         latencyMs: Date.now() - startedAt,
       });
     } catch (e) {
-      MemoryService.incrementStats('rpdError', 1).catch((err: any) =>
-        console.error('Failed to increment rpdError:', err),
-      );
+      // 呼び出し回数は generateContentForProvider が数えるので、ここでは数えない。
       // 死活監視は「最後に成功したのはいつか」だけでは足りない。エラーを返し続けて
       // いる状態を検知するため、失敗そのものを記録する。追加の API 呼び出しは
       // しない（プローブで RPD を消費したくない）。
@@ -243,10 +241,6 @@ export async function generateContentWithRetry(
     }
     const text = response.text || '';
 
-    // Increment RPD on success
-    if (provider === 'gemini') {
-      MemoryService.incrementStats('rpd', 1).catch((e: any) => console.error('Failed to increment RPD:', e));
-    }
     reportHeartbeat(provider === 'ollama' ? 'local-llm' : 'gemini').catch(() => {});
 
     // 文字数制限チェック（文字数超過時のみ、モデル生成のやり直しとして内部リトライを許容）

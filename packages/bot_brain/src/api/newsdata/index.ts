@@ -2,6 +2,7 @@ import {
   OLLAMA_TEXT_CONTEXT_LENGTH,
   aiModel,
 } from "@bsky-affirmative-bot/shared-configs";
+import { reportAiCallAsync } from "../../gemini/aiCallStats.js";
 import { createHash } from "node:crypto";
 import { db, nagiNewsScreening } from "@bsky-affirmative-bot/database";
 import { and, eq, gt } from "drizzle-orm";
@@ -375,6 +376,7 @@ export class PositiveNewsService {
       `説明: ${article.description ?? "なし"}`,
     ].join("\n");
 
+    let called = false;
     try {
       const response = await this.fetchImpl(`${rootUrl}/api/chat`, {
         method: "POST",
@@ -402,6 +404,11 @@ export class PositiveNewsService {
         signal: AbortSignal.timeout(30_000),
       });
       if (!response.ok) throw new Error(`Ollama HTTP ${response.status}`);
+      // ここは generateContentForProvider を通らないので、呼び出し回数を自分で数える。
+      // 応答が返った時点で ok。この先の JSON 解析失敗は「呼び出しは成功したが出力が
+      // 不正」なので、呼び出し回数としては成功に数える。
+      reportAiCallAsync("ollama", "ok");
+      called = true;
 
       const data = await response.json() as { message?: { content?: unknown } };
       const content = typeof data.message?.content === "string" ? data.message.content : "";
@@ -429,6 +436,7 @@ export class PositiveNewsService {
         reasonCode,
       };
     } catch (error) {
+      if (!called) reportAiCallAsync("ollama", "error");
       const message = error instanceof Error ? error.message : String(error);
       return this.classifierError(article, message);
     }

@@ -662,7 +662,10 @@ static async getPost(did: string): Promise<any> {
   }
 
   private static async getStatsWithMap(key: string): Promise<Stats> {
-    const stats = (await this.getBotState(key)) as Stats || this.getEmptyStats();
+    const stored = (await this.getBotState(key)) as Stats | null;
+    // 既定値で埋めてから重ねる。指標を足したとき、保存済みの行にはそのキーが無いので、
+    // そのまま返すと `undefined += 1` で NaN が永続化される。
+    const stats = { ...this.getEmptyStats(), ...(stored ?? {}) } as Stats;
     if (!(stats.lang instanceof Map)) {
       stats.lang = new Map<LanguageName, number>(Object.entries(stats.lang || {}) as [LanguageName, number][]);
     }
@@ -700,6 +703,8 @@ static async getPost(did: string): Promise<any> {
       else if (type === 'recap') currentStats.recap += amount;
       else if (type === 'rpd') currentStats.rpd += amount;
       else if (type === 'rpdError') currentStats.rpdError += amount;
+      else if (type === 'localRpd') currentStats.localRpd += amount;
+      else if (type === 'localRpdError') currentStats.localRpdError += amount;
       else if (type === 'bskyrate') currentStats.bskyrate += amount;
 
       await this.saveStatsWithMap('totalStats', currentStats);
@@ -738,7 +743,9 @@ static async getPost(did: string): Promise<any> {
       lang: new Map(),
       bskyrate: 0,
       rpd: 0,
-      rpdError: 0
+      rpdError: 0,
+      localRpd: 0,
+      localRpdError: 0
     };
   }
 
@@ -811,6 +818,8 @@ static async getPost(did: string): Promise<any> {
       bskyrate: diff('bskyrate'),
       rpd: diff('rpd'),
       rpdError: diff('rpdError'),
+      localRpd: diff('localRpd'),
+      localRpdError: diff('localRpdError'),
       lastInitializedDate: lastResetAt || new Date().toISOString()
     } as DailyReport;
   }
