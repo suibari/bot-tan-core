@@ -154,7 +154,7 @@ export const config = {
   // 差し替えは AI_ROUTE_OLLAMA_TRANSLATION / OLLAMA_TRANSLATION_MODEL などで行う。
   translationModel: aiModel("OLLAMA_TRANSLATION"),
   // botたん本人の投稿だけに使うペルソナ翻訳ルート。一般翻訳と同じ
-  // gemma3 runner を共有し、3モデル間の VRAM 入れ替えを発生させない。
+  // 共通Gemma 4 runnerを共有し、生成モデル間のVRAM入れ替えを発生させない。
   botTranslationModel: aiModel("OLLAMA_BOT_TRANSLATION"),
   translationConcurrency: integer("TRANSLATION_CONCURRENCY", 2, 1, 8),
   translationMissLimitPerMinute: integer(

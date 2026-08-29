@@ -1,4 +1,8 @@
-import { aiModel } from "@bsky-affirmative-bot/shared-configs";
+import {
+  OLLAMA_TEXT_CONTEXT_LENGTH,
+  aiModel,
+  ollamaNativeUrl,
+} from "@bsky-affirmative-bot/shared-configs";
 import type { AiFeatureKey } from "@bsky-affirmative-bot/shared-configs";
 
 export type OllamaMessage = { role: string; content: string };
@@ -17,10 +21,17 @@ export const isOllamaConfigured = (): boolean =>
   Boolean(process.env.OLLAMA_BASE_URL && process.env.OLLAMA_MODEL);
 
 /**
- * ローカル Ollama（OpenAI 互換 /chat/completions）を叩く共通ラッパ。
+ * ローカル Ollama（ネイティブ /api/chat）を叩く共通ラッパ。
  *
  * モデルの選択はレジストリに任せる（呼び出し側は feature キーを名乗る）。
  * OLLAMA_MODEL の「有無」だけは Ollama が設定済みかどうかの判定として使い続ける。
+ *
+ * OpenAI互換の /v1/chat/completions ではなくネイティブを使う理由は2つ。
+ * 1. `think: false`。思考するモデルは reasoning を別フィールドへ吐き、その分が生成上限を
+ *    食う。分類は maxTokens が数トークンしかないので、切らないと content が空文字のまま
+ *    返って機能が丸ごと死ぬ。
+ * 2. `num_ctx`。OpenAI互換には指定手段が無く、context 4096 のrunnerが別にロードされて
+ *    26Bモデルのリロードが頻発する。詳細は OLLAMA_TEXT_CONTEXT_LENGTH のコメント。
  */
 export async function ollamaChat(
   feature: AiFeatureKey,
@@ -29,19 +40,23 @@ export async function ollamaChat(
 ): Promise<string> {
   const baseUrl = process.env.OLLAMA_BASE_URL;
   if (!isOllamaConfigured()) throw new Error("Ollama is not configured");
-  const response = await fetch(`${baseUrl}/chat/completions`, {
+  const response = await fetch(`${ollamaNativeUrl(baseUrl!)}/api/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       model: aiModel(feature),
       messages,
-      temperature: options.temperature ?? 0,
-      max_tokens: options.maxTokens,
       stream: false,
+      think: false,
+      options: {
+        num_ctx: OLLAMA_TEXT_CONTEXT_LENGTH,
+        temperature: options.temperature ?? 0,
+        num_predict: options.maxTokens,
+      },
     }),
     signal: AbortSignal.timeout(options.timeoutMs ?? 30_000),
   });
   if (!response.ok) throw new Error(`Ollama HTTP ${response.status}`);
   const data = (await response.json()) as any;
-  return (data?.choices?.[0]?.message?.content ?? "").trim();
+  return (data?.message?.content ?? "").trim();
 }

@@ -200,7 +200,7 @@ Nagiは`kossori`・`channelOnly`を除く公開会話、YouTubeはsanitize済み
 ### 利用経路
 
 - Bluesky／Nagi返信：本人の過去記憶と、本人以外の公開肯定投稿を別検索します。保存済み文書は再embeddingせず、検索文だけをembeddingします。本人履歴は語彙フォールバック可、友達紹介はsemantic候補がある場合だけです。
-- 気まぐれ投稿：現在の気分・活動・未読返信から横断候補を取得し、既存Gemini／gemma3が最終話題を選びます。専用再ランキングモデルは追加しません。
+- 気まぐれ投稿：現在の気分・活動・未読返信から横断候補を取得し、既存の生成モデル（既定はローカルのGemma 4、`AI_TEXT_PROVIDER=gemini`ならGemini）が最終話題を選びます。専用再ランキングモデルは追加しません。
 - YouTubeフリートーク：現在のbiorhythm、最近のコメント、直前の発話からLAN内APIを先読みします。コメント返信のホットパスでは検索しません。
 
 ### usage・プライバシー・prompt injection対策

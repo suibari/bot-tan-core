@@ -1,4 +1,7 @@
-import { aiModel } from "@bsky-affirmative-bot/shared-configs";
+import {
+  OLLAMA_TEXT_CONTEXT_LENGTH,
+  aiModel,
+} from "@bsky-affirmative-bot/shared-configs";
 import { createHash } from "node:crypto";
 import { db, nagiNewsScreening } from "@bsky-affirmative-bot/database";
 import { and, eq, gt } from "drizzle-orm";
@@ -379,9 +382,18 @@ export class PositiveNewsService {
         body: JSON.stringify({
           model: this.getOllamaModel(),
           stream: false,
+          // 思考するモデルは reasoning が num_predict を食い切り、content が空文字のまま
+          // done_reason=length で返る。そのまま JSON.parse("") に落ちて全件 classifier_error
+          // になるため、format を付けていても think は必ず切る。
+          think: false,
           format: CLASSIFIER_SCHEMA,
           keep_alive: "10m",
-          options: { temperature: 0, num_predict: 100 },
+          // num_ctx は他のローカル呼び出しと必ず揃える（ずれるとrunnerが作り直される）。
+          options: {
+            num_ctx: OLLAMA_TEXT_CONTEXT_LENGTH,
+            temperature: 0,
+            num_predict: 100,
+          },
           messages: [
             { role: "system", content: CLASSIFIER_SYSTEM_PROMPT },
             { role: "user", content: userContent },

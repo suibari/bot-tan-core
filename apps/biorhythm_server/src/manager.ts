@@ -7,7 +7,7 @@ import eventsEveningDayoff from "@bsky-affirmative-bot/shared-configs/json/event
 import eventsNight from "@bsky-affirmative-bot/shared-configs/json/event_night.json" with { type: "json" };
 import eventsMidnight from "@bsky-affirmative-bot/shared-configs/json/event_midnight.json" with { type: "json" };
 import { BOT_SCENE_BRIEF_JA, botDayRange } from '@bsky-affirmative-bot/shared-configs';
-import { gemini, generateContentWithRetry } from '@bsky-affirmative-bot/bot-brain';
+import { generateContentWithRetry } from '@bsky-affirmative-bot/bot-brain';
 import { DailyReport, Stats } from '@bsky-affirmative-bot/shared-configs';
 import EventEmitter from "events";
 import { MemoryService } from "@bsky-affirmative-bot/clients";

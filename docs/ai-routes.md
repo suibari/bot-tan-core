@@ -3,12 +3,34 @@
 「どの機能にどのモデルを充てるか」は **`packages/shared-configs/src/config/aiRoutes.ts` の1ファイル**が管理する。
 モデルを変えたいときに機能側のコード（`conversation.ts` など）を触る必要はない。
 
+## 現在の全体方針
+
+```bash
+AI_TEXT_PROVIDER=ollama
+AI_GROUNDING_PROVIDER=gemini
+OLLAMA_BASE_URL=http://127.0.0.1:11434/v1
+OLLAMA_MODEL=hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S
+```
+
+`AI_TEXT_PROVIDER=ollama` では、画像・埋め込み・調査専用Groundingを除く全テキスト機能を
+上記Ollamaモデルへ集約する。`AI_FEATURES` に残るlite/flash/tierの表は、
+`AI_TEXT_PROVIDER=gemini` に変えたとき従来のGemini構成へ一括で戻すための設定である。
+
+Groundingは二段構成に分離する。ローカルモデルが検索要否と匿名化した検索語を作り、
+Geminiへは検索語と対象URLだけを送る。ユーザーの元投稿、会話履歴、DID、
+`SYSTEM_INSTRUCTION` は調査リクエストへ送らない。最終的なbotたん文面は再びOllamaが生成する。
+
+- `AI_GROUNDING_PROVIDER=gemini`: 調査専用Geminiを有効化（既定）
+- `AI_GROUNDING_PROVIDER=off`: 外部調査を無効化
+- `MODEL_GEMINI_GROUNDING`: 調査専用モデルだけ差し替え
+- 画像生成は指定Gemmaモデルで代替できないためGeminiルートを維持する
+
 ## 仕組み（3層）
 
 ```
 機能キー          →  ルート名        →  モデル別名        →  実モデルID
-BSKY_CONVERSATION →  lite-flex       →  gemini-lite       →  gemini-2.5-flash-lite
-                     └ ServiceTier: flex
+BSKY_CONVERSATION →  lite-standard   →  AI_TEXT_PROVIDER=ollama → OLLAMA_MODEL
+                     └ AI_TEXT_PROVIDER=gemini → gemini-lite / standard
 ```
 
 1. **モデル別名 → 実モデルID** … 実際のモデル名が書かれている唯一の場所。`MODEL_*` env で差し替え可。
@@ -46,7 +68,9 @@ MODEL_GEMINI_FLASH=gemini-3.0-flash
 
 ## 割り当て表
 
-方針は「即時応答が要るものは standard、待ってもらえるものは flex」。`packages/shared-configs/test/aiRoutes.test.ts` が全機能ぶんをピン留めしている。
+以下のlite/flash割り当てはGemini切り戻し時の表である。Ollama時は全テキスト行が
+`OLLAMA_MODEL`、ServiceTierなしになる。`packages/shared-configs/test/aiRoutes.test.ts` が
+Ollama既定とGemini切り戻しの両方を全機能ぶんピン留めしている。
 
 ### 共通（Bluesky botたん と Nagi の両方から呼ばれる）
 
@@ -108,8 +132,9 @@ bsky の全機能は `callbacks.ts` の共通リトライ（初回+2回）に包
 | `BIORHYTHM_WHIMSICAL_POST_PLAN` | `flash-flex` | 気まぐれ投稿: 企画フェーズ（function calling） |
 | `BIORHYTHM_WHIMSICAL_POST_WRITE` | `flash-flex` | 気まぐれ投稿: 執筆フェーズ（構造化JSON） |
 
-気まぐれ投稿が2回に分かれているのは仕様上の制約。**Gemini は function calling / grounding と構造化出力（`responseSchema`）を同時に使えない**ので、
-道具を使う企画フェーズと、スキーマで型を保証する執筆フェーズを分けるしかない（ポジニュース判定が2パスなのと同じ理由）。
+気まぐれ投稿は企画と執筆の2段を維持する。指定Ollamaモデルはtool calling capabilityを
+公開していないため、企画フェーズのfunction declarationをJSON Schemaへ変換し、
+返ったJSONを従来の`functionCalls`形へ戻す。Gemini切り戻し時は従来のfunction callingを使う。
 
 ### Nagi
 
@@ -153,15 +178,30 @@ Nagi のリプライは**失敗するたびに段を上げる再試行ラダー*
 |---|---|---|
 | `gemini-lite` | `MODEL_GEMINI_LITE` | `gemini-2.5-flash-lite` |
 | `gemini-flash` | `MODEL_GEMINI_FLASH` | `gemini-2.5-flash` |
+| `gemini-grounding` | `MODEL_GEMINI_GROUNDING` | → `MODEL_GEMINI_FLASH` → `gemini-2.5-flash` |
 | `gemini-image` | `MODEL_GEMINI_IMAGE` | `gemini-2.5-flash-image-preview` |
 | `gemini-embedding` | `MODEL_GEMINI_EMBEDDING` | `gemini-embedding-001` |
-| `ollama-chat` | `OLLAMA_MODEL` | `gemma3:4b` |
+| `ollama-chat` | `OLLAMA_MODEL` | `hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S` |
 | `ollama-embed` | `OLLAMA_EMBED_MODEL` | `snowflake-arctic-embed2` |
-| `ollama-translate` | `OLLAMA_TRANSLATION_MODEL` | `gemma3:4b` |
-| `ollama-bot-translate` | `OLLAMA_BOT_TRANSLATION_MODEL` | → `OLLAMA_MODEL` → `gemma3:4b` |
+| `ollama-translate` | `OLLAMA_TRANSLATION_MODEL` | → `OLLAMA_MODEL` → 指定Gemma 4 |
+| `ollama-bot-translate` | `OLLAMA_BOT_TRANSLATION_MODEL` | → `OLLAMA_MODEL` → 指定Gemma 4 |
 
 `OLLAMA_BASE_URL` はモデルではなくエンドポイントなので、レジストリではなく各所で直接読む。
 `predefinedAffirmation.ts` は `OLLAMA_MODEL` の**有無**を「Ollama が設定済みか」の判定に使い続けている点に注意（モデルの選択自体はレジストリ）。
+
+### ローカル呼び出しの必須ルール
+
+テキスト生成は**必ずネイティブ `/api/chat`** を使い、**`think: false` と共通の `num_ctx`
+（`OLLAMA_TEXT_CONTEXT_LENGTH`、レジストリの定数）を毎回送る**。env では変えられない。
+
+- `think` を切らないと、思考するモデルが reasoning に生成上限を使い切り、`content` が
+  **空文字**のまま返る。分類のように上限が数トークンの経路は機能ごと死ぬ。
+- `num_ctx` を送らないと Ollama の既定 4096 になる。`SYSTEM_INSTRUCTION` だけで約3,900
+  トークンあり、grounding の調査ブロックが乗ると**応答が空になる**（実測）。
+- OpenAI互換 `/v1/chat/completions` には `num_ctx` を渡す手段がない（`options` は黙って
+  無視される）。値がずれた経路が1つでもあると、Ollama が runner を作り直して26Bモデルを
+  5〜8秒かけてリロードし、呼び出しが交互に来るたびに繰り返す。
+- 埋め込み（`/v1/embeddings`）と死活監視（`/v1/models`）は別モデル・推論なしなので `/v1` のままでよい。
 
 ## コードから使う
 
@@ -169,8 +209,8 @@ Nagi のリプライは**失敗するたびに段を上げる再試行ラダー*
 // 機能側: model を書かず feature キーを名乗るだけ
 await generateContentWithRetry({ feature: "BSKY_FORTUNE", contents, config: { ... } });
 
-// gemini.models.generateContent を直接叩く場合
-await gemini.models.generateContent(withRoute("NEWS_POSITIVE_GATE", { contents, config: { ... } }));
+// retry wrapperを使わない場合もprovider対応関数を使う
+await generateContentForFeature("NEWS_POSITIVE_GATE", { contents, config: { ... } });
 
 // モデル名の文字列そのものが欲しい場合（DBの model カラムに残すときなど）
 model: aiModel("NAGI_ANALYSIS"),

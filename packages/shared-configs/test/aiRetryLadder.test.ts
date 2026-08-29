@@ -8,7 +8,10 @@ import {
   type AiLadderStep,
   type AiRouteDetails,
 } from "../src/config/aiRetryLadder.js";
-import { resetAiRouteCache } from "../src/config/aiRoutes.js";
+import {
+  DEFAULT_OLLAMA_TEXT_MODEL,
+  resetAiRouteCache,
+} from "../src/config/aiRoutes.js";
 
 const FLASH_35_LITE = "gemini-3.5-flash-lite";
 
@@ -63,6 +66,19 @@ const unavailable = () =>
     'got status: 503 Service Unavailable. {"error":{"code":503,"message":"This model is overloaded.","status":"UNAVAILABLE"}}',
   );
 
+async function withGeminiProvider<T>(run: () => T | Promise<T>): Promise<T> {
+  const saved = process.env.AI_TEXT_PROVIDER;
+  process.env.AI_TEXT_PROVIDER = "gemini";
+  resetAiRouteCache();
+  try {
+    return await run();
+  } finally {
+    if (saved === undefined) delete process.env.AI_TEXT_PROVIDER;
+    else process.env.AI_TEXT_PROVIDER = saved;
+    resetAiRouteCache();
+  }
+}
+
 test("Gemini の 503 は文字列本文からでも一時障害に分類する", () => {
   assert.equal(classifyAiError(unavailable()).category, "transient");
   assert.equal(classifyAiError(unavailable()).status, 503);
@@ -81,45 +97,60 @@ test("cause 連鎖をたどって1行に潰す", () => {
   assert.equal(formatAiError(error), "outer | caused by: inner");
 });
 
-test("試行回数に応じて3.5 Flash-LiteのFlexからStandardへ上がる", () => {
-  resetAiRouteCache();
-  const at = (attempt: number) => aiRouteForAttempt(DIARY_LADDER, attempt);
-  assert.deepEqual(at(1), { model: FLASH_35_LITE, serviceTier: "flex" });
-  assert.deepEqual(at(2), { model: FLASH_35_LITE, serviceTier: "flex" });
-  assert.deepEqual(at(3), { model: FLASH_35_LITE, serviceTier: "standard" });
-  assert.deepEqual(at(4), { model: FLASH_35_LITE, serviceTier: "standard" });
-  assert.deepEqual(at(5), { model: FLASH_35_LITE, serviceTier: "standard" });
-  // 最終段より先は最後の段を使い回す
-  assert.deepEqual(at(99), { model: FLASH_35_LITE, serviceTier: "standard" });
+test("Gemini切り戻し時は試行回数に応じてFlexからStandardへ上がる", async () => {
+  await withGeminiProvider(() => {
+    const at = (attempt: number) => aiRouteForAttempt(DIARY_LADDER, attempt);
+    assert.deepEqual(at(1), { model: FLASH_35_LITE, serviceTier: "flex" });
+    assert.deepEqual(at(2), { model: FLASH_35_LITE, serviceTier: "flex" });
+    assert.deepEqual(at(3), { model: FLASH_35_LITE, serviceTier: "standard" });
+    assert.deepEqual(at(4), { model: FLASH_35_LITE, serviceTier: "standard" });
+    assert.deepEqual(at(5), { model: FLASH_35_LITE, serviceTier: "standard" });
+    assert.deepEqual(at(99), { model: FLASH_35_LITE, serviceTier: "standard" });
+  });
 });
 
-test("503が続くとモデルを上げながら再試行し、上がった段で成功する", async () => {
+test("Ollama時は再試行ラダーの全段が同じローカルモデルになる", () => {
+  const saved = process.env.AI_TEXT_PROVIDER;
+  delete process.env.AI_TEXT_PROVIDER;
   resetAiRouteCache();
-  const clock = fakeClock();
-  const seen: AiRouteDetails[] = [];
+  try {
+    for (const attempt of [1, 2, 3, 4, 5, 99]) {
+      assert.deepEqual(aiRouteForAttempt(DIARY_LADDER, attempt), {
+        model: DEFAULT_OLLAMA_TEXT_MODEL,
+      });
+    }
+  } finally {
+    if (saved === undefined) delete process.env.AI_TEXT_PROVIDER;
+    else process.env.AI_TEXT_PROVIDER = saved;
+    resetAiRouteCache();
+  }
+});
 
-  const result = await runWithAiLadder(
-    ladderOptions<string>({
-      now: clock.now,
-      sleep: clock.record,
-      run: async (route, attempt) => {
-        seen.push(route);
-        if (attempt < 5) throw unavailable();
-        return "ok";
-      },
-    }),
-  );
-
-  assert.equal(result, "ok");
-  assert.deepEqual(seen, [
-    { model: FLASH_35_LITE, serviceTier: "flex" },
-    { model: FLASH_35_LITE, serviceTier: "flex" },
-    { model: FLASH_35_LITE, serviceTier: "standard" },
-    { model: FLASH_35_LITE, serviceTier: "standard" },
-    { model: FLASH_35_LITE, serviceTier: "standard" },
-  ]);
-  // ジッタ係数1.0のときは遅延テーブルどおり
-  assert.deepEqual(clock.slept, [30_000, 2 * 60_000, 10 * 60_000, 30 * 60_000]);
+test("Gemini切り戻し時は503で段を上げて再試行する", async () => {
+  await withGeminiProvider(async () => {
+    const clock = fakeClock();
+    const seen: AiRouteDetails[] = [];
+    const result = await runWithAiLadder(
+      ladderOptions<string>({
+        now: clock.now,
+        sleep: clock.record,
+        run: async (route, attempt) => {
+          seen.push(route);
+          if (attempt < 5) throw unavailable();
+          return "ok";
+        },
+      }),
+    );
+    assert.equal(result, "ok");
+    assert.deepEqual(seen, [
+      { model: FLASH_35_LITE, serviceTier: "flex" },
+      { model: FLASH_35_LITE, serviceTier: "flex" },
+      { model: FLASH_35_LITE, serviceTier: "standard" },
+      { model: FLASH_35_LITE, serviceTier: "standard" },
+      { model: FLASH_35_LITE, serviceTier: "standard" },
+    ]);
+    assert.deepEqual(clock.slept, [30_000, 2 * 60_000, 10 * 60_000, 30 * 60_000]);
+  });
 });
 
 test("恒久エラーは段を上げずに1回で諦める", async () => {

@@ -158,19 +158,23 @@ test("定型文翻訳は分類モデルではなく翻訳専用モデルを使�
     fetch: globalThis.fetch,
   };
   let requestedModel = "";
+  let requestedUrl = "";
   process.env.OLLAMA_BASE_URL = "http://ollama.test/v1";
   process.env.OLLAMA_MODEL = "classification-test";
   process.env.OLLAMA_TRANSLATION_MODEL = "translation-test";
-  globalThis.fetch = async (_input, init) => {
+  globalThis.fetch = async (input, init) => {
+    requestedUrl = String(input);
     requestedModel = String(JSON.parse(String(init?.body)).model);
-    return new Response(
-      JSON.stringify({ choices: [{ message: { content: "Hola" } }] }),
-      { status: 200, headers: { "Content-Type": "application/json" } },
-    );
+    // Ollamaネイティブ /api/chat の応答形。
+    return new Response(JSON.stringify({ message: { content: "Hola" } }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
   };
   try {
     assert.equal(await translatePredefinedAffirmation("Hello", "Spanish"), "Hola");
     assert.equal(requestedModel, "translation-test");
+    assert.equal(requestedUrl, "http://ollama.test/api/chat");
   } finally {
     if (original.baseUrl === undefined) delete process.env.OLLAMA_BASE_URL;
     else process.env.OLLAMA_BASE_URL = original.baseUrl;

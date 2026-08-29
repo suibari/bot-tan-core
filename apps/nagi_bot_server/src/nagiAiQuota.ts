@@ -3,6 +3,7 @@ import {
   nagiAiReplyRequests,
   nagiBotReplyJobs,
 } from "@bsky-affirmative-bot/database";
+import { aiTextProvider } from "@bsky-affirmative-bot/shared-configs";
 import { and, eq, gte, lt, sql } from "drizzle-orm";
 
 export type NagiReplyMode = "ai" | "template";
@@ -81,6 +82,21 @@ export async function decideNagiReplyMode(
   authorDid: string,
   now = new Date(),
 ): Promise<{ mode: NagiReplyMode; reason?: NagiAiLimitReason }> {
+  // ローカル生成はGemini課金枠を消費しないため、ユーザー別quotaで定型文へ落とさない。
+  // provider の解釈は必ずレジストリの aiTextProvider() に合わせる。ここで env を直読みすると
+  // 未設定時に「生成はOllama、quotaだけGemini前提」というズレが起きて、理由もなく定型文に落ちる。
+  if (aiTextProvider() === "ollama") {
+    await db
+      .update(nagiBotReplyJobs)
+      .set({
+        generationMode: "ai",
+        limitReason: null,
+        modeDecidedAt: now,
+        updatedAt: now,
+      })
+      .where(eq(nagiBotReplyJobs.sourceUri, sourceUri));
+    return { mode: "ai" };
+  }
   const result = await db.transaction(async (tx) => {
     await tx.execute(
       sql`select pg_advisory_xact_lock(hashtext(${USER_LOCK_KEY}))`,

@@ -1,5 +1,4 @@
 import { PartListUnion } from '@google/genai';
-import { gemini } from './index.js';
 import {
   SYSTEM_INSTRUCTION,
   TONE_RULES_JA,
@@ -15,6 +14,8 @@ import { UserInfoGemini, GeminiScore } from '@bsky-affirmative-bot/shared-config
 import { formatBotContext } from './util.js';
 import type { GeminiRequestOptions } from './util.js';
 import { toServiceTier } from './aiRoute.js';
+import { generateContentForProvider } from './generationClient.js';
+import { prepareOllamaGrounding } from './grounding.js';
 
 const MAX_GEMINI_TURNS = 50;
 
@@ -34,7 +35,10 @@ export function prepareConversationHistory(
   return historyForGemini;
 }
 
-export async function conversation(userinfo: UserInfoGemini, requestOptions: GeminiRequestOptions = {}) {
+export async function conversation(
+  userinfo: UserInfoGemini,
+  requestOptions: GeminiRequestOptions = {},
+): Promise<{ text_bot: string | undefined; new_history: any[] }> {
   const prompt = buildConversationPrompt(userinfo);
   const historyForGemini = prepareConversationHistory(userinfo.history);
 
@@ -42,17 +46,13 @@ export async function conversation(userinfo: UserInfoGemini, requestOptions: Gem
   // 優先順位は他と同じく「明示 requestOptions（Nagi の再試行ラダー） > BSKY_CONVERSATION のルート」。
   const route = resolveAiRoute('BSKY_CONVERSATION');
   const serviceTier = toServiceTier(requestOptions.serviceTier ?? route.serviceTier);
-  const chat = gemini.chats.create({
-    model: requestOptions.model ?? route.model,
-    history: historyForGemini.length > 0 ? historyForGemini : undefined,
-    config: {
-      systemInstruction: SYSTEM_INSTRUCTION,
-      ...(serviceTier ? { serviceTier } : {}),
-    },
-  });
 
-  // message作成
-  const message: PartListUnion = [prompt];
+  // message作成。
+  // 旧実装は chat.sendMessage({ message }) で SDK が PartListUnion を正規化していたが、
+  // いまは Content を自前で組むので Part にしておく必要がある。生の string を parts に
+  // 入れると @google/genai の _isContent() が Array.isArray(parts) だけ見て素通しし、
+  // AI_TEXT_PROVIDER=gemini へ切り戻した瞬間に会話が 400 になる。
+  const message: PartListUnion = [{ text: prompt }];
   if (userinfo.image) {
     for (const img of userinfo.image) {
       const response = await safeFetch(img.image_url);
@@ -66,24 +66,46 @@ export async function conversation(userinfo: UserInfoGemini, requestOptions: Gem
       });
     }
   }
-  await requestOptions.beforeRequest?.();
-  const response = await chat.sendMessage({
-    message,
+  let request: any = {
+    model: requestOptions.model ?? route.model,
+    contents: [...historyForGemini, { role: 'user', parts: message }],
     config: {
       systemInstruction: SYSTEM_INSTRUCTION,
-      tools: [
-        {
-          googleSearch: {},
-        },
-        {
-          urlContext: {},
-        },
-      ],
+      ...(serviceTier ? { serviceTier } : {}),
+      tools: [{ googleSearch: {} }, { urlContext: {} }],
     },
-  });
-
-  const new_history = chat.getHistory();
+  };
+  if (route.provider === 'ollama') {
+    request = await prepareOllamaGrounding('BSKY_CONVERSATION', request);
+  } else {
+    await requestOptions.beforeRequest?.();
+  }
+  const startedAt = Date.now();
+  const response = await generateContentForProvider(route.provider, request);
   const text_bot = response.text;
+  const new_history = [
+    ...historyForGemini,
+    { role: 'user', parts: message },
+    { role: 'model', parts: [{ text: text_bot ?? '' }] },
+  ];
+  const usage = response.usageMetadata ?? {};
+  requestOptions.onUsage?.({
+    model: request.model,
+    // 実際にリクエストへ積んだ tier を報告する。優先順位は上の serviceTier 計算と同じ。
+    // Ollama では prepareOllamaGrounding が config.serviceTier を落とすので報告もしない。
+    ...(route.provider === 'gemini'
+      ? requestOptions.serviceTier
+        ? { serviceTier: requestOptions.serviceTier }
+        : route.serviceTier === 'flex' || route.serviceTier === 'standard'
+          ? { serviceTier: route.serviceTier }
+          : {}
+      : {}),
+    promptTokens: usage.promptTokenCount ?? 0,
+    outputTokens: usage.candidatesTokenCount ?? 0,
+    thinkingTokens: usage.thoughtsTokenCount ?? 0,
+    totalTokens: usage.totalTokenCount ?? 0,
+    latencyMs: Date.now() - startedAt,
+  });
 
   // Geminiリクエスト数加算
 

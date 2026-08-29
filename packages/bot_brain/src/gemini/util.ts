@@ -1,11 +1,12 @@
 import { PartListUnion, Type } from '@google/genai';
-import { gemini } from './index.js';
 import { SYSTEM_INSTRUCTION, POST_TEXT_LIMIT, safeFetch, resolveAiRoute, formatJstActivityTime, energyLabel } from '@bsky-affirmative-bot/shared-configs';
 import type { AiFeatureKey } from '@bsky-affirmative-bot/shared-configs';
 import { UserInfoGemini, GeminiScore, BotContext, LanguageName } from '@bsky-affirmative-bot/shared-configs';
 import { MemoryService, reportHealthFailure, reportHeartbeat } from '@bsky-affirmative-bot/database';
 import { buildAffirmativeImageParts } from './affirmativeImages.js';
 import { toServiceTier } from './aiRoute.js';
+import { generateContentForProvider } from './generationClient.js';
+import { prepareOllamaGrounding } from './grounding.js';
 
 export type GeminiRequestOptions = {
   /** 実際の Gemini HTTP リクエストを送る直前に呼ぶ。 */
@@ -176,6 +177,7 @@ export async function generateContentWithRetry(
   const { feature, maxTextLength, ...rest } = params;
   const textLimit = resolveTextLimit(maxTextLength);
   const routed = feature ? resolveAiRoute(feature) : undefined;
+  const provider = routed?.provider ?? 'gemini';
   // 優先順位: 明示 requestOptions（Nagi の再試行ラダー） > feature のルート > params の生 model
   const serviceTier = toServiceTier(requestOptions.serviceTier ?? routed?.serviceTier);
   params = {
@@ -190,6 +192,10 @@ export async function generateContentWithRetry(
         : {}),
     },
   };
+
+  if (provider === 'ollama') {
+    params = await prepareOllamaGrounding(feature, params);
+  }
 
   if (userinfo?.botContext) {
     const botCtx = formatBotContext(userinfo.botContext, userinfo.langStr);
@@ -207,9 +213,10 @@ export async function generateContentWithRetry(
   for (let i = 0; i <= retryCount; i++) {
     // APIの接続や高負荷エラー（503等）は内部リトライせず、上位関数（callbacks.ts）の一元リトライに即座に委ねる
     try {
-      await requestOptions.beforeRequest?.();
+      // Nagi の既存 quota reservation は Gemini 課金用。ローカル生成では消費しない。
+      if (provider === 'gemini') await requestOptions.beforeRequest?.();
       const startedAt = Date.now();
-      response = await gemini.models.generateContent(params);
+      response = await generateContentForProvider(provider, params);
       const usage = response.usageMetadata ?? {};
       requestOptions.onUsage?.({
         model: params.model,
@@ -231,14 +238,16 @@ export async function generateContentWithRetry(
       // 死活監視は「最後に成功したのはいつか」だけでは足りない。エラーを返し続けて
       // いる状態を検知するため、失敗そのものを記録する。追加の API 呼び出しは
       // しない（プローブで RPD を消費したくない）。
-      reportHealthFailure('gemini', e).catch(() => {});
+      reportHealthFailure(provider === 'ollama' ? 'local-llm' : 'gemini', e).catch(() => {});
       throw e;
     }
     const text = response.text || '';
 
     // Increment RPD on success
-    MemoryService.incrementStats('rpd', 1).catch((e: any) => console.error('Failed to increment RPD:', e));
-    reportHeartbeat('gemini').catch(() => {});
+    if (provider === 'gemini') {
+      MemoryService.incrementStats('rpd', 1).catch((e: any) => console.error('Failed to increment RPD:', e));
+    }
+    reportHeartbeat(provider === 'ollama' ? 'local-llm' : 'gemini').catch(() => {});
 
     // 文字数制限チェック（文字数超過時のみ、モデル生成のやり直しとして内部リトライを許容）
     if (!exceedsTextLimit(text, textLimit)) {

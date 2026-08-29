@@ -1,9 +1,8 @@
 import { aiModel, SYSTEM_INSTRUCTION as BOT_PERSONA, TONE_RULES_JA } from "@bsky-affirmative-bot/shared-configs";
 import { Type } from "@google/genai";
 import type { PositiveNewsCandidate } from "../api/newsdata/index.js";
-import { gemini } from "./index.js";
 import { withNewsGeminiRetry } from "./newsGeminiRetry.js";
-import { withRoute } from "./aiRoute.js";
+import { generateContentForFeature } from "./routedGeneration.js";
 
 export const POSITIVE_NEWS_PROMPT_VERSION = "nagi-positive-news-v8";
 /**
@@ -229,14 +228,14 @@ async function gateNewsBatch(input: PositiveNewsCandidate[]): Promise<GateDecisi
   for (let attempt = 0; attempt < 2 && !decisions; attempt++) {
     const response = await withNewsGeminiRetry(
       { stage: "gate" },
-      () => gemini.models.generateContent(withRoute("NEWS_POSITIVE_GATE", {
+      () => generateContentForFeature("NEWS_POSITIVE_GATE", {
         config: {
           responseMimeType: "application/json",
           responseSchema: GATE_SCHEMA,
           systemInstruction: GATE_SYSTEM_INSTRUCTION,
         },
         contents: [{ role: "user", parts: [{ text: userText }] }],
-      })),
+      }),
     );
     decisions = parseDecisions(response.text);
     if (!decisions && attempt === 0) {
@@ -260,10 +259,10 @@ async function generateNewsComment(candidate: PositiveNewsCandidate): Promise<Ne
   ): Promise<string | undefined> => {
     const response = await withNewsGeminiRetry(
       { stage: "comment", articleId: candidate.articleId, mode },
-      () => gemini.models.generateContent(withRoute("NEWS_POSITIVE_COMMENT", {
+      () => generateContentForFeature("NEWS_POSITIVE_COMMENT", {
         config: { systemInstruction: BOT_PERSONA, ...(tools.length ? { tools } : {}) },
         contents: [{ role: "user", parts: [{ text: userText }] }],
-      })),
+      }),
     );
     return response.text;
   };

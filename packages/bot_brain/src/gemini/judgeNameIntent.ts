@@ -1,6 +1,5 @@
 import { Type } from "@google/genai";
-import { gemini } from "./index.js";
-import { withRoute } from "./aiRoute.js";
+import { generateContentForFeature } from "./routedGeneration.js";
 
 /**
  * botたん宛リプライから「本人が自分をどう呼んでほしいか」だけを抜き出す判定。
@@ -9,9 +8,9 @@ import { withRoute } from "./aiRoute.js";
  * Phase 1 で displayName 固定にしてブレは止めたが、本人が別の呼び名を希望しても
  * 反映できない。ここはその希望を拾うための入口。
  *
- * ## なぜ Gemini か（ローカルの gemma3:4b をやめた理由）
+ * ## モデル移行時の注意
  *
- * 実データ39件をホールドアウトにして gemma3:4b で測ったところ、誤爆率が
+ * 過去に実データ39件を旧gemma3:4bで測ったところ、誤爆率が
  * プロンプトを触るたび 0% ↔ 2.6% を行き来し、検出は 84.6% で頭打ちだった。
  * 特に、獲得した称号の話のような **本人が持ってはいるが呼びかけには使わない名前** を
  * self と判定してしまう。誤爆すると botたんがその文字列で相手を呼び始めるので、
@@ -24,7 +23,7 @@ import { withRoute } from "./aiRoute.js";
  * 判定を返信生成に相乗りさせるとプロンプト指示の JSON しか使えず、
  * パース失敗時に JSON がそのまま投稿される経路ができてしまう。
  * こちらは grounding を使わないので responseSchema で構造を保証できる。
- * botたん宛リプライは約2件/日しかないので、リクエストを分けても実質無料。
+ * 判定は本文生成と別リクエストにし、現在は共通のOllamaモデルをJSON Schema付きで使う。
  *
  * 返信生成と**並列**に走らせる。判定結果は次回以降の返信に効き、
  * その場の返信は会話プロンプトの「訂正には従う」が担う。
@@ -163,14 +162,15 @@ export async function judgeNameIntent(text: string): Promise<NameIntentResult> {
   const trimmed = text?.trim();
   if (!trimmed) return NONE;
   try {
-    const response = await gemini.models.generateContent(
-      withRoute("NAGI_NAME_INTENT", {
+    const response = await generateContentForFeature(
+      "NAGI_NAME_INTENT",
+      {
         contents: [NAME_INTENT_PROMPT(trimmed)],
         config: {
           responseMimeType: "application/json",
           responseSchema: SCHEMA,
         },
-      }),
+      },
     );
     return normalizeNameIntent(JSON.parse(response.text || "null"));
   } catch (error) {

@@ -4,6 +4,7 @@ import {
   AI_FEATURES,
   AI_FEATURE_KEYS,
   AI_ROUTES,
+  DEFAULT_OLLAMA_TEXT_MODEL,
   aiModel,
   resetAiRouteCache,
   resolveAiRoute,
@@ -15,12 +16,15 @@ const MODEL_ENV_VARS = [
   "MODEL_GEMINI_FLASH",
   "MODEL_GEMINI_35_LITE",
   "MODEL_GEMINI_36_FLASH",
+  "MODEL_GEMINI_GROUNDING",
   "MODEL_GEMINI_IMAGE",
   "MODEL_GEMINI_EMBEDDING",
   "OLLAMA_MODEL",
   "OLLAMA_EMBED_MODEL",
   "OLLAMA_TRANSLATION_MODEL",
   "OLLAMA_BOT_TRANSLATION_MODEL",
+  "AI_TEXT_PROVIDER",
+  "AI_GROUNDING_PROVIDER",
 ];
 
 /** レジストリ関連の env を全部消してから fn を走らせ、必ず元に戻す。 */
@@ -103,16 +107,19 @@ const EXPECTED: Record<AiFeatureKey, [model: string, tier: "flex" | "standard" |
   // ニュース
   NEWS_POSITIVE_GATE: [LITE, "flex"],
   NEWS_POSITIVE_COMMENT: [LITE, "flex"],
+  GEMINI_GROUNDING_RESEARCH: [FLASH, undefined],
   // ローカル Ollama
-  OLLAMA_PREDEFINED_AFFIRMATION: ["gemma3:4b", undefined],
-  OLLAMA_NEWS_PRESCREEN: ["gemma3:4b", undefined],
+  OLLAMA_PREDEFINED_AFFIRMATION: [DEFAULT_OLLAMA_TEXT_MODEL, undefined],
+  OLLAMA_NEWS_PRESCREEN: [DEFAULT_OLLAMA_TEXT_MODEL, undefined],
   OLLAMA_EMBED: ["snowflake-arctic-embed2", undefined],
-  OLLAMA_TRANSLATION: ["gemma3:4b", undefined],
-  OLLAMA_BOT_TRANSLATION: ["gemma3:4b", undefined],
+  OLLAMA_TRANSLATION: [DEFAULT_OLLAMA_TEXT_MODEL, undefined],
+  OLLAMA_BOT_TRANSLATION: [DEFAULT_OLLAMA_TEXT_MODEL, undefined],
 };
 
 test("各機能に意図したモデル/tierが割り当たっている", () => {
   withCleanEnv(() => {
+    process.env.AI_TEXT_PROVIDER = "gemini";
+    resetAiRouteCache();
     for (const [feature, [model, tier]] of Object.entries(EXPECTED) as [
       AiFeatureKey,
       [string, "flex" | "standard" | undefined],
@@ -121,6 +128,30 @@ test("各機能に意図したモデル/tierが割り当たっている", () => 
       assert.equal(resolved.model, model, `${feature} の model`);
       assert.equal(resolved.serviceTier, tier, `${feature} の serviceTier`);
       assert.equal(resolved.source, "default", `${feature} の source`);
+    }
+  });
+});
+
+test("既定では全テキスト生成を指定のOllamaモデルへ集約する", () => {
+  withCleanEnv(() => {
+    for (const feature of AI_FEATURE_KEYS) {
+      const resolved = resolveAiRoute(feature);
+      if (feature === "BSKY_IMAGE") {
+        assert.equal(resolved.provider, "gemini");
+        continue;
+      }
+      if (feature === "GEMINI_GROUNDING_RESEARCH") {
+        assert.equal(resolved.provider, "gemini");
+        assert.equal(resolved.model, FLASH);
+        continue;
+      }
+      if (feature === "OLLAMA_EMBED") {
+        assert.equal(resolved.model, "snowflake-arctic-embed2");
+        continue;
+      }
+      assert.equal(resolved.provider, "ollama", `${feature} の provider`);
+      assert.equal(resolved.model, DEFAULT_OLLAMA_TEXT_MODEL, `${feature} の model`);
+      assert.equal(resolved.serviceTier, undefined, `${feature} の tier`);
     }
   });
 });
@@ -139,6 +170,8 @@ test("モデル別名の env はモジュール読み込みの後に設定して
   // 最大のリスクはここ。各アプリの dotenv.config() は全 import の「後」に走るので、
   // レジストリが module scope で env を読んでいたら .env の上書きが黙って無視される。
   withCleanEnv(() => {
+    process.env.AI_TEXT_PROVIDER = "gemini";
+    resetAiRouteCache();
     assert.equal(aiModel("BSKY_ANALYZE"), LITE);
 
     process.env.MODEL_GEMINI_LITE = "gemini-9.9-flash-lite";
@@ -154,6 +187,7 @@ test("モデル別名の env はモジュール読み込みの後に設定して
 
 test("AI_ROUTE_<機能> でその機能だけルートを差し替えられる", () => {
   withCleanEnv(() => {
+    process.env.AI_TEXT_PROVIDER = "gemini";
     process.env.AI_ROUTE_BSKY_CONVERSATION = "flash-standard";
     resetAiRouteCache();
 
@@ -170,6 +204,7 @@ test("AI_ROUTE_<機能> でその機能だけルートを差し替えられる",
 
 test("日記だけをGemini 3.5/3.6のFlex・Standardへ切り替えられる", () => {
   withCleanEnv(() => {
+    process.env.AI_TEXT_PROVIDER = "gemini";
     process.env.AI_ROUTE_COMMON_DIARY_ATTEMPT_EARLY = "35-lite-flex";
     process.env.AI_ROUTE_COMMON_DIARY_ATTEMPT_MID = "35-lite-standard";
     process.env.AI_ROUTE_COMMON_DIARY_ATTEMPT_LATE = "36-flash-standard";
@@ -200,6 +235,7 @@ test("日記だけをGemini 3.5/3.6のFlex・Standardへ切り替えられる", 
 
 test("不正な AI_ROUTE_* は警告して既定にフォールバックする（throw しない）", () => {
   withCleanEnv(() => {
+    process.env.AI_TEXT_PROVIDER = "gemini";
     const warnings: unknown[][] = [];
     const originalWarn = console.warn;
     console.warn = (...args: unknown[]) => void warnings.push(args);
@@ -225,6 +261,7 @@ test("未知の機能キーでも throw せずフォールバックする（ビ�
   // ここで throw すると generateContentWithRetry ごと落ち、呼び出し元の機能が丸ごと死ぬ
   // （例: biorhythm の generateStatus が失敗すると nextStepTime が永久に空になる）。
   withCleanEnv(() => {
+    process.env.AI_TEXT_PROVIDER = "gemini";
     const warnings: unknown[][] = [];
     const originalWarn = console.warn;
     console.warn = (...args: unknown[]) => void warnings.push(args);
@@ -244,7 +281,7 @@ test("未知の機能キーでも throw せずフォールバックする（ビ�
 
 test("botたん翻訳モデルは専用env→OLLAMA_MODEL→既定の三段で解決する", () => {
   withCleanEnv(() => {
-    assert.equal(aiModel("OLLAMA_BOT_TRANSLATION"), "gemma3:4b");
+    assert.equal(aiModel("OLLAMA_BOT_TRANSLATION"), DEFAULT_OLLAMA_TEXT_MODEL);
 
     process.env.OLLAMA_MODEL = "qwen3:8b";
     resetAiRouteCache();

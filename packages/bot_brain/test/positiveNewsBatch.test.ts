@@ -3,6 +3,18 @@ import test, { mock } from "node:test";
 import { gemini } from "../src/gemini/index.js";
 import { judgePositiveNewsBatch, sanitizeGateDecisions } from "../src/gemini/judgePositiveNewsBatch.js";
 import { withNewsGeminiRetry } from "../src/gemini/newsGeminiRetry.js";
+import { resetAiRouteCache } from "@bsky-affirmative-bot/shared-configs";
+
+const savedTextProvider = process.env.AI_TEXT_PROVIDER;
+test.beforeEach(() => {
+  process.env.AI_TEXT_PROVIDER = "gemini";
+  resetAiRouteCache();
+});
+test.afterEach(() => {
+  if (savedTextProvider === undefined) delete process.env.AI_TEXT_PROVIDER;
+  else process.env.AI_TEXT_PROVIDER = savedTextProvider;
+  resetAiRouteCache();
+});
 
 const input = [
   { articleId: "a", title: "受賞", categories: [] },

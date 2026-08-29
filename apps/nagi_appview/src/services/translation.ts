@@ -4,7 +4,11 @@ import {
   nagiTranslations,
 } from "@bsky-affirmative-bot/database";
 import { NAGI, NAGI_LANGUAGES } from "@bsky-affirmative-bot/nagi-lexicon";
-import { BOT_VOICE_BRIEF_EN } from "@bsky-affirmative-bot/shared-configs";
+import {
+  BOT_VOICE_BRIEF_EN,
+  OLLAMA_TEXT_CONTEXT_LENGTH,
+  ollamaNativeUrl,
+} from "@bsky-affirmative-bot/shared-configs";
 import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { config } from "../config.js";
 import { ApiError } from "../middleware/errors.js";
@@ -298,14 +302,21 @@ export async function requestTranslationWithRetry(
       return await translationSlots.run(async () => {
         let response: Response;
         try {
-          response = await fetcher(`${config.ollamaUrl}/chat/completions`, {
+          // OpenAI互換ではなくネイティブ /api/chat を使う。think を切らないと訳文の前に
+          // reasoning を数百トークン吐いてレイテンシが倍増し、num_ctx を指定できないと
+          // context 4096 のrunnerが別にロードされて26Bモデルのリロードが頻発する。
+          response = await fetcher(`${ollamaNativeUrl(config.ollamaUrl)}/api/chat`, {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({
               model,
               messages: [{ role: "user", content: prompt }],
-              temperature,
               stream: false,
+              think: false,
+              options: {
+                num_ctx: OLLAMA_TEXT_CONTEXT_LENGTH,
+                temperature,
+              },
             }),
             signal: AbortSignal.timeout(30_000),
           });
@@ -339,7 +350,7 @@ export async function requestTranslationWithRetry(
             true,
           );
         }
-        const text = String(data?.choices?.[0]?.message?.content ?? "").trim();
+        const text = String(data?.message?.content ?? "").trim();
         if (hasTranslationText(text)) return text;
         throw new TranslationGenerationError(
           "invalid_output",

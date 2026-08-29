@@ -67,7 +67,7 @@ test("候補が3件集まるまでページングし、NewsDataの必須条件�
     fetchImpl: fetchMock as typeof fetch,
     getNewsDataApiKey: () => "test-key",
     getOllamaBaseUrl: () => "http://ollama.test:11434/v1",
-    getOllamaModel: () => "gemma3:4b",
+    getOllamaModel: () => "local-test-model",
     logger: silentLogger,
   });
   const result = await service.getCandidates();
@@ -242,4 +242,36 @@ test("再起動相当の別サービスでも永続Gemmaキャッシュを利用
   await new PositiveNewsService(dependencies).getCandidates();
   await new PositiveNewsService(dependencies).getCandidates();
   assert.equal(gemmaCalls, 1);
+});
+
+// 思考するモデルは reasoning が num_predict を食い切り、content が空文字のまま
+// done_reason=length で返る。format を付けていても防げず、JSON.parse("") に落ちて
+// 全件 classifier_error になるため、think は必ず切る。
+test("Gemma判定リクエストでは必ず思考を切る", async () => {
+  let body: any;
+  const fetchMock = async (input: string | URL | Request, init?: RequestInit) => {
+    if (String(input).startsWith("https://newsdata.io")) {
+      return response({ status: "success", results: [article("a1", "受賞")] });
+    }
+    body = JSON.parse(String(init?.body));
+    return response({
+      message: {
+        content: JSON.stringify({
+          decision: "accept",
+          promotional: false,
+          reasonCode: "positive_result",
+        }),
+      },
+    });
+  };
+  const service = new PositiveNewsService({
+    fetchImpl: fetchMock as typeof fetch,
+    getNewsDataApiKey: () => "key",
+    getOllamaBaseUrl: () => "http://ollama.test:11434/v1",
+    getOllamaModel: () => "local-test-model",
+    logger: silentLogger,
+  });
+  await service.getCandidates();
+  assert.equal(body.think, false);
+  assert.equal(body.stream, false);
 });

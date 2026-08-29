@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { OLLAMA_TEXT_CONTEXT_LENGTH } from "@bsky-affirmative-bot/shared-configs";
 
 process.env.DATABASE_URL ??= "postgres://user:pass@localhost:5432/test";
 process.env.NAGI_BOT_DID ??= "did:plc:testbot";
@@ -24,8 +25,9 @@ const {
 
 const validUri = "at://did:plc:example/com.suibari.nagi.post/3mtranslation";
 const english = { code: "en", name: "English" } as any;
+// Ollamaネイティブ /api/chat の応答形。OpenAI互換の choices[] ではない。
 const successResponse = (text = "Translated text") =>
-  new Response(JSON.stringify({ choices: [{ message: { content: text } }] }), {
+  new Response(JSON.stringify({ message: { content: text } }), {
     status: 200,
     headers: { "content-type": "application/json" },
   });
@@ -147,22 +149,31 @@ test("single-flight shares one task and removes failed requests for retry", asyn
   );
 });
 
-test("sends the requested model and temperature, defaulting to gemma3:4b at 0", async () => {
+test("sends the requested model and temperature, defaulting to the shared Gemma 4 at 0", async () => {
+  const model = "hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S";
   const bodies: any[] = [];
-  const fetcher = (async (_url: any, init: any) => {
+  const urls: string[] = [];
+  const fetcher = (async (url: any, init: any) => {
+    urls.push(String(url));
     bodies.push(JSON.parse(init.body));
     return successResponse();
   }) as any;
   await requestTranslationWithRetry("prompt", english, { fetcher });
   await requestTranslationWithRetry("prompt", english, {
     fetcher,
-    model: "gemma3:4b",
+    model,
     temperature: 0.3,
   });
-  assert.equal(bodies[0].model, "gemma3:4b");
-  assert.equal(bodies[0].temperature, 0);
-  assert.equal(bodies[1].model, "gemma3:4b");
-  assert.equal(bodies[1].temperature, 0.3);
+  assert.equal(bodies[0].model, model);
+  assert.equal(bodies[0].options.temperature, 0);
+  assert.equal(bodies[1].model, model);
+  assert.equal(bodies[1].options.temperature, 0.3);
+  // ネイティブ /api/chat を使い、思考を切って num_ctx を他のローカル呼び出しと揃える。
+  // OpenAI互換だと num_ctx を指定できず、26Bモデルがリクエストのたびにリロードされる。
+  assert.ok(urls.every((url) => url.endsWith("/api/chat")), urls.join(", "));
+  assert.equal(bodies[0].think, false);
+  assert.equal(bodies[0].options.num_ctx, OLLAMA_TEXT_CONTEXT_LENGTH);
+  assert.equal(bodies[1].options.num_ctx, OLLAMA_TEXT_CONTEXT_LENGTH);
 });
 
 test("retries once after a timeout without holding the retry delay", async () => {

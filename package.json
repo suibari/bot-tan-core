@@ -8,6 +8,7 @@
     "diary:model:evaluate": "tsx scripts/evaluateUserDiaryModels.ts",
     "predefined-reply:evaluate": "tsx --env-file=.env scripts/evaluatePredefinedReplies.ts",
     "local-model:evaluate": "tsx --env-file=.env scripts/evaluateLocalModels.mts",
+    "ai-migration:evaluate": "tsx --env-file=.env scripts/evaluateMigratedAiFeatures.mts",
     "bot-memory:backfill": "tsx --env-file=.env scripts/backfillBotMemory.ts",
     "tts-pronunciation": "tsx --env-file=.env scripts/manageTtsPronunciations.ts",
     "dev": "pnpm -r dev"

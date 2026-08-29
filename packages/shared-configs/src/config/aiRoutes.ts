@@ -24,12 +24,44 @@ export type ModelAliasName =
   | "gemini-flash"
   | "gemini-35-lite"
   | "gemini-36-flash"
+  | "gemini-grounding"
   | "gemini-image"
   | "gemini-embedding"
   | "ollama-chat"
   | "ollama-embed"
   | "ollama-translate"
   | "ollama-bot-translate";
+
+export type AiTextProvider = "ollama" | "gemini";
+
+export const DEFAULT_OLLAMA_TEXT_MODEL =
+  "hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S";
+
+/**
+ * ローカル生成の全リクエストで使う num_ctx。**必ず全呼び出し箇所で同じ値を渡すこと。**
+ *
+ * 1. Ollama の既定は 4096 しかない。SYSTEM_INSTRUCTION だけで約3,900トークンあり、
+ *    そこへ会話履歴と grounding の調査ブロック（最大8,000字）が乗る。4096 のままだと
+ *    実測でリプライが**空文字**になる（エラーにならないので気付けない）。
+ * 2. Ollama は num_ctx が違うと runner を作り直す。1箇所でも値がずれると、リプライ生成と
+ *    分類・翻訳が交互に来るたびに26Bモデルが5〜8秒かけてリロードされる。
+ *
+ * env で可変にしない。ホスト差の吸収より、全経路で揃っていることの方が重要。
+ */
+export const OLLAMA_TEXT_CONTEXT_LENGTH = 16_384;
+
+/**
+ * OLLAMA_BASE_URL（OpenAI互換なので末尾に /v1 が付く）から、Ollamaネイティブの
+ * ルートURLを作る。
+ *
+ * テキスト生成は必ずネイティブ `/api/chat` を使うこと。OpenAI互換の
+ * `/v1/chat/completions` では `num_ctx` を指定する方法がなく（`options` は黙って
+ * 無視される）、context が 4096 に落ちたrunnerが別途ロードされてしまう。
+ * 埋め込みと死活監視は /v1 のままでよい（num_ctx が要らず、モデルも別）。
+ */
+export function ollamaNativeUrl(baseUrl: string): string {
+  return baseUrl.replace(/\/+$/, "").replace(/\/v1$/, "");
+}
 
 type ModelAliasSpec = {
   /** このモデル別名を差し替える環境変数名 */
@@ -43,15 +75,22 @@ const MODEL_ALIAS_SPECS: Record<ModelAliasName, ModelAliasSpec> = {
   "gemini-flash": { env: "MODEL_GEMINI_FLASH", fallback: () => "gemini-2.5-flash" },
   "gemini-35-lite": { env: "MODEL_GEMINI_35_LITE", fallback: () => "gemini-3.5-flash-lite" },
   "gemini-36-flash": { env: "MODEL_GEMINI_36_FLASH", fallback: () => "gemini-3.6-flash" },
+  "gemini-grounding": {
+    env: "MODEL_GEMINI_GROUNDING",
+    fallback: () => process.env.MODEL_GEMINI_FLASH?.trim() || "gemini-2.5-flash",
+  },
   "gemini-image": { env: "MODEL_GEMINI_IMAGE", fallback: () => "gemini-2.5-flash-image-preview" },
   "gemini-embedding": { env: "MODEL_GEMINI_EMBEDDING", fallback: () => "gemini-embedding-001" },
-  "ollama-chat": { env: "OLLAMA_MODEL", fallback: () => "gemma3:4b" },
+  "ollama-chat": { env: "OLLAMA_MODEL", fallback: () => DEFAULT_OLLAMA_TEXT_MODEL },
   "ollama-embed": { env: "OLLAMA_EMBED_MODEL", fallback: () => "snowflake-arctic-embed2" },
-  "ollama-translate": { env: "OLLAMA_TRANSLATION_MODEL", fallback: () => "gemma3:4b" },
+  "ollama-translate": {
+    env: "OLLAMA_TRANSLATION_MODEL",
+    fallback: () => process.env.OLLAMA_MODEL?.trim() || DEFAULT_OLLAMA_TEXT_MODEL,
+  },
   // botたん翻訳は「専用env → 汎用OLLAMA_MODEL → 既定」の三段フォールバックを維持する
   "ollama-bot-translate": {
     env: "OLLAMA_BOT_TRANSLATION_MODEL",
-    fallback: () => process.env.OLLAMA_MODEL?.trim() || "gemma3:4b",
+    fallback: () => process.env.OLLAMA_MODEL?.trim() || DEFAULT_OLLAMA_TEXT_MODEL,
   },
 };
 
@@ -78,6 +117,7 @@ export type AiRouteName =
   | "35-lite-standard"
   | "36-flash-flex"
   | "36-flash-standard"
+  | "grounding-auto"
   | "image-auto"
   | "embedding-auto"
   | "ollama-chat"
@@ -98,7 +138,11 @@ export const AI_ROUTES = {
   "35-lite-standard": { provider: "gemini", alias: "gemini-35-lite", tier: "standard" },
   "36-flash-flex": { provider: "gemini", alias: "gemini-36-flash", tier: "flex" },
   "36-flash-standard": { provider: "gemini", alias: "gemini-36-flash", tier: "standard" },
+  "grounding-auto": { provider: "gemini", alias: "gemini-grounding", tier: "auto" },
   "image-auto": { provider: "gemini", alias: "gemini-image", tier: "auto" },
+  // ※どの機能キーからも参照されていない。実運用の埋め込みは ollama-embed
+  //   （snowflake-arctic-embed2）で、Gemini へ戻す予定もない。移行と削除を混ぜないため
+  //   今回は残すが、次に aiRoutes を触るときの撤去候補。
   "embedding-auto": { provider: "gemini", alias: "gemini-embedding", tier: "auto" },
   // Ollama はローカル実行なので ServiceTier の概念がない
   "ollama-chat": { provider: "ollama", alias: "ollama-chat", tier: "auto" },
@@ -191,6 +235,9 @@ export const AI_FEATURES = {
   NEWS_POSITIVE_GATE: "lite-flex", // ポジニュース判定（構造化JSON）
   NEWS_POSITIVE_COMMENT: "lite-flex", // ポジニュースのbotたんコメント
 
+  // Ollama 運用時にも残す、検索・URL調査だけの Gemini。人格や最終文面は生成しない。
+  GEMINI_GROUNDING_RESEARCH: "grounding-auto",
+
   // ══════ ローカル Ollama（ServiceTier なし） ════════════════════════
   OLLAMA_PREDEFINED_AFFIRMATION: "ollama-chat", // 定型文リプライの分類/LLM選択
   OLLAMA_NEWS_PRESCREEN: "ollama-chat", // ニュースの事前スクリーニング
@@ -232,6 +279,32 @@ function isAiRouteName(value: string): value is AiRouteName {
   return Object.prototype.hasOwnProperty.call(AI_ROUTES, value);
 }
 
+/**
+ * テキスト生成の全体スイッチ。未設定時は Ollama を使い、`gemini` を明示すると
+ * AI_FEATURES に残してある従来の Gemini モデル/tier 割り当てへ一括で戻る。
+ * 画像生成と埋め込みは互換性がないため、このスイッチの対象外。
+ */
+export function aiTextProvider(): AiTextProvider {
+  const value = process.env.AI_TEXT_PROVIDER?.trim().toLowerCase();
+  if (!value || value === "ollama") return "ollama";
+  if (value === "gemini") return "gemini";
+  console.warn(
+    `[WARN][AI_ROUTE] AI_TEXT_PROVIDER="${value}" は無効。既定の "ollama" を使う。`,
+  );
+  return "ollama";
+}
+
+/** `off` なら検索を完全に止める。未設定時は調査専用 Gemini を使う。 */
+export function isAiGroundingEnabled(): boolean {
+  const value = process.env.AI_GROUNDING_PROVIDER?.trim().toLowerCase();
+  if (!value || value === "gemini") return true;
+  if (value === "off") return false;
+  console.warn(
+    `[WARN][AI_ROUTE] AI_GROUNDING_PROVIDER="${value}" は無効。既定の "gemini" を使う。`,
+  );
+  return true;
+}
+
 export function aiRouteEnvName(feature: AiFeatureKey): string {
   return `AI_ROUTE_${feature}`;
 }
@@ -269,7 +342,20 @@ function resolveUncached(feature: AiFeatureKey): ResolvedAiRoute {
   }
 
   // AI_ROUTES / MODEL_ALIAS_SPECS 側も同じ理由で防御する。ここは絶対に throw させない。
-  const spec: AiRouteSpec = AI_ROUTES[route] ?? AI_ROUTES[FALLBACK_ROUTE];
+  let spec: AiRouteSpec = AI_ROUTES[route] ?? AI_ROUTES[FALLBACK_ROUTE];
+
+  // Gemini のテキスト生成ルートを、呼び出し側を変えずに Ollama へ一括移行する。
+  // image / embedding はモデル能力とAPI契約が異なるため、従来の Gemini ルートを保つ。
+  if (
+    spec.provider === "gemini" &&
+    spec.alias !== "gemini-image" &&
+    spec.alias !== "gemini-embedding" &&
+    spec.alias !== "gemini-grounding" &&
+    aiTextProvider() === "ollama"
+  ) {
+    spec = AI_ROUTES["ollama-chat"];
+  }
+
   const alias = MODEL_ALIAS_SPECS[spec.alias] ?? MODEL_ALIAS_SPECS["gemini-lite"];
   const model = process.env[alias.env]?.trim() || alias.fallback();
 

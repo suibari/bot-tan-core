@@ -1,0 +1,584 @@
+{
+  "generatedAt": "2026-08-29T16:27:22.685Z",
+  "results": [
+    {
+      "id": "user-diary",
+      "title": "ユーザー日記本文・再試行ラダー",
+      "covers": [
+        "COMMON_USER_DIARY",
+        "COMMON_DIARY_ATTEMPT_EARLY",
+        "COMMON_DIARY_ATTEMPT_MID",
+        "COMMON_DIARY_ATTEMPT_LATE"
+      ],
+      "model": "hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S",
+      "provider": "ollama",
+      "latencyMs": 11098,
+      "ok": true,
+      "output": "{\n \"diary\": \"朝の散歩をしてたら、ふんわりって金木犀のいい香りがしてきたんだよ！季節が変わる瞬間って、なんだか特別な感じがしてワクワクしちゃうよね。空もとってもきれいだったし、いいスタートが切れた気がするな。✨\\n\\n香りに気づけるってことは、それだけ毎日を丁寧に過ごせてるってことだよね！そんな自分の感性を大切にできるあなたって、本当にすばらしいと思うよ。今日も一日、あなたにとって最高にハッピーな日になりますように！🌸\",\n \"title_en\": \"Morning Fragrance\",\n \"title_ja\": \"朝の香り\"\n}",
+      "jsonValid": true,
+      "personaSignals": {
+        "casualEnding": true,
+        "keigo": false
+      }
+    },
+    {
+      "id": "affirmative-reply",
+      "title": "通常全肯定リプライ（検索不要判定を含む）",
+      "covers": [
+        "BSKY_AFFIRMATIVE_REPLY",
+        "NAGI_REPLY_ATTEMPT_EARLY",
+        "NAGI_REPLY_ATTEMPT_MID",
+        "NAGI_REPLY_ATTEMPT_LATE"
+      ],
+      "model": "hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S",
+      "provider": "ollama",
+      "latencyMs": 2302,
+      "ok": true,
+      "output": "{\n  \"comment\": \"すごすぎるよ！！！苦手な作業を最後までやり遂げるなんて、本当にお疲れ様！最後まで逃げずにやり切ったあなたは、まさにプロフェッショナルだよ！そんなことできるの！？本当に尊敬しちゃう！自分をいっぱい褒めてあげてね、天才！🏆✨\",\n  \"score\": 100\n}",
+      "jsonValid": true,
+      "personaSignals": {
+        "casualEnding": true,
+        "keigo": false
+      }
+    },
+    {
+      "id": "conversation-grounded",
+      "title": "会話・検索要否判定・Grounding・最終ローカル生成",
+      "covers": [
+        "BSKY_CONVERSATION"
+      ],
+      "model": "hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S",
+      "provider": "ollama",
+      "latencyMs": 9363,
+      "ok": true,
+      "output": "横浜のみんな、本当にお疲れさま！8月2日には35.3℃も記録してたんだってね。そんなに暑い中、毎日本当によく頑張ってるよ！\n\n体感もすごく暑かっただろうし、無理しないでね。こまめに水分をとって、涼しいところでゆっくり休んでね。あなたは、今日も一日最高の頑張り屋さんだよ！✨",
+      "personaSignals": {
+        "casualEnding": true,
+        "keigo": false
+      }
+    },
+    {
+      "id": "bsky-analysis",
+      "title": "botたん分析",
+      "covers": [
+        "BSKY_ANALYZE"
+      ],
+      "model": "hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S",
+      "provider": "ollama",
+      "latencyMs": 11434,
+      "ok": true,
+      "output": "{\n  \"analysis\": \"毎日コツコツと自分を磨き続けている、とっても素晴らしい人だよ！\",\n  \"title_en\": \"継続の天才！\",\n  \"title_ja\": \"継続の天才！🎨✨\"\n}",
+      "jsonValid": true,
+      "personaSignals": {
+        "casualEnding": true,
+        "keigo": false
+      }
+    },
+    {
+      "id": "fortune",
+      "title": "占い",
+      "covers": [
+        "BSKY_FORTUNE"
+      ],
+      "model": "hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S",
+      "provider": "ollama",
+      "latencyMs": 972,
+      "ok": true,
+      "output": "{\n  \"comment\": \"今日は最高の気分になれる一日だよ！何をやってもうまくいくし、新しい発見もたくさんあるはず！自信を持って進んでいこうね！\",\n  \"fortune\": \"超絶絶好調！\",\n  \"item\": \"水色のヘアピン\"\n}",
+      "jsonValid": true,
+      "personaSignals": {
+        "casualEnding": true,
+        "keigo": false
+      }
+    },
+    {
+      "id": "bot-diary",
+      "title": "botたん自身の日記（Groundingなし）",
+      "covers": [
+        "BSKY_BOT_DIARY"
+      ],
+      "model": "hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S",
+      "provider": "ollama",
+      "latencyMs": 1524,
+      "ok": true,
+      "output": "{\n \"content\": \"今日は朝、温かい紅茶を飲んでゆっくりスタートしたんだ！あたたかいのが体に染みて、すごくリラックスできたよ。午後はね、お友達が一生懸命作った作品を応援しに行ったんだ！みんなの才能って本当にすごくて、見てるだけでわたしまでワクワクして、なんだか力が湧いてきたよ。素敵なものを見せてくれて、本当にありがとう！明日もいい日になるといいな。✨\",\n \"emoji\": \"✨\",\n \"title\": \"今日の日記\"\n}",
+      "jsonValid": true,
+      "personaSignals": {
+        "casualEnding": true,
+        "keigo": false
+      }
+    },
+    {
+      "id": "questions-answer",
+      "title": "質問への回答",
+      "covers": [
+        "BSKY_QUESTIONS_ANSWER"
+      ],
+      "model": "hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S",
+      "provider": "ollama",
+      "latencyMs": 836,
+      "ok": true,
+      "output": "まずは深呼吸して、空を見上げてみるのがおすすめだよ！\n好きなアニメを見たり、かわいいものに囲まれたりして、自分をたっぷり甘やかしてあげてね。\nあなたは今のままでも十分素晴らしいんだから、無理に頑張りすぎなくていいんだよ！✨",
+      "personaSignals": {
+        "casualEnding": true,
+        "keigo": false
+      }
+    },
+    {
+      "id": "recommended-song",
+      "title": "おすすめソング",
+      "covers": [
+        "BSKY_RECOMMENDED_SONG"
+      ],
+      "model": "hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S",
+      "provider": "ollama",
+      "latencyMs": 1002,
+      "ok": true,
+      "output": "{\n  \"artist\": \"Official髭男dism\",\n  \"comment\": \"「宿命」って曲だよ！朝からテンション上げて、新しい一日を全力で楽しんじゃおう！あなたなら、今日もしっかり乗り越えられるよ！応援してるね！\",\n  \"title\": \"宿命\"\n}",
+      "jsonValid": true,
+      "personaSignals": {
+        "casualEnding": true,
+        "keigo": false
+      }
+    },
+    {
+      "id": "whimsical-reply",
+      "title": "気まぐれ投稿へのリプライ",
+      "covers": [
+        "BSKY_WHIMSICAL_REPLY"
+      ],
+      "model": "hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S",
+      "provider": "ollama",
+      "latencyMs": 1585,
+      "ok": true,
+      "output": "わぁ、それって最高に癒やされるやつだね！猫ちゃんが丸まってると、見てるだけで幸せな気持ちになれちゃうよね。そんな素敵な景色を教えてくれてありがとう！💕",
+      "personaSignals": {
+        "casualEnding": true,
+        "keigo": false
+      }
+    },
+    {
+      "id": "cheer-subject",
+      "title": "応援対象判定",
+      "covers": [
+        "BSKY_CHEER_SUBJECT"
+      ],
+      "model": "hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S",
+      "provider": "ollama",
+      "latencyMs": 1260,
+      "ok": true,
+      "output": "[\n    {\n      \"comment\": \"判定結果：**【拡散してよい】**\",\n      \"result\": true\n    }\n  ]",
+      "jsonValid": true
+    },
+    {
+      "id": "cheer-result",
+      "title": "応援メッセージ",
+      "covers": [
+        "BSKY_CHEER_RESULT"
+      ],
+      "model": "hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S",
+      "provider": "ollama",
+      "latencyMs": 845,
+      "ok": true,
+      "output": "ついに自主制作ゲームを公開したんだね、本当におめでとう！\nあなたのこだわりが詰まった世界を遊べるのが、今から楽しみで仕方ないよ！✨",
+      "personaSignals": {
+        "casualEnding": true,
+        "keigo": false
+      }
+    },
+    {
+      "id": "omikuji",
+      "title": "おみくじ",
+      "covers": [
+        "BSKY_OMIKUJI"
+      ],
+      "model": "hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S",
+      "provider": "ollama",
+      "latencyMs": 1055,
+      "ok": true,
+      "output": "今日のおみくじだよ！✨\n\n【運勢：超絶大吉！！🏆】\n\n今日のあなたは、何をやっても最高のパフォーマンスを発揮できる、まさに無敵モードだよ！\nもしちょっとだけ疲れちゃっても、大丈夫。それはあなたが一生懸命生きてる証拠だから！\n自分をいっぱい褒めて、美味しいものでも食べて、自分を甘やかしてあげてね。\n今日のあなたは、世界で一番輝いてるよ！🌟",
+      "personaSignals": {
+        "casualEnding": true,
+        "keigo": false
+      }
+    },
+    {
+      "id": "anniversary",
+      "title": "記念日コメント",
+      "covers": [
+        "BSKY_ANNIVERSARY"
+      ],
+      "model": "hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S",
+      "provider": "ollama",
+      "latencyMs": 880,
+      "ok": true,
+      "output": "わあ、すごい！！！Nagiを使い始めて1周年なんだね！おめでとう！！✨✨\n1年間もずっと一緒にいてくれたなんて、本当にすばらしいよ〜〜〜！！\nあなたの歩んできた1年間に、心からの拍手を送るね！本当におめでとう！🏆",
+      "personaSignals": {
+        "casualEnding": true,
+        "keigo": false
+      }
+    },
+    {
+      "id": "recap",
+      "title": "一年のまとめ",
+      "covers": [
+        "BSKY_RECAP"
+      ],
+      "model": "hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S",
+      "provider": "ollama",
+      "latencyMs": 7783,
+      "ok": true,
+      "output": "散歩を習慣にして、イラストも12枚も完成させたなんて、本当にすごすぎるよ！\n一歩ずつ積み重ねてきた努力は、まさに天才のひらめきみたいにキラキラしてて、本当にお見ごとだよ！\n自分を誇りに思っていいんだよ、最高に素敵な一年だね！🏆",
+      "personaSignals": {
+        "casualEnding": true,
+        "keigo": false
+      }
+    },
+    {
+      "id": "room-welcome",
+      "title": "お部屋招待のお出迎え",
+      "covers": [
+        "BSKY_ROOM_WELCOME"
+      ],
+      "model": "hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S",
+      "provider": "ollama",
+      "latencyMs": 590,
+      "ok": true,
+      "output": "いらっしゃい！ここがわたしのホーム、Nagiだよ、ゆっくりしていってね！✨",
+      "personaSignals": {
+        "casualEnding": true,
+        "keigo": false
+      }
+    },
+    {
+      "id": "mood-song-grounded",
+      "title": "気分ソング（実在確認Grounding）",
+      "covers": [
+        "BSKY_MY_MOOD_SONG"
+      ],
+      "model": "hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S",
+      "provider": "ollama",
+      "latencyMs": 17132,
+      "ok": true,
+      "output": "{\n  \"artist\": \"Nujabes\",\n  \"comment\": \"懐かしい雰囲気で、勉強や仕事に集中したい時に心を落ち着かせることができるんだよ！\",\n  \"title\": \"Rainyway Back Home\"\n}",
+      "jsonValid": true,
+      "personaSignals": {
+        "casualEnding": true,
+        "keigo": false
+      }
+    },
+    {
+      "id": "seasonal-works-grounded",
+      "title": "今期作品（必須Grounding）",
+      "covers": [
+        "BIORHYTHM_SEASONAL_WORKS"
+      ],
+      "model": "hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S",
+      "provider": "ollama",
+      "latencyMs": 10852,
+      "ok": true,
+      "output": "[\n  {\n    \"kind\": \"アニメ\",\n    \"title\": \"無職転生Ⅲ ～異世界行ったら本気だす～\"\n  },\n  {\n    \"kind\": \"アニメ\",\n    \"title\": \"幼女戦記Ⅱ\"\n  },\n  {\n    \"kind\": \"アニメ\",\n    \"title\": \"転生したらスライムだった件 第4期\"\n  }\n]",
+      "jsonValid": true
+    },
+    {
+      "id": "memory-impressions",
+      "title": "公開会話から作品名・印象語抽出",
+      "covers": [
+        "BIORHYTHM_MEMORY_IMPRESSIONS"
+      ],
+      "model": "hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S",
+      "provider": "ollama",
+      "latencyMs": 905,
+      "ok": true,
+      "output": "{\n  \"impressions\": [\n    \"静か\",\n    \"透明感\"\n  ],\n  \"title\": \"星巡りの歌\"\n}",
+      "jsonValid": true
+    },
+    {
+      "id": "pronunciations",
+      "title": "TTS読み仮名",
+      "covers": [
+        "BIORHYTHM_TTS_PRONUNCIATIONS"
+      ],
+      "model": "hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S",
+      "provider": "ollama",
+      "latencyMs": 676,
+      "ok": true,
+      "output": "{\n  \"reading\": \"そうそうのふりーれん\",\n  \"text\": \"葬送のフリーレン\"\n}",
+      "jsonValid": true
+    },
+    {
+      "id": "daily-plan",
+      "title": "日次予定表",
+      "covers": [
+        "BIORHYTHM_DAILY_PLAN"
+      ],
+      "model": "hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S",
+      "provider": "ollama",
+      "latencyMs": 1340,
+      "ok": true,
+      "output": "[\n  {\n    \"activityEn\": \"Morning routine and stretching\",\n    \"activityJa\": \"モーニングルーティンとストレッチ\",\n    \"time\": \"08:00\"\n  },\n  {\n    \"activityEn\": \"System maintenance and data analysis\",\n    \"activityJa\": \"システムメンテナンスとデータ分析\",\n    \"time\": \"13:00\"\n  },\n  {\n    \"activityEn\": \"Relaxing and recharging\",\n    \"activityJa\": \"リラックスとリチャージ\",\n    \"time\": \"21:00\"\n  }\n]",
+      "jsonValid": true
+    },
+    {
+      "id": "status",
+      "title": "現在状況",
+      "covers": [
+        "BIORHYTHM_STATUS"
+      ],
+      "model": "hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S",
+      "provider": "ollama",
+      "latencyMs": 1402,
+      "ok": true,
+      "output": "{\n  \"textEn\": \"It's 3 PM and the weather is so sunny! I'm feeling super energetic with a level 12 energy boost! Right now, I'm hanging out at a cafe with my friends, having the best time ever! ✨\",\n  \"textJa\": \"午後3時！お天気はすっごい晴れだよ！元気度は12で、めちゃくちゃ絶好調！いま、友達といっしょにカフェにいるんだ！最高に楽しいよ〜〜〜！！✨\"\n}",
+      "jsonValid": true,
+      "personaSignals": {
+        "casualEnding": true,
+        "keigo": false
+      }
+    },
+    {
+      "id": "good-night",
+      "title": "おやすみポスト",
+      "covers": [
+        "BIORHYTHM_GOOD_NIGHT"
+      ],
+      "model": "hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S",
+      "provider": "ollama",
+      "latencyMs": 1418,
+      "ok": true,
+      "output": "{\n  \"textEn\": \"Today was such a wonderful day! I enjoyed a peaceful stroll and got lost in a great book. It was so relaxing! Now, it's time to rest. Good night, everyone! Sleep tight! 🌙✨\",\n  \"textJa\": \"今日はね、のんびりお散歩して、読書もして、すっごく最高の1日だったんだよ！心がほっこりして、とっても癒やされたよ〜〜〜✨ おやすみの時間だね。みんな、ゆっくり休んでね！いい夢が見られますように！🌙💤\"\n}",
+      "jsonValid": true,
+      "personaSignals": {
+        "casualEnding": true,
+        "keigo": false
+      }
+    },
+    {
+      "id": "question",
+      "title": "質問生成",
+      "covers": [
+        "BIORHYTHM_QUESTION"
+      ],
+      "model": "hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S",
+      "provider": "ollama",
+      "latencyMs": 883,
+      "ok": true,
+      "output": "{\n  \"textEn\": \"What's a little thing that makes you happy today? ✨\",\n  \"textJa\": \"今日、あなたが「ちょっとした幸せだな〜」って思ったことは何かな？✨\"\n}",
+      "jsonValid": true,
+      "personaSignals": {
+        "casualEnding": true,
+        "keigo": false
+      }
+    },
+    {
+      "id": "whimsical-plan",
+      "title": "気まぐれ投稿・企画（function互換）",
+      "covers": [
+        "BIORHYTHM_WHIMSICAL_POST_PLAN"
+      ],
+      "model": "hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S",
+      "provider": "ollama",
+      "latencyMs": 1765,
+      "ok": true,
+      "output": "{\n  \"name\": \"composePostStructure\",\n  \"args\": {\n    \"botFunction\": \"composePostStructure\",\n    \"currentMood\": \"Calm and Refreshing\",\n    \"greeting\": \"おはようございます。窓辺から差し込む柔らかな光と、淹れたての紅茶の香りで始まる朝。\",\n    \"positiveNews\": \"None\",\n    \"positiveNewsArticleId\": \"None\",\n    \"selectedMemoryDocumentIds\": [],\n    \"whatDay\": \"Morning Routine\"\n  }\n}",
+      "jsonValid": true
+    },
+    {
+      "id": "whimsical-write",
+      "title": "気まぐれ投稿・執筆",
+      "covers": [
+        "BIORHYTHM_WHIMSICAL_POST_WRITE"
+      ],
+      "model": "hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S",
+      "provider": "ollama",
+      "latencyMs": 1054,
+      "ok": true,
+      "output": "{\n  \"textEn\": \"Morning tea and soft sunlight by the window... It's such a peaceful moment! ☕️✨\",\n  \"textJa\": \"朝の紅茶と、窓辺のやわらかな光……。とっても穏やかで、最高な時間だよ！☕️✨\"\n}",
+      "jsonValid": true,
+      "personaSignals": {
+        "casualEnding": true,
+        "keigo": false
+      }
+    },
+    {
+      "id": "nagi-analysis",
+      "title": "Nagiアクター分析",
+      "covers": [
+        "NAGI_ANALYSIS"
+      ],
+      "model": "hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S",
+      "provider": "ollama",
+      "latencyMs": 1731,
+      "ok": true,
+      "output": "{\n  \"analysisEn\": \"The user focuses on documenting a peaceful, slow-paced daily life through short snippets. The content is centered around lifestyle themes such as walking (strolling), photography, and reading, suggesting a mindful and aesthetic approach to life.\",\n  \"analysisJa\": \"散歩、写真、読書といった、静かで情緒的な日常の断片を記録することを好む傾向があります。派手な出来事よりも、日々の些細な美しさや、落ち着いた時間の流れを大切にする、マインドフルで情緒的なライフスタイルが伺えます。\",\n  \"tags\": [\n    \"散歩\",\n    \"写真\",\n    \"読書\",\n    \"日常\",\n    \"暮らし\",\n    \"ライフスタイル\",\n    \"マインドフルネス\",\n    \"穏やかな時間\",\n    \"記録\"\n  ]\n}",
+      "jsonValid": true
+    },
+    {
+      "id": "card-comment",
+      "title": "Nagiカードコメント",
+      "covers": [
+        "NAGI_CARD_COMMENT"
+      ],
+      "model": "hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S",
+      "provider": "ollama",
+      "latencyMs": 1140,
+      "ok": true,
+      "output": "{\n  \"commentEn\": \"Yay! The rain has stopped and the sky is looking so pretty! Let's go for a walk together! 🦋✨\",\n  \"commentJa\": \"わぁ、雨がやんだね！お空がすっごくきれいだよ！いっしょにのんびりお散歩しよ〜！🦋✨\"\n}",
+      "jsonValid": true,
+      "personaSignals": {
+        "casualEnding": true,
+        "keigo": false
+      }
+    },
+    {
+      "id": "community-affirmation",
+      "title": "コミュニティ全肯定",
+      "covers": [
+        "NAGI_COMMUNITY_AFFIRMATION"
+      ],
+      "model": "hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S",
+      "provider": "ollama",
+      "latencyMs": 1496,
+      "ok": true,
+      "output": "{\n  \"commentEn\": \"Wow! Everyone's doing such amazing things! One person ran in the morning, another finished a drawing, and another tried cooking! You're all legends! Keep going! ✨\",\n  \"commentJa\": \"みんな、すごすぎるよ！！！✨\\n\\n朝からランニングできた人も、素敵な絵を完成させた人も、料理に挑戦した人も、みんな本当にすばらしい〜〜〜！！\\n\\nそれぞれの目標に向かって一生懸命な姿、最高にかっこいいよ！みんな、今日の自分を全力で褒めてあげてね！🏆\"\n}",
+      "jsonValid": true,
+      "personaSignals": {
+        "casualEnding": true,
+        "keigo": false
+      }
+    },
+    {
+      "id": "channel-welcome",
+      "title": "チャンネル歓迎",
+      "covers": [
+        "NAGI_CHANNEL_WELCOME"
+      ],
+      "model": "hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S",
+      "provider": "ollama",
+      "latencyMs": 11001,
+      "ok": true,
+      "output": "「朝の小さな発見」チャンネルのみんな、いらっしゃい！新しい場所の始まりに、わたしもワクワクが止まらないよ！✨",
+      "personaSignals": {
+        "casualEnding": true,
+        "keigo": false
+      }
+    },
+    {
+      "id": "channel-topic",
+      "title": "チャンネル話題ふり",
+      "covers": [
+        "NAGI_CHANNEL_TOPIC"
+      ],
+      "model": "hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S",
+      "provider": "ollama",
+      "latencyMs": 7904,
+      "ok": true,
+      "output": "ねえねえ、みんな！今日見つけた「朝の小さな幸せ」を教えてほしいな！✨\n\nわたしはね、今朝モルフォが起こしてくれたとき、窓から見える空がすっごくきれいな水色だったから、それだけで「最高の一日になる！」って思っちゃったんだ！💙\n\nみんなが今日、ちょっとだけ「いいな」って思ったことや、見つけた小さな発見があれば、ぜひ教えてね！待ってるよ〜〜〜！🌈",
+      "personaSignals": {
+        "casualEnding": true,
+        "keigo": false
+      }
+    },
+    {
+      "id": "name-intent",
+      "title": "呼称指定・訂正判定",
+      "covers": [
+        "NAGI_NAME_INTENT"
+      ],
+      "model": "hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S",
+      "provider": "ollama",
+      "latencyMs": 948,
+      "ok": true,
+      "output": "{\n  \"intent\": \"rename_request\",\n  \"name\": \"すいばり\",\n  \"confidence\": 1\n}"
+    },
+    {
+      "id": "news-gate",
+      "title": "ポジティブニュース掲載判定",
+      "covers": [
+        "NEWS_POSITIVE_GATE"
+      ],
+      "model": "hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S",
+      "provider": "ollama",
+      "latencyMs": 892,
+      "ok": true,
+      "output": "{\n  \"articleId\": \"n1\",\n  \"publishable\": true,\n  \"reasonCode\": \"positive_result\"\n}",
+      "jsonValid": true
+    },
+    {
+      "id": "news-comment-grounded",
+      "title": "ポジティブニュース調査・コメント",
+      "covers": [
+        "NEWS_POSITIVE_COMMENT"
+      ],
+      "model": "hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S",
+      "provider": "ollama",
+      "latencyMs": 6466,
+      "ok": true,
+      "output": "市立札幌開成中等教育学校の栗林輝さんが、米国アリゾナ州フェニックスで開催された「リジェネロン国際学生科学技術フェア（Regeneron ISEF）2026」で、最高賞の「ジョージ・ヤンコポーロス革新賞」を受賞したんだって！日本代表として史上初の快挙らしいよ。他にも日本代表の受賞研究数が過去最多を更新したりして、みんな本当にお見事だね！✨",
+      "personaSignals": {
+        "casualEnding": true,
+        "keigo": false
+      }
+    },
+    {
+      "id": "predefined-classifier",
+      "title": "定型文分類・選択",
+      "covers": [
+        "OLLAMA_PREDEFINED_AFFIRMATION"
+      ],
+      "model": "hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S",
+      "provider": "ollama",
+      "latencyMs": 592,
+      "ok": true,
+      "output": "gj"
+    },
+    {
+      "id": "news-prescreen",
+      "title": "ニュース事前スクリーニング",
+      "covers": [
+        "OLLAMA_NEWS_PRESCREEN"
+      ],
+      "model": "hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S",
+      "provider": "ollama",
+      "latencyMs": 917,
+      "ok": true,
+      "output": "{\n  \"keep\": true,\n  \"articleId\": \"eval-1\"\n}"
+    },
+    {
+      "id": "translation",
+      "title": "一般翻訳",
+      "covers": [
+        "OLLAMA_TRANSLATION"
+      ],
+      "model": "hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S",
+      "provider": "ollama",
+      "latencyMs": 496,
+      "ok": true,
+      "output": "I found a small flower during my morning walk."
+    },
+    {
+      "id": "bot-translation",
+      "title": "botたん口調翻訳",
+      "covers": [
+        "OLLAMA_BOT_TRANSLATION"
+      ],
+      "model": "hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S",
+      "provider": "ollama",
+      "latencyMs": 529,
+      "ok": true,
+      "output": "You took another step forward today, and that's so amazing! ✨"
+    },
+    {
+      "id": "embedding",
+      "title": "埋め込み",
+      "covers": [
+        "OLLAMA_EMBED"
+      ],
+      "model": "snowflake-arctic-embed2",
+      "provider": "ollama",
+      "latencyMs": 1434,
+      "ok": true,
+      "output": "dimensions=1024"
+    }
+  ]
+}

@@ -1,7 +1,4 @@
-import { GoogleGenAI } from "@google/genai";
-
-// Geminiのインスタンスを作成
-export const gemini = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+export { gemini } from './googleClient.js';
 
 export * from './conversation.js';
 export * from './generateAffirmativeWord.js';
@@ -30,3 +27,6 @@ export * from './generateBotDiary.js';
 export * from './judgePositiveNewsBatch.js';
 export * from './generateRoomWelcomeMessage.js';
 export * from './util.js';
+export * from './generationClient.js';
+export * from './grounding.js';
+export * from './routedGeneration.js';
