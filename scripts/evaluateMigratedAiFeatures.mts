@@ -12,6 +12,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   AI_FEATURE_KEYS,
+  BOT_SCENE_BRIEF_JA,
   SYSTEM_INSTRUCTION,
   aiModel,
   resolveAiRoute,
@@ -22,6 +23,7 @@ import { generateContentForFeature } from "../packages/bot_brain/src/gemini/rout
 // 呼ばないと、動かないコードを PASS と report してしまう（実際に一度そうなった）。
 import { classifyPredefinedAffirmationStrict } from "../packages/bot_brain/src/predefinedAffirmation.js";
 import { judgeNameIntent } from "../packages/bot_brain/src/gemini/judgeNameIntent.js";
+import { generateAnalyzeResult } from "../packages/bot_brain/src/gemini/generateAnalyzeResult.js";
 import { PositiveNewsService } from "../packages/bot_brain/src/api/newsdata/index.js";
 import {
   botTranslationPrompt,
@@ -137,22 +139,18 @@ const cases: Case[] = [
     title: "botたん分析",
     covers: ["BSKY_ANALYZE"],
     feature: "BSKY_ANALYZE",
-    prompt: "次のユーザーを分析して。投稿:『毎日10分だけ絵を描き続けている』『今日は色塗りが楽しかった』",
-    persona: true,
-    // 本番（generateAnalyzeResult）と同じフィールドと description を使う。score のような
-    // 存在しないフィールドを足すと、モデルの出力が本番と別物になって判断材料にならない。
-    schema: objectSchema(
-      {
-        analysis: {
-          type: "STRING",
-          description:
-            "性格分析の本文（空の行は含めないこと。具体的なポストやいいね内容に言及し、全肯定のスタンスで分析すること）",
-        },
-        title_ja: { type: "STRING", description: "ユーザーにふさわしい日本語の称号（20字以内、例: 癒やしの哲学者）" },
-        title_en: { type: "STRING", description: "同じ称号の英語訳（30字以内、例: Philosopher of Healing）" },
-      },
-      ["analysis", "title_ja", "title_en"],
-    ),
+    prompt: "本番の generateAnalyzeResult を実行（PROMPT_ANALYZE と称号ルールをそのまま通す）。",
+    production: async () =>
+      JSON.stringify(
+        await generateAnalyzeResult({
+          follower: { displayName: "すいばり" },
+          posts: "毎日10分だけ絵を描き続けている / 今日は色塗りが楽しかった / 散歩の途中で空を撮った",
+          likedByFollower: "水彩画の技法まとめ / 朝の散歩が続くコツ",
+          langStr: "日本語",
+        } as any),
+        null,
+        2,
+      ),
   },
   {
     id: "fortune",
@@ -296,9 +294,36 @@ const cases: Case[] = [
     title: "現在状況",
     covers: ["BIORHYTHM_STATUS"],
     feature: "BIORHYTHM_STATUS",
-    persona: true,
-    prompt: personaPrompt("午後3時、晴れ、元気度12、友達とカフェにいる現在状況を日英で描写して。"),
-    schema: objectSchema({ textJa: string, textEn: string }, ["textJa", "textEn"]),
+    // 本番(manager.buildPrompt)は三人称の描写文を作らせる。SYSTEM_INSTRUCTION 全文ではなく
+    // BOT_SCENE_BRIEF_JA を使い、フィールドも status_text / status_text_en / duration_minutes。
+    // personaPrompt でbotたん自身のくだけた口調を要求すると本番と別物になる
+    // （体力気力は行動を決めるための状態入力であって、読み上げさせる値ではない）。
+    system: BOT_SCENE_BRIEF_JA,
+    prompt: `以下のキャラクター（System Instruction に設定されている「全肯定botたん」）の行動を描写してほしいです。
+このキャラクターが現在どんな気分でなにをしているか、現在時刻・天候・ステータス・行動欲求・前回した行動をもとにして、具体的に考えてください。
+* ルール
+- 結果はJSON形式で出力してください。
+- "status_text": 「全肯定たんは～しています」という、AIに入力する平易なプロンプト文（200文字以内）。服装は前回から変わっていないため、服装の描写は不要です。
+- "status_text_en": status_text の英語訳（plain English, max 200 characters）。「全肯定たん」は必ず "Bot-tan" と訳してください。ことみちゃん・ラテちゃん・モルフォなど他の登場人物の名前を、本人の呼び名として使ってはいけません。
+- "duration_minutes": その行動にかかる時間（分）。5分から90分の範囲で決めてください。
+
+-----以下がキャラクターの状態-----
+・現在
+現在時刻：2026年8月29日(土) 15:00
+天候：晴れ
+ステータス：FreeTime
+体力気力（0～100）：12
+行動欲求：{"WakeUp":0,"Study":10,"FreeTime":80,"Relax":40,"Sleep":30}
+・前回
+前回時刻：14:00
+ステータス：FreeTime
+体力気力（0～100）：0.2
+前回した行動：全肯定たんは友達とカフェでおしゃべりしています。
+`,
+    schema: objectSchema(
+      { status_text: string, status_text_en: string, duration_minutes: { type: "INTEGER" } },
+      ["status_text", "status_text_en", "duration_minutes"],
+    ),
   },
   {
     id: "good-night",

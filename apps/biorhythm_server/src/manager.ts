@@ -667,7 +667,7 @@ export class BiorhythmManager extends EventEmitter {
 * ルール
 - 結果はJSON形式で出力してください。
 - "status_text": 「全肯定たんは～しています」という、AIに入力する平易なプロンプト文（200文字以内）。服装について：${outfitInstruction}
-- "status_text_en": status_text の英語訳（plain English, max 200 characters）。
+- "status_text_en": status_text の英語訳（plain English, max 200 characters）。「全肯定たん」は必ず "Bot-tan" と訳してください。ことみちゃん・ラテちゃん・モルフォなど他の登場人物の名前を、本人の呼び名として使ってはいけません。
 - "duration_minutes": その行動にかかる時間（分）。行動の内容に合わせて5分から90分の範囲内で適切に決めてください。
 - ステータスについて、WakeUpは起床時、Studyは勉強中、FreeTimeは余暇時間、Relaxは休憩中、Sleepは就寝中(夢の中)を意味します。
 - 重要: status_textは必ず現在のステータス（${this.status}）に合った行動を描写すること。Sleepなら就寝・夢の中、Studyなら勉強中、FreeTimeなら余暇活動、Relaxなら休憩、WakeUpなら起床直後の行動のみとすること。

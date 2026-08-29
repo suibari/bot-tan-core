@@ -98,6 +98,9 @@ const PROMPT_ANALYZE = (userinfo: UserInfoGemini) => {
 
 また、ユーザの性格やポストの様子から、ユーザにふさわしい「称号」を考えてください。
 称号は、日本語（20字以内）と、その英語訳（30字以内）の両方を考えてください。
+- title_ja は日本語で書いてください。
+- title_en は title_ja と同じ称号の自然な英訳にし、別の題材を選ばないでください。
+  **必ず英語で書いてください。** 日本語をそのまま入れたり、日本語に英字を添えたりしてはいけません。
 例：
 - 日本語: 「癒やしの哲学者」, 英語: 「Philosopher of Healing」
 - 日本語: 「趣味の探求者」, 英語: 「Explorer of Hobbies」
@@ -125,6 +128,9 @@ Rules:
 
 Also, based on their personality and posts, award them a fitting "title".
 Provide the title in both Japanese (within 20 characters) and English (within 30 characters).
+- Write title_ja in Japanese.
+- title_en must be a natural English translation of the same title, not a different subject.
+  **Write it in English.** Never leave Japanese text in title_en.
 Examples:
 - Japanese: 「癒やしの哲学者」, English: 「Philosopher of Healing」
 - Japanese: 「趣味の探求者」, English: 「Explorer of Hobbies」
