@@ -105,8 +105,8 @@ export function getWhatDay(now: Date = new Date()) {
   return getWhatDayForCalendarDate(year, month, date);
 }
 
-/** ユーザーのローカル日付など、現在日以外の「今日は何の日」を取得する。 */
-export function getWhatDayForMonthDay(month: string | number, date: string | number): string[] {
+/** 固定日データだけを取得する内部処理。呼び出し側は必ず年付きの公開関数を使う。 */
+function getStaticWhatDayForMonthDay(month: string | number, date: string | number): string[] {
   return whatday[String(Number(month))]?.[String(Number(date))] ?? [];
 }
 
@@ -119,7 +119,7 @@ export function getWhatDayForCalendarDate(
   const numericYear = Number(year);
   const numericMonth = Number(month);
   const numericDate = Number(date);
-  const names = [...getWhatDayForMonthDay(numericMonth, numericDate)];
+  const names = [...getStaticWhatDayForMonthDay(numericMonth, numericDate)];
   const weekday = getWeekdayForCalendarDate(numericYear, numericMonth, numericDate);
   const daysInMonth = new Date(Date.UTC(numericYear, numericMonth, 0)).getUTCDate();
 

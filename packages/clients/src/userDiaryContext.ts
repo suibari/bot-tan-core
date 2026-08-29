@@ -5,7 +5,7 @@ import {
   nagiNews,
   nagiNewsApprovals,
 } from "@bsky-affirmative-bot/database";
-import { getWhatDayForMonthDay } from "@bsky-affirmative-bot/shared-configs";
+import { getWhatDayForCalendarDate } from "@bsky-affirmative-bot/shared-configs";
 import type {
   UserDiaryContextCandidate,
   UserDiaryContextKind,
@@ -77,6 +77,13 @@ export function selectDiaryObservances(
   return seededSample([...new Set(values)], MAX_OBSERVANCES, `${did}:${date}`);
 }
 
+export function getDiaryObservances(date: string): string[] {
+  const match = date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return [];
+  const [, year, month, day] = match;
+  return getWhatDayForCalendarDate(year, month, day);
+}
+
 export type BuildUserDiaryContextInput = {
   did: string;
   date: string;
@@ -107,7 +114,6 @@ export async function buildUserDiaryContext(
   input: BuildUserDiaryContextInput,
 ): Promise<UserDiaryDayContext> {
   const logger = input.logger ?? console;
-  const [, month, day] = input.date.split("-");
   const sources = input.sources ?? {
     getActivities: () => MemoryService.getBiorhythmHistorySince(input.since),
     getNews: () =>
@@ -138,7 +144,7 @@ export async function buildUserDiaryContext(
         )
         .orderBy(asc(nagiNews.recordCreatedAt))
         .limit(MAX_NEWS),
-    getObservances: () => getWhatDayForMonthDay(month, day),
+    getObservances: () => getDiaryObservances(input.date),
   };
   const [activityRows, newsRows] = await Promise.all([
     sources.getActivities().catch((error) => {

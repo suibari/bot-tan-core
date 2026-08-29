@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   buildUserDiaryContext,
   compactDiaryActivities,
+  getDiaryObservances,
   preferredDiaryContextKind,
   selectDiaryObservances,
 } from "../src/userDiaryContext.js";
@@ -26,6 +27,17 @@ test("observance sampling is deterministic, unique, and capped at eight", () => 
   assert.deepEqual(first, second);
   assert.equal(first.length, 8);
   assert.equal(new Set(first).size, 8);
+});
+
+test("日記も年付きの共通経路で可変記念日を判定する", () => {
+  assert.equal(getDiaryObservances("2025-09-15").includes("敬老の日"), true);
+  assert.equal(getDiaryObservances("2026-09-15").includes("敬老の日"), false);
+  assert.equal(getDiaryObservances("2026-09-21").includes("敬老の日"), true);
+  assert.equal(getDiaryObservances("2026-08-29").includes("プレミアムフライデー"), false);
+});
+
+test("不正な日記日付では記念日を返さない", () => {
+  assert.deepEqual(getDiaryObservances("2026/09/21"), []);
 });
 
 test("preferred category is reproducible and rotates across dates", () => {
