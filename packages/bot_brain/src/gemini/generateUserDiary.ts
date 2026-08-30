@@ -216,6 +216,9 @@ ${NAME_RULES_JA(name)}
 - 一日を象徴する称号を、日本語20字以内と英語30字以内で付けてください。
 - title_ja / title_en の根拠にしてよいのは <user_posts> にユーザー自身が書いた内容だけです。<bot_memories>、<observances>、<news>、<media_reference>、botたんが本文へ加えた感想・比喩・カオス要素は、称号の材料にしてはいけません。
 - 称号は自由に短く言い換えて構いませんが、ユーザーが書いた具体的な行動・話題・関心のどれに基づくか説明でき、本人が自分の投稿から自然に思い当たれるものにしてください。botたんだけが持ち込んだ物・役職・造語・作品ネタを称号の中心にしてはいけません。
+- 称号は、その日の出来事に付ける記事タイトルではなく、ユーザー本人へ授ける異名・呼び名です。読んだときに「どんな一日だったか」ではなく「どんな人物か」を表す、人物を指す名詞句にしてください。
+- 「AとB」「Aへの移行」「Aした日」「Aの記録」のように、投稿の話題や出来事を並べたり説明したりするだけの見出しは禁止です。複数の題材を使う場合は列挙せず、一人の人物像へ融合してください。「ローカルLLMへの移行とマジカルミライ」ではなく「ミライのLLM魔術師」のような形です。ただし、この例の語を投稿に根拠なく流用してはいけません。
+- 「〜の魔術師」「〜の探究者」「〜職人」などは形の例であり、語尾を固定する必要はありません。題材に即した、短く印象的で、その人を呼べる称号にしてください。
 - title_en は title_ja と同じ称号の自然な英訳にし、別の題材を選ばないでください。
 
 # 出力直前チェック（最優先）
@@ -284,6 +287,9 @@ ${NAME_RULES_EN(name)}
 - Award a fitting title in Japanese (20 characters max) and English (30 characters max).
 - Ground title_ja and title_en exclusively in content the user personally wrote inside <user_posts>. Never derive either title from <bot_memories>, <observances>, <news>, <media_reference>, or any reaction, analogy, or chaotic detour Bot-tan adds to the diary body.
 - You may condense the source creatively, but the title must trace to a concrete action, topic, or interest in the user's posts and be something the person can naturally recognize from what they wrote. Never center the title on an object, role, coined phrase, or media reference introduced only by Bot-tan.
+- The title is an epithet awarded to the person, not a headline describing the day's events. Make it a noun phrase that names what kind of person they were that day, so it refers to the person rather than summarizing what happened.
+- Do not merely list or describe topics in headline forms such as "A and B," "Moving to A," "The Day of A," or "A Record." When drawing on multiple topics, fuse them into one persona instead of enumerating them. Prefer a form like "Mirai LLM Sorcerer" over "Moving to a Local LLM and Magical Mirai," but never reuse words from this example unless the user's posts support them.
+- Forms such as "Sorcerer of...," "... Explorer," or "... Artisan" are examples, not mandatory suffixes. Create a concise, memorable epithet that could be used to address the person and fits their actual material.
 - Make title_en a natural translation of the same title as title_ja; do not choose a separate motif.
 
 # Final check (highest priority)
@@ -384,12 +390,12 @@ export async function generateUserDiaryDraft(
             title_ja: {
               type: Type.STRING,
               description:
-                "<user_posts>にユーザー自身が書いた具体的内容だけを根拠にした日本語の称号。botたんの感想・比喩・カオス要素や補助材料は使わない。20字以内",
+                "<user_posts>にユーザー自身が書いた具体的内容だけを根拠に、出来事の見出しではなくユーザー本人を指す異名・呼び名にした日本語の称号。話題を列挙せず一人の人物像に融合し、botたんの感想・比喩・カオス要素や補助材料は使わない。20字以内",
             },
             title_en: {
               type: Type.STRING,
               description:
-                "title_jaと同じ題材を自然に英訳した英語の称号。根拠は<user_posts>だけとし、botたん由来の要素や補助材料は使わない。30字以内",
+                "title_jaと同じ人物像を自然に英訳した、出来事の見出しではなくユーザー本人を指す英語の称号。根拠は<user_posts>だけとし、話題の列挙、botたん由来の要素、補助材料は使わない。30字以内",
             },
             usedContextId: {
               type: Type.STRING,
