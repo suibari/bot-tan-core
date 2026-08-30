@@ -310,6 +310,27 @@ ${mediaReferenceBlock}
 Supporting candidates: ${hasContext ? "available" : "none"}`;
 }
 
+/**
+ * usedContextId のレスポンススキーマ。
+ *
+ * 候補IDを enum で列挙し、"none" や存在しないIDを返すこと自体をできなくする。
+ * Ollama ではこのスキーマがそのまま /api/chat の format へ渡って文法拘束になるため、
+ * プロンプトの禁止文（確率的にしか守られない）と違い、デコードの時点で防げる。
+ * 実際、候補があるのに "none" を返す違反で日記が丸ごと欠測したことがある。
+ *
+ * 拘束が効かない経路（Gemini）のために、生成後の validateUsedContextId も残す。
+ */
+export function usedContextIdSchema(context: UserDiaryDayContext | undefined) {
+  const ids = [...new Set(context?.candidates.map((candidate) => candidate.id) ?? [])];
+  return {
+    type: Type.STRING,
+    enum: ids.length ? ids : ["none"],
+    description: ids.length
+      ? "本文へ実際に使用した補助材料候補ID"
+      : "補助材料候補がないためnone",
+  };
+}
+
 export function validateUsedContextId(value: unknown, context: UserDiaryDayContext | undefined): string {
   if (typeof value !== "string") {
     throw new Error("Diary usedContextId must be a string");
@@ -397,12 +418,7 @@ export async function generateUserDiaryDraft(
               description:
                 "title_jaと同じ人物像を自然に英訳した、出来事の見出しではなくユーザー本人を指す英語の称号。根拠は<user_posts>だけとし、話題の列挙、botたん由来の要素、補助材料は使わない。30字以内",
             },
-            usedContextId: {
-              type: Type.STRING,
-              description: options.dayContext?.candidates.length
-                ? "本文へ実際に使用した補助材料候補ID。候補があるためnoneは禁止"
-                : "補助材料候補がないためnone",
-            },
+            usedContextId: usedContextIdSchema(options.dayContext),
             chaosExcerpt: {
               type: Type.STRING,
               description:

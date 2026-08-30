@@ -6,8 +6,10 @@ import {
   validateChaosExcerpt,
   validateDiaryParagraphs,
   validateUsedContextId,
+  usedContextIdSchema,
 } from "../src/gemini/generateUserDiary.js";
 import { generateUserDiaryResilient } from "../src/gemini/generateUserDiaryResilient.js";
+import { normalizeJsonSchema } from "../src/gemini/generationClient.js";
 
 test("formats bot memories, observances, and news as bounded diary context", () => {
   const context = formatUserDiaryDayContext(
@@ -237,6 +239,33 @@ test("diary uses the saved preferred name exactly", () => {
   assert.match(prompt, /名前を呼ぶときは「呼んでほしい名前」をそのまま使う/);
   assert.match(prompt, /<user name="呼んでほしい名前">/);
   assert.doesNotMatch(prompt, /<user name="テストさん">/);
+});
+
+test("usedContextId schema enumerates the candidate IDs so none becomes ungenerable", () => {
+  const context = {
+    date: "2026-08-30",
+    preferredKind: "observance" as const,
+    candidates: [
+      { id: "bot_activity:1", kind: "bot_activity" as const, textJa: "散歩した", textEn: "Took a walk" },
+      { id: "observance:1", kind: "observance" as const, textJa: "ハローの日", textEn: "Hello Day" },
+      { id: "news:2", kind: "news" as const, textJa: "よい話", textEn: "Good news" },
+    ],
+  };
+  const schema = usedContextIdSchema(context);
+  assert.deepEqual(schema.enum, ["bot_activity:1", "observance:1", "news:2"]);
+  assert.equal(schema.enum.includes("none"), false);
+
+  // 候補が無い日だけ "none" を許す。validateUsedContextId と同じ判断。
+  assert.deepEqual(usedContextIdSchema(undefined).enum, ["none"]);
+  assert.deepEqual(
+    usedContextIdSchema({ date: "2026-08-30", preferredKind: "news", candidates: [] }).enum,
+    ["none"],
+  );
+
+  // Ollama へは format として渡る。type だけ小文字化され、候補IDは無改変で残ること。
+  const forOllama = normalizeJsonSchema(schema) as { type: string; enum: string[] };
+  assert.equal(forOllama.type, "string");
+  assert.deepEqual(forOllama.enum, ["bot_activity:1", "observance:1", "news:2"]);
 });
 
 test("context candidates require a valid usedContextId", () => {
