@@ -18,6 +18,7 @@
     "@atproto/identity": "^0.4.8",
     "@atproto/lexicon-resolver": "^0.4.10",
     "@atproto/xrpc-server": "^0.7.19",
+    "@bsky-affirmative-bot/bot-runtime": "workspace:*",
     "@bsky-affirmative-bot/database": "workspace:*",
     "@bsky-affirmative-bot/nagi-lexicon": "workspace:*",
     "@bsky-affirmative-bot/nagi-linkcard": "workspace:*",

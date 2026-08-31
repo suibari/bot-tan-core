@@ -12,7 +12,8 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json"
+    "build": "tsc -p tsconfig.json",
+    "test": "tsx --test test/*.test.ts"
   },
   "dependencies": {
     "@atproto/api": "^0.18.21",
@@ -21,6 +22,7 @@
   },
   "devDependencies": {
     "@types/ws": "^8.5.10",
+    "tsx": "^4.20.3",
     "typescript": "^5.9.3"
   }
 }

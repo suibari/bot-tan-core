@@ -19,6 +19,18 @@ import { postContinuous } from "../bsky/postContinuous.js";
 import { generateWhimsicalReply } from "@bsky-affirmative-bot/bot-brain";
 import { like } from "../bsky/like.js";
 import { tryUpsertBotMemoryDocument } from "@bsky-affirmative-bot/database";
+import { classifyPostThread } from "@bsky-affirmative-bot/bot-runtime";
+
+export function canContinueBskyConversation(
+    isSubscriber: boolean,
+    record: Record,
+    authorDid: string,
+    botDid: string | undefined,
+) {
+    if (!isSubscriber || !botDid) return false;
+    const threadKind = classifyPostThread(record, authorDid, botDid);
+    return threadKind === "self-thread" || threadKind === "bot-thread";
+}
 
 export class ConversationFeature implements BotFeature {
     name = "Conversation";
@@ -67,8 +79,13 @@ export class ConversationFeature implements BotFeature {
             return;
         }
 
-        // サブスクライバー限定で会話機能発動する
-        if (context.isSubscriber) {
+        // サブスクライバーは本人ルートに加え、botの定期投稿ルートでも通常会話へ移行する。
+        if (canContinueBskyConversation(
+            context.isSubscriber,
+            record,
+            follower.did,
+            process.env.BSKY_DID,
+        )) {
             if (await this.handleConversation(event, follower)) {
                 await MemoryService.logUsage('conversation', follower.did);
                 return;
@@ -140,9 +157,6 @@ export class ConversationFeature implements BotFeature {
         }
         const conv_root_cid = row?.conv_root_cid;
 
-        // スレッドrootがポストしたユーザでないなら早期リターン
-        if (!record.reply?.root.uri.includes(follower.did)) return false;
-
         // ユーザからbotへのリプライ時、botの定期ポストでなければ、
         // 1ユーザの元ポスト、2botのリプライ、3ユーザのさらなるリプライ となっているはず
         // conv_root_cidがスレッドのrootと等しくないなら、historyに会話履歴を追加する必要あり
@@ -150,25 +164,31 @@ export class ConversationFeature implements BotFeature {
             if (conv_root_cid !== record.reply?.root.cid) {
                 const thread: ParsedThreadResult = await parseThread(record);
                 // 親の親ポスト
-                const gpContent: Content = {
-                    role: "user",
-                    parts: [
-                        {
-                            text: thread.userPostText
-                        },
-                    ],
-                }
-                history.push(gpContent)
-                // 親ポスト
-                const parentContent: Content = {
-                    role: "model",
-                    parts: [
-                        {
-                            text: thread.botPostText
+                // 会話履歴は user/model のペアで追加する。botトップ投稿へ最初に直接
+                // 返信したケースでは userPostText が無いため、model 始まりの不正な
+                // 履歴を作らず、今回のユーザー入力だけで会話を開始する。
+                if (thread.userPostText) {
+                    const gpContent: Content = {
+                        role: "user",
+                        parts: [
+                            {
+                                text: thread.userPostText
+                            },
+                        ],
+                    }
+                    history.push(gpContent)
+                    if (thread.botPostText) {
+                        const parentContent: Content = {
+                            role: "model",
+                            parts: [
+                                {
+                                    text: thread.botPostText
+                                }
+                            ]
                         }
-                    ]
+                        history.push(parentContent);
+                    }
                 }
-                history.push(parentContent);
             }
         } catch (error) {
             console.error(`[ERROR][${did}] Failed to parse thread:`, error);
@@ -339,6 +359,7 @@ export class ConversationFeature implements BotFeature {
         history.push({ role: "user", parts: [{ text: record.text }] });
         history.push({ role: "model", parts: [{ text: botReplyText }] });
         await MemoryService.updateFollower(follower.did, "conv_history", history);
+        await MemoryService.updateFollower(follower.did, "conv_root_cid", record.reply?.root.cid);
 
         console.log(`[INFO][QUESTION] Replied to answer from ${follower.did}: ${uri}`);
 
@@ -400,6 +421,7 @@ export class ConversationFeature implements BotFeature {
             history.push({ role: "user", parts: [{ text: record.text }] });
             history.push({ role: "model", parts: [{ text: botReplyText }] });
             await MemoryService.updateFollower(follower.did, "conv_history", history);
+            await MemoryService.updateFollower(follower.did, "conv_root_cid", record.reply?.root.cid);
 
             console.log(`[INFO][${follower.did}][WHIMSICAL] replied to reply of Whimsical post`);
 

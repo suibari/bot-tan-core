@@ -4,7 +4,12 @@ import { AppBskyFeedPost } from "@atproto/api";
 
 import { ImageOrigin, ImageRef, localeToTimezone } from "@bsky-affirmative-bot/shared-configs";
 import { getPds } from "./getPds.js";
-import { blobImagesToImageRefs } from "@bsky-affirmative-bot/bot-runtime";
+import {
+  blobImagesToImageRefs,
+  classifyPostThread,
+  mentionedDids,
+  mentionsDid,
+} from "@bsky-affirmative-bot/bot-runtime";
 import { agent } from "./agent.js";
 import e from "express";
 
@@ -20,23 +25,10 @@ export { getTimezoneFromLang } from "@bsky-affirmative-bot/clients";
  * @returns did or null
  */
 export function isMention(record: AppBskyFeedPost.Record) { // Changed Record to AppBskyFeedPost.Record
-  const facets = record.facets;
-  if (!facets) {
-    return null;
-  }
-  for (const facet of facets) {
-    for (const feature of facet.features) {
-      if (feature.$type === 'app.bsky.richtext.facet#mention') {
-        const featureMention = feature as {
-          $type: 'app.bsky.richtext.facet#mention';
-          did: string;
-        };
-        return featureMention.did;
-      }
-    }
-  }
-  return null;
+  return mentionedDids(record)[0] ?? null;
 }
+
+export { mentionsDid };
 
 /**
  * 自分宛てのメンションまたはリプライか判定
@@ -44,20 +36,12 @@ export function isMention(record: AppBskyFeedPost.Record) { // Changed Record to
  * @returns 
  */
 export function isReplyOrMentionToMe(record: AppBskyFeedPost.Record) { // Changed Record to AppBskyFeedPost.Record
-  let did: string | null;
-
-  did = isMention(record);
-  if (record.reply) {
-    const uri = record.reply.parent.uri;
-    if (uri) {
-      ({ did } = splitUri(uri));
-    }
-  }
-
-  if (process.env.BSKY_DID === did) {
-    return true;
-  }
-  return false;
+  const botDid = process.env.BSKY_DID;
+  if (!botDid) return false;
+  const parentDid = record.reply
+    ? splitUri(record.reply.parent.uri).did
+    : undefined;
+  return parentDid === botDid || mentionsDid(record, botDid);
 }
 
 /**
@@ -279,8 +263,10 @@ export function isReplyInThirdPartyThread(
   authorDid: string
 ): boolean {
   if (!record.reply) return false;
-  const { did: rootDid } = splitUri(record.reply.root.uri);
-  return rootDid !== process.env.BSKY_DID && rootDid !== authorDid;
+  const botDid = process.env.BSKY_DID;
+  if (!botDid) return true;
+  const kind = classifyPostThread(record, authorDid, botDid);
+  return kind === "third-party-thread" || kind === "bot-thread-third-party";
 }
 
 /**

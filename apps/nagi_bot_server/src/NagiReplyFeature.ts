@@ -5,32 +5,22 @@ import {
   MemoryService,
 } from "@bsky-affirmative-bot/database";
 import { NAGI } from "@bsky-affirmative-bot/nagi-lexicon";
+import {
+  classifyPostThread,
+  didFromAtUri,
+  mentionsDid,
+} from "@bsky-affirmative-bot/bot-runtime";
 import { eq } from "drizzle-orm";
-
-/** at://<did>/<nsid>/<rkey> から作者 DID を取り出す。 */
-function uriAuthorDid(uri: unknown) {
-  if (typeof uri !== "string" || !uri.startsWith("at://")) return undefined;
-  const did = uri.slice("at://".length).split("/")[0];
-  return did || undefined;
-}
 
 /** 本文中に bot への mention facet があるか。 */
 export function mentionsBot(record: any, botDid: string) {
-  if (!Array.isArray(record?.facets)) return false;
-  return record.facets.some((facet: any) =>
-    Array.isArray(facet?.features) &&
-    facet.features.some(
-      (feature: any) =>
-        feature?.$type === "app.bsky.richtext.facet#mention" &&
-        feature.did === botDid,
-    ),
-  );
+  return mentionsDid(record, botDid);
 }
 
 /** bot 宛のリプライ（親が bot、または bot をメンション）か。 */
 export function isReplyToBot(record: any, botDid: string) {
   if (!record?.reply) return false;
-  const parentDid = uriAuthorDid(record.reply.parent?.uri);
+  const parentDid = didFromAtUri(record.reply.parent?.uri);
   return parentDid === botDid || mentionsBot(record, botDid);
 }
 
@@ -61,10 +51,8 @@ export async function isKossoriReplyToBot(record: any, botDid: string) {
  */
 export function isThirdPartyThread(record: any, authorDid: string, botDid: string) {
   if (!record?.reply) return false;
-  // root が欠けた壊れたレコードは parent で代用し、どちらも取れなければ弾く。
-  const rootDid =
-    uriAuthorDid(record.reply.root?.uri) ?? uriAuthorDid(record.reply.parent?.uri);
-  return rootDid !== authorDid && rootDid !== botDid;
+  const kind = classifyPostThread(record, authorDid, botDid);
+  return kind === "third-party-thread" || kind === "bot-thread-third-party";
 }
 
 export async function onNagiPost(evt: any) {

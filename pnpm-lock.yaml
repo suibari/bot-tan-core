@@ -270,6 +270,9 @@ importers:
       '@atproto/xrpc-server':
         specifier: ^0.7.19
         version: 0.7.19
+      '@bsky-affirmative-bot/bot-runtime':
+        specifier: workspace:*
+        version: link:../../packages/bot-runtime
       '@bsky-affirmative-bot/database':
         specifier: workspace:*
         version: link:../../packages/database
@@ -396,6 +399,9 @@ importers:
       '@types/ws':
         specifier: ^8.5.10
         version: 8.18.1
+      tsx:
+        specifier: ^4.20.3
+        version: 4.21.0
       typescript:
         specifier: ^5.9.3
         version: 5.9.3

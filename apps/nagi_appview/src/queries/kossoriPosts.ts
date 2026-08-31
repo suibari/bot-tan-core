@@ -15,6 +15,7 @@ import { config } from "../config.js";
 import { applyMutation } from "../ingest/applyMutation.js";
 import { validateRecord } from "../ingest/validateRecord.js";
 import { ApiError } from "../middleware/errors.js";
+import { mentionsDid } from "@bsky-affirmative-bot/bot-runtime";
 
 /**
  * こっそり投稿は PDS に正本を持たず、この AppView の Postgres だけが持つ。
@@ -84,16 +85,7 @@ async function assertReplyAllowed(
 
 /** 本文中に botたん宛の mention facet があるか（bot_server の mentionsBot と同じ判定）。 */
 const mentionsBot = (record: any): boolean =>
-  Array.isArray(record?.facets) &&
-  record.facets.some(
-    (facet: any) =>
-      Array.isArray(facet?.features) &&
-      facet.features.some(
-        (feature: any) =>
-          feature?.$type === "app.bsky.richtext.facet#mention" &&
-          feature.did === config.botDid,
-      ),
-  );
+  mentionsDid(record, config.botDid);
 
 /**
  * botたん返信ジョブの登録。

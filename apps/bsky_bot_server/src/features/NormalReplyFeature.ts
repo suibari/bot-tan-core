@@ -2,7 +2,7 @@ import { CommitCreateEvent } from "@skyware/jetstream";
 import { AppBskyActorDefs } from "@atproto/api"; type ProfileView = AppBskyActorDefs.ProfileView;
 import { BotFeature, FeatureContext } from "./types.js";
 import { botBiothythmManager } from "@bsky-affirmative-bot/clients";
-import { isMention, getLangStr, hasNGWord } from "../bsky/util.js";
+import { isMention, mentionsDid, getLangStr, hasNGWord } from "../bsky/util.js";
 import { EXEC_PER_COUNTS } from "@bsky-affirmative-bot/shared-configs";
 import { replyAI } from "./replyai.js";
 import { replyRandom } from "./replyrandom.js";
@@ -21,8 +21,12 @@ export class NormalReplyFeature implements BotFeature {
 
     async shouldHandle(event: CommitCreateEvent<"app.bsky.feed.post">, follower: ProfileView, context: FeatureContext): Promise<boolean> {
         const record = event.commit.record as any;
-        // Normal post: NOT a reply and NOT a mention
-        return !record.reply && !isMention(record);
+        // bot宛メンションを含むトップレベル投稿も通常の全肯定対象にする。
+        // bot以外だけへのメンションには割り込まない。
+        return !record.reply && (
+            !isMention(record) ||
+            (Boolean(process.env.BSKY_DID) && mentionsDid(record, process.env.BSKY_DID!))
+        );
     }
 
     async handle(event: CommitCreateEvent<"app.bsky.feed.post">, follower: ProfileView, context: FeatureContext): Promise<void> {
