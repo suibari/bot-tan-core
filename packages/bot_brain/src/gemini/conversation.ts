@@ -11,7 +11,7 @@ import {
   resolveAiRoute,
 } from '@bsky-affirmative-bot/shared-configs';
 import { UserInfoGemini, GeminiScore } from '@bsky-affirmative-bot/shared-configs';
-import { formatBotContext } from './util.js';
+import { formatBotContext, ollamaUsageFields } from './util.js';
 import type { GeminiRequestOptions } from './util.js';
 import { toServiceTier } from './aiRoute.js';
 import { generateContentForProvider } from './generationClient.js';
@@ -105,6 +105,7 @@ export async function conversation(
     thinkingTokens: usage.thoughtsTokenCount ?? 0,
     totalTokens: usage.totalTokenCount ?? 0,
     latencyMs: Date.now() - startedAt,
+    ...ollamaUsageFields(response),
   });
 
   // Geminiリクエスト数加算

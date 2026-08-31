@@ -17,6 +17,24 @@ import { and, desc, eq, isNull } from "drizzle-orm";
 
 type ContextLink = { uri: string; title?: string; description?: string };
 
+/**
+ * プロンプトへ載せる過去投稿1件あたりの長さ。
+ *
+ * 記憶は「何を話した人か」を思い出すための手掛かりであって全文再読ではないので、
+ * 先頭だけで足りる。書記素単位で切るのは絵文字・結合文字を割らないため。
+ */
+const MEMORY_EXCERPT_LIMIT = 400;
+
+export function clipMemoryExcerpt(text: string): string {
+  const segmenter = new Intl.Segmenter("ja", { granularity: "grapheme" });
+  const graphemes = [...segmenter.segment(text)];
+  if (graphemes.length <= MEMORY_EXCERPT_LIMIT) return text;
+  return graphemes
+    .slice(0, MEMORY_EXCERPT_LIMIT)
+    .map((entry) => entry.segment)
+    .join("");
+}
+
 export function extractContextLinks(record: any) {
   const links: ContextLink[] = [];
   const seen = new Set<string>();
@@ -143,7 +161,13 @@ export async function buildNagiReplyContext(job: any) {
         : Promise.resolve([]),
     ]);
 
-  const relatedPosts = ownMemoryRows.map((row) => row.content);
+  // 1件あたりを切り詰める。会話モードは posts[0] しか見ないが、肯定リプライは
+  // generateAffirmativeWord が posts.slice(1) を丸ごとプロンプトへ入れるので、
+  // Nagi の投稿上限（3000書記素）× 10件がそのままコンテキストを食う。
+  // ここで抑えないと、下流の予算トリムでは「今回の入力を切る」しか手が無くなる。
+  const relatedPosts = ownMemoryRows.map((row) =>
+    clipMemoryExcerpt(row.content),
+  );
 
   let followersFriend:
     | { profile: ReturnType<typeof profileView>; post: string; uri: string }
@@ -236,6 +260,11 @@ export async function buildNagiReplyContext(job: any) {
       quoteImageCount: image.filter((item) => item.origin === "quote").length,
       linkThumbnailCount: linkThumbnails.length,
       relatedPostCount: relatedPosts.length,
+      // プロンプト膨張の予兆。投稿前に見えるので、事故が起きてから journal を漁らずに済む。
+      promptChars: [text, ...relatedPosts].reduce(
+        (total, post) => total + post.length,
+        0,
+      ),
       hasQuote: Boolean(quote),
       hasLink: links.length > 0,
       cardLinkCount,

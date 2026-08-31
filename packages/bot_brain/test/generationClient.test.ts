@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { mock, test } from "node:test";
 import {
+  OllamaContextOverflowError,
+  fitOllamaMessages,
   generateOllamaContent,
   normalizeJsonSchema,
   toOllamaMessages,
@@ -9,6 +11,45 @@ import {
   groundingPolicyForFeature,
   prepareOllamaGrounding,
 } from "../src/gemini/grounding.js";
+import {
+  estimateMessagesTokens,
+  ollamaPromptBudget,
+  ollamaTextContextLength,
+} from "@bsky-affirmative-bot/shared-configs";
+
+/**
+ * `/api/chat` を1回だけ捕まえるヘルパ。応答の中身はテストごとに差し替える。
+ * env の退避と restore を毎回書くと本題が埋もれるのでここへ寄せる。
+ */
+async function captureOllamaRequest(
+  params: any,
+  responseBody: Record<string, unknown> = {},
+): Promise<{ body: any; response: any }> {
+  const saved = process.env.OLLAMA_BASE_URL;
+  process.env.OLLAMA_BASE_URL = "http://ollama.test/v1";
+  let body: any;
+  const fetchMock = mock.method(globalThis, "fetch", async (_url: any, init: any) => {
+    body = JSON.parse(init.body);
+    return new Response(
+      JSON.stringify({
+        model: "local-test",
+        message: { content: "ふふ、そうなんだね！" },
+        prompt_eval_count: 100,
+        eval_count: 20,
+        ...responseBody,
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  });
+  try {
+    const response = await generateOllamaContent(params);
+    return { body, response };
+  } finally {
+    fetchMock.mock.restore();
+    if (saved === undefined) delete process.env.OLLAMA_BASE_URL;
+    else process.env.OLLAMA_BASE_URL = saved;
+  }
+}
 
 test("Gemini形式のsystem・履歴・画像をOllama chatへ変換する", () => {
   assert.deepEqual(
@@ -194,4 +235,152 @@ test("季節作品はplannerが空でも匿名の定型検索へフォールバ�
   assert.deepEqual(input?.queries, [
     "現在 日本 今期 話題 アニメ マンガ ゲーム ドラマ 映画 音楽",
   ]);
+});
+
+test("maxOutputTokens未指定でもnum_predictが必ず入る", async () => {
+  // これが無いと Ollama 既定の -1（残りコンテキストまで）になり、プロンプトが num_ctx を
+  // 埋めた瞬間に生成余地が数トークンになる。2026-08-31 の「返信が表示名だけ」の直接原因。
+  const { body } = await captureOllamaRequest({
+    model: "local-test",
+    contents: [{ role: "user", parts: [{ text: "こんにちは" }] }],
+    config: { systemInstruction: "persona" },
+  });
+  assert.equal(typeof body.options.num_predict, "number");
+  assert.ok(body.options.num_predict > 0);
+  assert.equal(body.options.num_ctx, ollamaTextContextLength());
+});
+
+test("maxOutputTokensを明示した場合はその値をnum_predictへ渡す", async () => {
+  const { body } = await captureOllamaRequest({
+    model: "local-test",
+    contents: ["判定して"],
+    config: { maxOutputTokens: 256 },
+  });
+  assert.equal(body.options.num_predict, 256);
+});
+
+test("巨大な履歴はsystemと最後の入力を残して中間だけ落とす", async () => {
+  const history = Array.from({ length: 40 }, (_, index) => ({
+    role: index % 2 === 0 ? "user" : "model",
+    parts: [{ text: `${index}番目の発言。` + "あ".repeat(5_000) }],
+  }));
+  const { body, response } = await captureOllamaRequest({
+    model: "local-test",
+    contents: [...history, { role: "user", parts: [{ text: "いまの気持ちを聞かせて" }] }],
+    config: { systemInstruction: "ペルソナ設定".repeat(100) },
+  });
+
+  assert.equal(body.messages[0].role, "system", "ペルソナは絶対に落とさない");
+  assert.match(body.messages[0].content, /ペルソナ設定/);
+  assert.equal(
+    body.messages.at(-1).content,
+    "いまの気持ちを聞かせて",
+    "今回の入力は絶対に落とさない",
+  );
+  assert.ok(body.messages.length < history.length, "中間の履歴は落ちている");
+  assert.ok(response.ollamaMetadata.trimmed.droppedTurns > 0);
+  assert.ok(!response.ollamaMetadata.trimmed.truncatedInput, "入力まで切る必要はないはず");
+
+  const budget = ollamaPromptBudget({
+    numCtx: ollamaTextContextLength(),
+    outputTokens: body.options.num_predict,
+  });
+  assert.ok(estimateMessagesTokens(body.messages) <= budget);
+});
+
+test("履歴を落としきっても溢れるならgrounding調査ブロックを縮める", () => {
+  const research = "調査結果。".repeat(4_000);
+  const { messages, trim } = fitOllamaMessages(
+    [
+      { role: "system", content: "ペルソナ" },
+      {
+        role: "user",
+        content: `質問\n\n<grounding_research>\n${research}\n</grounding_research>\n注記`,
+      },
+    ],
+    { budget: 2_000 },
+  );
+  assert.equal(trim.groundingShrunk, true);
+  assert.ok(!messages.at(-1)!.content.includes(research));
+  assert.match(messages[0].content, /ペルソナ/);
+});
+
+test("予算内に収まっているときは何も削らない", () => {
+  const original = [
+    { role: "system" as const, content: "ペルソナ" },
+    { role: "user" as const, content: "こんにちは" },
+  ];
+  const { messages, trim } = fitOllamaMessages(original, { budget: 10_000 });
+  assert.deepEqual(messages, original);
+  assert.equal(trim.droppedTurns, 0);
+  assert.equal(trim.truncatedInput, false);
+});
+
+test("トリムは呼び出し側のメッセージ配列を壊さない", () => {
+  // 履歴は会話記録として conv_history へ保存されるので、破壊すると記憶が欠ける。
+  const original = [
+    { role: "system" as const, content: "ペルソナ" },
+    { role: "user" as const, content: "あ".repeat(10_000) },
+    { role: "assistant" as const, content: "い".repeat(10_000) },
+    { role: "user" as const, content: "今回の入力" },
+  ];
+  const snapshot = JSON.parse(JSON.stringify(original));
+  fitOllamaMessages(original, { budget: 500 });
+  assert.deepEqual(original, snapshot);
+});
+
+test("done_reasonがlengthなら切り詰めとして報告する", async () => {
+  const { response } = await captureOllamaRequest(
+    { model: "local-test", contents: ["ねえねえ"], config: {} },
+    { done_reason: "length" },
+  );
+  assert.equal(response.ollamaMetadata.truncated, true);
+});
+
+test("プロンプトがnum_ctxを埋めた応答は投稿させず例外にする", async () => {
+  await assert.rejects(
+    captureOllamaRequest(
+      { model: "local-test", contents: ["ねえねえ"], config: {} },
+      { prompt_eval_count: ollamaTextContextLength() - 5 },
+    ),
+    OllamaContextOverflowError,
+  );
+});
+
+test("SYSTEM_INSTRUCTION・巨大履歴・grounding8000字が同時に来ても予算を超えない", async () => {
+  // 2026-08-31 の事故そのものの回帰テスト。
+  const { SYSTEM_INSTRUCTION } = await import("@bsky-affirmative-bot/shared-configs");
+  const history = Array.from({ length: 100 }, (_, index) => ({
+    role: index % 2 === 0 ? "user" : "model",
+    parts: [{ text: `${index}: ` + "会話の記録。".repeat(50) }],
+  }));
+  const { body } = await captureOllamaRequest({
+    model: "local-test",
+    contents: [
+      ...history,
+      {
+        role: "user",
+        parts: [
+          {
+            text:
+              "ユーザ名: Lisya Myata 🦊\nメッセージ: それ、私です =w=" +
+              `\n\n<grounding_research>\n${"調査。".repeat(2_700)}\n</grounding_research>`,
+          },
+          { inlineData: { data: "BASE64", mimeType: "image/png" } },
+        ],
+      },
+    ],
+    config: { systemInstruction: SYSTEM_INSTRUCTION },
+  });
+
+  const budget = ollamaPromptBudget({
+    numCtx: ollamaTextContextLength(),
+    outputTokens: body.options.num_predict,
+  });
+  assert.ok(
+    estimateMessagesTokens(body.messages) <= budget,
+    `見積もり ${estimateMessagesTokens(body.messages)} が予算 ${budget} を超えている`,
+  );
+  assert.equal(body.messages[0].role, "system");
+  assert.match(body.messages.at(-1).content, /それ、私です/);
 });

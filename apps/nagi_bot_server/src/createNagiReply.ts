@@ -4,6 +4,8 @@ import {
   getYokohamaWeather,
   judgeNameIntent,
   createPredefinedReply,
+  assertUsableReply,
+  type GeminiUsage,
 } from "@bsky-affirmative-bot/bot-brain";
 import { aiModel } from "@bsky-affirmative-bot/shared-configs";
 import {
@@ -50,6 +52,29 @@ configureBotContext({
     }));
   },
 });
+
+/**
+ * 生成1回ぶんの usage をログへ出す。
+ *
+ * onUsage は前からあったのに返信経路では誰も出していなかったため、
+ * 「返信が壊れた」ときに Ollama の journal を漁るしか調べる手が無かった。
+ * promptTokens と contextLimit の比が 1 に近づいていたら、それが事故の前触れ。
+ */
+function logReplyUsage(
+  did: string,
+  mode: "conversation" | "affirmative",
+  usage: GeminiUsage,
+  extra: { historyTurns?: number } = {},
+) {
+  console.log(
+    `[INFO][NAGI][${did}] ${mode} usage: model=${usage.model} tier=${usage.serviceTier ?? "-"}` +
+      ` in=${usage.promptTokens}/${usage.contextLimit ?? "-"}` +
+      ` out=${usage.outputTokens}/${usage.outputLimit ?? "-"}` +
+      ` truncated=${usage.truncated ?? false} trimmedTurns=${usage.trimmedTurns ?? 0}` +
+      (extra.historyTurns === undefined ? "" : ` historyTurns=${extra.historyTurns}`) +
+      ` ms=${usage.latencyMs}`,
+  );
+}
 
 function replyLanguage(langs: unknown) {
   const value = Array.isArray(langs) ? String(langs[0] ?? "") : "";
@@ -112,6 +137,7 @@ async function generateConversationReply(
   // 「訂正には従う」が受け持つ。判定が失敗しても返信は止めない。
   const namePromise = detectPreferredName(did, userText);
 
+  let truncated = false;
   const result = await conversation(
     {
       follower: context.follower,
@@ -127,11 +153,21 @@ async function generateConversationReply(
     } as any,
     // 肯定返信と同じく、再試行ラダーが選んだモデル/tierを明示する。
     // 渡さないと BSKY_CONVERSATION のルートに落ち、ワーカーのログと実態がずれる。
-    { beforeRequest, model: aiRoute.model, serviceTier: aiRoute.serviceTier },
+    {
+      beforeRequest,
+      model: aiRoute.model,
+      serviceTier: aiRoute.serviceTier,
+      onUsage: (usage) => {
+        truncated = usage.truncated === true;
+        logReplyUsage(did, "conversation", usage, { historyTurns: history.length });
+      },
+    },
   );
   const comment = result.text_bot ?? "";
   const newHistory: ConversationTurn[] = result.new_history ?? [];
-  if (!comment) throw new Error("Response text is empty");
+  assertUsableReply(comment, context.preferredName || context.follower.displayName, {
+    truncated,
+  });
 
   // 最後の user ターンをプロンプト全文から純粋な入力テキストのみに置換する。
   for (let i = newHistory.length - 1; i >= 0; i--) {
@@ -197,6 +233,7 @@ export async function createNagiReply(
   } else {
     const context = await buildNagiReplyContext(job);
     const aiRoute = options.aiRoute ?? nagiAiRouteForAttempt(1);
+    let affirmativeTruncated = false;
     console.log("[INFO][NAGI] Gemini reply context:", {
       ...context.diagnostics,
       mode: conversationMode ? "conversation" : "affirmative",
@@ -227,8 +264,20 @@ export async function createNagiReply(
             beforeRequest: options.beforeGeminiRequest,
             model: aiRoute.model,
             serviceTier: aiRoute.serviceTier,
+            onUsage: (usage) => {
+              affirmativeTruncated = usage.truncated === true;
+              logReplyUsage(job.authorDid, "affirmative", usage);
+            },
           },
         );
+
+    if (!conversationMode) {
+      assertUsableReply(
+        generated.comment,
+        context.preferredName || context.follower.displayName,
+        { truncated: affirmativeTruncated },
+      );
+    }
   }
 
   const sourceRkey = job.sourceUri.split("/").at(-1)!;

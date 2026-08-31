@@ -1,5 +1,5 @@
 import {
-  OLLAMA_TEXT_CONTEXT_LENGTH,
+  ollamaTextContextLength,
   aiModel,
   ollamaNativeUrl,
 } from "@bsky-affirmative-bot/shared-configs";
@@ -32,7 +32,7 @@ export const isOllamaConfigured = (): boolean =>
  *    食う。分類は maxTokens が数トークンしかないので、切らないと content が空文字のまま
  *    返って機能が丸ごと死ぬ。
  * 2. `num_ctx`。OpenAI互換には指定手段が無く、context 4096 のrunnerが別にロードされて
- *    26Bモデルのリロードが頻発する。詳細は OLLAMA_TEXT_CONTEXT_LENGTH のコメント。
+ *    26Bモデルのリロードが頻発する。詳細は ollamaTextContextLength のコメント。
  */
 export async function ollamaChat(
   feature: AiFeatureKey,
@@ -52,7 +52,7 @@ export async function ollamaChat(
         stream: false,
         think: false,
         options: {
-          num_ctx: OLLAMA_TEXT_CONTEXT_LENGTH,
+          num_ctx: ollamaTextContextLength(),
           temperature: options.temperature ?? 0,
           num_predict: options.maxTokens,
         },

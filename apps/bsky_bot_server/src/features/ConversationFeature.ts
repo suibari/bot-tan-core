@@ -7,12 +7,12 @@ import { isReplyOrMentionToMe, uniteDidNsidRkey, getImageUrl, getLangStr } from 
 import { getBotContext } from "../util/botContext.js";
 import { AppBskyFeedPost } from "@atproto/api"; type Record = AppBskyFeedPost.Record;
 import { Content } from "@google/genai";
-import { Embed, GeminiResponseResult, UserInfoGemini, BADGE_DEF } from "@bsky-affirmative-bot/shared-configs";
+import { Embed, GeminiResponseResult, UserInfoGemini, BADGE_DEF, addressName } from "@bsky-affirmative-bot/shared-configs";
 import { parseEmbedPost } from '../bsky/parseEmbedPost.js';
 import { parseThread, ParsedThreadResult } from "../bsky/parseThread.js";
 import { handleMode } from "./utils.js";
 import retry from 'async-retry';
-import { conversation } from "@bsky-affirmative-bot/bot-brain";
+import { assertUsableReply, conversation } from "@bsky-affirmative-bot/bot-brain";
 import { agent } from "../bsky/agent.js";
 import { generateQuestionsAnswer } from "@bsky-affirmative-bot/bot-brain";
 import { postContinuous } from "../bsky/postContinuous.js";
@@ -221,7 +221,21 @@ export class ConversationFeature implements BotFeature {
 
         try {
             await retry(async (bail, attempt) => {
-                const result = await conversation(userinfo);
+                let truncated = false;
+                const result = await conversation(userinfo, {
+                    onUsage: (usage) => {
+                        truncated = usage.truncated === true;
+                        // onUsage は前からあったのに返信経路で誰も出していなかったため、
+                        // 「返信が壊れた」ときに Ollama の journal を漁るしか手が無かった。
+                        console.log(
+                            `[INFO][${userinfo.follower.did}] conversation usage: model=${usage.model}` +
+                            ` in=${usage.promptTokens}/${usage.contextLimit ?? "-"}` +
+                            ` out=${usage.outputTokens}/${usage.outputLimit ?? "-"}` +
+                            ` truncated=${usage.truncated ?? false} trimmedTurns=${usage.trimmedTurns ?? 0}` +
+                            ` ms=${usage.latencyMs}`,
+                        );
+                    },
+                });
                 text_bot = result.text_bot;
                 new_history = result.new_history;
 
@@ -229,6 +243,8 @@ export class ConversationFeature implements BotFeature {
                     console.warn(`[WARN][${userinfo.follower.did}] Attempt ${attempt}: Failed to generate response text. Retrying...`);
                     throw new Error("Response text is empty, retrying."); // Throw to trigger retry
                 }
+                // 表示名のエコーなど、投稿してはいけない劣化生成もここで再試行に回す。
+                assertUsableReply(text_bot, addressName(userinfo), { truncated });
             }, {
                 retries: 3, // Number of retries
                 onRetry: (error: any, attempt) => {

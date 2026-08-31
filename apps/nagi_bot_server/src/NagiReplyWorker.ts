@@ -21,12 +21,28 @@ import {
 import {
   classifyNagiReplyError,
   formatNagiReplyError,
+  isDegenerateGenerationError,
   nagiAiRouteForAttempt,
   nextNagiReplyAttemptAt,
 } from "./nagiReplyRetry.js";
 
 const LEASE_DURATION_MS = 15 * 60_000;
 const WORKER_INTERVAL_MS = 2_000;
+
+/**
+ * この試行のあとに再試行の余地が無いか（＝24時間の期限切れ、または段の打ち止め）。
+ * 判定はラダー本体と同じ関数で行うので、遅延表と条件が二重管理にならない。
+ */
+function isFinalAttempt(job: { createdAt: Date }, attempt: number): boolean {
+  return (
+    nextNagiReplyAttemptAt({
+      attempt,
+      category: "transient",
+      createdAt: job.createdAt,
+      now: new Date(),
+    }) === undefined
+  );
+}
 
 let running = false;
 let processing = false;
@@ -122,10 +138,21 @@ export function startNagiReplyWorker() {
           aiRoute,
         });
       } catch (error) {
-        if (!(error instanceof NagiAiQuotaExceededError)) throw error;
-        await switchNagiReplyToTemplate(job.sourceUri, error.reason);
-        generationMode = "template";
-        result = await createNagiReply(job, { mode: "template" });
+        if (error instanceof NagiAiQuotaExceededError) {
+          await switchNagiReplyToTemplate(job.sourceUri, error.reason);
+          generationMode = "template";
+          result = await createNagiReply(job, { mode: "template" });
+        } else if (isDegenerateGenerationError(error) && isFinalAttempt(job, attempt)) {
+          // 生成物が壊れたままラダーを使い切った。無言で消えるより定型文で返す。
+          console.warn(
+            `[WARN][NAGI] ${job.sourceUri} falling back to a predefined reply after a degenerate generation:`,
+            formatNagiReplyError(error),
+          );
+          generationMode = "template";
+          result = await createNagiReply(job, { mode: "template" });
+        } else {
+          throw error;
+        }
       }
 
       await db.transaction(async (tx) => {

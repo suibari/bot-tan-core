@@ -1,5 +1,5 @@
 import {
-  OLLAMA_TEXT_CONTEXT_LENGTH,
+  ollamaTextContextLength,
   aiModel,
 } from "@bsky-affirmative-bot/shared-configs";
 import { reportAiCallAsync } from "../../gemini/aiCallStats.js";
@@ -392,7 +392,7 @@ export class PositiveNewsService {
           keep_alive: "10m",
           // num_ctx は他のローカル呼び出しと必ず揃える（ずれるとrunnerが作り直される）。
           options: {
-            num_ctx: OLLAMA_TEXT_CONTEXT_LENGTH,
+            num_ctx: ollamaTextContextLength(),
             temperature: 0,
             num_predict: 100,
           },

@@ -37,18 +37,42 @@ export type AiTextProvider = "ollama" | "gemini";
 export const DEFAULT_OLLAMA_TEXT_MODEL =
   "hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S";
 
+/** `OLLAMA_TEXT_CONTEXT_LENGTH` 未設定時の num_ctx。 */
+export const DEFAULT_OLLAMA_TEXT_CONTEXT_LENGTH = 32_768;
+
+let contextLengthCache: number | undefined;
+
 /**
- * ローカル生成の全リクエストで使う num_ctx。**必ず全呼び出し箇所で同じ値を渡すこと。**
+ * ローカル生成の全リクエストで使う num_ctx。**必ず全呼び出し箇所でこの関数を使うこと。**
  *
  * 1. Ollama の既定は 4096 しかない。SYSTEM_INSTRUCTION だけで約3,900トークンあり、
  *    そこへ会話履歴と grounding の調査ブロック（最大8,000字）が乗る。4096 のままだと
  *    実測でリプライが**空文字**になる（エラーにならないので気付けない）。
  * 2. Ollama は num_ctx が違うと runner を作り直す。1箇所でも値がずれると、リプライ生成と
  *    分類・翻訳が交互に来るたびに26Bモデルが5〜8秒かけてリロードされる。
+ * 3. Ollama は **num_predict を考慮せず**プロンプトを num_ctx まで詰めるので、num_ctx を
+ *    上げるだけでは事故は止まらない。出力枠の確保は ollamaBudget.ts が受け持つ。
  *
- * env で可変にしない。ホスト差の吸収より、全経路で揃っていることの方が重要。
+ * 定数ではなく関数なのは、env をモジュール評価時に読むと `dotenv.config()` より先に
+ * 走ってしまうため（アプリの index.ts は ESM の import 解決後に dotenv を呼ぶ）。
+ * 1関数に集約したうえでメモ化するので、値が経路ごとにずれる心配は無い。
+ * ホスト側の VRAM が足りなければ `OLLAMA_TEXT_CONTEXT_LENGTH=16384` で戻せる。
  */
-export const OLLAMA_TEXT_CONTEXT_LENGTH = 16_384;
+export function ollamaTextContextLength(): number {
+  if (contextLengthCache !== undefined) return contextLengthCache;
+  const raw = process.env.OLLAMA_TEXT_CONTEXT_LENGTH?.trim();
+  const parsed = raw ? Number(raw) : NaN;
+  if (raw && (!Number.isFinite(parsed) || parsed < 4_096)) {
+    console.warn(
+      `[WARN][AI_ROUTE] OLLAMA_TEXT_CONTEXT_LENGTH="${raw}" は無効。既定の ${DEFAULT_OLLAMA_TEXT_CONTEXT_LENGTH} を使う。`,
+    );
+  }
+  contextLengthCache =
+    raw && Number.isFinite(parsed) && parsed >= 4_096
+      ? Math.floor(parsed)
+      : DEFAULT_OLLAMA_TEXT_CONTEXT_LENGTH;
+  return contextLengthCache;
+}
 
 /**
  * OLLAMA_BASE_URL（OpenAI互換なので末尾に /v1 が付く）から、Ollamaネイティブの
@@ -411,6 +435,7 @@ export function aiServiceTier(feature: AiFeatureKey): "flex" | "standard" | unde
 /** テスト用。process.env を書き換えたあとに呼ぶ。 */
 export function resetAiRouteCache(): void {
   cache = undefined;
+  contextLengthCache = undefined;
 }
 
 /**

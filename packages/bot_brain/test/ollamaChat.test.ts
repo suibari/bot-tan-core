@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { mock, test } from "node:test";
-import { OLLAMA_TEXT_CONTEXT_LENGTH } from "@bsky-affirmative-bot/shared-configs";
+import { ollamaTextContextLength } from "@bsky-affirmative-bot/shared-configs";
 import { ollamaChat } from "../src/ollamaChat.js";
 
 function withOllamaEnv<T>(run: () => Promise<T>): Promise<T> {
@@ -47,7 +47,7 @@ test("ネイティブ /api/chat へ think:false と共通num_ctxで投げる", a
       assert.equal(body.think, false);
       assert.equal(body.stream, false);
       assert.equal(body.options.num_predict, 5);
-      assert.equal(body.options.num_ctx, OLLAMA_TEXT_CONTEXT_LENGTH);
+      assert.equal(body.options.num_ctx, ollamaTextContextLength());
     } finally {
       fetchMock.mock.restore();
     }

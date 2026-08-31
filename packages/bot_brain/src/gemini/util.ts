@@ -1,5 +1,5 @@
 import { PartListUnion, Type } from '@google/genai';
-import { SYSTEM_INSTRUCTION, POST_TEXT_LIMIT, safeFetch, resolveAiRoute, formatJstActivityTime, energyLabel } from '@bsky-affirmative-bot/shared-configs';
+import { SYSTEM_INSTRUCTION, POST_TEXT_LIMIT, safeFetch, resolveAiRoute, formatJstActivityTime, energyLabel, OLLAMA_LONG_OUTPUT_TOKENS } from '@bsky-affirmative-bot/shared-configs';
 import type { AiFeatureKey } from '@bsky-affirmative-bot/shared-configs';
 import { UserInfoGemini, GeminiScore, BotContext, LanguageName } from '@bsky-affirmative-bot/shared-configs';
 import { MemoryService, reportHealthFailure, reportHeartbeat } from '@bsky-affirmative-bot/database';
@@ -29,7 +29,26 @@ export type GeminiUsage = {
   thinkingTokens: number;
   totalTokens: number;
   latencyMs: number;
+  /** 以下は Ollama 経路だけ。Gemini では undefined。 */
+  contextLimit?: number;
+  outputLimit?: number;
+  /** 出力が num_predict に達して途中で切れた。 */
+  truncated?: boolean;
+  /** 予算超過で落とした履歴メッセージ数。常時0でないなら上流が膨らみすぎている。 */
+  trimmedTurns?: number;
 };
+
+/** Ollama 経路の応答から usage の追加フィールドを取り出す。Gemini では空。 */
+export function ollamaUsageFields(response: any): Partial<GeminiUsage> {
+  const meta = response?.ollamaMetadata;
+  if (!meta) return {};
+  return {
+    contextLimit: meta.contextLimit,
+    outputLimit: meta.outputLimit,
+    truncated: meta.truncated,
+    trimmedTurns: meta.trimmed?.droppedTurns,
+  };
+}
 
 /**
  * プロンプトに載せる行動履歴の上限。
@@ -185,6 +204,14 @@ export async function generateContentWithRetry(
     model: requestOptions.model ?? routed?.model ?? rest.model,
     config: {
       ...rest.config,
+      // `maxTextLength: null` は「これは投稿本文ではない長い応答」という既存の意思表示。
+      // Ollama では num_predict の既定（投稿用の 1024）だと足りないので、そこへ連動させる。
+      // Gemini は maxOutputTokens を積まない従来どおりの挙動のまま。
+      ...(provider === 'ollama' &&
+      maxTextLength === null &&
+      typeof rest.config?.maxOutputTokens !== 'number'
+        ? { maxOutputTokens: OLLAMA_LONG_OUTPUT_TOKENS }
+        : {}),
       // ルートが "auto" のときは serviceTier を積まない（現状の未設定挙動を維持）
       ...(serviceTier ? { serviceTier } : {}),
       ...(requestOptions.thinkingLevel
@@ -230,6 +257,7 @@ export async function generateContentWithRetry(
         thinkingTokens: usage.thoughtsTokenCount ?? 0,
         totalTokens: usage.totalTokenCount ?? 0,
         latencyMs: Date.now() - startedAt,
+        ...ollamaUsageFields(response),
       });
     } catch (e) {
       // 呼び出し回数は generateContentForProvider が数えるので、ここでは数えない。

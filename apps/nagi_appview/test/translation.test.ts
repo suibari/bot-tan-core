@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { OLLAMA_TEXT_CONTEXT_LENGTH } from "@bsky-affirmative-bot/shared-configs";
+import { ollamaTextContextLength } from "@bsky-affirmative-bot/shared-configs";
 
 process.env.DATABASE_URL ??= "postgres://user:pass@localhost:5432/test";
 process.env.NAGI_BOT_DID ??= "did:plc:testbot";
@@ -176,8 +176,38 @@ test("sends the requested model and temperature, defaulting to the shared Gemma 
   // OpenAI互換だと num_ctx を指定できず、26Bモデルがリクエストのたびにリロードされる。
   assert.ok(urls.every((url) => url.endsWith("/api/chat")), urls.join(", "));
   assert.equal(bodies[0].think, false);
-  assert.equal(bodies[0].options.num_ctx, OLLAMA_TEXT_CONTEXT_LENGTH);
-  assert.equal(bodies[1].options.num_ctx, OLLAMA_TEXT_CONTEXT_LENGTH);
+  assert.equal(bodies[0].options.num_ctx, ollamaTextContextLength());
+  assert.equal(bodies[1].options.num_ctx, ollamaTextContextLength());
+  // num_predict を省くと Ollama 既定の -1（残りコンテキストまで）になり、プロンプトが
+  // num_ctx を埋めた瞬間に訳文が数トークンで切れて、それが正常な訳として保存される。
+  assert.equal(typeof bodies[0].options.num_predict, "number");
+  assert.ok(bodies[0].options.num_predict > 0);
+  assert.ok(
+    bodies[0].options.num_predict <= ollamaTextContextLength(),
+    "出力枠が num_ctx を超えてはいけない",
+  );
+});
+
+test("rejects an over-long prompt instead of silently truncating the translation", async () => {
+  // 黙って途中で切れた訳文を保存するより「翻訳できません」の方がよい（原文は必ず読める）。
+  const sleeps: number[] = [];
+  let calls = 0;
+  await assert.rejects(
+    requestTranslationWithRetry("あ".repeat(ollamaTextContextLength() * 2), english, {
+      reportCall,
+      fetcher: async () => {
+        calls += 1;
+        return successResponse();
+      },
+      sleep: async (milliseconds) => {
+        sleeps.push(milliseconds);
+      },
+      log: () => undefined,
+    }),
+    /prompt_too_long/,
+  );
+  assert.equal(calls, 0, "予算超過はモデルを呼ぶ前に落とす");
+  assert.deepEqual(sleeps, [], "retryable=false なので再試行しない");
 });
 
 test("retries once after a timeout without holding the retry delay", async () => {

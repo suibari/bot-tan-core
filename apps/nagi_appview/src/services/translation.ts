@@ -7,7 +7,11 @@ import {
 import { NAGI, NAGI_LANGUAGES } from "@bsky-affirmative-bot/nagi-lexicon";
 import {
   BOT_VOICE_BRIEF_EN,
-  OLLAMA_TEXT_CONTEXT_LENGTH,
+  OLLAMA_BUDGET_SAFETY_MARGIN,
+  OLLAMA_MIN_OUTPUT_TOKENS,
+  estimateTokens,
+  ollamaPromptBudget,
+  ollamaTextContextLength,
   ollamaNativeUrl,
 } from "@bsky-affirmative-bot/shared-configs";
 import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm";
@@ -311,6 +315,26 @@ export async function requestTranslationWithRetry(
   const now = dependencies.now ?? Date.now;
   const log = dependencies.log ?? console.warn;
   const reportAiCall = dependencies.reportCall ?? defaultReportCall;
+
+  // 訳文は原文と同程度の長さになる。num_predict を省くと Ollama 既定の -1（残りコンテキスト
+  // まで）になり、プロンプトが num_ctx を埋めると訳文が数トークンで切れて、しかもそれが
+  // 正常な訳として保存されてしまう。出力枠は必ず先に取り置く。
+  const numCtx = ollamaTextContextLength();
+  const promptTokens = estimateTokens(prompt);
+  const budget = ollamaPromptBudget({ numCtx, outputTokens: OLLAMA_MIN_OUTPUT_TOKENS });
+  if (promptTokens > budget) {
+    // 黙って切った訳文を保存するより「翻訳できません」の方がよい。原文は必ず読める。
+    throw new TranslationGenerationError(
+      "invalid_output",
+      `prompt_too_long(${promptTokens}>${budget})`,
+      false,
+    );
+  }
+  const numPredict = Math.min(
+    Math.max(Math.ceil(promptTokens * 1.5) + 256, OLLAMA_MIN_OUTPUT_TOKENS),
+    numCtx - promptTokens - OLLAMA_BUDGET_SAFETY_MARGIN,
+  );
+
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     const startedAt = now();
     try {
@@ -329,7 +353,8 @@ export async function requestTranslationWithRetry(
               stream: false,
               think: false,
               options: {
-                num_ctx: OLLAMA_TEXT_CONTEXT_LENGTH,
+                num_ctx: numCtx,
+                num_predict: numPredict,
                 temperature,
               },
             }),

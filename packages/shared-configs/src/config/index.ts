@@ -7,6 +7,7 @@ import { getFullDateAndTimeString, getRandomItems, getWhatDay } from "../util/co
 export { getCurrentEventSet } from "./functions.js";
 export * from "./aiRoutes.js";
 export * from "./aiRetryLadder.js";
+export * from "./ollamaBudget.js";
 
 export const NICKNAMES_BOT = [
   "全肯定botたん",

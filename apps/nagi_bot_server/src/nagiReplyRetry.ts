@@ -66,7 +66,41 @@ export function classifyNagiReplyError(
   ) {
     return { ...classified, category: "transient" };
   }
+  // コンテキスト溢れと劣化生成は一時障害として扱う。次の試行では履歴がもう少し
+  // 削れていたり grounding が付かなかったりで通ることがあるため。永続扱いにすると
+  // 1回のブレで返信が永久に消える。
+  if (classified.category !== "transient" && isDegenerateGenerationError(error)) {
+    return { ...classified, category: "transient" };
+  }
   return classified;
+}
+
+/**
+ * 「モデルの出力そのものが使い物にならなかった」失敗か。
+ *
+ * ネットワークやクォータの失敗と違い、これは再試行しても同じ入力なら同じ結果になりうる。
+ * ラダーを使い切ったときに定型文へ落とす判断に使う（無言で消えるより定型文の方がよい）。
+ */
+export function isDegenerateGenerationError(error: unknown): boolean {
+  return (
+    isNamedError(error, "OllamaContextOverflowError") ||
+    isNamedError(error, "DegenerateReplyError")
+  );
+}
+
+/** cause 連鎖に指定名のエラーがあるか。instanceof を使わないのは循環importを避けるため。 */
+function isNamedError(error: unknown, name: string): boolean {
+  const seen = new Set<unknown>();
+  let current = error;
+  while (current && !seen.has(current) && seen.size < 8) {
+    seen.add(current);
+    if (current instanceof Error && current.name === name) return true;
+    current =
+      typeof current === "object" && "cause" in current
+        ? (current as { cause?: unknown }).cause
+        : undefined;
+  }
+  return false;
 }
 
 export const formatNagiReplyError = formatAiError;
