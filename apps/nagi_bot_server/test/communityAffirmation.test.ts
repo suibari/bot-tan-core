@@ -6,8 +6,10 @@ process.env.NAGI_BOT_DID ??= "did:plc:bot";
 
 const {
   canStockForAuthor,
+  communityAffirmationGenerationWindow,
   communityAffirmationRetry,
   hasCommunityAffirmationContentWarning,
+  isNewCommunityAffirmationCandidateReactionEligible,
 } = await import("../src/NagiCommunityAffirmationWorker.js");
 const { buildCommunityAffirmationPrompt, parseCommunityAffirmationResponse } =
   await import("@bsky-affirmative-bot/bot-brain");
@@ -37,6 +39,19 @@ test("1作者のストックは直近24時間で3件まで", () => {
   assert.equal(canStockForAuthor(2), true);
   assert.equal(canStockForAuthor(3), false);
   assert.equal(canStockForAuthor(10), false);
+});
+
+test("プロンプト更新では表示期間内のカードだけを再生成対象にする", () => {
+  const now = new Date("2026-09-01T00:00:00.000Z");
+  assert.deepEqual(communityAffirmationGenerationWindow(now), {
+    newest: new Date("2026-08-31T23:00:00.000Z"),
+    oldest: new Date("2026-08-25T00:00:00.000Z"),
+  });
+});
+
+test("リアクション上限は新規候補の選定だけに適用する", () => {
+  assert.equal(isNewCommunityAffirmationCandidateReactionEligible(1), true);
+  assert.equal(isNewCommunityAffirmationCandidateReactionEligible(2), false);
 });
 
 test("一時障害は指数バックオフし、5回目で打ち切る", () => {

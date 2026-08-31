@@ -106,6 +106,19 @@ export function canStockForAuthor(recentCount: number) {
   return recentCount < AUTHOR_STOCK_LIMIT;
 }
 
+export function communityAffirmationGenerationWindow(now: Date) {
+  return {
+    newest: new Date(now.getTime() - ONE_HOUR_MS),
+    oldest: new Date(now.getTime() - SEVEN_DAYS_MS),
+  };
+}
+
+export function isNewCommunityAffirmationCandidateReactionEligible(
+  reactionCount: number,
+) {
+  return reactionCount <= 1;
+}
+
 export function communityAffirmationRetry(attempts: number) {
   return {
     failed: attempts >= MAX_ATTEMPTS,
@@ -114,6 +127,7 @@ export function communityAffirmationRetry(attempts: number) {
 }
 
 async function eligibleCandidates(now: Date): Promise<Candidate[]> {
+  const generationWindow = communityAffirmationGenerationWindow(now);
   const rows = await db
     .select({
       post: nagiPosts,
@@ -131,8 +145,8 @@ async function eligibleCandidates(now: Date): Promise<Candidate[]> {
         isNull(nagiPosts.deletedAt),
         isNull(nagiPosts.replyParentUri),
         ne(nagiPosts.did, process.env.NAGI_BOT_DID!),
-        lte(nagiPosts.recordCreatedAt, new Date(now.getTime() - ONE_HOUR_MS)),
-        gte(nagiPosts.recordCreatedAt, new Date(now.getTime() - SEVEN_DAYS_MS)),
+        lte(nagiPosts.recordCreatedAt, generationWindow.newest),
+        gte(nagiPosts.recordCreatedAt, generationWindow.oldest),
         // 「まだ拾われていない投稿を拾う」というこの機能の選定思想。読み出し側では
         // 判定しないので（一覧に出たあとで反応が付いても消えない）、ここが唯一の関門。
         sql`(
@@ -162,7 +176,11 @@ async function eligibleCandidates(now: Date): Promise<Candidate[]> {
 
   return rows
     .map((row) => ({ ...row, reactionCount: Number(row.reactionCount) }))
-    .filter(({ post }) => !hasCommunityAffirmationContentWarning(post));
+    .filter(
+      ({ post, reactionCount }) =>
+        isNewCommunityAffirmationCandidateReactionEligible(reactionCount) &&
+        !hasCommunityAffirmationContentWarning(post),
+    );
 }
 
 /** 直近 AUTHOR_STOCK_WINDOW_MS のあいだに積んだ行数を作者ごとに数える。 */
@@ -194,9 +212,19 @@ async function recentStockByAuthor(now: Date, authorDids: string[]) {
  * 通常の運用では触らない（一度 rejected になった投稿を蒸し返さない）。
  */
 async function requeueStalePromptVersions(now: Date) {
+  const generationWindow = communityAffirmationGenerationWindow(now);
+  // AppView の表示窓から外れた旧カードは作り直さない。期限切れ行を再キューすると、
+  // 新規候補の供給を塞いだうえで insufficient_context へ変えてしまう。
   const stale = await db
     .select({ sourceUri: nagiCommunityAffirmations.sourceUri })
     .from(nagiCommunityAffirmations)
+    .innerJoin(
+      nagiPosts,
+      and(
+        eq(nagiPosts.uri, nagiCommunityAffirmations.sourceUri),
+        eq(nagiPosts.cid, nagiCommunityAffirmations.sourceCid),
+      ),
+    )
     .where(
       and(
         or(
@@ -210,6 +238,11 @@ async function requeueStalePromptVersions(now: Date) {
             COMMUNITY_AFFIRMATION_PROMPT_VERSION,
           ),
         ),
+        isNull(nagiPosts.deletedAt),
+        isNull(nagiPosts.replyParentUri),
+        ne(nagiPosts.did, process.env.NAGI_BOT_DID!),
+        lte(nagiPosts.recordCreatedAt, generationWindow.newest),
+        gte(nagiPosts.recordCreatedAt, generationWindow.oldest),
       ),
     )
     .limit(MAX_ENQUEUE_PER_REFRESH);
@@ -224,7 +257,22 @@ async function requeueStalePromptVersions(now: Date) {
         lastError: null,
         updatedAt: now,
       })
-      .where(eq(nagiCommunityAffirmations.sourceUri, row.sourceUri));
+      .where(
+        and(
+          eq(nagiCommunityAffirmations.sourceUri, row.sourceUri),
+          or(
+            eq(nagiCommunityAffirmations.state, "posted"),
+            eq(nagiCommunityAffirmations.state, "rejected"),
+          ),
+          or(
+            isNull(nagiCommunityAffirmations.promptVersion),
+            ne(
+              nagiCommunityAffirmations.promptVersion,
+              COMMUNITY_AFFIRMATION_PROMPT_VERSION,
+            ),
+          ),
+        ),
+      );
     logCommunityAffirmation("candidate_queued", {
       sourceUri: row.sourceUri,
       reason: "prompt_upgrade",
@@ -242,10 +290,9 @@ async function refreshCandidates(now: Date) {
 
   const candidates = await eligibleCandidates(now);
   if (!candidates.length) return;
-  const recent = await recentStockByAuthor(
-    now,
-    [...new Set(candidates.map((candidate) => candidate.post.did))],
-  );
+  const recent = await recentStockByAuthor(now, [
+    ...new Set(candidates.map((candidate) => candidate.post.did)),
+  ]);
 
   let enqueued = requeued;
   for (const candidate of candidates) {
@@ -286,16 +333,13 @@ async function refreshCandidates(now: Date) {
 async function loadInput(
   job: typeof nagiCommunityAffirmations.$inferSelect,
 ): Promise<CommunityAffirmationInput | undefined> {
-  const now = new Date();
+  // 投稿時刻とリアクション数は、初回なら eligibleCandidates、再生成なら
+  // requeueStalePromptVersions で判定済み。処理時に再適用すると、キュー投入後の
+  // 時間経過やリアクション増加だけで既存カードを reject してしまう。
   const [source] = await db
     .select({
       post: nagiPosts,
       pdsUrl: nagiActors.pdsUrl,
-      reactionCount: sql<number>`(
-        select count(*)::int
-        from nagi.reactions as community_reaction
-        where community_reaction.subject_uri = ${nagiPosts.uri}
-      )`,
     })
     .from(nagiPosts)
     .leftJoin(nagiActors, eq(nagiActors.did, nagiPosts.did))
@@ -306,16 +350,10 @@ async function loadInput(
         isNull(nagiPosts.deletedAt),
         isNull(nagiPosts.replyParentUri),
         ne(nagiPosts.did, process.env.NAGI_BOT_DID!),
-        lte(nagiPosts.recordCreatedAt, new Date(now.getTime() - ONE_HOUR_MS)),
-        gte(nagiPosts.recordCreatedAt, new Date(now.getTime() - SEVEN_DAYS_MS)),
       ),
     )
     .limit(1);
-  if (
-    !source ||
-    Number(source.reactionCount) > 1 ||
-    hasCommunityAffirmationContentWarning(source.post)
-  )
+  if (!source || hasCommunityAffirmationContentWarning(source.post))
     return undefined;
 
   const record = source.post.recordJson as any;
