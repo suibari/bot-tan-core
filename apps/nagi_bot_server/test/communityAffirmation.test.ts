@@ -17,6 +17,16 @@ test("匿名要約は投稿を移動させる比喩ではなく内容への反�
     text: "散歩で約2000歩を目指している",
   });
   assert.match(prompt, /投稿の具体的な内容に対する反応を書く/);
+  assert.match(prompt, /ひと続きの完成文/);
+  assert.match(
+    prompt,
+    /同じ事実を繰り返したり、言い換えてもう一度紹介したりしない/,
+  );
+  assert.match(prompt, /投稿内容を要約すると/);
+  assert.match(prompt, /根拠が少なければ短く書く/);
+  assert.match(prompt, /匿名の第三者形/);
+  assert.match(prompt, /望ましい構成例/);
+  assert.match(prompt, /一人称として引き受けない/);
   assert.doesNotMatch(prompt, /連れてき/);
 });
 
@@ -83,28 +93,30 @@ test("本文・レコード・画像のいずれかにCWがあれば除外する
   );
 });
 
-test("構造化要約は内容を再審査せず、日英の空・文字数だけを検査する", () => {
+test("構造化要約は完成文をそのまま使い、日英の空・文字数だけを検査する", () => {
   const accepted = parseCommunityAffirmationResponse(
     JSON.stringify({
       publishable: true,
-      postSummaryJa: "こんな投稿を見つけたよ！",
-      botCommentJa:
-        "難所を工夫で突破するの、かっこよすぎる〜！予想外の発想に、わたしまで元気をもらったよ！",
-      postSummaryEn: "I found something worth sharing!",
-      botCommentEn:
-        "Finding a creative way through that challenge is so cool! That unexpected idea gave me a burst of energy too!",
+      summaryJa:
+        "難所を工夫で突破したという投稿を見つけたよ！予想外の発想がかっこよすぎる〜！わたしまで元気をもらったよ！",
+      summaryEn:
+        "Someone found a creative way through a challenge! That unexpected idea is so cool! It gave me a burst of energy too!",
       reasonCode: "",
     }),
   );
   assert.equal(accepted.publishable, true);
+  assert.equal(
+    accepted.summaryJa,
+    "難所を工夫で突破したという投稿を見つけたよ！予想外の発想がかっこよすぎる〜！わたしまで元気をもらったよ！",
+  );
 
   const contentIsNotRevalidated = parseCommunityAffirmationResponse(
     JSON.stringify({
       publishable: true,
-      postSummaryJa: "あなたにおめでとうを届けたいポストだよ。",
-      botCommentJa: "その成果を全肯定したくなったよ。",
-      postSummaryEn: "A post worth celebrating.",
-      botCommentEn: "Congratulations on the achievement.",
+      summaryJa:
+        "あなたにおめでとうを届けたいポストだよ。その成果を全肯定したくなったよ。",
+      summaryEn:
+        "A post worth celebrating. Congratulations on the achievement.",
       reasonCode: "",
     }),
   );
@@ -113,8 +125,10 @@ test("構造化要約は内容を再審査せず、日英の空・文字数だ�
   const legacyShape = parseCommunityAffirmationResponse(
     JSON.stringify({
       publishable: true,
-      summaryJa: "投稿へ直接返答する古い形式",
-      summaryEn: "A legacy direct reply.",
+      postSummaryJa: "こんな投稿を見つけたよ！",
+      botCommentJa: "古い分割形式のコメントだよ。",
+      postSummaryEn: "I found a post!",
+      botCommentEn: "This is a legacy split response.",
       reasonCode: "",
     }),
   );
@@ -124,10 +138,8 @@ test("構造化要約は内容を再審査せず、日英の空・文字数だ�
   const modelRejected = parseCommunityAffirmationResponse(
     JSON.stringify({
       publishable: false,
-      postSummaryJa: "",
-      botCommentJa: "",
-      postSummaryEn: "",
-      botCommentEn: "",
+      summaryJa: "",
+      summaryEn: "",
       reasonCode: "",
     }),
   );
@@ -137,10 +149,8 @@ test("構造化要約は内容を再審査せず、日英の空・文字数だ�
   const tooLong = parseCommunityAffirmationResponse(
     JSON.stringify({
       publishable: true,
-      postSummaryJa: "短い紹介だよ。",
-      botCommentJa: "短いコメントだよ。",
-      postSummaryEn: "A short introduction.",
-      botCommentEn: "x".repeat(321),
+      summaryJa: "短い紹介とコメントだよ。",
+      summaryEn: "x".repeat(321),
       reasonCode: "",
     }),
   );
