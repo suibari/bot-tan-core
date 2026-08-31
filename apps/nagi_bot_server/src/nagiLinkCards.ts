@@ -13,13 +13,48 @@ const MAX_LINK_CARDS = 4;
 type NagiFacet = NonNullable<NagiPost["facets"]>[number];
 type NagiLinkCardRecord = NonNullable<NagiPost["linkCards"]>[number];
 
+function maskAutoLinkExclusions(text: string, exclusions: readonly string[]) {
+  let masked = text;
+  for (const exclusion of exclusions) {
+    if (!exclusion) continue;
+    const lowerText = masked.toLowerCase();
+    const lowerExclusion = exclusion.toLowerCase();
+    let fromIndex = 0;
+    let result = "";
+
+    while (fromIndex < masked.length) {
+      const index = lowerText.indexOf(lowerExclusion, fromIndex);
+      if (index < 0) break;
+      const before = masked[index - 1] ?? "";
+      const after = masked[index + exclusion.length] ?? "";
+      // URLの一部（scheme直後、path付き、より長いドメイン等）は保持する。
+      const embeddedBefore = /[A-Za-z0-9._~:/?#@%+-]/.test(before);
+      const embeddedAfter = /[A-Za-z0-9._~:/?#@%+-]/.test(after);
+      if (embeddedBefore || embeddedAfter) {
+        result += masked.slice(fromIndex, index + exclusion.length);
+      } else {
+        result += masked.slice(fromIndex, index);
+        // RichTextのfacet位置はUTF-8 byte単位なので、同じbyte長を維持する。
+        result += " ".repeat(Buffer.byteLength(masked.slice(index, index + exclusion.length)));
+      }
+      fromIndex = index + exclusion.length;
+    }
+    masked = result + masked.slice(fromIndex);
+  }
+  return masked;
+}
+
 /**
  * 本文から解決なしで安全に作れる facet を検出する。
  * mention は detectFacetsWithoutResolution だと did が handle のままの無効な facet になるため
  * 除外するが、link と tag はそのまま Nagi のレコードに保存できる。
  */
-export function detectNagiFacets(text: string): { facets: NagiFacet[]; urls: string[] } {
-  const rt = new RichText({ text });
+export function detectNagiFacets(
+  text: string,
+  autoLinkExclusions: readonly string[] = [],
+): { facets: NagiFacet[]; urls: string[] } {
+  const detectionText = maskAutoLinkExclusions(text, autoLinkExclusions);
+  const rt = new RichText({ text: detectionText });
   rt.detectFacetsWithoutResolution();
 
   const facets: NagiFacet[] = [];
@@ -52,8 +87,9 @@ export async function buildNagiPostFacets(
   text: string,
   sourceFacets?: NagiPost["facets"],
   resolver?: EmojiResolver,
+  autoLinkExclusions: readonly string[] = [],
 ): Promise<{ facets: NagiFacet[]; urls: string[] }> {
-  const detected = detectNagiFacets(text);
+  const detected = detectNagiFacets(text, autoLinkExclusions);
   const emojis = await resolveNagiBluemojiFacets(
     text,
     sourceFacets,
@@ -128,9 +164,15 @@ export async function buildNagiPostAttachments(
   text: string,
   sourceFacets?: NagiPost["facets"],
   resolver?: EmojiResolver,
+  autoLinkExclusions: readonly string[] = [],
 ): Promise<{ facets?: NagiFacet[]; linkCards?: NagiLinkCardRecord[] }> {
   try {
-    const { facets, urls } = await buildNagiPostFacets(text, sourceFacets, resolver);
+    const { facets, urls } = await buildNagiPostFacets(
+      text,
+      sourceFacets,
+      resolver,
+      autoLinkExclusions,
+    );
     if (!facets.length) return {};
     const linkCards = await buildLinkCards(urls);
     return {

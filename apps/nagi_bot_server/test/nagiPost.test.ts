@@ -27,6 +27,46 @@ test("does not save unresolved mention facets", () => {
   );
 });
 
+test("does not auto-link a reply recipient handle used as a name", () => {
+  const handle = "elle139.bsky.social";
+  const text = `${handle}、すてきだね。${handle}のままでいてね。`;
+  const { facets, urls } = detectNagiFacets(text, [handle]);
+
+  assert.deepEqual(facets, []);
+  assert.deepEqual(urls, []);
+});
+
+test("the common post record builder applies reply handle exclusions", async () => {
+  const handle = "elle139.bsky.social";
+  const record = await buildNagiPostRecord({
+    text: `${handle}、今日もすてきだね。`,
+    autoLinkExclusions: [handle],
+    label: "NAGI_REPLY_TEST",
+    langs: ["ja"],
+  });
+
+  assert.equal(record.facets, undefined);
+  assert.equal(record.linkCards, undefined);
+});
+
+test("keeps ordinary links when excluding a reply recipient handle", () => {
+  const handle = "elle139.bsky.social";
+  const text = `${handle}、リンクはこちら https://${handle}/profile と example.com を見てね。`;
+  const { facets, urls } = detectNagiFacets(text, [handle]);
+
+  assert.deepEqual(urls, [
+    `https://${handle}/profile`,
+    "https://example.com",
+  ]);
+  assert.deepEqual(
+    facets.flatMap((facet) => facet.features),
+    urls.map((uri) => ({
+      $type: "app.bsky.richtext.facet#link",
+      uri,
+    })),
+  );
+});
+
 test("the common post record builder always detects tag facets", async () => {
   const record = await buildNagiPostRecord({
     text: "定期投稿です #botたん",

@@ -213,12 +213,14 @@ export async function createNagiReply(
     ? await isKossoriReplyToBot(record, process.env.NAGI_BOT_DID!)
     : isReplyToBot(record, process.env.NAGI_BOT_DID!);
   let generated: { comment: string; score?: number };
+  let replyAuthorHandle: string | undefined;
 
   if (options.mode === "template") {
     const [author, preferredName] = await Promise.all([
       loadNagiReplyAuthor(job.authorDid),
       loadPreferredName(job.authorDid),
     ]);
+    replyAuthorHandle = author.view.handle;
     generated = {
       comment: await createPredefinedReply(
         {
@@ -232,6 +234,7 @@ export async function createNagiReply(
     };
   } else {
     const context = await buildNagiReplyContext(job);
+    replyAuthorHandle = context.follower.handle;
     const aiRoute = options.aiRoute ?? nagiAiRouteForAttempt(1);
     let affirmativeTruncated = false;
     console.log("[INFO][NAGI] Gemini reply context:", {
@@ -322,6 +325,9 @@ export async function createNagiReply(
   const response = await publishNagiPost({
     text: generated.comment,
     sourceFacets: Array.isArray(record.facets) ? record.facets : undefined,
+    // displayName が未設定の相手は handle で呼ぶが、ドメイン風の文字列として
+    // RichText が外部URLへ自動変換しないよう、返信相手のhandleだけを保護する。
+    autoLinkExclusions: replyAuthorHandle ? [replyAuthorHandle] : [],
     label: "NAGI_REPLY",
     rkey: sourceRkey,
     langs: [language.code],

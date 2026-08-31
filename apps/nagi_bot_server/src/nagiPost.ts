@@ -14,6 +14,8 @@ export type PublishNagiPostRequest = NagiPostFields & {
   text: string;
   /** 返信元が実際に使った同名Bluemojiを優先解決するためのfacet。レコード自体には複製しない。 */
   sourceFacets?: NagiPost["facets"];
+  /** 呼称として本文へ書くhandleなど、自動URL化させない完全一致文字列。 */
+  autoLinkExclusions?: string[];
   /** ログ上で本文切り詰めの発生元を識別するラベル。 */
   label?: string;
   /** 指定時は同じ rkey へ putRecord、未指定時は createRecord する。 */
@@ -28,6 +30,7 @@ export async function buildNagiPostRecord(
   {
     text: sourceText,
     sourceFacets,
+    autoLinkExclusions,
     label = "NAGI_POST",
     rkey: _rkey,
     ...fields
@@ -40,7 +43,12 @@ export async function buildNagiPostRecord(
     text,
     createdAt: new Date().toISOString(),
     ...fields,
-    ...(await buildNagiPostAttachments(text, sourceFacets, resolver)),
+    ...(await buildNagiPostAttachments(
+      text,
+      sourceFacets,
+      resolver,
+      autoLinkExclusions,
+    )),
   };
 }
 
