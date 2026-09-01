@@ -1,0 +1,49 @@
+# bot 機（Raspberry Pi）で Nagi 本体と同居させる SearXNG。
+#
+# grounding の検索段を Gemini から自前へ移すための基盤。API キーもアカウントも要らず、
+# 利用者が第三者サービスの規約に同意する関係が生まれないことが採用理由。
+#
+# 【なぜ LLM 機ではなく bot 機か】
+#   - リポジトリは bot 機にしか置かない（scripts/deploy.sh が git pull する先）。
+#     compose ファイル 1 個のために 2 台で git 管理したくない。
+#   - 検索はリプライの同期パスから外してあり、リサーチワーカー（同時実行1）と
+#     バッチしか叩かない。I/O バウンドで GPU も要らないので Pi で足りる。
+#   - localhost に閉じられるぶん、LAN へ無認証公開するより安全。
+#   - 上流エンジンから見た IP は同じ NAT なので、ブロックリスクは変わらない。
+#
+# 起動:
+#   cd searxng
+#   cp .env.example .env && $EDITOR .env   # SEARXNG_SECRET を埋める
+#   docker compose up -d
+services:
+  searxng:
+    image: docker.io/searxng/searxng:latest
+    container_name: nagi-searxng
+    restart: unless-stopped
+    # 【重要】loopback に固定する。SearXNG は無認証なので LAN にも晒さない。
+    # bot は同じホストから http://127.0.0.1:8080 で叩く。
+    ports:
+      - "127.0.0.1:${SEARXNG_PORT:-8080}:8080"
+    volumes:
+      - ./settings.yml:/etc/searxng/settings.yml:ro
+    environment:
+      # settings.yml の server.secret_key を上書きする。秘密をリポジトリに置かないため。
+      SEARXNG_SECRET: ${SEARXNG_SECRET:?set SEARXNG_SECRET in searxng/.env}
+      SEARXNG_BASE_URL: http://127.0.0.1:${SEARXNG_PORT:-8080}/
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:8080/healthz || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "1m"
+        max-file: "1"

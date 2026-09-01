@@ -10,6 +10,7 @@ import {
 import {
   groundingPolicyForFeature,
   prepareOllamaGrounding,
+  seasonalWorksQueries,
 } from "../src/gemini/grounding.js";
 import {
   estimateMessagesTokens,
@@ -232,9 +233,31 @@ test("季節作品はplannerが空でも匿名の定型検索へフォールバ�
       },
     },
   );
-  assert.deepEqual(input?.queries, [
-    "現在 日本 今期 話題 アニメ マンガ ゲーム ドラマ 映画 音楽",
-  ]);
+  // 入力文（"今期作品"）は検索側へ渡らず、サーバー管理の定型検索に置き換わる。
+  assert.deepEqual(input?.queries, seasonalWorksQueries());
+  assert.ok(input?.queries.length);
+});
+
+test("定型検索はトピック語で始まり、年が末尾に来る", () => {
+  // SearXNG(Bing) の実測結果に基づく。年を先頭に置くと「2026年カレンダー」の
+  // 配布サイトばかりが返り、作品名がゼロになる。相対語で始めても辞書ページに落ちる。
+  const queries = seasonalWorksQueries(new Date(2026, 8, 1));
+  assert.ok(queries.includes("夏アニメ 2026"), queries.join(" / "));
+  for (const query of queries) {
+    assert.match(query, /\s20\d{2}$/, `年が末尾にない: ${query}`);
+    assert.doesNotMatch(query, /^20\d{2}/, `年で始めてはいけない: ${query}`);
+    assert.doesNotMatch(query, /^(今|現在|最近|今期|latest|recent)/, query);
+    // 「ヒット曲」は株式会社ヒットに食われる。実測で確認済みの禁止語。
+    assert.doesNotMatch(query, /ヒット曲/, query);
+  }
+});
+
+test("定型検索の季節は月から決まる", () => {
+  const at = (month: number) => seasonalWorksQueries(new Date(2026, month - 1, 15))[0];
+  assert.equal(at(2), "冬アニメ 2026");
+  assert.equal(at(5), "春アニメ 2026");
+  assert.equal(at(8), "夏アニメ 2026");
+  assert.equal(at(11), "秋アニメ 2026");
 });
 
 test("maxOutputTokens未指定でもnum_predictが必ず入る", async () => {

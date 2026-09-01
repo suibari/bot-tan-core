@@ -79,11 +79,42 @@ function clearlyNeedsFreshFacts(text: string): boolean {
   return /(最新|現在|現時点|最近|今日.{0,8}(天気|気温)|ニュース|実在|調べ|検索|20\d{2}年|latest|current|recent|today.{0,12}(weather|temperature)|verify|search)/i.test(text);
 }
 
+/** 日本のクール。1-3月=冬、4-6月=春、7-9月=夏、10-12月=秋。 */
+const SEASON_BY_MONTH = ["冬", "冬", "冬", "春", "春", "春", "夏", "夏", "夏", "秋", "秋", "秋"];
+
+/**
+ * 今期の作品を探す定型クエリ。**トピック語を先頭に、年を末尾に置く。**
+ *
+ * 【実測で確かめた規則。触る前に必ず読むこと】
+ * Gemini は曖昧なクエリを内部で言い換えてから検索していたので
+ * 「現在 日本 今期 話題 アニメ マンガ ゲーム ドラマ 映画 音楽」でも通っていた。
+ * SearXNG（実体は Bing）はリテラルに引くので、同じ書き方は通用しない。
+ *
+ *   夏アニメ 2026     → 作品一覧サイトが5件           ✅
+ *   夏ドラマ 2026     → 7月期ドラマ一覧が5件          ✅
+ *   新作ゲーム 2026   → 発売日カレンダー・ファミ通     ✅
+ *   話題の映画 2026   → 公開予定作品の一覧が5件        ✅
+ *   2026年 夏ドラマ   → 全部「2026年カレンダー」       ❌
+ *   2026年 新作ゲーム → 全部「2026年カレンダー」       ❌
+ *   2026年 ヒット曲   → 全部「2026年カレンダー」       ❌
+ *
+ * 年を先頭に置くと Bing がそれを主要語と解釈し、カレンダー配布サイトへ落ちる。
+ * 「ヒット曲」は株式会社ヒットに食われるので「音楽ランキング」を使う。
+ */
+export function seasonalWorksQueries(now = new Date()): string[] {
+  const year = now.getFullYear();
+  const season = SEASON_BY_MONTH[now.getMonth()];
+  return [
+    `${season}アニメ ${year}`,
+    `${season}ドラマ ${year}`,
+    `話題の映画 ${year}`,
+    `新作ゲーム ${year}`,
+  ];
+}
+
 function requiredFallbackQueries(feature?: AiFeatureKey): string[] {
-  // 入力文をGeminiへ転送せず、サーバー管理の定型検索だけに限定する。
-  if (feature === "BIORHYTHM_SEASONAL_WORKS") {
-    return ["現在 日本 今期 話題 アニメ マンガ ゲーム ドラマ 映画 音楽"];
-  }
+  // 入力文を検索側へ転送せず、サーバー管理の定型検索だけに限定する。
+  if (feature === "BIORHYTHM_SEASONAL_WORKS") return seasonalWorksQueries();
   return [];
 }
 
@@ -129,6 +160,16 @@ Return concise Japanese or English search queries only. Never copy personal name
 conversation history, or the bot persona into a query. Search is needed for current facts, unfamiliar
 entities, factual claims that may have changed, recommendations requiring real-world existence, and URLs.
 Search is not needed for emotional support, creative writing, transformations, or facts already supplied.
+
+Queries go to a plain search engine that takes them literally, so follow these rules exactly:
+1. Lead with the specific topic word. Put any year at the END, never at the start — a query
+   beginning with a year returns calendar sites instead of the topic.
+2. Never lead with a bare relative word such as 今 / 現在 / 最近 / 今期 / latest / recent.
+   Those return dictionary and clock pages.
+3. Keep each query to one topic and a few words. Piling on keywords makes the engine drop
+   everything but the strongest single word.
+Good: "${SEASON_BY_MONTH[new Date().getMonth()]}アニメ ${new Date().getFullYear()}" / "話題の映画 ${new Date().getFullYear()}"
+Bad: "${new Date().getFullYear()}年 話題のアニメ" / "現在 人気 アニメ ゲーム 音楽 まとめ"
 ${forced ? "Research is required for this task, so needed must be true." : "Set needed false when research adds no factual value."}`,
     },
     contents: [{ role: "user", parts: [{ text: subject.slice(0, 12_000) }] }],

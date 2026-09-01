@@ -24,6 +24,7 @@ RESTART_BIO=false
 RESTART_LABELER=false
 RESTART_DISCORD=false
 RESTART_NAGI_APPVIEW=false
+RESTART_SEARXNG=false
 PUSH_DB=false
 PUBLISH_LEXICON=false
 
@@ -60,6 +61,11 @@ fi
 
 if echo "$DIFF_FILES" | grep -q "apps/nagi_appview/"; then
     RESTART_NAGI_APPVIEW=true
+fi
+
+# SearXNG は grounding の検索段。唯一 systemd ではなく Docker で動かしている。
+if echo "$DIFF_FILES" | grep -q "^searxng/"; then
+    RESTART_SEARXNG=true
 fi
 
 # DB 判定/push
@@ -107,6 +113,13 @@ fi
 if [ "$RESTART_NAGI_APPVIEW" = true ]; then
     echo "♻️  Restarting Nagi AppView..."
     sudo systemctl restart nagi-appview.service
+fi
+
+if [ "$RESTART_SEARXNG" = true ]; then
+    echo "♻️  Reloading SearXNG..."
+    # .env の探索場所がバージョンで揺れるので、-f ではなく cd してから叩く。
+    # up -d は冪等で、設定が変わったときだけコンテナを作り直す。
+    (cd searxng && docker compose up -d)
 fi
 
 if [ "$PUBLISH_LEXICON" = true ]; then

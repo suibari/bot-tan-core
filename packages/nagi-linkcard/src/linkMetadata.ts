@@ -7,7 +7,8 @@ const CARDYB_LIMIT = 100_000;
 const REDIRECT_LIMIT = 4;
 const allowedImageTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
 
-async function limitedFetch(raw: string, accept: string) {
+/** readable.ts と共用。SSRF 検証・リダイレクト上限・タイムアウトをまとめて掛ける。 */
+export async function limitedFetch(raw: string, accept: string) {
   let url = await safeUrl(raw);
   for (let redirects = 0; redirects <= REDIRECT_LIMIT; redirects++) {
     const response = await fetch(url, {
@@ -29,7 +30,8 @@ async function limitedFetch(raw: string, accept: string) {
   throw new LinkMetadataError(502, "upstream_unavailable", "Link could not be fetched");
 }
 
-async function bytes(response: Response, limit: number) {
+/** readable.ts と共用。content-length とストリームの両方でサイズ上限を掛ける。 */
+export async function bytes(response: Response, limit: number) {
   const length = Number(response.headers.get("content-length") ?? 0);
   if (length > limit)
     throw new LinkMetadataError(413, "response_too_large", "Remote content is too large");
@@ -56,7 +58,37 @@ async function bytes(response: Response, limit: number) {
   return result;
 }
 
-const decode = (value: string) =>
+/**
+ * readable.ts と共用。HTML のバイト列を正しい文字コードで文字列にする。
+ *
+ * 既定の `new TextDecoder()` は UTF-8 固定なので、Shift_JIS のサイトが文字化けする。
+ * 実測: オリコンの記事が「�y�ăh���}2026 �܂Ƃ߁z」になった。日本語サイトには
+ * まだ Shift_JIS / EUC-JP が残っているので、宣言を見て切り替える。
+ *
+ * 優先順位は HTML 仕様どおり Content-Type ヘッダ → meta 宣言 → UTF-8。
+ * meta を読むために先頭を latin1 で覗くが、どの日本語エンコーディングでも
+ * ASCII 範囲のバイト列は同じなので charset 宣言自体はこれで拾える。
+ */
+export function decodeHtml(buffer: Uint8Array, contentType?: string | null): string {
+  const head = new TextDecoder("latin1").decode(buffer.subarray(0, 2048));
+  const candidates = [
+    /charset=["']?\s*([\w:.-]+)/i.exec(contentType ?? "")?.[1],
+    /<meta[^>]+charset=["']?\s*([\w:.-]+)/i.exec(head)?.[1],
+    /<meta[^>]+content=["'][^"']*charset=\s*([\w:.-]+)/i.exec(head)?.[1],
+  ];
+  for (const label of candidates) {
+    if (!label) continue;
+    try {
+      return new TextDecoder(label).decode(buffer);
+    } catch {
+      // 未知のラベルは無視して次の候補へ。文字コードの判定失敗で取得ごと落とさない。
+    }
+  }
+  return new TextDecoder().decode(buffer);
+}
+
+/** readable.ts と共用。HTML実体参照を戻し、空白を1つに畳む。 */
+export const decode = (value: string) =>
   value
     .replace(/&amp;/gi, "&")
     .replace(/&quot;/gi, '"')
@@ -110,7 +142,7 @@ async function fetchDirect(url: URL, requireTitle = false): Promise<LinkMetadata
   const { response, url: resolved } = await limitedFetch(url.href, "text/html,application/xhtml+xml");
   if (!response.headers.get("content-type")?.toLowerCase().includes("html"))
     throw new LinkMetadataError(415, "unsupported_media_type", "Link is not an HTML page");
-  const html = new TextDecoder().decode(await bytes(response, HTML_LIMIT));
+  const html = decodeHtml(await bytes(response, HTML_LIMIT), response.headers.get("content-type"));
   const extractedTitle =
     meta(html, ["og:title", "twitter:title"]) ??
     decode(/<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1] ?? "");
@@ -234,7 +266,7 @@ export async function resolveFavicon(raw: string): Promise<{ iconUrl?: string }>
     );
     if (!response.headers.get("content-type")?.toLowerCase().includes("html"))
       return { iconUrl: fallback };
-    const html = new TextDecoder().decode(await bytes(response, HTML_LIMIT));
+    const html = decodeHtml(await bytes(response, HTML_LIMIT), response.headers.get("content-type"));
     const href = iconLink(html);
     if (!href) return { iconUrl: fallback };
     // href は相対・プロトコル相対・data: いずれもありうる。safeUrl で絶対化＋SSRF/スキーム検証。

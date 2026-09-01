@@ -1,0 +1,64 @@
+# SearXNG 設定。既定値を土台にして、必要な差分だけを書く。
+#
+# 使うエンジンを絞る（use_default_settings をオブジェクト形式で書くと既定継承 +
+# エンジン絞り込みを同時に指定できる。`use_default_settings: true` と併記すると
+# YAML のキー重複になるので書かないこと）。
+#
+# - google は自前インスタンスからだと CAPTCHA / ブロックを食らいやすいので入れない。
+# - wikipedia / wikidata は infobox の供給源。固有名詞の実在確認に効くので必須。
+#   （この2つは results を返さず infobox だけを返す。0件に見えても働いている）
+# - bing が一覧・時事の索引。実質これ1本なので、詰まったら真っ先に疑う。
+# - duckduckgo は keep_only から外した。実測で全クエリに CAPTCHA (jp-jp) を返し続け、
+#   しかもクライアントの engines= から外しても問い合わせが止まらず、1クエリあたり
+#   1秒前後の待ちが乗るだけだった。復活させたくなったらここへ1行足す。
+#
+# エンジンを増やすほど 1 リクエストの所要時間が伸びる。増やす前に
+# `pnpm searxng:probe` でレイテンシを測ること。
+use_default_settings:
+  engines:
+    keep_only:
+      - bing
+      - wikipedia
+      - wikidata
+
+general:
+  instance_name: "nagi-searxng"
+  # 自分専用インスタンスなので、公開インスタンス向けの導線は要らない。
+  donation_url: false
+  contact_url: false
+  enable_metrics: true
+
+server:
+  # secret_key は compose の SEARXNG_SECRET 環境変数で上書きされる。
+  # ここに実値を書かないこと。
+  secret_key: "override-me-via-SEARXNG_SECRET"
+  # limiter は bot 判定でプログラムからの呼び出しを弾く。LAN 内の自前クライアント
+  # からしか叩かないので無効化する。有効なままだと Redis も必要になる。
+  limiter: false
+  public_instance: false
+  image_proxy: false
+
+search:
+  # 【重要】JSON API は既定でオフ。この行が無いと ?format=json が 403 になる。
+  formats:
+    - html
+    - json
+  default_lang: "ja"
+  # 日本語圏の結果を優先させる。クライアント側でも language=ja を送る。
+  autocomplete: ""
+  safe_search: 1
+
+outgoing:
+  request_timeout: 10.0
+  max_request_timeout: 15.0
+  pool_connections: 100
+  pool_maxsize: 20
+  enable_http2: true
+
+engines:
+  - name: wikipedia
+    language: ja
+  - name: duckduckgo
+    timeout: 5.0
+  - name: bing
+    timeout: 5.0
