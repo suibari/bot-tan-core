@@ -171,7 +171,8 @@ function cleanQueries(value: unknown): string[] {
   )].slice(0, 3);
 }
 
-async function planResearch(
+/** 非同期リサーチワーカーからも使う。生入力を見るのはこのローカル planner だけ。 */
+export async function planResearch(
   model: string,
   subject: string,
   forced: boolean,
@@ -484,13 +485,22 @@ export async function prepareOllamaGrounding(
   feature: AiFeatureKey | undefined,
   params: any,
   deps: GroundingDeps = {},
+  researchMemory?: string | null,
 ): Promise<any> {
   const stripped = stripGroundingTools(params);
   const policy = groundingPolicyForFeature(feature);
   if (policy === "off" || !hasGroundingTools(params)) return stripped;
 
   // 同期パスでは調べない。ここで planner も検索も呼ばないことがレイテンシ改善の本体。
-  if (policy === "deferred") return appendResearch(stripped, DEFERRED_RESEARCH_NOTE);
+  //
+  // 代わりに、NagiResearchWorker が先に調べて bot memory へ入れた分があればそれを渡す。
+  // 事前に調べてある話題なら答えられ、無ければ「知らない」と言う。
+  if (policy === "deferred") {
+    const remembered = researchMemory?.trim();
+    return remembered
+      ? appendResearch(stripped, remembered, true)
+      : appendResearch(stripped, DEFERRED_RESEARCH_NOTE);
+  }
 
   // AI_GROUNDING_PROVIDER=off でも、実在確認が要る機能には「調べられなかった」ことを
   // 必ず伝える。黙って素通りさせると、今期作品や気分ソングで存在しない作品名を平気で作る。

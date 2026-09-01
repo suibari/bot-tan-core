@@ -100,8 +100,15 @@ export async function buildNagiReplyContext(job: any) {
   const botDid = process.env.NAGI_BOT_DID!;
   const text = typeof record.text === "string" ? record.text : "";
 
-  const [author, preferredName, ownMemoryRows, friendMemoryRows, reactionRows, quoteRows] =
-    await Promise.all([
+  const [
+    author,
+    preferredName,
+    ownMemoryRows,
+    friendMemoryRows,
+    researchRows,
+    reactionRows,
+    quoteRows,
+  ] = await Promise.all([
       loadNagiReplyAuthor(job.authorDid),
       // 本人が「こう呼んで」と申告していればそれを使う（無ければ displayName）。
       loadPreferredName(job.authorDid),
@@ -125,6 +132,19 @@ export async function buildNagiReplyContext(job: any) {
             limit: 10,
           }).catch((error) => {
             console.warn(`[WARN][${job.authorDid}] Failed to retrieve friend bot memory:`, error);
+            return [];
+          })
+        : Promise.resolve([]),
+      // NagiResearchWorker が先に調べておいた事実。思い出の枠を食わないよう
+      // selectReplyMemoryContext には通さず、独立した根拠として渡す。
+      text.trim()
+        ? searchBotMemory({
+            query: text,
+            purpose: "reply_history",
+            sources: ["web_research"],
+            limit: 3,
+          }).catch((error) => {
+            console.warn(`[WARN][${job.authorDid}] Failed to retrieve research memory:`, error);
             return [];
           })
         : Promise.resolve([]),
@@ -254,6 +274,9 @@ export async function buildNagiReplyContext(job: any) {
     followersFriend: followersFriend ? [followersFriend] : undefined,
     isSubscriber: false,
     urlContextEnabled: links.length > 0,
+    // 事前に調べてある分だけが鮮度の要る話題の根拠になる。無ければ
+    // prepareOllamaGrounding が「知らないなら知らないと言う」ノートを渡す。
+    researchMemory: researchRows.map((row) => row.content).join("\n\n") || null,
     diagnostics: {
       imageCount: image.length,
       directImageCount: image.filter((item) => item.origin === "direct").length,

@@ -76,7 +76,7 @@ export async function conversation(
     },
   };
   if (route.provider === 'ollama') {
-    request = await prepareOllamaGrounding('BSKY_CONVERSATION', request);
+    request = await prepareOllamaGrounding('BSKY_CONVERSATION', request, {}, userinfo?.researchMemory);
   } else {
     await requestOptions.beforeRequest?.();
   }

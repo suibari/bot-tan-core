@@ -221,7 +221,8 @@ export async function generateContentWithRetry(
   };
 
   if (provider === 'ollama') {
-    params = await prepareOllamaGrounding(feature, params);
+    // 事前に調べてある事実（bot memory の web_research）があれば同期パスでも根拠にできる。
+    params = await prepareOllamaGrounding(feature, params, {}, userinfo?.researchMemory);
   }
 
   if (userinfo?.botContext) {

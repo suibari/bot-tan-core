@@ -8,9 +8,22 @@
 # - wikipedia / wikidata は infobox の供給源。固有名詞の実在確認に効くので必須。
 #   （この2つは results を返さず infobox だけを返す。0件に見えても働いている）
 # - bing が一覧・時事の索引。実質これ1本なので、詰まったら真っ先に疑う。
-# - duckduckgo は keep_only から外した。実測で全クエリに CAPTCHA (jp-jp) を返し続け、
-#   しかもクライアントの engines= から外しても問い合わせが止まらず、1クエリあたり
-#   1秒前後の待ちが乗るだけだった。復活させたくなったらここへ1行足す。
+# 【重要】ここに書いたエンジンは、クライアントが engines= で絞っても問い合わせ
+# される。SearXNG の engines= は結果の採用を絞るだけで、送信自体は止まらない。
+# よって使えないエンジンを残すと全クエリに待ちが乗る。必ず外すこと。
+#
+# 日本語で使えるものを実測した結果（2026-09-02）:
+#   bing      ✅ 一覧・時事とも十分
+#   wikipedia ✅ infobox のみ返す（results は 0 件。実在確認の核心）
+#   wikidata  ✅ 同上
+#   duckduckgo ❌ 全クエリに CAPTCHA (jp-jp)
+#   brave      ❌ 応答なし（ブロック）
+#   startpage  ❌ 応答なし（ブロック）
+#   qwant      ❌ 応答なし
+#   mojeek     △ 応答するが日本語の結果は 0 件（索引が実質空）
+#
+# つまり日本語の索引は Bing 単独依存。詰まったら真っ先にここを疑う。
+# 代替を試すときは keep_only に足して `docker compose up -d --force-recreate`。
 #
 # エンジンを増やすほど 1 リクエストの所要時間が伸びる。増やす前に
 # `pnpm searxng:probe` でレイテンシを測ること。
@@ -20,11 +33,6 @@ use_default_settings:
       - bing
       - wikipedia
       - wikidata
-      # ↓ Bing 単独依存を解消できるかの検証枠。効かないものは削ってよい。
-      - brave
-      - mojeek
-      - startpage
-      - qwant
 
 general:
   instance_name: "nagi-searxng"

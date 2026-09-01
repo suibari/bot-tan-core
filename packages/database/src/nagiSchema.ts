@@ -675,6 +675,38 @@ export const nagiAnalysisJobs = nagiSchema.table(
   },
   (t) => [index("nagi_analysis_jobs_ready_idx").on(t.state, t.nextAttemptAt)],
 );
+/**
+ * 非同期リサーチのリースキュー（nagiAnalysisJobs と同型）。
+ *
+ * リプライの同期パスからは検索を外してあるので、その場では「知らない」と答えて
+ * ここへジョブを積む。NagiResearchWorker が SearXNG で調べ、結果を bot memory へ
+ * 入れて次回以降のリプライに効かせる。
+ *
+ * 主キーは正規化した本文のハッシュ。同じ話題が短時間に何度も流れてきても
+ * 二重に調べない（ON CONFLICT DO NOTHING でエンキューする）。
+ */
+export const nagiResearchJobs = nagiSchema.table(
+  "research_jobs",
+  {
+    subjectHash: text("subject_hash").primaryKey(),
+    /** planner に渡す原文。投稿本文そのもので、検索側へは planner の出力しか渡らない。 */
+    subject: text("subject").notNull(),
+    state: botJobState("state").default("pending").notNull(),
+    attempts: integer("attempts").default(0).notNull(),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [index("nagi_research_jobs_ready_idx").on(t.state, t.nextAttemptAt)],
+);
 // Web Push の購読。endpoint がプッシュサービス上の宛先で自然な一意キー。同一ユーザーが
 // 複数デバイス/ブラウザから購読するため did ごとに複数行を持ちうる（did で索引）。
 export const nagiPushSubscriptions = nagiSchema.table(

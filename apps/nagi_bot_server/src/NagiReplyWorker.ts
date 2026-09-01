@@ -1,6 +1,7 @@
 import { and, asc, eq, lte, or } from "drizzle-orm";
 import {
   db,
+  enqueueResearchJob,
   nagiBotReplyJobs,
   nagiPostScores,
   nagiPosts,
@@ -11,6 +12,7 @@ import {
   SUPER_POSITIVE_SCORE_THRESHOLD,
   awardSuperPositiveLevel,
 } from "@bsky-affirmative-bot/clients";
+import { clearlyNeedsFreshFacts, urlsFromText } from "@bsky-affirmative-bot/bot-brain";
 import { createNagiReply } from "./createNagiReply.js";
 import {
   decideNagiReplyMode,
@@ -199,12 +201,36 @@ export function startNagiReplyWorker() {
         .from(nagiPosts)
         .where(eq(nagiPosts.uri, job.sourceUri))
         .limit(1);
+      const isPublicSource = Boolean(
+        sourcePost && !sourcePost.kossori && !sourcePost.channelOnly && !sourcePost.deletedAt,
+      );
+      /**
+       * リサーチの対象範囲は横断記憶より広い。
+       *
+       * 横断記憶（nagi_affirmed_post）は投稿そのものを他の人へのリプライで引用しうる
+       * ので、チャンネル限定も外す。リサーチが取り込むのは公開ウェブの事実だけで、
+       * 投稿本文は research_jobs に留まり外へ出ないため、チャンネル限定は含めてよい。
+       * こっそり投稿は本人と botたんにしか見えない約束なので、どちらでも外す。
+       */
+      const isResearchableSource = Boolean(
+        sourcePost && !sourcePost.kossori && !sourcePost.deletedAt,
+      );
       const record = job.recordJson as any;
+
+      // 鮮度が要る話題なら、あとで調べるジョブを積む。判定は正規表現だけで
+      // LLM を呼ばないので、リプライの所要時間には影響しない。結果は bot memory
+      // へ入り、次に同じ話題が来たときのリプライで効く。
+      if (isResearchableSource && typeof record?.text === "string") {
+        const sourceText: string = record.text;
+        if (clearlyNeedsFreshFacts(sourceText) || urlsFromText(sourceText).length) {
+          void enqueueResearchJob(sourceText);
+        }
+      }
       if (sourcePost && typeof record?.text === "string" && shouldRememberAffirmedPost({
         surface: "nagi",
         aiReplyPosted: generationMode === "ai",
         isTopLevel: !record.reply,
-        isPublic: !sourcePost.kossori && !sourcePost.channelOnly && !sourcePost.deletedAt,
+        isPublic: isPublicSource,
       })) {
         await tryUpsertBotMemoryDocument({
           sourceType: "nagi_affirmed_post",

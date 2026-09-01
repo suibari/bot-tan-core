@@ -32,6 +32,14 @@ export const BOT_MEMORY_SOURCE_TYPES = [
   "nagi_received_reaction",
   "biorhythm",
   "youtube_live_comment",
+  /**
+   * NagiResearchWorker が SearXNG で調べた事実。
+   *
+   * 他の種別が「誰かとのやりとりの記憶」なのに対し、これだけは外部から仕入れた
+   * 知識。思い出の枠を食わないよう、リプライ生成では selectReplyMemoryContext に
+   * 通さず独立したブロックとして渡す。
+   */
+  "web_research",
 ] as const;
 
 export type BotMemorySourceType = (typeof BOT_MEMORY_SOURCE_TYPES)[number];

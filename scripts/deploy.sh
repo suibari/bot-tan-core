@@ -118,8 +118,12 @@ fi
 if [ "$RESTART_SEARXNG" = true ]; then
     echo "♻️  Reloading SearXNG..."
     # .env の探索場所がバージョンで揺れるので、-f ではなく cd してから叩く。
-    # up -d は冪等で、設定が変わったときだけコンテナを作り直す。
-    (cd searxng && docker compose up -d)
+    #
+    # `up -d` ではダメ。settings.yml は bind mount で渡していてプロセス起動時に
+    # しか読まれず、compose ファイル自体が変わらない限り `up -d` はコンテナを
+    # 作り直さない。実際、engines を書き換えたのに反映されず /config に旧設定が
+    # 残っていた。設定を確実に読み直させるため --force-recreate を付ける。
+    (cd searxng && docker compose up -d --force-recreate)
 fi
 
 if [ "$PUBLISH_LEXICON" = true ]; then

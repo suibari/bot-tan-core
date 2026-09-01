@@ -15,6 +15,12 @@
 #   cd searxng
 #   cp .env.example .env && $EDITOR .env   # SEARXNG_SECRET を埋める
 #   docker compose up -d
+#
+# 【重要】settings.yml を書き換えたときは --force-recreate が要る。
+# bind mount した設定はプロセス起動時にしか読まれず、compose ファイル自体が
+# 変わらない限り `up -d` はコンテナを作り直さないので、変更が黙って無視される。
+#   docker compose up -d --force-recreate
+# 反映確認: curl -s localhost:8080/config | grep -o '"name": "[a-z]*"' | sort -u
 services:
   searxng:
     image: docker.io/searxng/searxng:latest

@@ -192,6 +192,13 @@ export type UserInfoGemini = {
    * 解決は呼び出し元（bsky_bot_server / nagi_bot_server）で行う。
    */
   preferredName?: string | null;
+  /**
+   * NagiResearchWorker が事前に調べておいた事実（bot memory の web_research）。
+   *
+   * リプライの同期パスでは検索しないので、鮮度が要る話題はここに載っている分だけが
+   * 根拠になる。prepareOllamaGrounding が <grounding_research> として差し込む。
+   */
+  researchMemory?: string | null;
 };
 
 export interface Embed {

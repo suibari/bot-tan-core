@@ -57,6 +57,7 @@ export * from './nagiSchema.js';
 export * from './health.js';
 export * from './botMemory.js';
 export * from './botMemoryPronunciation.js';
+export * from './researchJobs.js';
 export { filterRelatedHistory, generateEmbedding, generateEmbeddings } from './ollamaEmbed.js';
 export type { DailyReport, Stats };
 
