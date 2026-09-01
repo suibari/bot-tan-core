@@ -49,13 +49,48 @@ const UNAVAILABLE_RESEARCH_NOTE =
   "External research was unavailable. Avoid unverified current facts and do not invent details.";
 
 /**
+ * 指示だけを本文へ足す。**`<grounding_research>` で包まない。**
+ *
+ * 包んではいけない理由が2つある。
+ * 1. 中身は調査結果ではなく指示なので、直後の「この調査結果を事実の参考にせよ」と
+ *    意味が噛み合わない。
+ * 2. `fitOllamaMessages` は予算超過時に `<grounding_research>` ブロックを最初に
+ *    半減→削除する。包むと、会話が伸びたときに「知らないと言え」が真っ先に消える。
+ *    deferred は全リプライが通る経路なのでこれは致命的。
+ */
+function appendNote(params: any, note: string): any {
+  const block = `\n\n${note}`;
+  const contents = params.contents;
+  if (typeof contents === "string") return { ...params, contents: contents + block };
+  if (!Array.isArray(contents)) return params;
+  const cloned = contents.map((item: any) => {
+    if (!item || typeof item !== "object") return item;
+    return { ...item, ...(Array.isArray(item.parts) ? { parts: [...item.parts] } : {}) };
+  });
+  for (let index = cloned.length - 1; index >= 0; index--) {
+    const item = cloned[index];
+    if (typeof item === "string") {
+      cloned[index] = item + block;
+      return { ...params, contents: cloned };
+    }
+    if (item?.role && item.role !== "user") continue;
+    if (Array.isArray(item?.parts)) {
+      item.parts.push({ text: block });
+      return { ...params, contents: cloned };
+    }
+  }
+  cloned.push({ role: "user", parts: [{ text: block }] });
+  return { ...params, contents: cloned };
+}
+
+/**
  * 同期パスで検索しない機能へ渡す注意書き。
  *
  * 黙って素通りさせると、ローカルモデルは学習データの古い作品名を平気で並べる。
  * 「知らないなら知らないと言う」まで明示しないと埋め合わせに走る。
  */
-const DEFERRED_RESEARCH_NOTE =
-  "External research is not available in this turn. Do not invent current facts, titles, numbers, or dates. If you do not know something, say so plainly in your own voice instead of guessing.";
+const DEFERRED_RESEARCH_NOTE = `External research is not available in this turn. Do not invent current facts, titles, numbers, or dates. If you do not know something, say so plainly in your own voice instead of guessing.
+知らない言葉や作品が出てきたら、知ったかぶりをせず「それは知らない」と正直に言うこと。相手の気持ちに寄り添うことと、知らない事実をでっち上げることは別。`;
 
 export function groundingPolicyForFeature(feature?: AiFeatureKey): GroundingPolicy {
   if (!feature) return "off";
@@ -499,12 +534,12 @@ export async function prepareOllamaGrounding(
     const remembered = researchMemory?.trim();
     return remembered
       ? appendResearch(stripped, remembered, true)
-      : appendResearch(stripped, DEFERRED_RESEARCH_NOTE);
+      : appendNote(stripped, DEFERRED_RESEARCH_NOTE);
   }
 
   // AI_GROUNDING_PROVIDER=off でも、実在確認が要る機能には「調べられなかった」ことを
   // 必ず伝える。黙って素通りさせると、今期作品や気分ソングで存在しない作品名を平気で作る。
-  if (!isAiGroundingEnabled()) return appendResearch(stripped, UNAVAILABLE_RESEARCH_NOTE);
+  if (!isAiGroundingEnabled()) return appendNote(stripped, UNAVAILABLE_RESEARCH_NOTE);
 
   const subject = latestUserText(params.contents);
   if (!subject) return stripped;
@@ -532,6 +567,6 @@ export async function prepareOllamaGrounding(
       `[WARN][AI_GROUNDING] feature=${feature ?? "unknown"} unavailable; continuing without external facts`,
       error,
     );
-    return appendResearch(stripped, UNAVAILABLE_RESEARCH_NOTE);
+    return appendNote(stripped, UNAVAILABLE_RESEARCH_NOTE);
   }
 }

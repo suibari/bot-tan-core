@@ -5,6 +5,10 @@ import {
   prepareOllamaGrounding,
   urlsFromText,
 } from "../src/gemini/grounding.js";
+import {
+  fitOllamaMessages,
+  toOllamaMessages,
+} from "../src/gemini/generationClient.js";
 
 /**
  * 非同期リサーチの入口と出口。
@@ -73,4 +77,27 @@ test("会話機能でも同期パスでは検索しない", async () => {
     forbidResearch,
   );
   assert.doesNotMatch(JSON.stringify(result.config), /googleSearch|urlContext/);
+});
+
+test("「知らないと言え」は予算トリムで消えない", async () => {
+  // fitOllamaMessages は予算超過時に <grounding_research> を最初に半減→削除する。
+  // 指示をそこへ包むと、会話が伸びたときに真っ先に消えてしまう。deferred は
+  // 全リプライが通る経路なので、包まずに残ることをここで固定する。
+  const result = await prepareOllamaGrounding(
+    "BSKY_AFFIRMATIVE_REPLY",
+    {
+      model: "local-test",
+      contents: [
+        { role: "user", parts: [{ text: "昔の話".repeat(2_000) }] },
+        { role: "model", parts: [{ text: "うんうん".repeat(2_000) }] },
+        { role: "user", parts: [{ text: "最新のアニメ教えて" }] },
+      ],
+      config: { systemInstruction: "ペルソナ", tools: [{ googleSearch: {} }] },
+    },
+    forbidResearch,
+  );
+
+  const { messages } = fitOllamaMessages(toOllamaMessages(result), { budget: 200 });
+  const joined = messages.map((message) => message.content).join("\n");
+  assert.match(joined, /知ったかぶり/, "トリム後も残る");
 });
