@@ -3,6 +3,7 @@ export * from './ollamaChat.js';
 export * from './predefinedAffirmation.js';
 export * from './predefinedReplyPipeline.js';
 export * from './api/newsdata/index.js';
+export * from './api/searxng/index.js';
 export * from './api/spotify/index.js';
 export * from './api/weather/index.js';
 export * from './api/youtube/index.js';

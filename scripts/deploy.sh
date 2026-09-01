@@ -85,6 +85,31 @@ if [ "$PUSH_DB" = true ]; then
 fi
 
 # 実際の再起動処理
+
+# SearXNG は grounding の検索基盤。bot より先に上げる。
+#
+# **ここで deploy 全体を止めない。** searxng/.env は .gitignore なので初回 pull 後は
+# 存在せず、compose の ${SEARXNG_SECRET:?} がハードエラーになる。set -e のまま
+# 素通しすると、以降の lexicon publish ごと落ちる。検索が無くても bot は
+# 「知らない」と答えて動くので、警告だけ出して先へ進める。
+if [ "$RESTART_SEARXNG" = true ]; then
+    if ! command -v docker >/dev/null 2>&1; then
+        echo "⚠️  docker が無いので SearXNG をスキップ"
+    elif [ ! -f searxng/.env ]; then
+        echo "⚠️  searxng/.env が無いので SearXNG をスキップ（初回は手動セットアップが要る）"
+        echo "    cd searxng && cp .env.example .env && SEARXNG_SECRET を埋めて docker compose up -d"
+    else
+        echo "♻️  Reloading SearXNG..."
+        # .env の探索場所がバージョンで揺れるので -f ではなく cd してから叩く。
+        #
+        # `up -d` ではダメ。settings.yml は bind mount で渡していてプロセス起動時に
+        # しか読まれず、compose ファイル自体が変わらない限りコンテナが作り直されない。
+        # 実際、engines を書き換えたのに反映されず /config に旧設定が残っていた。
+        (cd searxng && docker compose up -d --force-recreate) \
+            || echo "⚠️  SearXNG の再起動に失敗。他のサービスは続行する。"
+    fi
+fi
+
 if [ "$RESTART_BIO" = true ]; then
     echo "♻️  Restarting Biorhythm Server..."
     sudo systemctl restart biorhythm-server.service
@@ -113,17 +138,6 @@ fi
 if [ "$RESTART_NAGI_APPVIEW" = true ]; then
     echo "♻️  Restarting Nagi AppView..."
     sudo systemctl restart nagi-appview.service
-fi
-
-if [ "$RESTART_SEARXNG" = true ]; then
-    echo "♻️  Reloading SearXNG..."
-    # .env の探索場所がバージョンで揺れるので、-f ではなく cd してから叩く。
-    #
-    # `up -d` ではダメ。settings.yml は bind mount で渡していてプロセス起動時に
-    # しか読まれず、compose ファイル自体が変わらない限り `up -d` はコンテナを
-    # 作り直さない。実際、engines を書き換えたのに反映されず /config に旧設定が
-    # 残っていた。設定を確実に読み直させるため --force-recreate を付ける。
-    (cd searxng && docker compose up -d --force-recreate)
 fi
 
 if [ "$PUBLISH_LEXICON" = true ]; then

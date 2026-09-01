@@ -6,7 +6,7 @@ import {
   tryUpsertBotMemoryDocument,
 } from "@bsky-affirmative-bot/database";
 import { isAiGroundingEnabled } from "@bsky-affirmative-bot/shared-configs";
-import { researchSelfHosted } from "@bsky-affirmative-bot/bot-brain";
+import { isSearxngConfigured, researchSelfHosted } from "@bsky-affirmative-bot/bot-brain";
 
 const MAX_ATTEMPTS = 3;
 const LEASE_DURATION_MS = 300_000;
@@ -36,6 +36,15 @@ export function startNagiResearchWorker() {
   if (running) return;
   if (!isAiGroundingEnabled()) {
     console.log("[INFO][RESEARCH_WORKER] AI_GROUNDING_PROVIDER=off のため起動しない");
+    return;
+  }
+  // 検索基盤が無いまま回すと、積まれたジョブを失敗させて指数バックオフで
+  // 潰すだけになる。SearXNG を立てる前の初回デプロイがまさにこの状態。
+  if (!isSearxngConfigured()) {
+    console.warn(
+      "[WARN][RESEARCH_WORKER] SEARXNG_BASE_URL が未設定のため起動しない。" +
+        " searxng/compose.yml で立ててから .env に書くこと。",
+    );
     return;
   }
   running = true;
