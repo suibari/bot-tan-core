@@ -1,4 +1,4 @@
-import { and, asc, eq, lte, or, sql } from "drizzle-orm";
+import { and, asc, eq, lt, lte, or, sql } from "drizzle-orm";
 import { db } from "./db.js";
 import { nagiResearchJobs } from "./nagiSchema.js";
 import { botMemoryContentHash } from "./botMemory.js";
@@ -133,16 +133,13 @@ export async function failResearchJob(input: {
  * ON CONFLICT DO NOTHING で二度と再調査されない。
  */
 export async function pruneResearchJobs(olderThanMs: number): Promise<number> {
-  const cutoff = new Date(Date.now() - olderThanMs).toISOString();
+  // updated_at は Drizzle 管理下の timestamp 列なので型付き演算子で比較する。
+  // raw sql へ Date を直接補間すると postgres.js が文字列を期待して落ちる。
+  const cutoff = new Date(Date.now() - olderThanMs);
   const deleted = await db
     .delete(nagiResearchJobs)
     .where(
-      and(
-        eq(nagiResearchJobs.state, "posted"),
-        // Drizzle 管理下の列なので型付き演算子で比較したいところだが、ここは
-        // 明示キャストで揃える（Date をそのまま raw SQL へ渡さない）。
-        sql`${nagiResearchJobs.updatedAt} < ${cutoff}::timestamptz`,
-      ),
+      and(eq(nagiResearchJobs.state, "posted"), lt(nagiResearchJobs.updatedAt, cutoff)),
     )
     .returning({ subjectHash: nagiResearchJobs.subjectHash });
   return deleted.length;

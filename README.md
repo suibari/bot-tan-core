@@ -96,6 +96,27 @@ ollama pull hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S
 ollama pull snowflake-arctic-embed2
 ```
 
+Start SearXNG, the grounding search backend. It needs no API key and no account.
+
+```sh
+cd searxng
+cp .env.example .env
+sed -i "s/^SEARXNG_SECRET=/SEARXNG_SECRET=$(openssl rand -hex 32)/" .env
+docker compose up -d
+curl -s localhost:8080/healthz
+```
+
+Put `SEARXNG_BASE_URL=http://127.0.0.1:8080` in the repository-root `.env`, then check that
+search is actually usable:
+
+```sh
+pnpm searxng:probe -- --fetch
+```
+
+After editing `settings.yml` you must run `docker compose up -d --force-recreate`. The
+bind-mounted config is read only at process start, and `up -d` alone does not recreate the
+container, so the change is silently ignored.
+
 ### Run a service
 
 Run only the services you are working on. Each command reads the repository-root `.env`.
@@ -126,7 +147,7 @@ The local model names are defaults. `OLLAMA_MODEL`, the other model variables, a
 
 | Host | Hardware | Workloads |
 | --- | --- | --- |
-| **Bot server** | Raspberry Pi 5 / RAM 8 GB / 256 GB SSD | JetsteamProxy; every app and package in this repository, including the Bluesky and Nagi bots and Nagi AppView; PostgreSQL for RAG and shared memory |
+| **Bot server** | Raspberry Pi 5 / RAM 8 GB / 256 GB SSD | JetsteamProxy; every app and package in this repository, including the Bluesky and Nagi bots and Nagi AppView; PostgreSQL for RAG and shared memory; SearXNG as the grounding search backend (Docker, bound to loopback) |
 | **LLM server** | Core i5 12400F / RTX 3060 Ti (VRAM 8 GB) / DDR5 32 GB | Ollama for translation and text embeddings; YouTuber Bot-tan scripts; VOICEVOX; NVIDIA ARDY for AI-powered real-time motion generation |
 
 ### Hardware layout
@@ -150,6 +171,10 @@ flowchart TB
 
       subgraph databaseStack[RAG database]
         memory[(PostgreSQL<br/>RAG and shared memory)]
+      end
+
+      subgraph searchStack[Search backend]
+        searxng["SearXNG<br/>metasearch for grounding"]
       end
     end
 
@@ -175,6 +200,7 @@ flowchart TB
   repoApps --> brain
   brain <--> memory
   repoApps <--> ollama
+  repoApps <--> searxng
   youtubeScripts --> voicevox
   youtubeScripts <--> ardy
 ```

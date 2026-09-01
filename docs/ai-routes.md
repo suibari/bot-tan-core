@@ -22,21 +22,46 @@ SEARXNG_BASE_URL=http://127.0.0.1:8080
 `fetchReadableText`）で行う。利用者が第三者AIサービスの規約に同意する関係が生まれない
 ことが採用理由で、これにより18歳以上要件の根拠が外れる。
 
-外部へ出るのはローカルplannerが作った検索語と、投稿に含まれたURLだけ。元投稿・会話履歴・
-DID・`SYSTEM_INSTRUCTION` は渡さない。
+外部へ出るのは検索語と、投稿に含まれた URL だけ。元投稿・会話履歴・DID・
+`SYSTEM_INSTRUCTION` は渡さない。
 
 構成は**用途によって非対称**である。
 
 | policy | 機能 | 検索のタイミング |
 |---|---|---|
 | `required` / `preferred` | 季節の話題作（7日キャッシュ）、ポジニュース（6時間スロット） | **同期**。バッチなので体感レイテンシに影響しない |
-| `deferred` | リプライ系（肯定リプライ・会話・気まぐれ） | **同期では検索しない**。ローカル推論を本生成の1回に抑えるため |
+| `deferred` | リプライ系（肯定リプライ・会話・気まぐれ） | **同期では検索しない** |
 | `off` | それ以外 | 何もしない |
 
-リプライは同期パスで planner も検索も呼ばず、その場では「知らないなら知らないと言う」。
-調べる方は `NagiResearchWorker` が非同期で回し、結果を bot memory
-（`source_type='web_research'`）へ入れて次回以降のリプライに効かせる。bot memory は
-Bluesky と Nagi で共通なので、片方で覚えた語をもう片方でも使える。
+### リプライ側（deferred）: 知らない語はその場で認め、あとで覚える
+
+```
+リプライ生成（ローカルLLM 1回）
+  └→ {reply, unknownTerms[]} を構造化出力
+        reply         → 利用者へ
+        unknownTerms  → nagi.research_jobs へ（語だけ。投稿本文は入らない）
+
+NagiResearchWorker（非同期・同時実行1・60秒間隔）
+  └→ その語で SearXNG 検索 → 要約（ローカルLLM 1回）
+        → bot_memory_documents (source_type='web_research')
+
+次に同じ語が来たリプライ
+  └→ searchBotMemory(sources:['web_research']) が拾い、
+     <grounding_research> として根拠に使う
+```
+
+**「何を知らなかったか」は、返信を書いたモデル自身に申告させる。** その投稿を読んだ
+直後のモデルが一番よく知っているからで、判定のための追加 LLM 呼び出しも正規表現も要らない。
+
+正規表現で「最新」「ニュース」等を拾う方式は**採ってはいけない**。実際に一度そうして
+「薬屋のひとりごと見た！」のような新語だけの投稿を丸ごと取りこぼした。新語を覚えるという
+目的そのものが機能しなくなる。
+
+調べてある語が無ければ「知らないことは知らないと言う」指示だけを渡す。この指示は
+`<grounding_research>` で包まない — `fitOllamaMessages` が予算超過時にそのブロックを
+最優先で削るため、包むと会話が伸びたときに真っ先に消える。
+
+bot memory は Bluesky と Nagi で共通なので、片方で覚えた語をもう片方でも使える。
 
 - `AI_GROUNDING_PROVIDER=searxng`: 自前SearXNGを有効化（既定）
 - `AI_GROUNDING_PROVIDER=off`: 外部調査を無効化

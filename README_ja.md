@@ -96,6 +96,27 @@ ollama pull hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S
 ollama pull snowflake-arctic-embed2
 ```
 
+grounding の検索基盤 SearXNG を立てます（API キーもアカウントも要りません）。
+
+```sh
+cd searxng
+cp .env.example .env
+sed -i "s/^SEARXNG_SECRET=/SEARXNG_SECRET=$(openssl rand -hex 32)/" .env
+docker compose up -d
+curl -s localhost:8080/healthz
+```
+
+リポジトリ直下の `.env` に `SEARXNG_BASE_URL=http://127.0.0.1:8080` を書いたら、
+検索が実用に足るかを確認します。
+
+```sh
+pnpm searxng:probe -- --fetch
+```
+
+`settings.yml` を書き換えたときは `docker compose up -d --force-recreate` が要ります。
+bind mount した設定はプロセス起動時にしか読まれず、`up -d` だけではコンテナが
+作り直されないため、変更が黙って無視されます。
+
 ### サービスごとの起動
 
 開発対象のサービスだけを起動してください。各コマンドはリポジトリ直下の `.env` を読み込みます。
@@ -126,7 +147,7 @@ ollama pull snowflake-arctic-embed2
 
 | ホスト | ハードウェア | 稼働するもの |
 | --- | --- | --- |
-| **botサーバー** | Raspberry Pi 5 / RAM 8 GB / 256 GB SSD | JetsteamProxy、Bluesky・Nagi botやNagi AppViewを含む本リポジトリの全アプリ・パッケージ、RAG・共有記憶用PostgreSQL |
+| **botサーバー** | Raspberry Pi 5 / RAM 8 GB / 256 GB SSD | JetsteamProxy、Bluesky・Nagi botやNagi AppViewを含む本リポジトリの全アプリ・パッケージ、RAG・共有記憶用PostgreSQL、grounding の検索基盤 SearXNG（Docker、loopback 固定） |
 | **LLMサーバー** | Core i5 12400F / RTX 3060 Ti（VRAM 8 GB）/ DDR5 32 GB | 翻訳・テキストエンベディング用Ollama、YouTuber botたんスクリプト、VOICEVOX、AIリアルタイムモーション生成用NVIDIA ARDY |
 
 ### ハードウェア構成
@@ -150,6 +171,10 @@ flowchart TB
 
       subgraph databaseStack[RAGデータベース]
         memory[(PostgreSQL<br/>RAG・共有記憶)]
+      end
+
+      subgraph searchStack[検索基盤]
+        searxng["SearXNG<br/>grounding用メタ検索"]
       end
     end
 
@@ -175,6 +200,7 @@ flowchart TB
   repoApps --> brain
   brain <--> memory
   repoApps <--> ollama
+  repoApps <--> searxng
   youtubeScripts --> voicevox
   youtubeScripts <--> ardy
 ```
