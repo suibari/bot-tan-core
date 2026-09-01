@@ -38,7 +38,7 @@ export async function replyAI(
     let result: GeminiScore | undefined;
     const text_user = record.text;
 
-    const { relatedPosts, friendMemory } = await loadReplyMemories(
+    const { relatedPosts, friendMemory, researchMemory } = await loadReplyMemories(
         text_user,
         follower.did,
     );
@@ -128,6 +128,7 @@ export async function replyAI(
             embed,
             isSubscriber,
             botContext: await getBotContext(),
+            researchMemory,
         });
 
         // お気に入りポスト登録
@@ -199,7 +200,8 @@ export async function replyAI(
     }
 }
 export async function loadReplyMemories(text: string, authorDid: string) {
-    if (!text.trim()) return { relatedPosts: [], friendMemory: undefined };
+    if (!text.trim())
+        return { relatedPosts: [], friendMemory: undefined, researchMemory: null };
     const affirmedSources = ["bsky_affirmed_post", "nagi_affirmed_post"] as const;
     const ownPromise = searchBotMemory({
         query: text,
@@ -220,11 +222,32 @@ export async function loadReplyMemories(text: string, authorDid: string) {
         console.warn(`[WARN][${authorDid}] Failed to retrieve friend bot memory:`, error);
         return [];
     });
-    const [own, friends] = await Promise.all([ownPromise, friendPromise]);
-    return selectReplyMemoryContext(own, friends, [
-        process.env.BSKY_DID,
-        process.env.NAGI_BOT_DID,
+    // NagiResearchWorker が調べておいた事実。bot_memory_documents は Nagi と共通なので、
+    // Nagi 側で覚えた語も Bluesky のリプライで使える。authorId が null なので
+    // ownPromise（authorId 絞り込み）にも friendPromise（source 限定）にも掛からず、
+    // 専用に引く必要がある。
+    const researchPromise = searchBotMemory({
+        query: text,
+        purpose: "reply_history",
+        sources: ["web_research"],
+        limit: 3,
+    }).catch((error) => {
+        console.warn(`[WARN][${authorDid}] Failed to retrieve research memory:`, error);
+        return [];
+    });
+    const [own, friends, research] = await Promise.all([
+        ownPromise,
+        friendPromise,
+        researchPromise,
     ]);
+    return {
+        ...selectReplyMemoryContext(own, friends, [
+            process.env.BSKY_DID,
+            process.env.NAGI_BOT_DID,
+        ]),
+        // 思い出の枠を食わせないよう selectReplyMemoryContext には通さない。
+        researchMemory: research.map((row) => row.content).join("\n\n") || null,
+    };
 }
 
 async function getFollowersFriend(memory: BotMemorySearchResult | undefined) {

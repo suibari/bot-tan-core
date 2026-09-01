@@ -8,7 +8,12 @@ import { replyAI } from "./replyai.js";
 import { replyRandom } from "./replyrandom.js";
 import { MemoryService } from "@bsky-affirmative-bot/clients";
 import retry from 'async-retry';
-import { shouldRememberAffirmedPost, tryUpsertBotMemoryDocument } from "@bsky-affirmative-bot/database";
+import {
+    enqueueResearchJob,
+    shouldRememberAffirmedPost,
+    tryUpsertBotMemoryDocument,
+} from "@bsky-affirmative-bot/database";
+import { clearlyNeedsFreshFacts, urlsFromText } from "@bsky-affirmative-bot/bot-brain";
 import { uniteDidNsidRkey } from "../bsky/util.js";
 
 const MINUTES_THRD_RESPONSE = 10 * 60 * 1000;
@@ -166,6 +171,15 @@ export class NormalReplyFeature implements BotFeature {
                 affirmationScore: score ?? null,
                 metadata: { replyType: "ai" },
             });
+        }
+
+        // 鮮度が要る話題なら、あとで調べるジョブを積む。調べた結果は bot memory の
+        // web_research に入り、Bluesky と Nagi の両方のリプライで使われる。
+        //
+        // AI返信できた投稿に限る。1万人規模の全投稿を対象にすると、正規表現を
+        // 通ってもキューが実処理能力（ワーカーは同時実行1）を超えて溜まる。
+        if (aiReplyPosted && (clearlyNeedsFreshFacts(text) || urlsFromText(text).length)) {
+            void enqueueResearchJob(text);
         }
     }
 
