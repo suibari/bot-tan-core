@@ -107,7 +107,7 @@ const EXPECTED: Record<AiFeatureKey, [model: string, tier: "flex" | "standard" |
   // ニュース
   NEWS_POSITIVE_GATE: [LITE, "flex"],
   NEWS_POSITIVE_COMMENT: [LITE, "flex"],
-  GEMINI_GROUNDING_RESEARCH: [FLASH, undefined],
+  GROUNDING_RESEARCH: [DEFAULT_OLLAMA_TEXT_MODEL, undefined],
   // ローカル Ollama
   OLLAMA_PREDEFINED_AFFIRMATION: [DEFAULT_OLLAMA_TEXT_MODEL, undefined],
   OLLAMA_NEWS_PRESCREEN: [DEFAULT_OLLAMA_TEXT_MODEL, undefined],
@@ -138,11 +138,6 @@ test("既定では全テキスト生成を指定のOllamaモデルへ集約す�
       const resolved = resolveAiRoute(feature);
       if (feature === "BSKY_IMAGE") {
         assert.equal(resolved.provider, "gemini");
-        continue;
-      }
-      if (feature === "GEMINI_GROUNDING_RESEARCH") {
-        assert.equal(resolved.provider, "gemini");
-        assert.equal(resolved.model, FLASH);
         continue;
       }
       if (feature === "OLLAMA_EMBED") {

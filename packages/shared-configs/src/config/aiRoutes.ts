@@ -260,7 +260,7 @@ export const AI_FEATURES = {
   NEWS_POSITIVE_COMMENT: "lite-flex", // ポジニュースのbotたんコメント
 
   // Ollama 運用時にも残す、検索・URL調査だけの Gemini。人格や最終文面は生成しない。
-  GEMINI_GROUNDING_RESEARCH: "grounding-auto",
+  GROUNDING_RESEARCH: "ollama-chat", // SearXNGで集めた素材の要約（自前ホスト）
 
   // ══════ ローカル Ollama（ServiceTier なし） ════════════════════════
   OLLAMA_PREDEFINED_AFFIRMATION: "ollama-chat", // 定型文リプライの分類/LLM選択

@@ -414,6 +414,9 @@ importers:
       '@bsky-affirmative-bot/database':
         specifier: workspace:*
         version: link:../database
+      '@bsky-affirmative-bot/nagi-linkcard':
+        specifier: workspace:*
+        version: link:../nagi-linkcard
       '@bsky-affirmative-bot/shared-configs':
         specifier: workspace:*
         version: link:../shared-configs

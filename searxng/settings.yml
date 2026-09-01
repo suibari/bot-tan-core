@@ -20,6 +20,11 @@ use_default_settings:
       - bing
       - wikipedia
       - wikidata
+      # ↓ Bing 単独依存を解消できるかの検証枠。効かないものは削ってよい。
+      - brave
+      - mojeek
+      - startpage
+      - qwant
 
 general:
   instance_name: "nagi-searxng"

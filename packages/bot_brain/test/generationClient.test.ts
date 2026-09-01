@@ -8,9 +8,11 @@ import {
   toOllamaMessages,
 } from "../src/gemini/generationClient.js";
 import {
+  clearlyNeedsFreshFacts,
   groundingPolicyForFeature,
   prepareOllamaGrounding,
   seasonalWorksQueries,
+  urlsFromText,
 } from "../src/gemini/grounding.js";
 import {
   estimateMessagesTokens,
@@ -132,20 +134,54 @@ test("function declarationをschema出力へ変換しfunctionCalls互換で返�
 });
 
 test("groundingポリシーは用途ごとに分離される", () => {
-  assert.equal(groundingPolicyForFeature("BSKY_CONVERSATION"), "auto");
+  // リプライ系は同期パスで検索しない（非同期ワーカーへ回す）。
+  assert.equal(groundingPolicyForFeature("BSKY_CONVERSATION"), "deferred");
+  assert.equal(groundingPolicyForFeature("BSKY_AFFIRMATIVE_REPLY"), "deferred");
+  // バッチ系はレイテンシに影響しないので同期で検索してよい。
   assert.equal(groundingPolicyForFeature("BIORHYTHM_SEASONAL_WORKS"), "required");
   assert.equal(groundingPolicyForFeature("NEWS_POSITIVE_COMMENT"), "preferred");
   assert.equal(groundingPolicyForFeature("BSKY_BOT_DIARY"), "off");
 });
 
-test("Gemini調査へはplannerが作った検索語とURLだけを渡す", async () => {
+test("リプライ系は同期パスでplannerも検索も呼ばない", async () => {
+  // これが今回のレイテンシ改善の本体。ローカル推論を本生成の1回に抑えるため、
+  // ここで plan / research が呼ばれたら回帰。
+  let planCalls = 0;
+  let researchCalls = 0;
+  const result = await prepareOllamaGrounding(
+    "BSKY_AFFIRMATIVE_REPLY",
+    {
+      model: "local-test",
+      contents: [{ role: "user", parts: [{ text: "最新のアニメ何かある？" }] }],
+      config: { tools: [{ googleSearch: {} }, { urlContext: {} }] },
+    },
+    {
+      plan: async () => {
+        planCalls++;
+        return { needed: true, queries: ["x"], urls: [] };
+      },
+      research: async () => {
+        researchCalls++;
+        return "使われないはず";
+      },
+    },
+  );
+  assert.equal(planCalls, 0, "同期パスで planner を呼んではいけない");
+  assert.equal(researchCalls, 0, "同期パスで検索してはいけない");
+  // 黙って素通りさせず、「知らないなら知らないと言う」ことは伝える。
+  assert.match(JSON.stringify(result.contents), /do not know something, say so/);
+  assert.doesNotMatch(JSON.stringify(result.config), /googleSearch|urlContext/);
+});
+
+test("調査へはplannerが作った検索語とURLだけを渡す", async () => {
+  // 宛先が Gemini から自宅 SearXNG に変わってもこの契約は変えない。
   const saved = process.env.AI_GROUNDING_PROVIDER;
-  process.env.AI_GROUNDING_PROVIDER = "gemini";
+  process.env.AI_GROUNDING_PROVIDER = "searxng";
   const sensitive = "did:plc:secret-user 会話履歴の秘密 https://example.com/post";
   let researchInput: { queries: string[]; urls: string[] } | undefined;
   try {
     const result = await prepareOllamaGrounding(
-      "BSKY_CONVERSATION",
+      "NEWS_POSITIVE_COMMENT",
       {
         model: "local-test",
         contents: [{ role: "user", parts: [{ text: sensitive }] }],
@@ -197,23 +233,16 @@ test("検索必須機能はgrounding失敗を握り潰さない", async () => {
   );
 });
 
-test("現在情報を含む会話はローカルplannerへ検索必須として渡す", async () => {
-  let forced: boolean | undefined;
-  await prepareOllamaGrounding(
-    "BSKY_CONVERSATION",
-    {
-      model: "local-test",
-      contents: ["2026年8月時点の横浜の最近の暑さを確認して"],
-      config: { tools: [{ googleSearch: {} }] },
-    },
-    {
-      plan: async (_model, _subject, required) => {
-        forced = required;
-        return { needed: false, queries: [], urls: [] };
-      },
-    },
-  );
-  assert.equal(forced, true);
+test("鮮度が要る文とURLは非同期リサーチのエンキュー対象になる", () => {
+  // 以前は auto 機能の planner を強制するのに使っていた判定。同期パスから検索を
+  // 外したので、いまは NagiResearchWorker へジョブを積むかどうかの門になる。
+  assert.equal(clearlyNeedsFreshFacts("2026年8月時点の横浜の最近の暑さを確認して"), true);
+  assert.equal(clearlyNeedsFreshFacts("最新のニュース教えて"), true);
+  assert.equal(clearlyNeedsFreshFacts("今日はつらかった、話を聞いて"), false);
+  assert.deepEqual(urlsFromText("これ見て https://example.com/a と https://example.com/b"), [
+    "https://example.com/a",
+    "https://example.com/b",
+  ]);
 });
 
 test("季節作品はplannerが空でも匿名の定型検索へフォールバックする", async () => {

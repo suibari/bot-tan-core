@@ -34,6 +34,7 @@
     "@atproto/api": "^0.18.21",
     "@bsky-affirmative-bot/shared-configs": "workspace:*",
     "@bsky-affirmative-bot/database": "workspace:*",
+    "@bsky-affirmative-bot/nagi-linkcard": "workspace:*",
     "@google/genai": "^1.52.0",
     "async-retry": "^1.3.3",
     "axios": "^1.13.5",

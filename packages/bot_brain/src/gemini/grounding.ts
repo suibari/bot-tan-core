@@ -1,23 +1,43 @@
 import {
+  aiModel,
+  estimateMessagesTokens,
   isAiGroundingEnabled,
-  resolveAiRoute,
+  ollamaPromptBudget,
+  ollamaTextContextLength,
   type AiFeatureKey,
 } from "@bsky-affirmative-bot/shared-configs";
+import { fetchReadableText } from "@bsky-affirmative-bot/nagi-linkcard";
+import { searxngSearch, type SearchHit } from "../api/searxng/index.js";
 import { generateContentForProvider, normalizeJsonSchema } from "./generationClient.js";
 
-export type GroundingPolicy = "off" | "auto" | "required" | "preferred";
+export type GroundingPolicy = "off" | "deferred" | "required" | "preferred";
 export type GroundingPlan = { needed: boolean; queries: string[]; urls: string[] };
 export type GroundingDeps = {
   plan?: (model: string, subject: string, forced: boolean) => Promise<GroundingPlan>;
   research?: (input: { queries: string[]; urls: string[] }) => Promise<string>;
 };
 
-const AUTO_FEATURES = new Set<AiFeatureKey>([
+/**
+ * リプライ系。**同期パスでは検索しない。**
+ *
+ * 以前は "auto" として、リプライ 1 本ごとに planner（ローカル1回）→ 調査 → 本生成
+ * を直列で回していた。検索を自前化すると要約段が増えてローカル推論が 3 回になり、
+ * 投稿からリプライまでの体感が確実に悪化する。
+ *
+ * そこで同期パスからは検索を外し、その場では「分からない」と言わせる。調べる方は
+ * NagiResearchWorker が非同期で回し、結果を bot memory に貯めて次回以降に効かせる。
+ * これで同期パスのローカル推論は本生成の 1 回だけになる。
+ */
+const DEFERRED_FEATURES = new Set<AiFeatureKey>([
   "BSKY_AFFIRMATIVE_REPLY",
   "BSKY_CONVERSATION",
   "BSKY_WHIMSICAL_REPLY",
 ]);
 
+/**
+ * required / preferred はいずれもバッチ（季節の話題作は7日キャッシュ、ポジニュースは
+ * 6時間スロット）なので、同期で検索してよい。体感レイテンシに影響しない。
+ */
 const REQUIRED_FEATURES = new Set<AiFeatureKey>([
   "BIORHYTHM_SEASONAL_WORKS",
   "BSKY_MY_MOOD_SONG",
@@ -28,11 +48,20 @@ const PREFERRED_FEATURES = new Set<AiFeatureKey>(["NEWS_POSITIVE_COMMENT"]);
 const UNAVAILABLE_RESEARCH_NOTE =
   "External research was unavailable. Avoid unverified current facts and do not invent details.";
 
+/**
+ * 同期パスで検索しない機能へ渡す注意書き。
+ *
+ * 黙って素通りさせると、ローカルモデルは学習データの古い作品名を平気で並べる。
+ * 「知らないなら知らないと言う」まで明示しないと埋め合わせに走る。
+ */
+const DEFERRED_RESEARCH_NOTE =
+  "External research is not available in this turn. Do not invent current facts, titles, numbers, or dates. If you do not know something, say so plainly in your own voice instead of guessing.";
+
 export function groundingPolicyForFeature(feature?: AiFeatureKey): GroundingPolicy {
   if (!feature) return "off";
   if (REQUIRED_FEATURES.has(feature)) return "required";
   if (PREFERRED_FEATURES.has(feature)) return "preferred";
-  if (AUTO_FEATURES.has(feature)) return "auto";
+  if (DEFERRED_FEATURES.has(feature)) return "deferred";
   return "off";
 }
 
@@ -71,11 +100,11 @@ function latestUserText(contents: unknown): string {
   return "";
 }
 
-function urlsFromText(text: string): string[] {
+export function urlsFromText(text: string): string[] {
   return [...new Set(text.match(/https?:\/\/[^\s<>()"']+/g) ?? [])].slice(0, 5);
 }
 
-function clearlyNeedsFreshFacts(text: string): boolean {
+export function clearlyNeedsFreshFacts(text: string): boolean {
   return /(最新|現在|現時点|最近|今日.{0,8}(天気|気温)|ニュース|実在|調べ|検索|20\d{2}年|latest|current|recent|today.{0,12}(weather|temperature)|verify|search)/i.test(text);
 }
 
@@ -183,69 +212,224 @@ ${forced ? "Research is required for this task, so needed must be true." : "Set 
   };
 }
 
+/** 検索で集めた素材。要約の入力にも、末尾の Sources 行にも使う。 */
+type ResearchSource = { title: string; url: string; body: string };
+
 /**
- * Gemini調査の死活監視。呼び出し回数は generateContentForProvider が数えるのでここでは触らない。
+ * 本文まで取りに行く検索結果の件数。
  *
- * `@bsky-affirmative-bot/database` は import しただけで dotenv を読み Postgres クライアントを
- * 作るので、静的importにするとgroundingを呼ばないユニットテストまで巻き込む。実際に
- * Geminiを叩いたときだけ遅延importする。
+ * スニペットは 200〜500 字の断片で、実測では一覧ページのスニペットに作品名が
+ * 1 つも含まれないことが普通にあった。Gemini の URL Context はページ本文を読んで
+ * いたので、ここを埋めないと調査の質が落ちる。
  */
-async function reportGeminiResearch(error?: unknown): Promise<void> {
+const FETCH_TOP_N = 2;
+const MAX_QUERIES = 4;
+const MAX_URLS = 3;
+const SUMMARY_OUTPUT_TOKENS = 1_024;
+const RESEARCH_TEXT_LIMIT = 8_000;
+
+const SUMMARY_INSTRUCTION = `You are a neutral research component. Extract only facts that appear in the
+supplied material. Do not imitate a persona and do not compose a user-facing reply.
+Copy every proper noun — titles, artists, product names, people, dates, numbers — verbatim from the
+material. Never translate, abbreviate, or normalise them, and never add anything from your own
+knowledge. Set "source" to the URL the fact came from. Return fewer items rather than filling gaps.`;
+
+/**
+ * 散文ではなく項目リストで返させる。
+ *
+ * 下流の RESEARCH_ONLY_NOTE は「固有名詞が調査ブロックに逐語で存在すること」を要求する。
+ * 弱いローカルモデルに散文で要約させると言い換えが混ざり、その逐語照合が成立しなくなる。
+ */
+const summarySchema = normalizeJsonSchema({
+  type: "OBJECT",
+  properties: {
+    items: {
+      type: "ARRAY",
+      maxItems: 12,
+      items: {
+        type: "OBJECT",
+        properties: {
+          name: { type: "STRING" },
+          detail: { type: "STRING" },
+          source: { type: "STRING" },
+        },
+        required: ["name", "detail"],
+      },
+    },
+  },
+  required: ["items"],
+});
+
+async function readBody(url: string): Promise<string> {
   try {
-    const { reportHealthFailure, reportHeartbeat } =
-      await import("@bsky-affirmative-bot/database");
-    if (error !== undefined) {
-      await reportHealthFailure("gemini", error);
-      return;
-    }
-    await reportHeartbeat("gemini");
-  } catch {
-    // 記録の失敗で調査そのものを落とさない。
+    const { text } = await fetchReadableText(url);
+    return text;
+  } catch (error) {
+    // SPA や bot 避けサイトはここで落ちる。スニペットとカード情報で代替するので致命ではない。
+    console.warn(
+      `[WARN][AI_GROUNDING] body fetch failed: ${url} (${error instanceof Error ? error.message : String(error)})`,
+    );
+    return "";
   }
 }
 
+async function gatherMaterial(input: { queries: string[]; urls: string[] }): Promise<{
+  sources: ResearchSource[];
+  infoboxes: string[];
+}> {
+  const searched = await Promise.all(
+    input.queries.slice(0, MAX_QUERIES).map(async (query) => {
+      try {
+        return await searxngSearch(query);
+      } catch (error) {
+        console.warn(`[WARN][AI_GROUNDING] search failed: ${query}`, error);
+        return null;
+      }
+    }),
+  );
+
+  const infoboxes: string[] = [];
+  const hits: SearchHit[] = [];
+  const seen = new Set<string>();
+  for (const result of searched) {
+    if (!result) continue;
+    infoboxes.push(...result.infoboxes);
+    // 同じ URL が複数クエリから返る。本文取得を二重に走らせない。
+    for (const hit of result.hits) {
+      if (seen.has(hit.url)) continue;
+      seen.add(hit.url);
+      hits.push(hit);
+    }
+  }
+
+  // 利用者が投稿に含めた URL は検索結果より優先して読む。
+  const userUrls = input.urls.slice(0, MAX_URLS).filter((url) => !seen.has(url));
+  const bodies = await Promise.all([
+    ...userUrls.map(readBody),
+    ...hits.slice(0, FETCH_TOP_N).map((hit) => readBody(hit.url)),
+  ]);
+
+  const sources: ResearchSource[] = [];
+  userUrls.forEach((url, index) => {
+    sources.push({ title: "", url, body: bodies[index] });
+  });
+  hits.forEach((hit, index) => {
+    // 上位 FETCH_TOP_N 件は本文、それ以外はスニペットで代用する。
+    // 本文取得に失敗した場合もスニペットへ落ちる。
+    const body = (index < FETCH_TOP_N ? bodies[userUrls.length + index] : "") || hit.content;
+    sources.push({ title: hit.title, url: hit.url, body });
+  });
+  return { sources: sources.filter((source) => source.body), infoboxes };
+}
+
 /**
- * Ollama 運用では、Gemini を叩くのが実質ここだけになる。generateContentWithRetry を
- * 通らないので死活監視とRPDを自前で記録する。これが無いと bot-tan.com の Gemini タイルが
- * 6時間で stale・24時間で down になり、Gemini の日次上限判定も実消費を見なくなる。
+ * 調査素材を num_ctx に収まる範囲で詰める。
+ *
+ * generationClient 側にも緊急トリムはあるが、あれは「末尾を残して切る」ので先頭に
+ * 置いた infobox と上位の検索結果が丸ごと消える。ここで先に予算内へ収める。
+ *
+ * 文字数からトークン数を換算してはいけない。ASCII は 3.5 文字で 1 トークン、日本語は
+ * 1 文字で 1.1 トークンと比が 4 倍近く違ううえ、安全係数とメッセージ overhead も乗る。
+ * 実測では「3 文字＝1 トークン」と見積もって 39,855/31,616 トークンの超過を出した。
+ * generationClient と同じ estimateMessagesTokens で測り、二分探索で詰める。
  */
-async function researchWithGemini(input: {
+function packCorpus(sources: ResearchSource[], infoboxes: string[]): string {
+  const budget = ollamaPromptBudget({
+    numCtx: ollamaTextContextLength(),
+    outputTokens: SUMMARY_OUTPUT_TOKENS,
+  });
+  const fits = (corpus: string) =>
+    estimateMessagesTokens([
+      { content: SUMMARY_INSTRUCTION },
+      { content: corpus },
+    ]) <= budget;
+
+  const blocks: string[] = [];
+  const join = (extra: string) => [...blocks, extra].join("\n\n");
+
+  // infobox は Wikipedia/Wikidata 由来の定義。実在確認の核心なので先に入れる。
+  for (const box of infoboxes) {
+    const block = `[infobox] ${box}`;
+    if (fits(join(block))) blocks.push(block);
+  }
+
+  for (const source of sources) {
+    const head = `[source] ${source.title || source.url}\n${source.url}\n`;
+    if (fits(join(head + source.body))) {
+      blocks.push(head + source.body);
+      continue;
+    }
+    // 丸ごと入らない場合は、入るところまで切って予算を使い切る。
+    let low = 0;
+    let high = source.body.length;
+    while (low < high) {
+      const mid = Math.ceil((low + high) / 2);
+      if (fits(join(head + source.body.slice(0, mid)))) low = mid;
+      else high = mid - 1;
+    }
+    if (low) blocks.push(head + source.body.slice(0, low));
+    // 1件でも入り切らなくなったら以降も入らない。
+    break;
+  }
+  return blocks.join("\n\n");
+}
+
+function renderSummary(parsed: unknown, sources: ResearchSource[]): string {
+  const items = Array.isArray((parsed as any)?.items) ? (parsed as any).items : [];
+  const lines: string[] = [];
+  for (const item of items) {
+    const name = typeof item?.name === "string" ? item.name.trim() : "";
+    const detail = typeof item?.detail === "string" ? item.detail.trim() : "";
+    if (!name) continue;
+    const source = typeof item?.source === "string" ? item.source.trim() : "";
+    lines.push(`- ${name}${detail ? ` — ${detail}` : ""}${source ? ` (${source})` : ""}`);
+  }
+  if (!lines.length) return "";
+  // 出典は API が返した URL を機械的に並べる。要約モデルに URL を書かせない
+  // （ローカルモデルは平気で存在しない URL を作る）。
+  const urls = [...new Set(sources.map((source) => source.url))].slice(0, 8);
+  return `${lines.join("\n")}\n\nSources:\n${urls.map((url) => `- ${url}`).join("\n")}`;
+}
+
+/**
+ * 自宅ホストの SearXNG と自前の本文取得だけで調査する。Gemini は使わない。
+ *
+ * 呼ばれるのは required / preferred のバッチ機能だけ（リプライ系は非同期ワーカーへ
+ * 回す）。素材が何ひとつ集まらなかったときだけ throw し、required の
+ * 「調べられなければ生成しない」契約を保つ。
+ */
+export async function researchSelfHosted(input: {
   queries: string[];
   urls: string[];
 }): Promise<string> {
-  const route = resolveAiRoute("GEMINI_GROUNDING_RESEARCH");
-  let response;
+  const { sources, infoboxes } = await gatherMaterial(input);
+  if (!sources.length && !infoboxes.length)
+    throw new Error("Self-hosted research returned no material");
+
+  const corpus = packCorpus(sources, infoboxes);
+  if (!corpus) throw new Error("Self-hosted research produced an empty corpus");
+
+  const response = await generateContentForProvider("ollama", {
+    model: aiModel("GROUNDING_RESEARCH"),
+    config: {
+      temperature: 0,
+      maxOutputTokens: SUMMARY_OUTPUT_TOKENS,
+      responseMimeType: "application/json",
+      responseSchema: summarySchema,
+      systemInstruction: SUMMARY_INSTRUCTION,
+    },
+    contents: [{ role: "user", parts: [{ text: corpus }] }],
+  });
+
+  let parsed: unknown;
   try {
-    response = await generateContentForProvider("gemini", {
-      model: route.model,
-      contents: [{
-        role: "user",
-        parts: [{
-          text: JSON.stringify({
-            queries: input.queries,
-            urls: input.urls,
-            requestedOutput: "Verified facts, uncertainty, and source URLs only",
-          }),
-        }],
-      }],
-      config: {
-        systemInstruction: `You are a neutral research component. Use Google Search and URL Context when
-available. Return only concise verified facts relevant to the supplied queries/URLs, clearly distinguish
-uncertainty, and include source URLs. Do not imitate a persona and do not compose a user-facing reply.`,
-        tools: [
-          { googleSearch: {} },
-          ...(input.urls.length ? [{ urlContext: {} }] : []),
-        ],
-      },
-    });
+    parsed = JSON.parse(response.text || "{}");
   } catch (error) {
-    void reportGeminiResearch(error);
-    throw error;
+    throw new Error("Self-hosted research summary was not valid JSON", { cause: error });
   }
-  void reportGeminiResearch();
-  const text = String(response.text ?? "").trim();
-  if (!text) throw new Error("Gemini grounding returned an empty response");
-  return text.slice(0, 8_000);
+  const text = renderSummary(parsed, sources);
+  if (!text) throw new Error("Self-hosted research summary contained no items");
+  return text.slice(0, RESEARCH_TEXT_LIMIT);
 }
 
 /**
@@ -287,8 +471,14 @@ function appendResearch(params: any, research: string, strict = false): any {
 }
 
 /**
- * Ollama 最終生成の前処理。Geminiへ渡すのはローカルplannerが作った検索語とURLだけで、
- * 元投稿、会話履歴、SYSTEM_INSTRUCTION、DID等は渡さない。
+ * Ollama 最終生成の前処理。
+ *
+ * 検索へ渡すのはローカル planner が作った検索語と URL だけで、元投稿・会話履歴・
+ * SYSTEM_INSTRUCTION・DID は渡さない。宛先が Gemini から自宅の SearXNG になっても
+ * この制約は変えない。
+ *
+ * リプライ系（deferred）はここで検索しない。ローカル推論を本生成の 1 回に抑えるため、
+ * 調べる方は NagiResearchWorker が非同期で回す。
  */
 export async function prepareOllamaGrounding(
   feature: AiFeatureKey | undefined,
@@ -299,22 +489,17 @@ export async function prepareOllamaGrounding(
   const policy = groundingPolicyForFeature(feature);
   if (policy === "off" || !hasGroundingTools(params)) return stripped;
 
-  // AI_GROUNDING_PROVIDER=off でも、実在確認が要る機能（required / preferred）には
-  // 「調べられなかった」ことを必ず伝える。黙って素通りさせると、今期作品や気分ソングで
-  // 存在しない作品名を平気で作る。
-  if (!isAiGroundingEnabled()) {
-    if (policy === "auto") return stripped;
-    return appendResearch(stripped, UNAVAILABLE_RESEARCH_NOTE);
-  }
+  // 同期パスでは調べない。ここで planner も検索も呼ばないことがレイテンシ改善の本体。
+  if (policy === "deferred") return appendResearch(stripped, DEFERRED_RESEARCH_NOTE);
+
+  // AI_GROUNDING_PROVIDER=off でも、実在確認が要る機能には「調べられなかった」ことを
+  // 必ず伝える。黙って素通りさせると、今期作品や気分ソングで存在しない作品名を平気で作る。
+  if (!isAiGroundingEnabled()) return appendResearch(stripped, UNAVAILABLE_RESEARCH_NOTE);
 
   const subject = latestUserText(params.contents);
   if (!subject) return stripped;
   try {
-    const plan = await (deps.plan ?? planResearch)(
-      params.model,
-      subject,
-      policy !== "auto" || clearlyNeedsFreshFacts(subject),
-    );
+    const plan = await (deps.plan ?? planResearch)(params.model, subject, true);
     if (!plan.needed) return stripped;
     const queries = plan.queries.length
       ? plan.queries
@@ -322,7 +507,7 @@ export async function prepareOllamaGrounding(
     if (!queries.length && !plan.urls.length) {
       throw new Error("Grounding planner returned no safe query or URL");
     }
-    const research = await (deps.research ?? researchWithGemini)({
+    const research = await (deps.research ?? researchSelfHosted)({
       queries,
       urls: plan.urls,
     });
@@ -330,7 +515,7 @@ export async function prepareOllamaGrounding(
       `[INFO][AI_GROUNDING] feature=${feature ?? "unknown"} queries=${queries.length} urls=${plan.urls.length}`,
     );
     // required / preferred は実在確認が目的なので、固有名詞の出所を調査結果に限定する。
-    return appendResearch(stripped, research, policy !== "auto");
+    return appendResearch(stripped, research, true);
   } catch (error) {
     if (policy === "required") throw error;
     console.warn(
