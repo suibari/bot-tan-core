@@ -18,7 +18,7 @@ import { safeFetch } from "@bsky-affirmative-bot/shared-configs";
  */
 
 /** UI 上のタイル。中身は複数のプローブの集約。 */
-export type HealthTile = "jetstream" | "botServer" | "localLlm" | "gemini";
+export type HealthTile = "jetstream" | "botServer" | "localLlm" | "webSearch";
 
 export interface HealthPart {
   name: string;
@@ -48,13 +48,6 @@ const JETSTREAM_FRESH_MS = 120_000;
 const JETSTREAM_DOWN_MS = 300_000;
 const RELAY_URL = "https://bsky.network";
 
-/**
- * Gemini は呼ばれたときにしか記録されない。botたんが寝ている間は何時間も
- * 呼び出しがないので、鮮度で down にすると毎晩赤くなってしまう。
- * ここでは「直近の記録が失敗かどうか」だけを見たいので、大きく取る。
- */
-const GEMINI_FRESH_MS = 6 * 60 * 60 * 1000;
-const GEMINI_DOWN_MS = 24 * 60 * 60 * 1000;
 
 interface ProbeResult {
   state: HealthState;
@@ -63,6 +56,7 @@ interface ProbeResult {
 }
 
 let localLlmProbe: ProbeResult = { state: "unknown" };
+let searxngProbe: ProbeResult = { state: "unknown" };
 let repoRelayProbe: ProbeResult = { state: "unknown" };
 
 interface LatestCommit {
@@ -183,6 +177,35 @@ async function probeLocalLlm(): Promise<ProbeResult> {
   try {
     // 内部ネットワークの固定アドレスなので safeFetch（SSRF 対策）は通さない。
     const response = await fetch(`${baseUrl.replace(/\/$/, "")}/models`, {
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      return { state: "down", lastError: `HTTP ${response.status}` };
+    }
+    return { state: "ok", lastOkAt: new Date().toISOString() };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    return { state: "down", lastError: message.slice(0, 300) };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * 自前 SearXNG の疎通。Gemini のときと違い自分で立てているサービスなので、
+ * 「呼ばれたときだけ記録」ではなく能動プローブにできる。無料なので叩き放題。
+ *
+ * `SEARXNG_BASE_URL` は LAN/loopback の固定アドレスなので safeFetch（SSRF 対策）は
+ * 通さない。通すとプライベートアドレスとして自分の検索基盤が弾かれる。
+ */
+async function probeSearxng(): Promise<ProbeResult> {
+  const baseUrl = process.env.SEARXNG_BASE_URL;
+  if (!baseUrl) return { state: "unconfigured" };
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${baseUrl.replace(/\/$/, "")}/healthz`, {
       signal: controller.signal,
     });
     if (!response.ok) {
@@ -375,7 +398,7 @@ export async function buildHealthSnapshot(): Promise<HealthSnapshot> {
       servicePart("Nagi AppView", get("nagi-appview"), get("jetstream-appview")),
     ]),
     localLlm: tile([partFromProbe("Ollama", localLlmProbe)]),
-    gemini: tile([partFromHeartbeat("Gemini", get("gemini"), GEMINI_FRESH_MS, GEMINI_DOWN_MS)]),
+    webSearch: tile([partFromProbe("SearXNG", searxngProbe)]),
   };
 
   cached = snapshot;
@@ -389,9 +412,10 @@ export function getCachedHealthSnapshot(): HealthSnapshot | null {
 
 export function startHealthMonitor(): () => void {
   const runProbes = async () => {
-    [localLlmProbe, repoRelayProbe] = await Promise.all([
+    [localLlmProbe, repoRelayProbe, searxngProbe] = await Promise.all([
       probeLocalLlm(),
       probeRepoRelay(),
+      probeSearxng(),
     ]);
     await buildHealthSnapshot();
   };

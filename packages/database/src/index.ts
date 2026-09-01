@@ -706,6 +706,8 @@ static async getPost(did: string): Promise<any> {
       else if (type === 'rpdError') currentStats.rpdError += amount;
       else if (type === 'localRpd') currentStats.localRpd += amount;
       else if (type === 'localRpdError') currentStats.localRpdError += amount;
+      else if (type === 'searchRpd') currentStats.searchRpd += amount;
+      else if (type === 'searchRpdError') currentStats.searchRpdError += amount;
       else if (type === 'bskyrate') currentStats.bskyrate += amount;
 
       await this.saveStatsWithMap('totalStats', currentStats);
@@ -746,7 +748,9 @@ static async getPost(did: string): Promise<any> {
       rpd: 0,
       rpdError: 0,
       localRpd: 0,
-      localRpdError: 0
+      localRpdError: 0,
+      searchRpd: 0,
+      searchRpdError: 0
     };
   }
 
@@ -821,6 +825,8 @@ static async getPost(did: string): Promise<any> {
       rpdError: diff('rpdError'),
       localRpd: diff('localRpd'),
       localRpdError: diff('localRpdError'),
+      searchRpd: diff('searchRpd'),
+      searchRpdError: diff('searchRpdError'),
       lastInitializedDate: lastResetAt || new Date().toISOString()
     } as DailyReport;
   }

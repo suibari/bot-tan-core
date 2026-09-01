@@ -294,6 +294,12 @@ export interface DailyReport {
   /** ローカルLLM（Ollama）の呼び出し数。課金枠を消費しないので上限判定には使わない。 */
   localRpd: number;
   localRpdError: number;
+  /**
+   * 自前SearXNGの検索回数。LLM呼び出しではないので rpd / localRpd と混ぜない。
+   * 日本語の索引は実質 Bing 単独なので、エラー率が上流ブロックの検知手段になる。
+   */
+  searchRpd: number;
+  searchRpdError: number;
   lastInitializedDate: string;
 }
 
@@ -318,5 +324,11 @@ export interface Stats {
   /** ローカルLLM（Ollama）の呼び出し数。課金枠を消費しないので上限判定には使わない。 */
   localRpd: number;
   localRpdError: number;
+  /**
+   * 自前SearXNGの検索回数。LLM呼び出しではないので rpd / localRpd と混ぜない。
+   * 日本語の索引は実質 Bing 単独なので、エラー率が上流ブロックの検知手段になる。
+   */
+  searchRpd: number;
+  searchRpdError: number;
 }
 export type Status = 'WakeUp' | 'Study' | 'FreeTime' | 'Relax' | 'Sleep';

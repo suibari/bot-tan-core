@@ -1,6 +1,23 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { mock, test } from "node:test";
+import { MemoryService } from "@bsky-affirmative-bot/database";
 import { isSearxngConfigured, searxngSearch } from "../src/api/searxng/index.js";
+
+/**
+ * 計上は fire-and-forget なので、実DBへ抜けるとテスト終了後にも書き込みを試みる。
+ * ファイル全体で incrementStats を差し替えて記録先をこの配列に閉じ込める。
+ */
+const counted: string[] = [];
+mock.method(MemoryService, "incrementStats", async (type: string) => {
+  counted.push(type);
+});
+
+/** 計上は動的importを挟むので、積まれるまでポーリングする。 */
+async function waitForCount(expected: number) {
+  for (let i = 0; i < 200 && counted.length < expected; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
 
 const originalFetch = globalThis.fetch;
 const originalEnv = { ...process.env };
@@ -198,4 +215,42 @@ test("throws when SEARXNG_BASE_URL is not configured", async () => {
   delete process.env.SEARXNG_BASE_URL;
   assert.equal(isSearxngConfigured(), false);
   await assert.rejects(searxngSearch("q"), /SEARXNG_BASE_URL is not configured/);
+});
+
+test("検索の計上はrpdに混ざらない", async () => {
+  // rpd は Gemini の日次上限判定(checkRPD, 2000/日)にそのまま使われる。検索を
+  // 混ぜると課金枠を使っていないのに上限扱いになり、bsky の全機能が止まる。
+  //
+  // 計上は fire-and-forget なので、前のテストぶんが遅れて届く。順序や件数ではなく
+  // 「search 系以外のキーが立たない」という不変条件だけを見る。
+  const settle = async () => {
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    counted.length = 0;
+  };
+
+  await settle();
+  globalThis.fetch = async () => json({ results: [] });
+  await searxngSearch("q");
+  await waitForCount(1);
+  assert.ok(counted.includes("searchRpd"), counted.join(","));
+
+  await settle();
+  globalThis.fetch = async () => new Response("boom", { status: 500 });
+  await assert.rejects(searxngSearch("q"));
+  await waitForCount(1);
+  assert.ok(counted.includes("searchRpdError"), counted.join(","));
+
+  await settle();
+  globalThis.fetch = async () => {
+    throw new Error("connection refused");
+  };
+  await assert.rejects(searxngSearch("q"));
+  await waitForCount(1);
+  assert.ok(counted.includes("searchRpdError"), "到達不能も検知できる");
+
+  // 本題。LLM のカウンタへは1件も入らない。
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  for (const key of counted) {
+    assert.match(key, /^search/, `LLMカウンタに混ざった: ${key}`);
+  }
 });

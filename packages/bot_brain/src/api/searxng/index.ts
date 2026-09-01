@@ -71,6 +71,28 @@ export function isSearxngConfigured(): boolean {
   return Boolean(process.env.SEARXNG_BASE_URL?.trim());
 }
 
+/**
+ * 検索回数の計上。LLM 呼び出しではないので rpd / localRpd とは別カウンタにする。
+ * ここを rpd に混ぜると、課金枠を使っていないのに Gemini の日次上限判定
+ * （MemoryService.checkRPD、2000/日）に引っかかって bsky の全機能が止まる。
+ *
+ * `@bsky-affirmative-bot/database` は import しただけで dotenv を読み Postgres
+ * クライアントを作るので、検索を呼ばないユニットテストを巻き込まないよう遅延 import する。
+ */
+function reportSearchCall(outcome: "ok" | "error"): void {
+  void (async () => {
+    try {
+      const { MemoryService } = await import("@bsky-affirmative-bot/database");
+      await MemoryService.incrementStats(
+        outcome === "ok" ? "searchRpd" : "searchRpdError",
+        1,
+      );
+    } catch {
+      // 計上の失敗で検索そのものを落とさない。
+    }
+  })();
+}
+
 function searxngBaseUrl(): string {
   const configured = process.env.SEARXNG_BASE_URL?.trim();
   if (!configured) throw new Error("SEARXNG_BASE_URL is not configured");
@@ -102,19 +124,27 @@ export async function searxngSearch(query: string): Promise<SearxngResponse> {
   url.searchParams.set("safesearch", "1");
   url.searchParams.set("engines", searxngEngines());
 
-  const response = await fetch(url, {
-    headers: { accept: "application/json" },
-    signal: AbortSignal.timeout(
-      Number(process.env.SEARXNG_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS,
-    ),
-  });
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      headers: { accept: "application/json" },
+      signal: AbortSignal.timeout(
+        Number(process.env.SEARXNG_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS,
+      ),
+    });
+  } catch (error) {
+    reportSearchCall("error");
+    throw error;
+  }
   if (!response.ok) {
+    reportSearchCall("error");
     const detail = (await response.text()).slice(0, 1_000);
     // 403 は settings.yml の `search.formats` に json が無いときの典型。
     throw new Error(`SearXNG HTTP ${response.status}: ${detail}`, {
       cause: { status: response.status },
     });
   }
+  reportSearchCall("ok");
 
   const body = (await response.json()) as RawBody;
   const limit = maxResults();
