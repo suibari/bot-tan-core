@@ -135,12 +135,8 @@ function latestUserText(contents: unknown): string {
   return "";
 }
 
-export function urlsFromText(text: string): string[] {
+function urlsFromText(text: string): string[] {
   return [...new Set(text.match(/https?:\/\/[^\s<>()"']+/g) ?? [])].slice(0, 5);
-}
-
-export function clearlyNeedsFreshFacts(text: string): boolean {
-  return /(最新|現在|現時点|最近|今日.{0,8}(天気|気温)|ニュース|実在|調べ|検索|20\d{2}年|latest|current|recent|today.{0,12}(weather|temperature)|verify|search)/i.test(text);
 }
 
 /** 日本のクール。1-3月=冬、4-6月=春、7-9月=夏、10-12月=秋。 */

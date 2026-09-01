@@ -1,10 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-  clearlyNeedsFreshFacts,
-  prepareOllamaGrounding,
-  urlsFromText,
-} from "../src/gemini/grounding.js";
+import { prepareOllamaGrounding } from "../src/gemini/grounding.js";
 import {
   fitOllamaMessages,
   toOllamaMessages,
@@ -13,8 +9,9 @@ import {
 /**
  * 非同期リサーチの入口と出口。
  *
- * 入口 = リプライ後のエンキュー判定（LLM を使わない正規表現だけ）。
- * 出口 = 先に調べておいた事実を同期パスのリプライへ差し込む経路。
+ * エンキューは話題を選り分けずに広く積み、調べるかどうかの判断は
+ * NagiResearchWorker の planner が持つ。ここで見るのは出口側
+ * ＝先に調べておいた事実を同期パスのリプライへ差し込む経路。
  */
 
 const replyParams = (text: string) => ({
@@ -32,14 +29,6 @@ const forbidResearch = {
     assert.fail("同期パスで検索してはいけない");
   },
 };
-
-test("エンキュー判定はLLMを使わず鮮度の要る文とURLだけを拾う", () => {
-  assert.equal(clearlyNeedsFreshFacts("最新のアニメ教えて"), true);
-  assert.equal(clearlyNeedsFreshFacts("2026年のニュースある？"), true);
-  assert.equal(clearlyNeedsFreshFacts("今日はしんどかった"), false);
-  assert.equal(urlsFromText("これ見て https://example.com/a").length, 1);
-  assert.equal(urlsFromText("リンクなしの雑談").length, 0);
-});
 
 test("調べた事実があればリプライの根拠として差し込む", async () => {
   const remembered = "- 薬屋のひとりごと 第3期 — 10月2日放送開始";

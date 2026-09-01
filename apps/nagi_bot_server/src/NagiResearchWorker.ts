@@ -5,8 +5,8 @@ import {
   pruneResearchJobs,
   tryUpsertBotMemoryDocument,
 } from "@bsky-affirmative-bot/database";
-import { aiModel, isAiGroundingEnabled } from "@bsky-affirmative-bot/shared-configs";
-import { planResearch, researchSelfHosted } from "@bsky-affirmative-bot/bot-brain";
+import { isAiGroundingEnabled } from "@bsky-affirmative-bot/shared-configs";
+import { researchSelfHosted } from "@bsky-affirmative-bot/bot-brain";
 
 const MAX_ATTEMPTS = 3;
 const LEASE_DURATION_MS = 300_000;
@@ -27,9 +27,10 @@ let running = false;
 /**
  * 非同期リサーチワーカー。
  *
- * リプライはその場では「知らない」と答え、調べる仕事はここへ回る。結果は
- * bot memory（source_type='web_research'）へ入り、次に同じ話題が来たときに
- * nagiReplyContext の検索が拾う。追いリプライはしない。
+ * 積まれるのは、返信を書いたモデルが「知らなかった」と申告した語。その場では
+ * 「知らない」と正直に答えたうえで、ここで調べて bot memory
+ * （source_type='web_research'）へ入れ、次に同じ語が来たときに使えるようにする。
+ * 追いリプライはしない。
  */
 export function startNagiResearchWorker() {
   if (running) return;
@@ -44,15 +45,15 @@ export function startNagiResearchWorker() {
     if (!job) return;
 
     try {
-      // 生入力を見るのはローカル planner だけ。検索側へ渡るのは planner が作った
-      // 検索語と、本文から拾った URL に限る（同期パス時代からの契約）。
-      const plan = await planResearch(aiModel("GROUNDING_RESEARCH"), job.subject, true);
-      if (!plan.queries.length && !plan.urls.length) {
-        throw new Error("Research planner returned no safe query or URL");
-      }
+      // ジョブに入っているのは、返信を書いたモデル自身が申告した「知らなかった語」。
+      // 何を調べるかは決まっているので planner は要らない。非同期側の LLM 呼び出しは
+      // 最後の要約 1 回だけになる。
+      //
+      // 素の固有名詞は検索クエリとしてよく効く（実測: 「薬屋のひとりごと」で公式
+      // サイトと Wikipedia の infobox が取れる）。
       const research = await researchSelfHosted({
-        queries: plan.queries,
-        urls: plan.urls,
+        queries: [job.subject],
+        urls: [],
       });
 
       // sourceId をジョブのハッシュに揃える。再調査すると同じ行が更新され、
@@ -60,14 +61,14 @@ export function startNagiResearchWorker() {
       await tryUpsertBotMemoryDocument({
         sourceType: "web_research",
         sourceId: job.subjectHash,
-        content: research,
+        // 語そのものを本文に含める。次に同じ語が出たとき、意味検索でも
+        // 部分一致検索でも引けるようにするため。
+        content: `${job.subject}\n${research}`,
         occurredAt: new Date(),
-        metadata: { queries: plan.queries, urls: plan.urls },
+        metadata: { term: job.subject },
       });
       await completeResearchJob(job.subjectHash);
-      console.log(
-        `[INFO][RESEARCH_WORKER] done queries=${plan.queries.length} urls=${plan.urls.length}`,
-      );
+      console.log(`[INFO][RESEARCH_WORKER] learned: ${job.subject}`);
     } catch (error) {
       const backoffMs = Math.min(MAX_BACKOFF_MS, 2 ** job.attempts * 60_000);
       // 調べられなくてもリプライは既に「知らない」と答えて成立している。

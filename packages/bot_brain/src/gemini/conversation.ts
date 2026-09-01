@@ -15,7 +15,14 @@ import { formatBotContext, ollamaUsageFields } from './util.js';
 import type { GeminiRequestOptions } from './util.js';
 import { toServiceTier } from './aiRoute.js';
 import { generateContentForProvider } from './generationClient.js';
+import { extractJSON } from './util.js';
 import { prepareOllamaGrounding } from './grounding.js';
+import {
+  UNKNOWN_TERMS_INSTRUCTION,
+  replyWithUnknownTermsSchema,
+  reportUnknownTerms,
+  sanitizeUnknownTerms,
+} from './unknownTerms.js';
 
 const MAX_GEMINI_TURNS = 50;
 
@@ -66,11 +73,23 @@ export async function conversation(
       });
     }
   }
+  // 会話は同期パスで検索しない代わりに、生成と同じ1回のリクエストで「知らなかった語」を
+  // 申告させ、非同期で調べる。Gemini へ切り戻したときは構造化出力を使わない
+  // （Google Search と responseSchema を併用できないため）。
+  const collectsTerms = route.provider === 'ollama';
   let request: any = {
     model: requestOptions.model ?? route.model,
     contents: [...historyForGemini, { role: 'user', parts: message }],
     config: {
-      systemInstruction: SYSTEM_INSTRUCTION,
+      systemInstruction: collectsTerms
+        ? `${SYSTEM_INSTRUCTION}\n${UNKNOWN_TERMS_INSTRUCTION}`
+        : SYSTEM_INSTRUCTION,
+      ...(collectsTerms
+        ? {
+            responseMimeType: 'application/json',
+            responseSchema: replyWithUnknownTermsSchema(),
+          }
+        : {}),
       ...(serviceTier ? { serviceTier } : {}),
       tools: [{ googleSearch: {} }, { urlContext: {} }],
     },
@@ -82,7 +101,17 @@ export async function conversation(
   }
   const startedAt = Date.now();
   const response = await generateContentForProvider(route.provider, request);
-  const text_bot = response.text;
+  let text_bot = response.text;
+  if (collectsTerms) {
+    // 構造化に失敗しても会話を落とさず、素のテキストとして続行する。
+    try {
+      const parsed = extractJSON(text_bot || '') as { reply?: unknown; unknownTerms?: unknown };
+      if (typeof parsed?.reply === 'string') text_bot = parsed.reply;
+      reportUnknownTerms(sanitizeUnknownTerms(parsed?.unknownTerms));
+    } catch {
+      console.warn('[WARN][UNKNOWN_TERMS] 会話の構造化出力を解析できなかった。素のテキストで続行する。');
+    }
+  }
   const new_history = [
     ...historyForGemini,
     { role: 'user', parts: message },

@@ -8,11 +8,9 @@ import {
   toOllamaMessages,
 } from "../src/gemini/generationClient.js";
 import {
-  clearlyNeedsFreshFacts,
   groundingPolicyForFeature,
   prepareOllamaGrounding,
   seasonalWorksQueries,
-  urlsFromText,
 } from "../src/gemini/grounding.js";
 import {
   estimateMessagesTokens,
@@ -231,18 +229,6 @@ test("検索必須機能はgrounding失敗を握り潰さない", async () => {
     ),
     /grounding down/,
   );
-});
-
-test("鮮度が要る文とURLは非同期リサーチのエンキュー対象になる", () => {
-  // 以前は auto 機能の planner を強制するのに使っていた判定。同期パスから検索を
-  // 外したので、いまは NagiResearchWorker へジョブを積むかどうかの門になる。
-  assert.equal(clearlyNeedsFreshFacts("2026年8月時点の横浜の最近の暑さを確認して"), true);
-  assert.equal(clearlyNeedsFreshFacts("最新のニュース教えて"), true);
-  assert.equal(clearlyNeedsFreshFacts("今日はつらかった、話を聞いて"), false);
-  assert.deepEqual(urlsFromText("これ見て https://example.com/a と https://example.com/b"), [
-    "https://example.com/a",
-    "https://example.com/b",
-  ]);
 });
 
 test("季節作品はplannerが空でも匿名の定型検索へフォールバックする", async () => {

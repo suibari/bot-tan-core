@@ -678,18 +678,18 @@ export const nagiAnalysisJobs = nagiSchema.table(
 /**
  * 非同期リサーチのリースキュー（nagiAnalysisJobs と同型）。
  *
- * リプライの同期パスからは検索を外してあるので、その場では「知らない」と答えて
- * ここへジョブを積む。NagiResearchWorker が SearXNG で調べ、結果を bot memory へ
- * 入れて次回以降のリプライに効かせる。
+ * 積まれるのは**投稿本文ではなく、返信を書いたモデルが「知らなかった」と申告した語**。
+ * その場では「知らない」と正直に答え、NagiResearchWorker が SearXNG で調べて
+ * bot memory へ入れ、次に同じ語が出たときに使えるようにする。
  *
- * 主キーは正規化した本文のハッシュ。同じ話題が短時間に何度も流れてきても
- * 二重に調べない（ON CONFLICT DO NOTHING でエンキューする）。
+ * 主キーは正規化した語のハッシュ。同じ語が何度流れてきても二重に調べない
+ * （ON CONFLICT DO NOTHING でエンキューする）。
  */
 export const nagiResearchJobs = nagiSchema.table(
   "research_jobs",
   {
     subjectHash: text("subject_hash").primaryKey(),
-    /** planner に渡す原文。投稿本文そのもので、検索側へは planner の出力しか渡らない。 */
+    /** 調べる語。投稿本文はここへ入らない。 */
     subject: text("subject").notNull(),
     state: botJobState("state").default("pending").notNull(),
     attempts: integer("attempts").default(0).notNull(),

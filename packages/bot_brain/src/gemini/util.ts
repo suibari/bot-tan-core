@@ -6,7 +6,14 @@ import { MemoryService, reportHealthFailure, reportHeartbeat } from '@bsky-affir
 import { buildAffirmativeImageParts } from './affirmativeImages.js';
 import { toServiceTier } from './aiRoute.js';
 import { generateContentForProvider } from './generationClient.js';
-import { prepareOllamaGrounding } from './grounding.js';
+import { groundingPolicyForFeature, prepareOllamaGrounding } from './grounding.js';
+import {
+  UNKNOWN_TERMS_INSTRUCTION,
+  replyWithUnknownTermsSchema,
+  reportUnknownTerms,
+  sanitizeUnknownTerms,
+  withUnknownTermsProperty,
+} from './unknownTerms.js';
 
 export type GeminiRequestOptions = {
   /** 実際の Gemini HTTP リクエストを送る直前に呼ぶ。 */
@@ -323,12 +330,24 @@ export async function generateSingleResponse(
     }
   }
 
+  // リプライ系は同期パスで検索しない代わりに、生成と同じ1回のリクエストで
+  // 「知らなかった語」を申告させ、非同期で調べる。判定用のLLM呼び出しは増えない。
+  const collectsTerms = groundingPolicyForFeature(feature) === 'deferred';
+
   const response = await generateContentWithRetry(
     {
       feature,
       contents,
       config: {
-        systemInstruction: SYSTEM_INSTRUCTION,
+        systemInstruction: collectsTerms
+          ? `${SYSTEM_INSTRUCTION}\n${UNKNOWN_TERMS_INSTRUCTION}`
+          : SYSTEM_INSTRUCTION,
+        ...(collectsTerms
+          ? {
+              responseMimeType: 'application/json',
+              responseSchema: replyWithUnknownTermsSchema(),
+            }
+          : {}),
         tools: [
           {
             googleSearch: {},
@@ -340,11 +359,20 @@ export async function generateSingleResponse(
     userinfo,
   );
 
-  // Gemini出力の"["から"]"まで囲われたすべての部分を除去
-  const responseText = response.text || '';
-  const cleanedText = responseText.replace(/\[.*?\]/gs, '');
+  let responseText = response.text || '';
+  if (collectsTerms) {
+    // 構造化に失敗したら、生成そのものを落とさず素のテキストとして扱う。
+    try {
+      const parsed = extractJSON(responseText) as { reply?: unknown; unknownTerms?: unknown };
+      if (typeof parsed?.reply === 'string') responseText = parsed.reply;
+      reportUnknownTerms(sanitizeUnknownTerms(parsed?.unknownTerms));
+    } catch {
+      console.warn('[WARN][UNKNOWN_TERMS] 構造化出力の解析に失敗。素のテキストとして続行する。');
+    }
+  }
 
-  return cleanedText;
+  // Gemini出力の"["から"]"まで囲われたすべての部分を除去
+  return responseText.replace(/\[.*?\]/gs, '');
 }
 
 /**
@@ -387,7 +415,9 @@ export async function generateSingleResponseWithScore(
   options: { maxTextLength?: number | null } = {},
 ) {
   const contents: PartListUnion = [prompt];
-  // const responseSchema = { ... } // Removed due to conflict with Google Search
+  // responseSchema は Google Search との併用ができず外していたが、Gemini を撤去して
+  // Ollama の format を使えるようになった。comment / score の形は従来どおり
+  // プロンプトが決めるので縛らず、unknownTerms だけを追加で申告させる。
 
   if (userinfo?.image?.length) {
     const { parts, stats } = await buildAffirmativeImageParts(userinfo.image, userinfo.langStr);
@@ -426,9 +456,7 @@ export async function generateSingleResponseWithScore(
         ...(options.maxTextLength !== undefined ? { maxTextLength: options.maxTextLength } : {}),
         contents,
         config: {
-          systemInstruction: SYSTEM_INSTRUCTION,
-          // responseMimeType: "application/json", // Removed
-          // responseSchema, // Removed
+          systemInstruction: `${SYSTEM_INSTRUCTION}\n${UNKNOWN_TERMS_INSTRUCTION}`,
           tools: requestTools,
         },
       },
@@ -446,6 +474,10 @@ export async function generateSingleResponseWithScore(
   }
 
   const result = extractJSON(response.text || '') as GeminiScore[];
+
+  // 返信を書いたモデル自身が申告した「知らなかった語」を非同期の調査へ回す。
+  const scored = Array.isArray(result) ? result[0] : (result as unknown as GeminiScore);
+  reportUnknownTerms(sanitizeUnknownTerms((scored as any)?.unknownTerms));
 
   // Gemini出力の"["から"]"まで囲われたすべての部分を除去
   // (検索引用などが残っていた場合のクリーニング)

@@ -6,9 +6,8 @@ import { botMemoryContentHash } from "./botMemory.js";
 /**
  * 非同期リサーチのキュー操作。
  *
- * リプライの同期パスからは検索を外したので、調べる仕事はここに積まれて
- * NagiResearchWorker が拾う。積む側（リプライ生成の直後）は LLM を呼ばず、
- * 正規表現の判定だけで済ませる＝同期パスのコストをゼロにするのが要件。
+ * 積まれるのは、返信を書いたモデルが生成と同じ 1 回のリクエストで申告した
+ * 「知らなかった語」。判定のための追加 LLM 呼び出しも正規表現も要らない。
  */
 
 export type ResearchJob = {
@@ -17,23 +16,37 @@ export type ResearchJob = {
   attempts: number;
 };
 
-/** 主キー用の正規化。空白と大小文字の揺れで同じ話題を二重に積まない。 */
+/** 主キー用の正規化。表記の揺れで同じ語を二重に積まない。 */
 export function researchSubjectHash(subject: string): string {
   return botMemoryContentHash(subject.replace(/\s+/g, " ").trim().toLowerCase());
 }
 
-const MAX_SUBJECT_LENGTH = 4_000;
+/** 積むのは語であって投稿本文ではない。長い文が来たら申告のバグなので切る。 */
+const MAX_SUBJECT_LENGTH = 60;
+const MIN_SUBJECT_LENGTH = 2;
+/**
+ * 未処理の上限。
+ *
+ * ワーカーは同時実行1なので、無制限に積むと滞留して「もう誰も話題にしていない語」を
+ * 延々調べ続ける。溢れたぶんは捨てる（次に同じ語が出ればまた積まれる）。
+ */
+const MAX_PENDING_JOBS = 200;
 
 /**
- * リサーチジョブを積む。同じ話題が既にあれば何もしない。
+ * リサーチジョブを積む。同じ語が既にあれば何もしない。
  *
  * 失敗しても呼び出し元（リプライ生成）を巻き込まない。調べられなくても
  * リプライ自体は「知らない」と答えて成立しているため。
  */
 export async function enqueueResearchJob(subject: string): Promise<boolean> {
   const trimmed = subject.trim().slice(0, MAX_SUBJECT_LENGTH);
-  if (!trimmed) return false;
+  if (trimmed.length < MIN_SUBJECT_LENGTH) return false;
   try {
+    const [pending] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(nagiResearchJobs)
+      .where(eq(nagiResearchJobs.state, "pending"));
+    if ((pending?.count ?? 0) >= MAX_PENDING_JOBS) return false;
     const inserted = await db
       .insert(nagiResearchJobs)
       .values({ subjectHash: researchSubjectHash(trimmed), subject: trimmed })
