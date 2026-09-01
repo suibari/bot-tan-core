@@ -24,9 +24,7 @@ export type ModelAliasName =
   | "gemini-flash"
   | "gemini-35-lite"
   | "gemini-36-flash"
-  | "gemini-grounding"
   | "gemini-image"
-  | "gemini-embedding"
   | "ollama-chat"
   | "ollama-embed"
   | "ollama-translate"
@@ -99,12 +97,7 @@ const MODEL_ALIAS_SPECS: Record<ModelAliasName, ModelAliasSpec> = {
   "gemini-flash": { env: "MODEL_GEMINI_FLASH", fallback: () => "gemini-2.5-flash" },
   "gemini-35-lite": { env: "MODEL_GEMINI_35_LITE", fallback: () => "gemini-3.5-flash-lite" },
   "gemini-36-flash": { env: "MODEL_GEMINI_36_FLASH", fallback: () => "gemini-3.6-flash" },
-  "gemini-grounding": {
-    env: "MODEL_GEMINI_GROUNDING",
-    fallback: () => process.env.MODEL_GEMINI_FLASH?.trim() || "gemini-2.5-flash",
-  },
   "gemini-image": { env: "MODEL_GEMINI_IMAGE", fallback: () => "gemini-2.5-flash-image-preview" },
-  "gemini-embedding": { env: "MODEL_GEMINI_EMBEDDING", fallback: () => "gemini-embedding-001" },
   "ollama-chat": { env: "OLLAMA_MODEL", fallback: () => DEFAULT_OLLAMA_TEXT_MODEL },
   "ollama-embed": { env: "OLLAMA_EMBED_MODEL", fallback: () => "snowflake-arctic-embed2" },
   "ollama-translate": {
@@ -141,9 +134,7 @@ export type AiRouteName =
   | "35-lite-standard"
   | "36-flash-flex"
   | "36-flash-standard"
-  | "grounding-auto"
   | "image-auto"
-  | "embedding-auto"
   | "ollama-chat"
   | "ollama-embed"
   | "ollama-translate"
@@ -162,12 +153,7 @@ export const AI_ROUTES = {
   "35-lite-standard": { provider: "gemini", alias: "gemini-35-lite", tier: "standard" },
   "36-flash-flex": { provider: "gemini", alias: "gemini-36-flash", tier: "flex" },
   "36-flash-standard": { provider: "gemini", alias: "gemini-36-flash", tier: "standard" },
-  "grounding-auto": { provider: "gemini", alias: "gemini-grounding", tier: "auto" },
   "image-auto": { provider: "gemini", alias: "gemini-image", tier: "auto" },
-  // ※どの機能キーからも参照されていない。実運用の埋め込みは ollama-embed
-  //   （snowflake-arctic-embed2）で、Gemini へ戻す予定もない。移行と削除を混ぜないため
-  //   今回は残すが、次に aiRoutes を触るときの撤去候補。
-  "embedding-auto": { provider: "gemini", alias: "gemini-embedding", tier: "auto" },
   // Ollama はローカル実行なので ServiceTier の概念がない
   "ollama-chat": { provider: "ollama", alias: "ollama-chat", tier: "auto" },
   "ollama-embed": { provider: "ollama", alias: "ollama-embed", tier: "auto" },
@@ -318,13 +304,26 @@ export function aiTextProvider(): AiTextProvider {
   return "ollama";
 }
 
-/** `off` なら検索を完全に止める。未設定時は調査専用 Gemini を使う。 */
+/**
+ * `off` なら検索を完全に止める。未設定時は自宅ホストの SearXNG を使う。
+ *
+ * 止めた場合、バッチの実在確認（required / preferred）は「調べられなかった」ノートを
+ * 受け取り、リプライは元から同期検索しないので非同期リサーチだけが止まる。
+ */
 export function isAiGroundingEnabled(): boolean {
   const value = process.env.AI_GROUNDING_PROVIDER?.trim().toLowerCase();
-  if (!value || value === "gemini") return true;
+  if (!value || value === "searxng") return true;
   if (value === "off") return false;
+  if (value === "gemini") {
+    // 古い .env をそのまま持ってきたケース。検索は自前化済みなので黙って有効扱いに
+    // するが、値が実態と違うことは知らせる。ここで落とすと bot が丸ごと止まる。
+    console.warn(
+      '[WARN][AI_ROUTE] AI_GROUNDING_PROVIDER="gemini" は撤去済み。SearXNG を使う。',
+    );
+    return true;
+  }
   console.warn(
-    `[WARN][AI_ROUTE] AI_GROUNDING_PROVIDER="${value}" は無効。既定の "gemini" を使う。`,
+    `[WARN][AI_ROUTE] AI_GROUNDING_PROVIDER="${value}" は無効。既定の "searxng" を使う。`,
   );
   return true;
 }
@@ -369,12 +368,11 @@ function resolveUncached(feature: AiFeatureKey): ResolvedAiRoute {
   let spec: AiRouteSpec = AI_ROUTES[route] ?? AI_ROUTES[FALLBACK_ROUTE];
 
   // Gemini のテキスト生成ルートを、呼び出し側を変えずに Ollama へ一括移行する。
-  // image / embedding はモデル能力とAPI契約が異なるため、従来の Gemini ルートを保つ。
+  // 画像生成だけはモデル能力とAPI契約が異なるので Gemini ルートを保つ（呼び出し元は無い）。
+  // grounding は SearXNG 自前化で、embedding は ollama-embed で置き換え済み。
   if (
     spec.provider === "gemini" &&
     spec.alias !== "gemini-image" &&
-    spec.alias !== "gemini-embedding" &&
-    spec.alias !== "gemini-grounding" &&
     aiTextProvider() === "ollama"
   ) {
     spec = AI_ROUTES["ollama-chat"];

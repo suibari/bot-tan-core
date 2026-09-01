@@ -6,6 +6,7 @@ import {
   AI_ROUTES,
   DEFAULT_OLLAMA_TEXT_MODEL,
   aiModel,
+  isAiGroundingEnabled,
   resetAiRouteCache,
   resolveAiRoute,
   type AiFeatureKey,
@@ -16,9 +17,7 @@ const MODEL_ENV_VARS = [
   "MODEL_GEMINI_FLASH",
   "MODEL_GEMINI_35_LITE",
   "MODEL_GEMINI_36_FLASH",
-  "MODEL_GEMINI_GROUNDING",
   "MODEL_GEMINI_IMAGE",
-  "MODEL_GEMINI_EMBEDDING",
   "OLLAMA_MODEL",
   "OLLAMA_EMBED_MODEL",
   "OLLAMA_TRANSLATION_MODEL",
@@ -285,5 +284,34 @@ test("botたん翻訳モデルは専用env→OLLAMA_MODEL→既定の三段で�
     process.env.OLLAMA_BOT_TRANSLATION_MODEL = "gemma3:12b";
     resetAiRouteCache();
     assert.equal(aiModel("OLLAMA_BOT_TRANSLATION"), "gemma3:12b", "専用envが最優先");
+  });
+});
+
+test("AI_GROUNDING_PROVIDER は searxng か off だけを受け付ける", () => {
+  withCleanEnv(() => {
+    const originalWarn = console.warn;
+    const warnings: unknown[][] = [];
+    console.warn = (...args: unknown[]) => void warnings.push(args);
+    try {
+      assert.equal(isAiGroundingEnabled(), true, "未設定なら自前SearXNGを使う");
+
+      process.env.AI_GROUNDING_PROVIDER = "searxng";
+      assert.equal(isAiGroundingEnabled(), true);
+
+      process.env.AI_GROUNDING_PROVIDER = "off";
+      assert.equal(isAiGroundingEnabled(), false);
+      assert.equal(warnings.length, 0, "正常値でwarnしない");
+
+      // 古い .env を持ってきたケース。落とさずに有効扱いへ倒すが、必ず知らせる。
+      process.env.AI_GROUNDING_PROVIDER = "gemini";
+      assert.equal(isAiGroundingEnabled(), true);
+      assert.match(String(warnings.at(-1)?.[0]), /撤去済み/);
+
+      process.env.AI_GROUNDING_PROVIDER = "typo";
+      assert.equal(isAiGroundingEnabled(), true, "タイポで24時間動くbotを止めない");
+      assert.match(String(warnings.at(-1)?.[0]), /無効/);
+    } finally {
+      console.warn = originalWarn;
+    }
   });
 });

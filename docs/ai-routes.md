@@ -7,23 +7,65 @@
 
 ```bash
 AI_TEXT_PROVIDER=ollama
-AI_GROUNDING_PROVIDER=gemini
+AI_GROUNDING_PROVIDER=searxng
 OLLAMA_BASE_URL=http://127.0.0.1:11434/v1
 OLLAMA_MODEL=hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S
+SEARXNG_BASE_URL=http://127.0.0.1:8080
 ```
 
-`AI_TEXT_PROVIDER=ollama` では、画像・埋め込み・調査専用Groundingを除く全テキスト機能を
-上記Ollamaモデルへ集約する。`AI_FEATURES` に残るlite/flash/tierの表は、
-`AI_TEXT_PROVIDER=gemini` に変えたとき従来のGemini構成へ一括で戻すための設定である。
+`AI_TEXT_PROVIDER=ollama` では、画像を除く全テキスト機能を上記Ollamaモデルへ集約する。
+`AI_FEATURES` に残るlite/flash/tierの表は、`AI_TEXT_PROVIDER=gemini` に変えたとき
+従来のGemini構成へ一括で戻すための設定である。
 
-Groundingは二段構成に分離する。ローカルモデルが検索要否と匿名化した検索語を作り、
-Geminiへは検索語と対象URLだけを送る。ユーザーの元投稿、会話履歴、DID、
-`SYSTEM_INSTRUCTION` は調査リクエストへ送らない。最終的なbotたん文面は再びOllamaが生成する。
+**Groundingに Gemini は使わない。** 検索は bot 機に同居させた自前の SearXNG
+（`searxng/compose.yml`、loopback 固定）で行い、本文取得も自前（`nagi-linkcard` の
+`fetchReadableText`）で行う。利用者が第三者AIサービスの規約に同意する関係が生まれない
+ことが採用理由で、これにより18歳以上要件の根拠が外れる。
 
-- `AI_GROUNDING_PROVIDER=gemini`: 調査専用Geminiを有効化（既定）
+外部へ出るのはローカルplannerが作った検索語と、投稿に含まれたURLだけ。元投稿・会話履歴・
+DID・`SYSTEM_INSTRUCTION` は渡さない。
+
+構成は**用途によって非対称**である。
+
+| policy | 機能 | 検索のタイミング |
+|---|---|---|
+| `required` / `preferred` | 季節の話題作（7日キャッシュ）、ポジニュース（6時間スロット） | **同期**。バッチなので体感レイテンシに影響しない |
+| `deferred` | リプライ系（肯定リプライ・会話・気まぐれ） | **同期では検索しない**。ローカル推論を本生成の1回に抑えるため |
+| `off` | それ以外 | 何もしない |
+
+リプライは同期パスで planner も検索も呼ばず、その場では「知らないなら知らないと言う」。
+調べる方は `NagiResearchWorker` が非同期で回し、結果を bot memory
+（`source_type='web_research'`）へ入れて次回以降のリプライに効かせる。bot memory は
+Bluesky と Nagi で共通なので、片方で覚えた語をもう片方でも使える。
+
+- `AI_GROUNDING_PROVIDER=searxng`: 自前SearXNGを有効化（既定）
 - `AI_GROUNDING_PROVIDER=off`: 外部調査を無効化
-- `MODEL_GEMINI_GROUNDING`: 調査専用モデルだけ差し替え
-- 画像生成は指定Gemmaモデルで代替できないためGeminiルートを維持する
+- 画像生成は指定Gemmaモデルで代替できないためGeminiルートを維持する（現在は呼び出し元なし）
+
+### 検索クエリの書き方（実測）
+
+SearXNG（実体は Bing）はクエリをリテラルに引く。Gemini は内部で言い換えてから
+検索していたので曖昧な語でも通っていたが、同じ書き方は通用しない。
+
+- **トピック語を先頭に、年を末尾に置く。** 年を先頭にすると「2026年カレンダー」の
+  配布サイトばかりが返る（`夏アニメ 2026` ✅ / `2026年 夏ドラマ` ❌）
+- 相対語（今 / 現在 / 最近 / latest）で始めない。辞書・時計ページに落ちる
+- 1クエリ1トピック。語を積むと最も強い単語以外が捨てられる
+
+`wikipedia` / `wikidata` は `results` ではなく `infobox` を返す。固有名詞の実在確認に
+効くので既定エンジンに含める。日本語で使えるのは実質 Bing 単独（duckduckgo は CAPTCHA、
+brave/startpage/qwant はブロック、mojeek は日本語0件）。
+
+### `tools: [{ googleSearch: {} }]` のリテラルを残している理由
+
+機能側のコード（`util.ts`、`conversation.ts`、`seasonalWorks.ts`、
+`judgePositiveNewsBatch.ts` ほか計8ファイル）には、いまも Gemini 用の
+`{ googleSearch: {} }` / `{ urlContext: {} }` が書かれている。Ollama 運用では
+`stripGroundingTools` が送信前に剥がすので Google へは飛ばず、実質「この機能は
+grounding を要求する」という**印**として機能している。
+
+ベンダー中立な名前へ一斉リネームすると8ファイルに波及し、`AI_TEXT_PROVIDER=gemini`
+での切り戻し経路も壊れるため、あえて現状維持としている。
 
 ## 仕組み（3層）
 
@@ -50,7 +92,7 @@ AI_ROUTE_BSKY_CONVERSATION=flash-standard
 ```
 
 有効なルート名: `lite-flex` `lite-standard` `lite-auto` `flash-flex` `flash-standard` `flash-auto`
-`image-auto` `embedding-auto` `ollama-chat` `ollama-embed` `ollama-translate` `ollama-bot-translate`
+`image-auto` `ollama-chat` `ollama-embed` `ollama-translate` `ollama-bot-translate`
 
 未知の値を入れた場合は **warn を出して既定にフォールバックする**（bot は落ちない）。起動ログの `source` 列が `env-invalid` になる。
 
@@ -178,9 +220,7 @@ Nagi のリプライは**失敗するたびに段を上げる再試行ラダー*
 |---|---|---|
 | `gemini-lite` | `MODEL_GEMINI_LITE` | `gemini-2.5-flash-lite` |
 | `gemini-flash` | `MODEL_GEMINI_FLASH` | `gemini-2.5-flash` |
-| `gemini-grounding` | `MODEL_GEMINI_GROUNDING` | → `MODEL_GEMINI_FLASH` → `gemini-2.5-flash` |
 | `gemini-image` | `MODEL_GEMINI_IMAGE` | `gemini-2.5-flash-image-preview` |
-| `gemini-embedding` | `MODEL_GEMINI_EMBEDDING` | `gemini-embedding-001` |
 | `ollama-chat` | `OLLAMA_MODEL` | `hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S` |
 | `ollama-embed` | `OLLAMA_EMBED_MODEL` | `snowflake-arctic-embed2` |
 | `ollama-translate` | `OLLAMA_TRANSLATION_MODEL` | → `OLLAMA_MODEL` → 指定Gemma 4 |
