@@ -33,6 +33,8 @@ export class TransientModerationError extends Error {
   constructor(
     message: string,
     readonly status?: number,
+    /** サーバが指定してきた待ち時間。呼び出し側のバックオフより優先する。 */
+    readonly retryAfterMs?: number,
   ) {
     super(message);
     this.name = "TransientModerationError";
@@ -41,6 +43,37 @@ export class TransientModerationError extends Error {
 
 const isPermanentStatus = (status: number) =>
   status === 400 || status === 413 || status === 422;
+
+/** Retry-After の上限。壊れた値や極端に長い指定でワーカーを止めないため。 */
+const MAX_RETRY_AFTER_MS = 15 * 60_000;
+
+/**
+ * Retry-After ヘッダを ms に直す。秒数と HTTP-date の両方が来る。
+ * 読めない値・過去の日付・上限超えは undefined を返し、呼び出し側の
+ * 通常のバックオフに任せる。
+ */
+export function parseRetryAfter(
+  header: string | null | undefined,
+  now: number = Date.now(),
+): number | undefined {
+  if (!header) return undefined;
+  const trimmed = header.trim();
+  if (!trimmed) return undefined;
+
+  // 秒数形式。小数を送ってくる実装もあるので Number で受ける。
+  if (/^\d+(\.\d+)?$/.test(trimmed)) {
+    const ms = Number(trimmed) * 1000;
+    if (!Number.isFinite(ms) || ms <= 0) return undefined;
+    return Math.min(ms, MAX_RETRY_AFTER_MS);
+  }
+
+  // HTTP-date 形式。
+  const at = Date.parse(trimmed);
+  if (Number.isNaN(at)) return undefined;
+  const ms = at - now;
+  if (ms <= 0) return undefined;
+  return Math.min(ms, MAX_RETRY_AFTER_MS);
+}
 
 export class OpenAIModerator {
   constructor(private readonly apiKey: string) {}
@@ -95,6 +128,7 @@ export class OpenAIModerator {
       throw new TransientModerationError(
         `moderation failed with HTTP ${response.status}: ${body.slice(0, 500)}`,
         response.status,
+        parseRetryAfter(response.headers.get("retry-after")),
       );
     }
 

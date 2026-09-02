@@ -29,6 +29,7 @@ import {
   recordModerationFailure,
   recordModerationSuccess,
 } from "../services/moderation/notify.js";
+import { TransientModerationError } from "../services/moderation/openai.js";
 
 /**
  * モデレーション判定を取り込みと非同期に走らせるワーカー。
@@ -42,11 +43,30 @@ import {
  */
 
 const BATCH_SIZE = 8;
-const CONCURRENCY = 4;
+/**
+ * 同時実行数。バックフィルをやめて判定待ちが常に少数になったので、レート制限に
+ * 当たらないことを優先して低く抑える（開発環境で 429 に当たった経緯がある）。
+ */
+const CONCURRENCY = 2;
 const BUSY_INTERVAL_MS = 1_000;
 const IDLE_INTERVAL_MS = 5_000;
-/** 判定に失敗し続けている間は無駄打ちを避けて間隔を空ける。 */
-const BACKOFF_INTERVAL_MS = 30_000;
+/** 連続失敗時のバックオフ。1回目から30秒で、失敗のたびに倍にして15分で頭打ち。 */
+const MIN_BACKOFF_MS = 30_000;
+const MAX_BACKOFF_MS = 15 * 60_000;
+
+/**
+ * 次の周回までの待ち時間。サーバが Retry-After を返していればそれを優先し、
+ * 無ければ連続失敗回数の指数バックオフにする。
+ */
+export function moderationBackoffMs(
+  consecutiveFailures: number,
+  retryAfterMs?: number,
+): number {
+  if (retryAfterMs && retryAfterMs > 0)
+    return Math.min(retryAfterMs, MAX_BACKOFF_MS);
+  const exponent = Math.max(0, consecutiveFailures - 1);
+  return Math.min(MIN_BACKOFF_MS * 2 ** Math.min(exponent, 10), MAX_BACKOFF_MS);
+}
 
 let running = false;
 let wakeUp: (() => void) | undefined;
@@ -417,8 +437,10 @@ async function judge(item: Pending): Promise<void> {
   await applyDecision(item, decision, labels);
 }
 
-/** 1バッチ処理して、処理できた件数を返す。 */
-async function tick(): Promise<number> {
+type TickResult = { processed: number; failure?: unknown };
+
+/** 1バッチ処理して、処理できた件数と（あれば）最初の失敗を返す。 */
+async function tick(): Promise<TickResult> {
   for (const source of sources) {
     const pending = await source.fetchBatch(BATCH_SIZE);
     if (!pending.length) continue;
@@ -441,6 +463,10 @@ async function tick(): Promise<number> {
             `[ERROR][moderationWorker] ${source.name} ${item.uri}:`,
             error,
           );
+          // レート制限に当たっているのに残りを投げ続けると事態を悪くするだけ。
+          // このバッチは打ち切り、バックオフしてから拾い直す。
+          queue.length = 0;
+          return;
         }
       }
     };
@@ -448,15 +474,10 @@ async function tick(): Promise<number> {
       Array.from({ length: Math.min(CONCURRENCY, queue.length) }, worker),
     );
 
-    if (failure) {
-      await recordModerationFailure(failure);
-      // 失敗が混じった周回は「進んだ」扱いにしない。バックオフさせる。
-      throw failure;
-    }
-    if (processed > 0) await recordModerationSuccess();
-    return processed;
+    if (processed > 0 && !failure) await recordModerationSuccess();
+    return { processed, failure };
   }
-  return 0;
+  return { processed: 0 };
 }
 
 /** 取り込み直後に判定を始めさせる。ポーリング間隔を待たないための合図。 */
@@ -476,11 +497,28 @@ export function startModerationWorker(): void {
 
   const loop = async () => {
     let delay = IDLE_INTERVAL_MS;
+    let backingOff = false;
     try {
-      const processed = await tick();
-      delay = processed > 0 ? BUSY_INTERVAL_MS : IDLE_INTERVAL_MS;
+      const { processed, failure } = await tick();
+      if (failure) {
+        const failures = await recordModerationFailure(failure);
+        const retryAfterMs =
+          failure instanceof TransientModerationError
+            ? failure.retryAfterMs
+            : undefined;
+        delay = moderationBackoffMs(failures, retryAfterMs);
+        backingOff = true;
+        console.warn(
+          `[moderationWorker] backing off ${Math.round(delay / 1000)}s (consecutive failures: ${failures})`,
+        );
+      } else {
+        delay = processed > 0 ? BUSY_INTERVAL_MS : IDLE_INTERVAL_MS;
+      }
     } catch (error) {
-      delay = BACKOFF_INTERVAL_MS;
+      // DB エラーなど tick 自体の想定外。判定の失敗と同じ扱いで下がる。
+      console.error("[ERROR][moderationWorker] tick failed:", error);
+      delay = MIN_BACKOFF_MS;
+      backingOff = true;
     }
     await new Promise<void>((resolve) => {
       const timer = setTimeout(() => {
@@ -488,11 +526,15 @@ export function startModerationWorker(): void {
         resolve();
       }, delay);
       timer.unref?.();
-      wakeUp = () => {
-        clearTimeout(timer);
-        wakeUp = undefined;
-        resolve();
-      };
+      // バックオフ中は新規投稿の合図で起こさない。起こしてしまうと投稿のたびに
+      // レート制限へ突っ込み直すことになる。
+      wakeUp = backingOff
+        ? undefined
+        : () => {
+            clearTimeout(timer);
+            wakeUp = undefined;
+            resolve();
+          };
     });
     void loop();
   };

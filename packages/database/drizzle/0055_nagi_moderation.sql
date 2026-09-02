@@ -50,7 +50,18 @@ ALTER TABLE "nagi"."news"
 ALTER TABLE "nagi"."news"
   ADD COLUMN IF NOT EXISTS "moderation_version" text;
 
+-- この機能を入れる前からある行はバックフィルしない。判定待ちのまま残すと、
+-- 既存レコード全件が一斉に OpenAI へ流れて 429 になるため（開発環境で実際に起きた）。
+-- 'legacy' は「未判定だが判定待ちではない」印。編集されて cid が変われば
+-- applyMutation が NULL へ戻すので、その時点で判定対象になる。
+UPDATE "nagi"."posts"    SET "moderation_version" = 'legacy' WHERE "moderation_version" IS NULL;
+UPDATE "nagi"."profiles" SET "moderation_version" = 'legacy' WHERE "moderation_version" IS NULL;
+UPDATE "nagi"."channels" SET "moderation_version" = 'legacy' WHERE "moderation_version" IS NULL;
+UPDATE "nagi"."emojis"   SET "moderation_version" = 'legacy' WHERE "moderation_version" IS NULL;
+UPDATE "nagi"."news"     SET "moderation_version" = 'legacy' WHERE "moderation_version" IS NULL;
+
 -- 判定待ちの行だけを走査するワーカー用。判定が済んだ行は索引に載らない。
+-- 上の UPDATE の後に作る（ほぼ空の索引になるので構築が速い）。
 CREATE INDEX IF NOT EXISTS "nagi_posts_moderation_pending_idx"
   ON "nagi"."posts" ("indexed_at") WHERE "moderation_version" IS NULL;
 CREATE INDEX IF NOT EXISTS "nagi_profiles_moderation_pending_idx"

@@ -18,6 +18,16 @@ export const MODERATION_RULE_VERSION = "nagi-moderation-v1";
 /** 判定対象外（こっそり投稿など）を表す番兵。ワーカーはこの行を拾わない。 */
 export const MODERATION_SKIPPED = "skipped";
 
+/**
+ * この機能を入れる前からある行の番兵。未判定だが判定待ちにはしない。
+ *
+ * 既存レコードを一斉に判定待ちにするとワーカーが全件を OpenAI へ流して 429 になる
+ * （開発環境で実際に起きた）ので、バックフィルはしない方針。編集されて cid が
+ * 変われば applyMutation が NULL へ戻すので、その時点で判定対象になる。
+ * 将来まとめて判定したくなったら、この値を狙って NULL に戻せばよい。
+ */
+export const MODERATION_LEGACY = "legacy";
+
 export interface ModerationEvaluation {
   decision: ModerationDecision;
   labels: string[];

@@ -82,10 +82,15 @@ export async function notifyDecision(notice: ModerationNotice): Promise<void> {
 /**
  * OpenAI 障害の記録。連続失敗が閾値を超えたら一度だけアラートを出し、
  * 成功したら次の障害に備えて状態を戻す。
+ *
+ * 戻り値は現在の連続失敗回数。ワーカーがバックオフの長さを決めるのに使う。
  */
-export async function recordModerationFailure(error: unknown): Promise<void> {
+export async function recordModerationFailure(
+  error: unknown,
+): Promise<number> {
   consecutiveFailures++;
-  if (consecutiveFailures < FAILURE_ALERT_THRESHOLD || outageAlerted) return;
+  if (consecutiveFailures < FAILURE_ALERT_THRESHOLD || outageAlerted)
+    return consecutiveFailures;
   outageAlerted = true;
   await post(
     [
@@ -95,6 +100,7 @@ export async function recordModerationFailure(error: unknown): Promise<void> {
       "取り込みと投稿は継続しています（判定待ちのまま溜まります）。",
     ].join("\n"),
   );
+  return consecutiveFailures;
 }
 
 export async function recordModerationSuccess(): Promise<void> {
