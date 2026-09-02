@@ -129,6 +129,15 @@
     "textEn": "The night you finish counting the year. Whatever went wrong is allowed to stay on this side of midnight."
   },
   {
+    "id": "birthday",
+    "attribute": "light",
+    "atk": 1000,
+    "def": 3000,
+    "art": "anniv-hbd",
+    "textJa": "あなたが生まれた日を、今年もここで祝える一枚。今日の主役へ、ありったけの肯定とおめでとうを。",
+    "textEn": "A card celebrating the day you were born, here again this year. Every affirmation and happy wish goes to today's star."
+  },
+  {
     "id": "user_anniversary",
     "attribute": "light",
     "atk": 1000,

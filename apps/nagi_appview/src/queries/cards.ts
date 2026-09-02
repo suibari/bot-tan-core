@@ -5,6 +5,7 @@ import {
   nagiCardDraws,
   nagiGuestCardDraws,
   nagiCardInstances,
+  nagiAgeAssurance,
   nagiProfiles,
 } from "@bsky-affirmative-bot/database";
 import {
@@ -37,6 +38,7 @@ import { createHash } from "node:crypto";
 import { and, eq, gt, isNull, lt, sql } from "drizzle-orm";
 import { ApiError } from "../middleware/errors.js";
 import { verifyReactionCardTrigger } from "../services/reactionCardEligibility.js";
+import { jstCalendarDate } from "../services/ageAssurance.js";
 
 /**
  * 全肯定カード。カード定義そのもの（名前/フレーバー/ATK）は shared-configs の JSON が真実源で、
@@ -140,7 +142,7 @@ async function loadTodayAnniversaries(
   did: string,
   now: Date,
 ): Promise<TodayAnniversary[]> {
-  const [[follower], [profile]] = await Promise.all([
+  const [[follower], [profile], [ageAssurance]] = await Promise.all([
     db
       .select({
         name: followers.user_anniv_name,
@@ -155,11 +157,18 @@ async function loadTodayAnniversaries(
       .from(nagiProfiles)
       .where(eq(nagiProfiles.did, did))
       .limit(1),
+    db
+      .select({ birthDate: nagiAgeAssurance.birthDate })
+      .from(nagiAgeAssurance)
+      .where(eq(nagiAgeAssurance.did, did))
+      .limit(1),
   ]);
   return resolveTodayAnniversaries(cardDrawDate(now), {
     userAnnivName: follower?.name,
     userAnnivDate: follower?.date,
     isAnnivEnabled: follower?.isAnniv !== 0,
+    birthDate: ageAssurance?.birthDate,
+    birthdayDateKey: jstCalendarDate(now),
     nagiCreatedAt: profile?.createdAt,
   });
 }
@@ -326,9 +335,8 @@ export async function getCards(
   // 「まだ受け取っていない」の判定は所持カードの差集合で出す。card_draws を使わないので、
   // これがそのまま自動モーダルを出すかどうかの根拠になる。
   const held = new Set(owned.anniversary.map((r) => r.cardNumber));
-  const year = Number(cardDrawDate(now).slice(0, 4));
   const pending = today.filter(
-    (a) => !held.has(anniversaryCardNumber(year, a.slot)),
+    (a) => !held.has(anniversaryCardNumber(a.year, a.slot)),
   );
 
   return {
@@ -364,7 +372,6 @@ export async function claimAnniversaryCards(
   if (!today.length)
     throw new ApiError(400, "invalid_request", "Today is not an anniversary");
 
-  const year = Number(cardDrawDate(now).slice(0, 4));
   const claimed = await db.transaction(async (tx) => {
     const rows: InstanceRow[] = [];
     for (const anniversary of today) {
@@ -372,7 +379,7 @@ export async function claimAnniversaryCards(
         .insert(nagiCardInstances)
         .values({
           cardVolume: CARD_VOLUME_ANNIVERSARY,
-          cardNumber: anniversaryCardNumber(year, anniversary.slot),
+          cardNumber: anniversaryCardNumber(anniversary.year, anniversary.slot),
           ownerDid: viewerDid,
           firstOwnerDid: viewerDid,
           // ユーザー記念日だけ、受け取った時点の名前を焼き付ける（あとで改名されても変わらない）。
@@ -407,7 +414,7 @@ export async function claimAnniversaryCards(
     (claimed.length ? claimed : []).map((r) => r.cardNumber),
   );
   const todayNumbers = new Set(
-    today.map((a) => anniversaryCardNumber(year, a.slot)),
+    today.map((a) => anniversaryCardNumber(a.year, a.slot)),
   );
   const rows = claimed.length
     ? owned.anniversary.filter((r) => numbers.has(r.cardNumber))

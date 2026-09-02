@@ -2,6 +2,7 @@ import {
   db,
   nagiActorAnalyses,
   nagiActors,
+  nagiAgeAssurance,
   nagiEmojis,
   nagiNews,
   nagiNewsApprovals,
@@ -38,36 +39,50 @@ import {
 } from "./timeline.js";
 import { getApprovedNewsViews, type NewsLang } from "./positiveNews.js";
 import { emojiView } from "../services/emoji.js";
+import { isBirthdayToday } from "../services/ageAssurance.js";
 export async function getActorProfile(
   did: string,
   lang: "ja" | "en" = "ja",
+  now: Date = new Date(),
 ): Promise<ProfileDetail> {
-  const [[actor], [profile], [stats], superPositiveLevel, currentTitle, [analysis]] =
-    await Promise.all([
-      db.select().from(nagiActors).where(eq(nagiActors.did, did)),
-      db.select().from(nagiProfiles).where(eq(nagiProfiles.did, did)),
-      db
-        .select({
-          postCount: sql<number>`count(*)::int`,
-          firstPostAt: sql<string | null>`min(${nagiPosts.recordCreatedAt})`,
-        })
-        .from(nagiPosts)
-        .where(and(eq(nagiPosts.did, did), isNull(nagiPosts.deletedAt))),
-      getSuperPositiveLevel(did),
-      getCurrentTitle(did),
-      db
-        .select({
-          analysisJa: nagiActorAnalyses.analysisJa,
-          analysisEn: nagiActorAnalyses.analysisEn,
-          taglineJa: nagiActorAnalyses.taglineJa,
-          taglineEn: nagiActorAnalyses.taglineEn,
-          tagsJa: nagiActorAnalyses.tagsJa,
-          tagsEn: nagiActorAnalyses.tagsEn,
-          updatedAt: nagiActorAnalyses.updatedAt,
-        })
-        .from(nagiActorAnalyses)
-        .where(eq(nagiActorAnalyses.did, did)),
-    ]);
+  const [
+    [actor],
+    [profile],
+    [stats],
+    superPositiveLevel,
+    currentTitle,
+    [analysis],
+    [ageAssurance],
+  ] = await Promise.all([
+    db.select().from(nagiActors).where(eq(nagiActors.did, did)),
+    db.select().from(nagiProfiles).where(eq(nagiProfiles.did, did)),
+    db
+      .select({
+        postCount: sql<number>`count(*)::int`,
+        firstPostAt: sql<string | null>`min(${nagiPosts.recordCreatedAt})`,
+      })
+      .from(nagiPosts)
+      .where(and(eq(nagiPosts.did, did), isNull(nagiPosts.deletedAt))),
+    getSuperPositiveLevel(did),
+    getCurrentTitle(did),
+    db
+      .select({
+        analysisJa: nagiActorAnalyses.analysisJa,
+        analysisEn: nagiActorAnalyses.analysisEn,
+        taglineJa: nagiActorAnalyses.taglineJa,
+        taglineEn: nagiActorAnalyses.taglineEn,
+        tagsJa: nagiActorAnalyses.tagsJa,
+        tagsEn: nagiActorAnalyses.tagsEn,
+        updatedAt: nagiActorAnalyses.updatedAt,
+      })
+      .from(nagiActorAnalyses)
+      .where(eq(nagiActorAnalyses.did, did)),
+    db
+      .select({ birthDate: nagiAgeAssurance.birthDate })
+      .from(nagiAgeAssurance)
+      .where(eq(nagiAgeAssurance.did, did))
+      .limit(1),
+  ]);
   if (!actor && !profile && !stats?.postCount)
     throw new ApiError(404, "not_found", "Actor not found");
   const firstPostAt = stats?.firstPostAt
@@ -98,6 +113,9 @@ export async function getActorProfile(
     postCount: stats?.postCount ?? 0,
     firstPostAt,
     joinedAt: profile?.createdAt?.toISOString() ?? firstPostAt,
+    ...(isBirthdayToday(ageAssurance?.birthDate, now)
+      ? { isBirthday: true }
+      : {}),
     comment,
     tagline,
     tags,

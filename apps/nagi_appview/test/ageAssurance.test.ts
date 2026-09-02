@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ADULT_AGE, isAdultBirthDate } from "../src/services/ageAssurance.js";
+import {
+  ADULT_AGE,
+  isAdultBirthDate,
+  isBirthdayToday,
+  jstCalendarDate,
+} from "../src/services/ageAssurance.js";
 
 const at = (iso: string) => new Date(`${iso}T00:00:00Z`);
 
@@ -34,4 +39,31 @@ test("garbage birth dates are treated as minors, never adults", () => {
 
 test("the adult age is 18", () => {
   assert.equal(ADULT_AGE, 18);
+});
+
+test("誕生日はJSTの暦日で判定し、生年は一致条件にしない", () => {
+  assert.equal(
+    isBirthdayToday("1990-09-02", new Date("2026-09-01T15:00:00.000Z")),
+    true,
+  );
+  assert.equal(
+    isBirthdayToday("2008-09-02", new Date("2026-09-02T14:59:59.999Z")),
+    true,
+  );
+  assert.equal(
+    isBirthdayToday("1990-09-02", new Date("2026-09-02T15:00:00.000Z")),
+    false,
+  );
+  assert.equal(
+    jstCalendarDate(new Date("2026-12-31T15:00:00.000Z")),
+    "2027-01-01",
+  );
+});
+
+test("不正・未登録の生年月日は誕生日として扱わない", () => {
+  for (const value of [undefined, null, "", "--09-02", "not-a-date"])
+    assert.equal(
+      isBirthdayToday(value, new Date("2026-09-02T03:00:00.000Z")),
+      false,
+    );
 });

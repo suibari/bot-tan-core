@@ -52,7 +52,11 @@ test("カード名は記念日名 + 年。ユーザー記念日は本人の入�
   assert.equal(halloween?.volume, CARD_VOLUME_ANNIVERSARY);
   assert.equal(halloween?.raceJa, "記念日");
 
-  const user = buildAnniversaryCardDef(SLOT_USER_ANNIVERSARY, 2026, "結婚記念日");
+  const user = buildAnniversaryCardDef(
+    SLOT_USER_ANNIVERSARY,
+    2026,
+    "結婚記念日",
+  );
   // ユーザー入力は ja/en を分けられないので両方に同じ文字列を使う。
   assert.equal(user?.nameJa, "結婚記念日2026");
   assert.equal(user?.nameEn, "結婚記念日 2026");
@@ -113,6 +117,38 @@ test("同じ日に複数の記念日が重なることがある", () => {
     found.map((a) => a.slot).sort((a, b) => a - b),
     [SLOT_USER_ANNIVERSARY, ANNIVERSARY_SLOTS.halloween].sort((a, b) => a - b),
   );
+});
+
+test("誕生日はユーザー記念日より優先し、先頭の1枚だけを残す", () => {
+  const found = resolveTodayAnniversaries("2026-06-01", {
+    birthDate: "1990-06-01",
+    userAnnivDate: "--06-01",
+    userAnnivName: "入籍記念日",
+  });
+  assert.equal(found[0].anniversaryId, "birthday");
+  assert.equal(found[0].art, "anniv-hbd");
+  assert.ok(!found.some((a) => a.anniversaryId === "user_anniversary"));
+  const card = buildAnniversaryCardDef(ANNIVERSARY_SLOTS.birthday, 2026);
+  assert.equal(card?.nameJa, "ハッピーバースデー! 2026");
+  assert.equal(card?.nameEn, "Happy Birthday! 2026");
+});
+
+test("誕生日はプリセット記念日とは併存する", () => {
+  assert.deepEqual(
+    resolveTodayAnniversaries("2026-10-31", {
+      birthDate: "2000-10-31",
+    }).map((a) => a.anniversaryId),
+    ["birthday", "halloween"],
+  );
+});
+
+test("誕生日はカードの4時境界ではなくJST暦日とその西暦を使う", () => {
+  const found = resolveTodayAnniversaries("2026-12-31", {
+    birthDate: "1990-01-01",
+    birthdayDateKey: "2027-01-01",
+  });
+  const birthday = found.find((a) => a.anniversaryId === "birthday");
+  assert.equal(birthday?.year, 2027);
 });
 
 test("記念日オフ（is_anniv = 0）のユーザー記念日は祝わない", () => {

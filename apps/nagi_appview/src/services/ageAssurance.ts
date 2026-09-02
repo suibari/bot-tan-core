@@ -6,7 +6,8 @@ import { ApiError } from "../middleware/errors.js";
  * 年齢確認。
  *
  * 生年月日は PDS レコードにしない（PDS レコードは誰でも読める）。AppView の
- * Postgres だけが持ち、他ユーザーへは一切返さない。用途は表示制御のみ。
+ * Postgres だけが持ち、生年月日そのものは他ユーザーへ返さない。年齢表示制御に加え、
+ * 誕生日当日は生年を含まない isBirthday フラグと本人向けカード判定にだけ使う。
  *
  * 未申告は未成年として扱う。申告は1度だけで、後から変えられない
  * （成人向けコンテンツを見るために年齢を上書きされないようにするため）。
@@ -15,6 +16,21 @@ import { ApiError } from "../middleware/errors.js";
  */
 
 export const ADULT_AGE = 18;
+const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
+
+/** 誕生日演出用の JST 0:00 始まりの暦日。カードの4:00境界とは意図的に分ける。 */
+export function jstCalendarDate(now: Date = new Date()): string {
+  return new Date(now.getTime() + JST_OFFSET_MS).toISOString().slice(0, 10);
+}
+
+/** 生年を外へ出さず、指定した瞬間が誕生日かだけを判定する。 */
+export function isBirthdayToday(
+  birthDate: string | null | undefined,
+  now: Date = new Date(),
+): boolean {
+  const birth = /^\d{4}-(\d{2})-(\d{2})$/.exec(birthDate ?? "");
+  return !!birth && jstCalendarDate(now).slice(5) === `${birth[1]}-${birth[2]}`;
+}
 
 export type AgeAssurance = {
   isAdult: boolean;

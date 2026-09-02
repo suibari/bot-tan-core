@@ -51,11 +51,13 @@ export const ANNIVERSARY_SLOTS: Record<string, number> = {
   thanksgiving_us: 14,
   christmas: 15,
   new_years_eve: 16,
+  birthday: 17,
   nagi_registered_day: 99,
 };
 
 /** holidays.json に無い、ユーザーごとに決まる記念日。 */
 export const SLOT_USER_ANNIVERSARY = ANNIVERSARY_SLOTS.user_anniversary;
+export const SLOT_BIRTHDAY = ANNIVERSARY_SLOTS.birthday;
 export const SLOT_NAGI_REGISTERED_DAY = ANNIVERSARY_SLOTS.nagi_registered_day;
 
 /** 記念日カードのカード面のうち、年に依らない静的な部分。 */
@@ -138,6 +140,10 @@ export function parseAnniversaryCardNumber(cardNumber: number): {
 
 /** ユーザー記念日・Nagi登録記念日は名前が固定でないので、呼び出し側から渡す。 */
 const DYNAMIC_NAMES: Record<number, { ja: string; en: string }> = {
+  [SLOT_BIRTHDAY]: {
+    ja: "ハッピーバースデー!",
+    en: "Happy Birthday!",
+  },
   [SLOT_NAGI_REGISTERED_DAY]: { ja: "Nagi記念日", en: "Nagi Anniversary" },
 };
 
@@ -182,7 +188,8 @@ export function buildAnniversaryCardDef(
     attribute: art.attribute,
     atk: art.atk,
     def: art.def,
-    nameJa: `${names.ja}${year}`,
+    nameJa:
+      slot === SLOT_BIRTHDAY ? `${names.ja} ${year}` : `${names.ja}${year}`,
     nameEn: `${names.en} ${year}`,
     raceJa: "記念日",
     raceEn: "Anniversary",
@@ -211,6 +218,8 @@ export function resolveCardDef(
 }
 
 export interface TodayAnniversary {
+  /** この1枚に焼き付ける西暦。誕生日は暦日、ほかはカード日付境界に従う。 */
+  year: number;
   slot: number;
   anniversaryId: string;
   nameJa: string;
@@ -227,6 +236,10 @@ export interface AnniversaryContext {
   userAnnivDate?: string | null;
   /** followers.is_anniv。0 のときユーザー記念日を祝わない。 */
   isAnnivEnabled?: boolean;
+  /** nagi.age_assurance.birth_date（"YYYY-MM-DD"）。本人のカード判定にだけ使う。 */
+  birthDate?: string | null;
+  /** 誕生日だけが使う JST 0:00 始まりの暦日。省略時は dateKey。 */
+  birthdayDateKey?: string;
   /** nagi.profiles.created_at。Nagi 登録記念日の判定に使う。 */
   nagiCreatedAt?: Date | null;
 }
@@ -234,6 +247,12 @@ export interface AnniversaryContext {
 /** "--MM-DD" を受け取り、"MM-DD" に正規化する。形式が違えば undefined。 */
 function monthDayOf(value: string | null | undefined): string | undefined {
   const match = /^--(\d{2})-(\d{2})$/.exec(value ?? "");
+  return match ? `${match[1]}-${match[2]}` : undefined;
+}
+
+/** "YYYY-MM-DD" の非公開生年月日から "MM-DD" だけを取り出す。 */
+function birthMonthDayOf(value: string | null | undefined): string | undefined {
+  const match = /^\d{4}-(\d{2})-(\d{2})$/.exec(value ?? "");
   return match ? `${match[1]}-${match[2]}` : undefined;
 }
 
@@ -256,12 +275,13 @@ export function resolveTodayAnniversaries(
   const todayMD = `${match[2]}-${match[3]}`;
 
   const found: TodayAnniversary[] = [];
-  const push = (slot: number, label?: string) => {
+  const push = (slot: number, label?: string, cardYear = year) => {
     const id = ID_BY_SLOT.get(slot);
     const names = anniversaryNames(slot, label);
     if (!id || !names) return;
     const art = ART_BY_ID.get(id)?.art;
     found.push({
+      year: cardYear,
       slot,
       anniversaryId: id,
       nameJa: names.ja,
@@ -271,6 +291,18 @@ export function resolveTodayAnniversaries(
     });
   };
 
+  // 生年月日は AppView の非公開テーブルから本人のカード判定にだけ渡される。
+  // 誕生日カードを常に先頭へ置き、自動表示でも他の記念日より先にプレゼントする。
+  const birthdayMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(
+    ctx.birthdayDateKey ?? dateKey,
+  );
+  const birthdayMD = birthdayMatch
+    ? `${birthdayMatch[2]}-${birthdayMatch[3]}`
+    : todayMD;
+  const isBirthday = birthMonthDayOf(ctx.birthDate) === birthdayMD;
+  if (isBirthday)
+    push(SLOT_BIRTHDAY, undefined, Number(birthdayMatch?.[1] ?? year));
+
   for (const holiday of HOLIDAYS) {
     const slot = ANNIVERSARY_SLOTS[holiday.id];
     if (slot === undefined) continue;
@@ -279,7 +311,7 @@ export function resolveTodayAnniversaries(
   }
 
   // ユーザーが自分で登録した記念日。Bluesky 側の記念日オフ（is_anniv=0）をそのまま尊重する。
-  if (ctx.isAnnivEnabled !== false) {
+  if (!isBirthday && ctx.isAnnivEnabled !== false) {
     const userMD = monthDayOf(ctx.userAnnivDate);
     if (userMD === todayMD)
       push(SLOT_USER_ANNIVERSARY, ctx.userAnnivName?.trim() || undefined);
@@ -291,7 +323,10 @@ export function resolveTodayAnniversaries(
   const created = ctx.nagiCreatedAt;
   if (created && !Number.isNaN(created.getTime())) {
     const createdKey = cardDrawDate(created);
-    if (createdKey.slice(5) === todayMD && Number(createdKey.slice(0, 4)) < year)
+    if (
+      createdKey.slice(5) === todayMD &&
+      Number(createdKey.slice(0, 4)) < year
+    )
       push(SLOT_NAGI_REGISTERED_DAY);
   }
 
