@@ -25,7 +25,7 @@ CREATE INDEX IF NOT EXISTS "nagi_moderation_decisions_decision_idx"
 ALTER TABLE "nagi"."posts"
   ADD COLUMN IF NOT EXISTS "moderation_labels" text[] DEFAULT '{}'::text[] NOT NULL;
 ALTER TABLE "nagi"."posts"
-  ADD COLUMN IF NOT EXISTS "moderation_version" text;
+  ADD COLUMN IF NOT EXISTS "moderation_version" text DEFAULT 'legacy';
 -- 未成年ビューアへのフィルタを SQL で書くため、セルフラベルも列として持つ。
 ALTER TABLE "nagi"."posts"
   ADD COLUMN IF NOT EXISTS "self_labels" text[] DEFAULT '{}'::text[] NOT NULL;
@@ -33,22 +33,22 @@ ALTER TABLE "nagi"."posts"
 ALTER TABLE "nagi"."profiles"
   ADD COLUMN IF NOT EXISTS "moderation_labels" text[] DEFAULT '{}'::text[] NOT NULL;
 ALTER TABLE "nagi"."profiles"
-  ADD COLUMN IF NOT EXISTS "moderation_version" text;
+  ADD COLUMN IF NOT EXISTS "moderation_version" text DEFAULT 'legacy';
 
 ALTER TABLE "nagi"."channels"
   ADD COLUMN IF NOT EXISTS "moderation_labels" text[] DEFAULT '{}'::text[] NOT NULL;
 ALTER TABLE "nagi"."channels"
-  ADD COLUMN IF NOT EXISTS "moderation_version" text;
+  ADD COLUMN IF NOT EXISTS "moderation_version" text DEFAULT 'legacy';
 
 ALTER TABLE "nagi"."emojis"
   ADD COLUMN IF NOT EXISTS "moderation_labels" text[] DEFAULT '{}'::text[] NOT NULL;
 ALTER TABLE "nagi"."emojis"
-  ADD COLUMN IF NOT EXISTS "moderation_version" text;
+  ADD COLUMN IF NOT EXISTS "moderation_version" text DEFAULT 'legacy';
 
 ALTER TABLE "nagi"."news"
   ADD COLUMN IF NOT EXISTS "moderation_labels" text[] DEFAULT '{}'::text[] NOT NULL;
 ALTER TABLE "nagi"."news"
-  ADD COLUMN IF NOT EXISTS "moderation_version" text;
+  ADD COLUMN IF NOT EXISTS "moderation_version" text DEFAULT 'legacy';
 
 -- この機能を入れる前からある行はバックフィルしない。判定待ちのまま残すと、
 -- 既存レコード全件が一斉に OpenAI へ流れて 429 になるため（開発環境で実際に起きた）。

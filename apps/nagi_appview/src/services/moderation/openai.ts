@@ -78,28 +78,12 @@ export function parseRetryAfter(
 export class OpenAIModerator {
   constructor(private readonly apiKey: string) {}
 
-  /**
-   * テキストと画像URLをまとめて1リクエストで判定する。
-   * 返すのはカテゴリスコアだけ。生レスポンスは保持しない（PDS が真実源のため）。
-   */
-  async evaluate(input: ModerationInput): Promise<ModerationScores> {
-    const parts: Array<
+  private async request(
+    parts: Array<
       | { type: "text"; text: string }
       | { type: "image_url"; image_url: { url: string } }
-    > = [];
-
-    const text = input.texts
-      .map((value) => value?.trim())
-      .filter((value): value is string => !!value)
-      .join("\n");
-    if (text) parts.push({ type: "text", text });
-    for (const url of input.imageUrls) {
-      if (url) parts.push({ type: "image_url", image_url: { url } });
-    }
-
-    // 判定すべき中身が無い（本文空・画像なし）ならAPIを呼ばずに素通しする。
-    if (parts.length === 0) return {};
-
+    >,
+  ): Promise<ModerationScores> {
     let response: Response;
     try {
       response = await fetch(ENDPOINT, {
@@ -145,5 +129,35 @@ export class OpenAIModerator {
         out[category] = value;
     }
     return out;
+  }
+
+  /**
+   * テキストと画像URLを判定する。Moderation API は1リクエストにつき画像1枚まで
+   * なので、複数画像は1枚ずつ順に判定し、カテゴリごとの最大スコアを採用する。
+   * 生レスポンスは保持しない（PDS が真実源のため）。
+   */
+  async evaluate(input: ModerationInput): Promise<ModerationScores> {
+    const text = input.texts
+      .map((value) => value?.trim())
+      .filter((value): value is string => !!value)
+      .join("\n");
+    const textPart = text ? ({ type: "text", text } as const) : undefined;
+    const imageUrls = input.imageUrls.filter(Boolean);
+
+    // 判定すべき中身が無い（本文空・画像なし）ならAPIを呼ばずに素通しする。
+    if (!textPart && imageUrls.length === 0) return {};
+    if (imageUrls.length === 0) return this.request([textPart!]);
+
+    const merged: ModerationScores = {};
+    for (const url of imageUrls) {
+      const scores = await this.request([
+        ...(textPart ? [textPart] : []),
+        { type: "image_url", image_url: { url } },
+      ]);
+      for (const [category, score] of Object.entries(scores)) {
+        merged[category] = Math.max(merged[category] ?? 0, score);
+      }
+    }
+    return merged;
   }
 }

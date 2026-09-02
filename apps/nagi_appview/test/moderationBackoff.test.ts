@@ -83,6 +83,13 @@ test("existing rows are marked legacy by the migration instead of being backfill
     ),
     "utf8",
   );
+  const schema = await readFile(
+    new URL(
+      "../../../packages/database/src/nagiSchema.ts",
+      import.meta.url,
+    ),
+    "utf8",
+  );
   for (const table of ["posts", "profiles", "channels", "emojis", "news"])
     assert.match(
       migration,
@@ -91,6 +98,13 @@ test("existing rows are marked legacy by the migration instead of being backfill
       ),
       `${table} is not marked legacy`,
     );
+  assert.equal(
+    schema.match(
+      /moderationVersion: text\("moderation_version"\)\.default\("legacy"\)/g,
+    )?.length,
+    5,
+    "drizzle:push must add moderation_version with a legacy default",
+  );
   // 判定待ちの部分索引は legacy を埋めた後に作る（ほぼ空の索引にするため）。
   assert.ok(
     migration.indexOf("SET \"moderation_version\" = 'legacy'") <

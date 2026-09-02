@@ -105,7 +105,7 @@ export const nagiPosts = nagiSchema.table(
     /** 現在CIDについて自動判定が付けた表示用ラベル。 */
     moderationLabels: text("moderation_labels").array().default([]).notNull(),
     /** null=判定待ち（ワーカーが拾う） / 'skipped'=対象外 / それ以外はルールバージョン。 */
-    moderationVersion: text("moderation_version"),
+    moderationVersion: text("moderation_version").default("legacy"),
     /**
      * 投稿者自身がレコードへ付けたセルフラベル。record_json からも取れるが、
      * 未成年ビューアへのフィルタを SQL で書くために列として持つ。
@@ -233,7 +233,7 @@ export const nagiChannels = nagiSchema.table(
     /** 現在CIDについて自動判定が付けた表示用ラベル。 */
     moderationLabels: text("moderation_labels").array().default([]).notNull(),
     /** null=判定待ち（ワーカーが拾う） / 'skipped'=対象外 / それ以外はルールバージョン。 */
-    moderationVersion: text("moderation_version"),
+    moderationVersion: text("moderation_version").default("legacy"),
     pinnedPostUri: text("pinned_post_uri"),
     pinnedPostCid: text("pinned_post_cid"),
     // NL検索(意味検索)用。ソースは name+description。EmbeddingWorker が生成し、CH 編集で
@@ -276,7 +276,7 @@ export const nagiNews = nagiSchema.table(
     /** 現在CIDについて自動判定が付けた表示用ラベル。 */
     moderationLabels: text("moderation_labels").array().default([]).notNull(),
     /** null=判定待ち（ワーカーが拾う） / 'skipped'=対象外 / それ以外はルールバージョン。 */
-    moderationVersion: text("moderation_version"),
+    moderationVersion: text("moderation_version").default("legacy"),
     publishedAt: timestamp("published_at", { withTimezone: true }),
     langs: jsonb("langs"),
     // NL検索(意味検索)用。ソースは titleJa[+sourceName]。EmbeddingWorker が生成し、titleJa が
@@ -430,7 +430,7 @@ export const nagiEmojis = nagiSchema.table(
     /** 現在CIDについて自動判定が付けた表示用ラベル。 */
     moderationLabels: text("moderation_labels").array().default([]).notNull(),
     /** null=判定待ち（ワーカーが拾う） / 'skipped'=対象外 / それ以外はルールバージョン。 */
-    moderationVersion: text("moderation_version"),
+    moderationVersion: text("moderation_version").default("legacy"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
     indexedAt: timestamp("indexed_at", { withTimezone: true })
       .defaultNow()
@@ -451,7 +451,7 @@ export const nagiProfiles = nagiSchema.table(
     /** 現在CIDについて自動判定が付けた表示用ラベル。 */
     moderationLabels: text("moderation_labels").array().default([]).notNull(),
     /** null=判定待ち（ワーカーが拾う） / 'skipped'=対象外 / それ以外はルールバージョン。 */
-    moderationVersion: text("moderation_version"),
+    moderationVersion: text("moderation_version").default("legacy"),
     // NL検索(意味検索)用のプロフィール埋め込み。ソースは displayName+description に、あれば
     // botたん分析(nagiActorAnalyses.analysisJa)を連結したもの。EmbeddingWorker が生成し、
     // プロフィール編集・分析更新で NULL に戻して再生成する。
