@@ -6,7 +6,10 @@ import {
   tryUpsertBotMemoryDocument,
 } from "@bsky-affirmative-bot/database";
 import { isAiGroundingEnabled } from "@bsky-affirmative-bot/shared-configs";
-import { isSearxngConfigured, researchSelfHosted } from "@bsky-affirmative-bot/bot-brain";
+import {
+  isSearxngConfigured,
+  researchKnowledgeCardSelfHosted,
+} from "@bsky-affirmative-bot/bot-brain";
 
 const MAX_ATTEMPTS = 3;
 const LEASE_DURATION_MS = 300_000;
@@ -28,9 +31,9 @@ let running = false;
  * 非同期リサーチワーカー。
  *
  * **記憶の一部なので Nagi ではなく biorhythm_server に置く。** 入口は Bluesky・Nagi の
- * リプライ（モデルが「知らなかった」と申告した語と、貼られた URL）と、記憶から抽出
- * された印象ラベル（YouTube 配信のコメント由来を含む）。出口は全サーフェス共通の
- * bot_memory_documents（source_type='web_research'）。どの表面にも属さない。
+ * リプライでモデルが「知らなかった」と申告した語と、記憶から抽出された印象ラベル
+ * （YouTube 配信のコメント由来を含む）。検索上位ページを横断した統合知識カードを、
+ * 全サーフェス共通の bot_memory_documents（source_type='web_research'）へ保存する。
  * botMemoryEmbeddingWorker / botMemoryImpressionWorker と同じ並び。
  *
  * その場では「知らない」と正直に答えたうえで、ここで調べて次に同じ対象が来たときに
@@ -63,10 +66,7 @@ export function startBotMemoryResearchWorker() {
       //
       // 素の固有名詞は検索クエリとしてよく効く（実測:「薬屋のひとりごと」で公式
       // サイトと Wikipedia の infobox が取れる）。
-      const research = await researchSelfHosted({
-        queries: [job.subject],
-        urls: [],
-      });
+      const research = await researchKnowledgeCardSelfHosted(job.subject);
 
       // sourceId をジョブのハッシュに揃える。再調査すると同じ行が更新され、
       // bot_memory_source_key_idx の unique がそのまま重複防止になる。
@@ -77,7 +77,7 @@ export function startBotMemoryResearchWorker() {
         // 部分一致検索でも引けるようにするため。
         content: `${job.subject}\n${research}`,
         occurredAt: new Date(),
-        metadata: { term: job.subject },
+        metadata: { term: job.subject, format: "knowledge_card_v1" },
       });
       await completeResearchJob(job.subjectHash);
       console.log(`[INFO][MEMORY_RESEARCH] learned: ${job.subject}`);

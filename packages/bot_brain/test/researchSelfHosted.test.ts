@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { mock, test } from "node:test";
-import { researchSelfHosted } from "../src/ai/grounding.js";
+import {
+  researchKnowledgeCardSelfHosted,
+  researchSelfHosted,
+} from "../src/ai/grounding.js";
 import { MemoryService } from "@bsky-affirmative-bot/database";
 
 /**
@@ -31,9 +34,10 @@ test.afterEach(() => {
 
 type Routes = {
   search?: unknown;
-  page?: { body: string; contentType?: string };
+  page?: { body: string | ((url: string) => string); contentType?: string };
   summary?: unknown;
   onSummaryPrompt?: (prompt: string) => void;
+  onPageFetch?: (url: string) => void;
 };
 
 /** SearXNG / ページ取得 / Ollama を URL で振り分ける。 */
@@ -61,7 +65,11 @@ function stubFetch(routes: Routes) {
       );
     }
     if (!routes.page) throw new Error(`unexpected fetch: ${url}`);
-    return new Response(routes.page.body, {
+    routes.onPageFetch?.(url);
+    const pageBody = typeof routes.page.body === "function"
+      ? routes.page.body(url)
+      : routes.page.body;
+    return new Response(pageBody, {
       headers: { "content-type": routes.page.contentType ?? "text/html" },
     });
   }) as typeof fetch;
@@ -214,4 +222,49 @@ test("URLが読めなければthrowして再試行に回す", async () => {
     researchSelfHosted({ queries: [], urls: ["https://93.184.216.34/x"] }),
     /no material/,
   );
+});
+
+test("非同期メモリー調査は上位5ページを読み統合知識カードを作る", async () => {
+  const pageFetches: string[] = [];
+  let prompt = "";
+  const results = Array.from({ length: 6 }, (_, index) => ({
+    url: `https://93.184.216.34/source-${index + 1}`,
+    title: `資料${index + 1}`,
+    content: `スニペット${index + 1}`,
+  }));
+  stubFetch({
+    search: { results, infoboxes: [] },
+    page: {
+      body: (url) => `<html><body><main><p>${url.split("-").at(-1)}番目の本文情報</p></main></body></html>`,
+    },
+    summary: {
+      overview: "対象Aは、複数の資料で説明されている作品です。",
+      sections: [
+        {
+          heading: "位置づけ",
+          detail: "資料を横断すると、前作に続く作品として位置づけられています。",
+          sources: [
+            "https://93.184.216.34/source-1",
+            "https://hallucinated.example/source",
+          ],
+        },
+      ],
+    },
+    onSummaryPrompt: (value) => {
+      prompt = value;
+    },
+    onPageFetch: (url) => pageFetches.push(url),
+  });
+
+  const research = await researchKnowledgeCardSelfHosted("対象A");
+
+  assert.equal(pageFetches.length, 5);
+  for (let index = 1; index <= 5; index++) {
+    assert.match(prompt, new RegExp(`${index}番目の本文情報`));
+  }
+  assert.doesNotMatch(prompt, /6番目の本文情報/);
+  assert.match(research, /^概要\n対象Aは/);
+  assert.match(research, /位置づけ\n資料を横断すると/);
+  assert.match(research, /source-1/);
+  assert.doesNotMatch(research, /hallucinated\.example/);
 });
