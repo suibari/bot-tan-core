@@ -33,7 +33,7 @@ export const BOT_MEMORY_SOURCE_TYPES = [
   "biorhythm",
   "youtube_live_comment",
   /**
-   * NagiResearchWorker が SearXNG で調べた事実。
+   * botMemoryResearchWorker が SearXNG で調べた事実。
    *
    * 他の種別が「誰かとのやりとりの記憶」なのに対し、これだけは外部から仕入れた
    * 知識。思い出の枠を食わないよう、リプライ生成では selectReplyMemoryContext に

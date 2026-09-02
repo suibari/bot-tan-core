@@ -135,7 +135,7 @@ export async function buildNagiReplyContext(job: any) {
             return [];
           })
         : Promise.resolve([]),
-      // NagiResearchWorker が先に調べておいた事実。思い出の枠を食わないよう
+      // botMemoryResearchWorker が先に調べておいた事実。思い出の枠を食わないよう
       // selectReplyMemoryContext には通さず、独立した根拠として渡す。
       text.trim()
         ? searchBotMemory({

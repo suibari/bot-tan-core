@@ -9,9 +9,9 @@ import {
 /**
  * 非同期リサーチの入口と出口。
  *
- * エンキューは話題を選り分けずに広く積み、調べるかどうかの判断は
- * NagiResearchWorker の planner が持つ。ここで見るのは出口側
- * ＝先に調べておいた事実を同期パスのリプライへ差し込む経路。
+ * 語（新語）は非同期。その場では「知らない」と答え、調べた結果は次回以降に効く。
+ * URL は同期。「このリンク見て」に「あとで読むね」では会話にならないので、
+ * リプライ生成の前に読んでから返す。
  */
 
 const replyParams = (text: string) => ({
@@ -36,7 +36,7 @@ test("調べた事実があればリプライの根拠として差し込む", as
     "BSKY_AFFIRMATIVE_REPLY",
     replyParams("今期のアニメ何が面白い？"),
     forbidResearch,
-    remembered,
+    { researchMemory: remembered },
   );
   const contents = JSON.stringify(result.contents);
   assert.match(contents, /grounding_research/);
@@ -51,7 +51,7 @@ test("調べた事実が無ければ「知らないと言う」よう指示す�
       "BSKY_AFFIRMATIVE_REPLY",
       replyParams("今期のアニメ何が面白い？"),
       forbidResearch,
-      remembered,
+      { researchMemory: remembered },
     );
     const contents = JSON.stringify(result.contents);
     assert.match(contents, /do not know something, say so/);
@@ -89,4 +89,59 @@ test("「知らないと言え」は予算トリムで消えない", async () =>
   const { messages } = fitOllamaMessages(toOllamaMessages(result), { budget: 200 });
   const joined = messages.map((message) => message.content).join("\n");
   assert.match(joined, /知ったかぶり/, "トリム後も残る");
+});
+
+test("貼られたリンクはその場で読んでから返す", async () => {
+  // 語と違い URL は非同期にしない。読んだ結果を根拠として同じターンで使う。
+  let researched: { queries: string[]; urls: string[] } | undefined;
+  const result = await prepareOllamaGrounding(
+    "BSKY_AFFIRMATIVE_REPLY",
+    replyParams("これ見て https://example.com/a"),
+    {
+      plan: async () => {
+        assert.fail("URL の取得に planner は要らない");
+      },
+      research: async (input) => {
+        researched = input;
+        return "- 記事タイトル — 要約";
+      },
+    },
+    { urls: ["https://example.com/a"] },
+  );
+
+  assert.deepEqual(researched, { queries: [], urls: ["https://example.com/a"] });
+  const contents = JSON.stringify(result.contents);
+  assert.match(contents, /grounding_research/);
+  assert.match(contents, /記事タイトル/);
+});
+
+test("リンクが読めなければ「知らない」経路へ落とす", async () => {
+  // 読めなかったのに知ったかぶりをさせない。カードの title / description は
+  // プロンプト側に残っているので、リプライ自体は成立する。
+  const result = await prepareOllamaGrounding(
+    "BSKY_AFFIRMATIVE_REPLY",
+    replyParams("これ見て https://example.com/a"),
+    {
+      research: async () => {
+        throw new Error("SPA で本文が取れない");
+      },
+    },
+    { urls: ["https://example.com/a"] },
+  );
+  assert.match(JSON.stringify(result.contents), /do not know something, say so/);
+});
+
+test("リンクと記憶の両方があれば両方を根拠にする", async () => {
+  const result = await prepareOllamaGrounding(
+    "BSKY_CONVERSATION",
+    replyParams("これ見て https://example.com/a"),
+    { research: async () => "- リンクの中身" },
+    {
+      urls: ["https://example.com/a"],
+      researchMemory: "- 前に調べた事実",
+    },
+  );
+  const contents = JSON.stringify(result.contents);
+  assert.match(contents, /リンクの中身/);
+  assert.match(contents, /前に調べた事実/);
 });

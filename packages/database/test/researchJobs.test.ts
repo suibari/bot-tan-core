@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isResearchUrl, researchSubjectHash } from "../src/researchJobs.js";
+import { researchSubjectHash } from "../src/researchJobs.js";
 
 /**
  * 主キーの正規化。
@@ -30,18 +30,10 @@ test("内容が違えば別のジョブになる", () => {
   );
 });
 
-test("語とURLを見分ける", () => {
-  // ワーカーはこの判定で「検索する」か「本文を読む」かを分岐する。
-  assert.equal(isResearchUrl("https://example.com/a"), true);
-  assert.equal(isResearchUrl("  http://example.com  "), true);
-  assert.equal(isResearchUrl("薬屋のひとりごと"), false);
-  assert.equal(isResearchUrl("ftp://example.com"), false);
-  // 語の中に URL が出てきても、先頭でなければ語として扱う。
-  assert.equal(isResearchUrl("これ https://example.com"), false);
-});
-
-test("同じURLは一度しか積まない", () => {
-  const a = researchSubjectHash("https://example.com/a");
-  assert.equal(researchSubjectHash("  https://example.com/a "), a);
-  assert.notEqual(researchSubjectHash("https://example.com/b"), a);
+test("キューに積むのは語だけで、URLは扱わない", () => {
+  // URL はその場で読む（grounding.ts）。非同期に回すと「次に同じリンクが来たら
+  // 答えられる」になってしまい、実際の会話では役に立たない。
+  const a = researchSubjectHash("薬屋のひとりごと");
+  assert.equal(researchSubjectHash(" 薬屋のひとりごと "), a);
+  assert.notEqual(researchSubjectHash("ブラッククローバー"), a);
 });

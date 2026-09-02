@@ -351,3 +351,48 @@ export const youtube_shorts = affirmativeBotSchema.table("youtube_shorts", {
   created_at: timestamp("created_at").defaultNow().notNull(),
   updated_at: timestamp("updated_at").defaultNow().notNull(),
 });
+
+/**
+ * リサーチ待ちのリースキュー。
+ *
+ * **nagi ではなく記憶側（affirmative_bot の bot_memory_* 群）に置く。** 積まれるのは
+ * 「botたんが遭遇してまだ知らない対象」で、入口は Bluesky・Nagi のリプライと、記憶から
+ * 抽出された印象ラベル（YouTube 配信のコメント由来を含む）。出口は bot_memory_documents
+ * で、これも全サーフェス共通。どの表面にも属さない。
+ *
+ * 積まれるのは投稿本文ではなく、調べる対象そのもの。
+ *  - 語: 返信を書いたモデルが「知らなかった」と申告したもの、または印象ラベル
+ *  - URL: 利用者が投稿に貼ったもの（先頭が http(s) かどうかでワーカーが分岐する）
+ *
+ * 主キーは正規化した対象のハッシュ。同じものが何度流れてきても二重に調べない
+ * （ON CONFLICT DO NOTHING でエンキューする）。
+ */
+export const bot_memory_research_jobs = affirmativeBotSchema.table(
+  "bot_memory_research_jobs",
+  {
+    subject_hash: text("subject_hash").primaryKey(),
+    subject: text("subject").notNull(),
+    // nagi の bot_job_state と同型だが、スキーマを跨いで enum を共有できないので
+    // ここでは text + check にする。値は pending / processing / posted / failed。
+    state: text("state").default("pending").notNull(),
+    attempts: integer("attempts").default(0).notNull(),
+    lease_expires_at: timestamp("lease_expires_at", { withTimezone: true }),
+    next_attempt_at: timestamp("next_attempt_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    last_error: text("last_error"),
+    created_at: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updated_at: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("bot_memory_research_jobs_ready_idx").on(table.state, table.next_attempt_at),
+    check(
+      "bot_memory_research_jobs_state_check",
+      sql`${table.state} in ('pending', 'processing', 'posted', 'failed')`,
+    ),
+  ],
+);

@@ -17,6 +17,14 @@ export type GroundingDeps = {
   research?: (input: { queries: string[]; urls: string[] }) => Promise<string>;
 };
 
+/** 呼び出し元だけが持っている材料。params からは取れないのでここで渡す。 */
+export type GroundingContext = {
+  /** botMemoryResearchWorker が先に調べておいた事実（bot memory の web_research）。 */
+  researchMemory?: string | null;
+  /** 利用者が投稿に貼ったリンク。**同期で読む。** */
+  urls?: string[];
+};
+
 /**
  * リプライ系。**同期パスでは検索しない。**
  *
@@ -25,7 +33,7 @@ export type GroundingDeps = {
  * 投稿からリプライまでの体感が確実に悪化する。
  *
  * そこで同期パスからは検索を外し、その場では「分からない」と言わせる。調べる方は
- * NagiResearchWorker が非同期で回し、結果を bot memory に貯めて次回以降に効かせる。
+ * botMemoryResearchWorker が非同期で回し、結果を bot memory に貯めて次回以降に効かせる。
  * これで同期パスのローカル推論は本生成の 1 回だけになる。
  */
 const DEFERRED_FEATURES = new Set<AiFeatureKey>([
@@ -524,26 +532,46 @@ function appendResearch(params: any, research: string, strict = false): any {
  * この制約は変えない。
  *
  * リプライ系（deferred）はここで検索しない。ローカル推論を本生成の 1 回に抑えるため、
- * 調べる方は NagiResearchWorker が非同期で回す。
+ * 調べる方は botMemoryResearchWorker が非同期で回す。
  */
 export async function prepareOllamaGrounding(
   feature: AiFeatureKey | undefined,
   params: any,
   deps: GroundingDeps = {},
-  researchMemory?: string | null,
+  context: GroundingContext = {},
 ): Promise<any> {
   const stripped = stripGroundingTools(params);
   const policy = groundingPolicyForFeature(feature);
   if (policy === "off" || !hasGroundingTools(params)) return stripped;
 
-  // 同期パスでは調べない。ここで planner も検索も呼ばないことがレイテンシ改善の本体。
-  //
-  // 代わりに、NagiResearchWorker が先に調べて bot memory へ入れた分があればそれを渡す。
-  // 事前に調べてある話題なら答えられ、無ければ「知らない」と言う。
   if (policy === "deferred") {
-    const remembered = researchMemory?.trim();
-    return remembered
-      ? appendResearch(stripped, remembered, true)
+    const blocks: string[] = [];
+
+    // 貼られたリンクだけは**その場で読む**。
+    //
+    // 語（新語）は非同期でよい。「それは知らない」と正直に答えて、次に同じ話題が
+    // 来たときに答えられれば会話として成立する。URL は違う。「このリンク見て」に
+    // 対して「あとで読んでおくね」では役に立たない。読んでから返す。
+    const urls = (context.urls ?? []).slice(0, MAX_URLS);
+    if (urls.length && isAiGroundingEnabled()) {
+      try {
+        blocks.push(await (deps.research ?? researchSelfHosted)({ queries: [], urls }));
+      } catch (error) {
+        // 読めなくてもカードの title / description はプロンプトに残っている。
+        console.warn(
+          `[WARN][AI_GROUNDING] feature=${feature ?? "unknown"} リンクを読めなかった`,
+          error instanceof Error ? error.message : error,
+        );
+      }
+    }
+
+    // botMemoryResearchWorker が先に調べて bot memory へ入れた分。
+    const remembered = context.researchMemory?.trim();
+    if (remembered) blocks.push(remembered);
+
+    // 何も根拠が無ければ「知らないことは知らないと言う」だけを渡す。
+    return blocks.length
+      ? appendResearch(stripped, blocks.join("\n\n"), true)
       : appendNote(stripped, DEFERRED_RESEARCH_NOTE);
   }
 

@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { mock, test } from "node:test";
 import { researchSelfHosted } from "../src/gemini/grounding.js";
+import { MemoryService } from "@bsky-affirmative-bot/database";
+
+/**
+ * 計上とエンキューは fire-and-forget で database を動的importする。実DBへ抜けると
+ * 接続が開いたままになり、テストが全部通ってもプロセスが終了しない（実測）。
+ * ファイル全体で差し替えて、単体テストが DB に触らないようにする。
+ */
+mock.method(MemoryService, "incrementStats", async () => {});
+
 
 /**
  * 自前調査（SearXNG 検索 → 本文取得 → ローカル要約）を fetch 差し替えで通しで見る。

@@ -19,7 +19,6 @@ import { startNagiReplyWorker } from "./NagiReplyWorker.js";
 import { startNagiAnalysisWorker } from "./NagiAnalysisWorker.js";
 import { startNagiCardCommentWorker } from "./NagiCardCommentWorker.js";
 import { startNagiCommunityAffirmationWorker } from "./NagiCommunityAffirmationWorker.js";
-import { startNagiResearchWorker } from "./NagiResearchWorker.js";
 import { enqueueAnalysis, runNagiAnalysis } from "./NagiAnalysisFeature.js";
 import express from "express";
 import type { ScheduledPostRequest } from "@bsky-affirmative-bot/clients";
@@ -89,8 +88,6 @@ async function start() {
   // 右サイドバー「みんなで全肯定」の匿名要約。候補選出と生成を作者単位で行う。
   startNagiCommunityAffirmationWorker();
 
-  // リプライの同期パスから外した検索を裏で回す。結果は bot memory へ入る。
-  startNagiResearchWorker();
   // ニュースフィードの取得・公開とユーザー追加ニュースの審査は、
   // Nagiへの投稿を所有するこのサーバーで完結させる。
   schedulePositiveNewsUpdates();

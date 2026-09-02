@@ -222,7 +222,7 @@ export async function loadReplyMemories(text: string, authorDid: string) {
         console.warn(`[WARN][${authorDid}] Failed to retrieve friend bot memory:`, error);
         return [];
     });
-    // NagiResearchWorker が調べておいた事実。bot_memory_documents は Nagi と共通なので、
+    // botMemoryResearchWorker が調べておいた事実。bot_memory_documents は Nagi と共通なので、
     // Nagi 側で覚えた語も Bluesky のリプライで使える。authorId が null なので
     // ownPromise（authorId 絞り込み）にも friendPromise（source 限定）にも掛からず、
     // 専用に引く必要がある。

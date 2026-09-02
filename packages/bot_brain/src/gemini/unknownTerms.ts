@@ -1,5 +1,6 @@
-import type { UserInfoGemini } from "@bsky-affirmative-bot/shared-configs";
+import type { AiFeatureKey, UserInfoGemini } from "@bsky-affirmative-bot/shared-configs";
 import { normalizeJsonSchema } from "./generationClient.js";
+import { groundingPolicyForFeature } from "./grounding.js";
 
 /**
  * 返信を書いたモデル自身に「この投稿で知らなかった語」を申告させ、非同期で調べる。
@@ -94,31 +95,55 @@ export function reportUnknownTerms(terms: string[]): void {
 }
 
 /**
- * 利用者が投稿に貼った URL を調査キューへ積む。Gemini の URL Context の置き換え。
+ * 利用者が投稿に貼ったリンクを取り出す。
  *
- * 語と違って「調べるべきか」の判断は要らない。貼られた時点で対象なので、モデルの
- * 申告を待たずにここで積む。ワーカーが検索せず本文を直接読み、結果は語と同じく
- * bot memory へ入るので、次に同じリンクや話題が来たときに使える。
+ * 語（新語）と違い、URL は**その場で読む**。「このリンク見て」に対して
+ * 「あとで読んでおくね」では会話にならないため、非同期キューへは積まない。
+ * 読むのは prepareOllamaGrounding（SSRF 検証込みの fetchReadableText 経由）。
  *
  * リンクカードには title / description が最初から付いており、それは従来どおり
- * プロンプトへ載る。ここで積むのは「本文まで読む」ぶんの上積み。
+ * プロンプトへ載る。ここで取り出すのは「本文まで読む」ぶんの上積み。
  */
-export function reportSharedLinks(userinfo?: UserInfoGemini): void {
+export function sharedLinkUrls(userinfo?: UserInfoGemini): string[] {
   const embed = userinfo?.embed;
-  if (!embed) return;
+  if (!embed) return [];
   const urls = new Set<string>();
   for (const link of embed.links_embed ?? []) {
     if (typeof link?.uri === "string") urls.add(link.uri);
   }
   if (typeof embed.uri_embed === "string") urls.add(embed.uri_embed);
-  if (!urls.size) return;
+  return [...urls];
+}
 
-  void (async () => {
-    try {
-      const { enqueueResearchJob } = await import("@bsky-affirmative-bot/database");
-      for (const url of [...urls].slice(0, 3)) await enqueueResearchJob(url);
-    } catch {
-      // 読めなくても、カードの title / description でリプライは成立している。
-    }
-  })();
+/**
+ * この機能で「知らなかった語」を申告させるか。
+ *
+ * 同期パスで検索しない機能（deferred）だけが対象。おみくじ等を巻き込むと
+ * 自由文だった出力が JSON に変わってしまう。
+ */
+export function collectsUnknownTerms(feature?: AiFeatureKey): boolean {
+  return groundingPolicyForFeature(feature) === "deferred";
+}
+
+/**
+ * `{reply, unknownTerms}` を解いて本文と語に分ける。
+ *
+ * 解析に失敗したら素のテキストとして返す。ここで throw すると、構造化に失敗しただけで
+ * リプライが消える。**利用者に生の JSON が届かないことが最優先。**
+ */
+export function unwrapReplyWithTerms(text: string): { reply: string; terms: string[] } {
+  const raw = text ?? "";
+  try {
+    const parsed = JSON.parse(
+      /```json\n([\s\S]*?)\n```/.exec(raw)?.[1] ??
+        /(\{[\s\S]*\})/.exec(raw)?.[1] ??
+        raw,
+    ) as { reply?: unknown; unknownTerms?: unknown };
+    return {
+      reply: typeof parsed?.reply === "string" ? parsed.reply : raw,
+      terms: sanitizeUnknownTerms(parsed?.unknownTerms),
+    };
+  } catch {
+    return { reply: raw, terms: [] };
+  }
 }

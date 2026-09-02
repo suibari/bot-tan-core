@@ -9,11 +9,12 @@ import { generateContentForProvider } from './generationClient.js';
 import { groundingPolicyForFeature, prepareOllamaGrounding } from './grounding.js';
 import {
   UNKNOWN_TERMS_INSTRUCTION,
-  replyWithUnknownTermsSchema,
-  reportSharedLinks,
-  reportUnknownTerms,
+  collectsUnknownTerms,
   sanitizeUnknownTerms,
-  withUnknownTermsProperty,
+  replyWithUnknownTermsSchema,
+  sharedLinkUrls,
+  reportUnknownTerms,
+  unwrapReplyWithTerms,
 } from './unknownTerms.js';
 
 export type GeminiRequestOptions = {
@@ -229,11 +230,12 @@ export async function generateContentWithRetry(
   };
 
   if (provider === 'ollama') {
-    // 事前に調べてある事実（bot memory の web_research）があれば同期パスでも根拠にできる。
-    params = await prepareOllamaGrounding(feature, params, {}, userinfo?.researchMemory);
-    // 貼られたリンクは本文まで読みに行く（Gemini の URL Context の置き換え）。
-    // 同期では読まず、非同期ワーカーへ回して次回以降に効かせる。
-    if (groundingPolicyForFeature(feature) === 'deferred') reportSharedLinks(userinfo);
+    // 事前に調べてある事実（bot memory の web_research）と、貼られたリンクを渡す。
+    // リンクはこの中で同期的に読まれる（Gemini の URL Context の置き換え）。
+    params = await prepareOllamaGrounding(feature, params, {}, {
+      researchMemory: userinfo?.researchMemory,
+      urls: collectsUnknownTerms(feature) ? sharedLinkUrls(userinfo) : [],
+    });
   }
 
   if (userinfo?.botContext) {
@@ -336,7 +338,7 @@ export async function generateSingleResponse(
 
   // リプライ系は同期パスで検索しない代わりに、生成と同じ1回のリクエストで
   // 「知らなかった語」を申告させ、非同期で調べる。判定用のLLM呼び出しは増えない。
-  const collectsTerms = groundingPolicyForFeature(feature) === 'deferred';
+  const collectsTerms = collectsUnknownTerms(feature);
 
   const response = await generateContentWithRetry(
     {
@@ -365,14 +367,9 @@ export async function generateSingleResponse(
 
   let responseText = response.text || '';
   if (collectsTerms) {
-    // 構造化に失敗したら、生成そのものを落とさず素のテキストとして扱う。
-    try {
-      const parsed = extractJSON(responseText) as { reply?: unknown; unknownTerms?: unknown };
-      if (typeof parsed?.reply === 'string') responseText = parsed.reply;
-      reportUnknownTerms(sanitizeUnknownTerms(parsed?.unknownTerms));
-    } catch {
-      console.warn('[WARN][UNKNOWN_TERMS] 構造化出力の解析に失敗。素のテキストとして続行する。');
-    }
+    const unwrapped = unwrapReplyWithTerms(responseText);
+    responseText = unwrapped.reply;
+    reportUnknownTerms(unwrapped.terms);
   }
 
   // Gemini出力の"["から"]"まで囲われたすべての部分を除去

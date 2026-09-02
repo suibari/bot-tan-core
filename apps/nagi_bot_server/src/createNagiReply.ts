@@ -148,7 +148,7 @@ async function generateConversationReply(
       history,
       isSubscriber: true,
       urlContextEnabled: context.urlContextEnabled,
-      // NagiResearchWorker が先に調べておいた事実。同期パスでは検索しないので、
+      // botMemoryResearchWorker が先に調べておいた事実。同期パスでは検索しないので、
       // 鮮度が要る話題の根拠になるのはここに載っている分だけ。
       researchMemory: context.researchMemory,
       botContext: await getBotContext(),

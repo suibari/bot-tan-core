@@ -1,7 +1,6 @@
 import {
   completeResearchJob,
   failResearchJob,
-  isResearchUrl,
   leaseResearchJob,
   pruneResearchJobs,
   tryUpsertBotMemoryDocument,
@@ -28,22 +27,26 @@ let running = false;
 /**
  * 非同期リサーチワーカー。
  *
- * 積まれるのは、返信を書いたモデルが「知らなかった」と申告した語。その場では
- * 「知らない」と正直に答えたうえで、ここで調べて bot memory
- * （source_type='web_research'）へ入れ、次に同じ語が来たときに使えるようにする。
- * 追いリプライはしない。
+ * **記憶の一部なので Nagi ではなく biorhythm_server に置く。** 入口は Bluesky・Nagi の
+ * リプライ（モデルが「知らなかった」と申告した語と、貼られた URL）と、記憶から抽出
+ * された印象ラベル（YouTube 配信のコメント由来を含む）。出口は全サーフェス共通の
+ * bot_memory_documents（source_type='web_research'）。どの表面にも属さない。
+ * botMemoryEmbeddingWorker / botMemoryImpressionWorker と同じ並び。
+ *
+ * その場では「知らない」と正直に答えたうえで、ここで調べて次に同じ対象が来たときに
+ * 使えるようにする。追いリプライはしない。
  */
-export function startNagiResearchWorker() {
+export function startBotMemoryResearchWorker() {
   if (running) return;
   if (!isAiGroundingEnabled()) {
-    console.log("[INFO][RESEARCH_WORKER] AI_GROUNDING_PROVIDER=off のため起動しない");
+    console.log("[INFO][MEMORY_RESEARCH] AI_GROUNDING_PROVIDER=off のため起動しない");
     return;
   }
   // 検索基盤が無いまま回すと、積まれたジョブを失敗させて指数バックオフで
   // 潰すだけになる。SearXNG を立てる前の初回デプロイがまさにこの状態。
   if (!isSearxngConfigured()) {
     console.warn(
-      "[WARN][RESEARCH_WORKER] SEARXNG_BASE_URL が未設定のため起動しない。" +
+      "[WARN][MEMORY_RESEARCH] SEARXNG_BASE_URL が未設定のため起動しない。" +
         " searxng/compose.yml で立ててから .env に書くこと。",
     );
     return;
@@ -55,19 +58,14 @@ export function startNagiResearchWorker() {
     if (!job) return;
 
     try {
-      // ジョブに入っているのは「調べる対象」そのもの。何を調べるかは既に決まって
-      // いるので planner は要らず、非同期側の LLM 呼び出しは最後の要約 1 回だけ。
+      // ジョブに入っているのは調べる語そのもの。何を調べるかは既に決まっているので
+      // planner は要らず、非同期側の LLM 呼び出しは最後の要約 1 回だけ。
       //
-      // 対象は2種類。
-      //  - 語: 返信を書いたモデルが「知らなかった」と申告したもの、または記憶から
-      //        抽出された印象ラベル。素の固有名詞は検索クエリとしてよく効く
-      //        （実測: 「薬屋のひとりごと」で公式サイトと Wikipedia の infobox）
-      //  - URL: 利用者が投稿に貼ったもの。検索せず本文を直接読む
-      //        （Gemini の URL Context の置き換え）
-      const isUrl = isResearchUrl(job.subject);
+      // 素の固有名詞は検索クエリとしてよく効く（実測:「薬屋のひとりごと」で公式
+      // サイトと Wikipedia の infobox が取れる）。
       const research = await researchSelfHosted({
-        queries: isUrl ? [] : [job.subject],
-        urls: isUrl ? [job.subject] : [],
+        queries: [job.subject],
+        urls: [],
       });
 
       // sourceId をジョブのハッシュに揃える。再調査すると同じ行が更新され、
@@ -82,7 +80,7 @@ export function startNagiResearchWorker() {
         metadata: { term: job.subject },
       });
       await completeResearchJob(job.subjectHash);
-      console.log(`[INFO][RESEARCH_WORKER] learned: ${job.subject}`);
+      console.log(`[INFO][MEMORY_RESEARCH] learned: ${job.subject}`);
     } catch (error) {
       const backoffMs = Math.min(MAX_BACKOFF_MS, 2 ** job.attempts * 60_000);
       // 調べられなくてもリプライは既に「知らない」と答えて成立している。
@@ -95,7 +93,7 @@ export function startNagiResearchWorker() {
         error,
       });
       console.warn(
-        `[WARN][RESEARCH_WORKER] attempt=${job.attempts} 失敗`,
+        `[WARN][MEMORY_RESEARCH] attempt=${job.attempts} 失敗`,
         error instanceof Error ? error.message : error,
       );
     }
@@ -108,7 +106,7 @@ export function startNagiResearchWorker() {
   setInterval(() => {
     void pruneResearchJobs(JOB_RETENTION_MS)
       .then((count) => {
-        if (count) console.log(`[INFO][RESEARCH_WORKER] pruned ${count} jobs`);
+        if (count) console.log(`[INFO][MEMORY_RESEARCH] pruned ${count} jobs`);
       })
       .catch(console.error);
   }, PRUNE_INTERVAL_MS).unref();

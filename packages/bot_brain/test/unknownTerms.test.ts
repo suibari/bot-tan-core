@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  collectsUnknownTerms,
   replyWithUnknownTermsSchema,
   sanitizeUnknownTerms,
+  unwrapReplyWithTerms,
 } from "../src/gemini/unknownTerms.js";
+
 
 /**
  * 「知らなかった語」の申告。
@@ -60,64 +63,43 @@ test("自由文の機能へ渡すスキーマは reply を必須にする", () =
   assert.equal(schema.properties.unknownTerms.type, "array");
 });
 
-/** Ollama を1回だけ捕まえ、返す本文をテストごとに差し替える。 */
-async function withStubbedOllama<T>(
-  content: string,
-  run: () => Promise<T>,
-): Promise<{ value: T; request: any }> {
-  const saved = process.env.OLLAMA_BASE_URL;
-  process.env.OLLAMA_BASE_URL = "http://ollama.test/v1";
-  const originalFetch = globalThis.fetch;
-  let request: any;
-  globalThis.fetch = (async (_url: any, init: any) => {
-    request = JSON.parse(init.body);
-    return new Response(
-      JSON.stringify({ model: "local-test", message: { content } }),
-      { headers: { "content-type": "application/json" } },
-    );
-  }) as typeof fetch;
-  try {
-    return { value: await run(), request };
-  } finally {
-    globalThis.fetch = originalFetch;
-    if (saved === undefined) delete process.env.OLLAMA_BASE_URL;
-    else process.env.OLLAMA_BASE_URL = saved;
+test("申告を集めるのはdeferredの機能だけ", () => {
+  // おみくじ等を巻き込むと、自由文だった出力が JSON に変わってしまう。
+  assert.equal(collectsUnknownTerms("BSKY_AFFIRMATIVE_REPLY"), true);
+  assert.equal(collectsUnknownTerms("BSKY_CONVERSATION"), true);
+  assert.equal(collectsUnknownTerms("BSKY_WHIMSICAL_REPLY"), true);
+  assert.equal(collectsUnknownTerms("BSKY_OMIKUJI"), false);
+  assert.equal(collectsUnknownTerms("NEWS_POSITIVE_COMMENT"), false);
+  assert.equal(collectsUnknownTerms(undefined), false);
+});
+
+test("構造化出力を本文と語へ解く", () => {
+  const value = unwrapReplyWithTerms(
+    JSON.stringify({ reply: "そうなんだ！", unknownTerms: ["薬屋のひとりごと"] }),
+  );
+  assert.deepEqual(value, { reply: "そうなんだ！", terms: ["薬屋のひとりごと"] });
+});
+
+test("解析に失敗しても本文を失わない", () => {
+  // ここが throw すると、構造化に失敗しただけでリプライが消える。
+  // 利用者に生の JSON が届かないことが最優先。
+  for (const raw of ["JSONじゃない普通の返事", "", "{壊れたJSON"]) {
+    const value = unwrapReplyWithTerms(raw);
+    assert.equal(value.reply, raw);
+    assert.deepEqual(value.terms, []);
   }
-}
-
-test("気まぐれリプライは構造化出力を解いて本文だけを返す", async () => {
-  // ここが漏れると、利用者に生の JSON がリプライとして届く。
-  const { generateSingleResponse } = await import("../src/gemini/util.js");
-  const { value: text, request } = await withStubbedOllama(
-    JSON.stringify({
-      reply: "そうなんだ、教えてくれてありがとう！",
-      unknownTerms: ["薬屋のひとりごと"],
-    }),
-    () => generateSingleResponse("薬屋のひとりごと見た！", undefined, "BSKY_WHIMSICAL_REPLY"),
-  );
-
-  assert.equal(text, "そうなんだ、教えてくれてありがとう！");
-  assert.doesNotMatch(text, /unknownTerms/, "JSONが漏れていない");
-  const system = request.messages.find((m: any) => m.role === "system")?.content ?? "";
-  assert.match(system, /unknownTerms/, "申告を促す指示が乗っている");
-  assert.equal(request.format.properties.reply.type, "string", "スキーマで縛っている");
 });
 
-test("構造化に失敗しても素のテキストとして返す", async () => {
-  const { generateSingleResponse } = await import("../src/gemini/util.js");
-  const { value: text } = await withStubbedOllama("JSONじゃない普通の返事", () =>
-    generateSingleResponse("やっほー", undefined, "BSKY_WHIMSICAL_REPLY"),
-  );
-  assert.equal(text, "JSONじゃない普通の返事", "生成そのものは落とさない");
+test("replyが無い構造化出力は素のテキスト扱いにする", () => {
+  const raw = JSON.stringify({ unknownTerms: ["薬屋のひとりごと"] });
+  const value = unwrapReplyWithTerms(raw);
+  assert.equal(value.reply, raw, "本文を空にしない");
+  assert.deepEqual(value.terms, ["薬屋のひとりごと"]);
 });
 
-test("deferred以外の機能は構造化しない", async () => {
-  // おみくじ等は従来どおり自由文。ここへ巻き込むと出力形式が変わる。
-  const { generateSingleResponse } = await import("../src/gemini/util.js");
-  const { request } = await withStubbedOllama("大吉だよ！", () =>
-    generateSingleResponse("おみくじ", undefined, "BSKY_OMIKUJI"),
+test("コードブロックで包まれても解ける", () => {
+  const value = unwrapReplyWithTerms(
+    '```json\n{"reply":"やっほー","unknownTerms":[]}\n```',
   );
-  assert.equal(request.format, undefined);
-  const system = request.messages.find((m: any) => m.role === "system")?.content ?? "";
-  assert.doesNotMatch(system, /unknownTerms/);
+  assert.equal(value.reply, "やっほー");
 });

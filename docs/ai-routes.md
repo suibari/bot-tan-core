@@ -39,9 +39,9 @@ SEARXNG_BASE_URL=http://127.0.0.1:8080
 リプライ生成（ローカルLLM 1回）
   └→ {reply, unknownTerms[]} を構造化出力
         reply         → 利用者へ
-        unknownTerms  → nagi.research_jobs へ（語だけ。投稿本文は入らない）
+        unknownTerms  → affirmative_bot.research_jobs へ（語だけ。投稿本文は入らない）
 
-NagiResearchWorker（非同期・同時実行1・60秒間隔）
+botMemoryResearchWorker（非同期・同時実行1・60秒間隔）
   └→ その語で SearXNG 検索 → 要約（ローカルLLM 1回）
         → bot_memory_documents (source_type='web_research')
 
