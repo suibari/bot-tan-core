@@ -10,6 +10,7 @@ import { groundingPolicyForFeature, prepareOllamaGrounding } from './grounding.j
 import {
   UNKNOWN_TERMS_INSTRUCTION,
   replyWithUnknownTermsSchema,
+  reportSharedLinks,
   reportUnknownTerms,
   sanitizeUnknownTerms,
   withUnknownTermsProperty,
@@ -230,6 +231,9 @@ export async function generateContentWithRetry(
   if (provider === 'ollama') {
     // 事前に調べてある事実（bot memory の web_research）があれば同期パスでも根拠にできる。
     params = await prepareOllamaGrounding(feature, params, {}, userinfo?.researchMemory);
+    // 貼られたリンクは本文まで読みに行く（Gemini の URL Context の置き換え）。
+    // 同期では読まず、非同期ワーカーへ回して次回以降に効かせる。
+    if (groundingPolicyForFeature(feature) === 'deferred') reportSharedLinks(userinfo);
   }
 
   if (userinfo?.botContext) {

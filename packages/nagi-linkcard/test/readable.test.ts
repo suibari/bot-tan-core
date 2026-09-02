@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { fetchReadableText } from "../src/readable.js";
 import { LinkMetadataError } from "../src/errors.js";
+import { blockedAddress } from "../src/ssrf.js";
 
 const originalFetch = globalThis.fetch;
 
@@ -210,4 +211,44 @@ test("refuses non-HTTP schemes", async () => {
     assert.equal(error.status, 400);
     return true;
   });
+});
+
+/**
+ * SSRF のアドレス判定。
+ *
+ * ここは「利用者が貼った URL を自宅サーバが取りに行く」経路の唯一の門。
+ * 取得した本文は要約されて共有の bot memory に入り、他の人へのリプライにも
+ * 使われるので、素通りするとローカルサービスの中身がそこへ流れる。
+ */
+test("IPv4射影IPv6でループバック判定を迂回できない", () => {
+  // 攻撃者が自ドメインの AAAA に ::ffff:127.0.0.1 を置くだけで、DNS 解決結果の
+  // 検査をすり抜けられていた（実測で確認した実在の穴）。
+  assert.equal(blockedAddress("::ffff:127.0.0.1"), true);
+  assert.equal(blockedAddress("::ffff:7f00:1"), true, "16進表記でも塞ぐ");
+  assert.equal(blockedAddress("::FFFF:192.168.1.220"), true, "大文字でも塞ぐ");
+});
+
+test("到達すべきでない範囲をまとめて塞ぐ", () => {
+  for (const address of [
+    "127.0.0.1",
+    "10.0.0.1",
+    "172.16.0.1",
+    "192.168.1.220",
+    "169.254.169.254",
+    "0.0.0.0",
+    "100.64.0.1",
+    "192.0.0.1",
+    "198.18.0.1",
+    "::1",
+    "fd00::1",
+    "fe80::1",
+  ]) {
+    assert.equal(blockedAddress(address), true, address);
+  }
+});
+
+test("公開アドレスは通す", () => {
+  for (const address of ["93.184.216.34", "1.1.1.1", "2606:4700::1111"]) {
+    assert.equal(blockedAddress(address), false, address);
+  }
 });

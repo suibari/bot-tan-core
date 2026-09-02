@@ -21,9 +21,20 @@ export function researchSubjectHash(subject: string): string {
   return botMemoryContentHash(subject.replace(/\s+/g, " ").trim().toLowerCase());
 }
 
-/** 積むのは語であって投稿本文ではない。長い文が来たら申告のバグなので切る。 */
-const MAX_SUBJECT_LENGTH = 60;
+/**
+ * 積むのは「調べる対象」であって投稿本文ではない。長い文が来たら申告のバグなので切る。
+ *
+ * 対象は2種類ある。語（モデルが知らないと申告したもの）と URL（利用者が貼ったもの）。
+ * URL は語より長いので上限を分ける。ワーカーは先頭が http(s) かどうかで分岐する。
+ */
+const MAX_TERM_LENGTH = 60;
+const MAX_URL_LENGTH = 2_048;
 const MIN_SUBJECT_LENGTH = 2;
+
+/** 語か URL かの判定。ワーカーと共有するのでここに置く。 */
+export function isResearchUrl(subject: string): boolean {
+  return /^https?:\/\//i.test(subject.trim());
+}
 /**
  * 未処理の上限。
  *
@@ -39,7 +50,8 @@ const MAX_PENDING_JOBS = 200;
  * リプライ自体は「知らない」と答えて成立しているため。
  */
 export async function enqueueResearchJob(subject: string): Promise<boolean> {
-  const trimmed = subject.trim().slice(0, MAX_SUBJECT_LENGTH);
+  const raw = subject.trim();
+  const trimmed = raw.slice(0, isResearchUrl(raw) ? MAX_URL_LENGTH : MAX_TERM_LENGTH);
   if (trimmed.length < MIN_SUBJECT_LENGTH) return false;
   try {
     const [pending] = await db

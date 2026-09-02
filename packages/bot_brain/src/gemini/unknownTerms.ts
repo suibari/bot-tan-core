@@ -1,3 +1,4 @@
+import type { UserInfoGemini } from "@bsky-affirmative-bot/shared-configs";
 import { normalizeJsonSchema } from "./generationClient.js";
 
 /**
@@ -62,7 +63,7 @@ export function sanitizeUnknownTerms(value: unknown): string[] {
     if (typeof item !== "string") continue;
     const term = item.replace(/\s+/g, " ").trim().slice(0, MAX_TERM_LENGTH);
     if (term.length < MIN_TERM_LENGTH) continue;
-    // URL は planner を経ずに本文取得へ回るので、用語としては扱わない。
+    // URL は reportSharedLinks が別に積む。検索語として扱っても意味がない。
     if (/^https?:\/\//i.test(term)) continue;
     const key = term.toLowerCase();
     if (seen.has(key)) continue;
@@ -88,6 +89,36 @@ export function reportUnknownTerms(terms: string[]): void {
       for (const term of terms) await enqueueResearchJob(term);
     } catch {
       // 調べられなくても、その場では「知らない」と答えて成立している。
+    }
+  })();
+}
+
+/**
+ * 利用者が投稿に貼った URL を調査キューへ積む。Gemini の URL Context の置き換え。
+ *
+ * 語と違って「調べるべきか」の判断は要らない。貼られた時点で対象なので、モデルの
+ * 申告を待たずにここで積む。ワーカーが検索せず本文を直接読み、結果は語と同じく
+ * bot memory へ入るので、次に同じリンクや話題が来たときに使える。
+ *
+ * リンクカードには title / description が最初から付いており、それは従来どおり
+ * プロンプトへ載る。ここで積むのは「本文まで読む」ぶんの上積み。
+ */
+export function reportSharedLinks(userinfo?: UserInfoGemini): void {
+  const embed = userinfo?.embed;
+  if (!embed) return;
+  const urls = new Set<string>();
+  for (const link of embed.links_embed ?? []) {
+    if (typeof link?.uri === "string") urls.add(link.uri);
+  }
+  if (typeof embed.uri_embed === "string") urls.add(embed.uri_embed);
+  if (!urls.size) return;
+
+  void (async () => {
+    try {
+      const { enqueueResearchJob } = await import("@bsky-affirmative-bot/database");
+      for (const url of [...urls].slice(0, 3)) await enqueueResearchJob(url);
+    } catch {
+      // 読めなくても、カードの title / description でリプライは成立している。
     }
   })();
 }

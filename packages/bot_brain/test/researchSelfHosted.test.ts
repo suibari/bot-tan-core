@@ -166,3 +166,43 @@ test("SearXNGが落ちていてもinfoboxもヒットも無ければthrowする"
     /no material/,
   );
 });
+
+test("URLだけでも検索せず本文を読んで調査できる", async () => {
+  // Gemini の URL Context の置き換え。利用者が貼ったリンクは検索を挟まず直接読む。
+  let searched = false;
+  let prompt = "";
+  stubFetch({
+    search: { results: [] },
+    page: {
+      body: "<html><head><title>秋アニメ特集</title></head><body><p>薬屋のひとりごと 第3期 10月2日</p></body></html>",
+    },
+    summary: { items: [{ name: "薬屋のひとりごと 第3期", detail: "10月2日" }] },
+    onSummaryPrompt: (value) => {
+      prompt = value;
+    },
+  });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: any, init?: any) => {
+    if (String(input?.url ?? input).includes("127.0.0.1:8080")) searched = true;
+    return realFetch(input, init);
+  }) as typeof fetch;
+
+  const research = await researchSelfHosted({
+    queries: [],
+    urls: ["https://93.184.216.34/fall"],
+  });
+
+  assert.equal(searched, false, "URLジョブでは検索しない");
+  assert.match(prompt, /薬屋のひとりごと 第3期 10月2日/, "本文が要約の入力に入る");
+  assert.match(research, /薬屋のひとりごと 第3期/);
+  assert.match(research, /93\.184\.216\.34\/fall/, "出典に元URLが載る");
+});
+
+test("URLが読めなければthrowして再試行に回す", async () => {
+  // カードの title / description はプロンプト側に残るので、リプライ自体は成立する。
+  stubFetch({ search: { results: [] }, page: { body: "%PDF", contentType: "application/pdf" } });
+  await assert.rejects(
+    researchSelfHosted({ queries: [], urls: ["https://93.184.216.34/x"] }),
+    /no material/,
+  );
+});

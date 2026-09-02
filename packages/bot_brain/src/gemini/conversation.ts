@@ -20,6 +20,7 @@ import { prepareOllamaGrounding } from './grounding.js';
 import {
   UNKNOWN_TERMS_INSTRUCTION,
   replyWithUnknownTermsSchema,
+  reportSharedLinks,
   reportUnknownTerms,
   sanitizeUnknownTerms,
 } from './unknownTerms.js';
@@ -96,6 +97,8 @@ export async function conversation(
   };
   if (route.provider === 'ollama') {
     request = await prepareOllamaGrounding('BSKY_CONVERSATION', request, {}, userinfo?.researchMemory);
+    // 会話で貼られたリンクも同じく非同期で本文を読む。
+    reportSharedLinks(userinfo);
   } else {
     await requestOptions.beforeRequest?.();
   }

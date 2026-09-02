@@ -1,6 +1,7 @@
 import { generateContentWithRetry } from "@bsky-affirmative-bot/bot-brain";
 import {
   type DailyPlanMemoryImpression,
+  enqueueResearchJob,
   getPendingBotMemoryImpressionDocuments,
   saveBotMemoryImpressions,
   type BotMemoryImpressionInput,
@@ -174,9 +175,33 @@ export async function processBotMemoryImpressionBatch(
   const parsed = parseBotMemoryImpressions(JSON.parse(response.text || "{}"), pending);
   let saved = 0;
   for (const document of pending) {
-    if (await save(document.id, document.contentHash, parsed.get(document.id) ?? [])) saved++;
+    const impressions = parsed.get(document.id) ?? [];
+    if (await save(document.id, document.contentHash, impressions)) {
+      saved++;
+      // 印象に残った作品名・言葉は、そのまま「botたんが遭遇した新語」でもある。
+      // リプライ経路の unknownTerms は Bluesky と Nagi しか通らないので、
+      // YouTube 配信のコメントから知った語はここでしか拾えない。
+      // ラベルは parseBotMemoryImpressions が検証済み（2〜40字・原文に実在）。
+      void enqueueResearchLabels(impressions.map((item) => item.label));
+    }
   }
   return saved;
+}
+
+/**
+ * 印象ラベルを調査キューへ積む。fire-and-forget。
+ *
+ * 積みすぎは enqueueResearchJob 側の未処理上限が抑える。失敗しても印象そのものは
+ * 保存済みなので、ここで日次バッチを落とさない。
+ */
+async function enqueueResearchLabels(labels: string[]): Promise<void> {
+  for (const label of labels) {
+    try {
+      await enqueueResearchJob(label);
+    } catch (error) {
+      console.warn("[WARN][MEMORY_IMPRESSION] リサーチのエンキューに失敗", error);
+    }
+  }
 }
 
 export function startBotMemoryImpressionWorker() {

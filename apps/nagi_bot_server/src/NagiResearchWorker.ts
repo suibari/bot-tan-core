@@ -1,6 +1,7 @@
 import {
   completeResearchJob,
   failResearchJob,
+  isResearchUrl,
   leaseResearchJob,
   pruneResearchJobs,
   tryUpsertBotMemoryDocument,
@@ -54,15 +55,19 @@ export function startNagiResearchWorker() {
     if (!job) return;
 
     try {
-      // ジョブに入っているのは、返信を書いたモデル自身が申告した「知らなかった語」。
-      // 何を調べるかは決まっているので planner は要らない。非同期側の LLM 呼び出しは
-      // 最後の要約 1 回だけになる。
+      // ジョブに入っているのは「調べる対象」そのもの。何を調べるかは既に決まって
+      // いるので planner は要らず、非同期側の LLM 呼び出しは最後の要約 1 回だけ。
       //
-      // 素の固有名詞は検索クエリとしてよく効く（実測: 「薬屋のひとりごと」で公式
-      // サイトと Wikipedia の infobox が取れる）。
+      // 対象は2種類。
+      //  - 語: 返信を書いたモデルが「知らなかった」と申告したもの、または記憶から
+      //        抽出された印象ラベル。素の固有名詞は検索クエリとしてよく効く
+      //        （実測: 「薬屋のひとりごと」で公式サイトと Wikipedia の infobox）
+      //  - URL: 利用者が投稿に貼ったもの。検索せず本文を直接読む
+      //        （Gemini の URL Context の置き換え）
+      const isUrl = isResearchUrl(job.subject);
       const research = await researchSelfHosted({
-        queries: [job.subject],
-        urls: [],
+        queries: isUrl ? [] : [job.subject],
+        urls: isUrl ? [job.subject] : [],
       });
 
       // sourceId をジョブのハッシュに揃える。再調査すると同じ行が更新され、
