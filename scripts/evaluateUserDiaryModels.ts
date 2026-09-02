@@ -5,8 +5,8 @@ import postgres from "postgres";
 import { buildUserDiaryContext } from "../packages/clients/src/userDiaryContext.js";
 import { selectUserDiaryMediaReference } from "../packages/clients/src/userDiaryMediaReference.js";
 import { withPreferredName } from "../packages/clients/src/preferredName.js";
-import { generateUserDiaryDraft } from "../packages/bot_brain/src/gemini/generateUserDiary.js";
-import type { GeminiUsage } from "../packages/bot_brain/src/gemini/util.js";
+import { generateUserDiaryDraft } from "../packages/bot_brain/src/ai/generateUserDiary.js";
+import type { GeminiUsage } from "../packages/bot_brain/src/ai/util.js";
 
 const COST_LIMIT_USD = 5;
 const caseCountArg = process.argv.find((value) => value.startsWith("--case-count="));

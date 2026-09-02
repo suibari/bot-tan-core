@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test, { mock } from "node:test";
-import { gemini } from "../src/gemini/index.js";
-import { judgePositiveNewsBatch, sanitizeGateDecisions } from "../src/gemini/judgePositiveNewsBatch.js";
-import { withNewsGeminiRetry } from "../src/gemini/newsGeminiRetry.js";
+import { gemini } from "../src/ai/index.js";
+import { judgePositiveNewsBatch, sanitizeGateDecisions } from "../src/ai/judgePositiveNewsBatch.js";
+import { withNewsGeminiRetry } from "../src/ai/newsGeminiRetry.js";
 import { resetAiRouteCache } from "@bsky-affirmative-bot/shared-configs";
 
 const savedTextProvider = process.env.AI_TEXT_PROVIDER;

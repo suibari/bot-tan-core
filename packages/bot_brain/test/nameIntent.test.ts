@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { normalizeNameIntent } from "../src/gemini/judgeNameIntent.js";
+import { normalizeNameIntent } from "../src/ai/judgeNameIntent.js";
 
 /**
  * 判定モデルの出力を受け取る側の防御。

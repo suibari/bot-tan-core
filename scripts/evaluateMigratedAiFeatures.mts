@@ -18,12 +18,12 @@ import {
   resolveAiRoute,
   type AiFeatureKey,
 } from "../packages/shared-configs/src/index.js";
-import { generateContentForFeature } from "../packages/bot_brain/src/gemini/routedGeneration.js";
+import { generateContentForFeature } from "../packages/bot_brain/src/ai/routedGeneration.js";
 // OLLAMA_* の4機能は generateContentForFeature を通らない。本番と同じクライアントを
 // 呼ばないと、動かないコードを PASS と report してしまう（実際に一度そうなった）。
 import { classifyPredefinedAffirmationStrict } from "../packages/bot_brain/src/predefinedAffirmation.js";
-import { judgeNameIntent } from "../packages/bot_brain/src/gemini/judgeNameIntent.js";
-import { generateAnalyzeResult } from "../packages/bot_brain/src/gemini/generateAnalyzeResult.js";
+import { judgeNameIntent } from "../packages/bot_brain/src/ai/judgeNameIntent.js";
+import { generateAnalyzeResult } from "../packages/bot_brain/src/ai/generateAnalyzeResult.js";
 import { PositiveNewsService } from "../packages/bot_brain/src/api/newsdata/index.js";
 import {
   botTranslationPrompt,

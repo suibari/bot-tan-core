@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { prepareOllamaGrounding } from "../src/gemini/grounding.js";
+import { prepareOllamaGrounding } from "../src/ai/grounding.js";
 import {
   fitOllamaMessages,
   toOllamaMessages,
-} from "../src/gemini/generationClient.js";
+} from "../src/ai/generationClient.js";
 
 /**
  * 非同期リサーチの入口と出口。

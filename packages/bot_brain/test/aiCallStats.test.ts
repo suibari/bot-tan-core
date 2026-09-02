@@ -6,10 +6,10 @@ import {
   reportGenerationHeartbeatAsync,
   setGenerationTelemetrySinkForTest,
   type GenerationTelemetrySink,
-} from "../src/gemini/aiCallStats.js";
-import { gemini } from "../src/gemini/index.js";
-import { generateContentForProvider } from "../src/gemini/generationClient.js";
-import { generateContentWithRetry } from "../src/gemini/util.js";
+} from "../src/ai/aiCallStats.js";
+import { gemini } from "../src/ai/index.js";
+import { generateContentForProvider } from "../src/ai/generationClient.js";
+import { generateContentWithRetry } from "../src/ai/util.js";
 
 const counted: string[] = [];
 const healthEvents: string[] = [];

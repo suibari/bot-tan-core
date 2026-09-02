@@ -7,9 +7,9 @@ import {
   validateDiaryParagraphs,
   validateUsedContextId,
   usedContextIdSchema,
-} from "../src/gemini/generateUserDiary.js";
-import { generateUserDiaryResilient } from "../src/gemini/generateUserDiaryResilient.js";
-import { normalizeJsonSchema } from "../src/gemini/generationClient.js";
+} from "../src/ai/generateUserDiary.js";
+import { generateUserDiaryResilient } from "../src/ai/generateUserDiaryResilient.js";
+import { normalizeJsonSchema } from "../src/ai/generationClient.js";
 
 test("formats bot memories, observances, and news as bounded diary context", () => {
   const context = formatUserDiaryDayContext(

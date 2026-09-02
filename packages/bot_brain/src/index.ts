@@ -1,4 +1,4 @@
-export * from './gemini/index.js';
+export * from './ai/index.js';
 export * from './ollamaChat.js';
 export * from './predefinedAffirmation.js';
 export * from './predefinedReplyPipeline.js';

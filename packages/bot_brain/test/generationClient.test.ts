@@ -6,12 +6,12 @@ import {
   generateOllamaContent,
   normalizeJsonSchema,
   toOllamaMessages,
-} from "../src/gemini/generationClient.js";
+} from "../src/ai/generationClient.js";
 import {
   groundingPolicyForFeature,
   prepareOllamaGrounding,
   seasonalWorksQueries,
-} from "../src/gemini/grounding.js";
+} from "../src/ai/grounding.js";
 import {
   estimateMessagesTokens,
   ollamaPromptBudget,

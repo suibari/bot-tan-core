@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { PositiveNewsCandidate } from "../src/api/newsdata/index.js";
-import { sanitizePositiveNewsSelection } from "../src/gemini/positiveNewsSelection.js";
+import { sanitizePositiveNewsSelection } from "../src/ai/positiveNewsSelection.js";
 
 const candidates: PositiveNewsCandidate[] = [
   {

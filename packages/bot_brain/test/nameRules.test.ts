@@ -5,8 +5,8 @@ import {
   NAME_RULES_EN,
   NAME_RULES_JA,
 } from "@bsky-affirmative-bot/shared-configs";
-import { buildAffirmativePrompt } from "../src/gemini/generateAffirmativeWord.js";
-import { buildConversationPrompt } from "../src/gemini/conversation.js";
+import { buildAffirmativePrompt } from "../src/ai/generateAffirmativeWord.js";
+import { buildConversationPrompt } from "../src/ai/conversation.js";
 
 /**
  * 呼称ドリフトの回帰テスト。

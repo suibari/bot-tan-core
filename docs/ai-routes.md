@@ -153,7 +153,7 @@ Ollama既定とGemini切り戻しの両方を全機能ぶんピン留めして�
 日記は本文と称号を1回の構造化レスポンスで返す。
 
 ユーザ日記も**失敗するたびに段を上げる再試行ラダー**になっている
-（`packages/bot_brain/src/gemini/generateUserDiaryResilient.ts`）。1ユーザ1日1回しか機会が無く、
+（`packages/bot_brain/src/ai/generateUserDiaryResilient.ts`）。1ユーザ1日1回しか機会が無く、
 落とすとその日の日記が丸ごと欠測するため。平常時は EARLY の1回で終わるのでコストは変わらない。
 実運用の呼び出しは必ず `requestOptions` で model/serviceTier を明示上書きするので、
 `COMMON_USER_DIARY` が実際に効くのは `generateUserDiary` を直接呼んだときだけ。

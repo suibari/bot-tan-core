@@ -42,12 +42,12 @@ import { NAGI_LANGUAGES } from "../packages/nagi-lexicon/src/constants.js";
 import {
   buildAffirmativePrompt,
   generateAffirmativeWord,
-} from "../packages/bot_brain/src/gemini/generateAffirmativeWord.js";
+} from "../packages/bot_brain/src/ai/generateAffirmativeWord.js";
 import {
   buildConversationPrompt,
   conversation,
-} from "../packages/bot_brain/src/gemini/conversation.js";
-import { extractJSON } from "../packages/bot_brain/src/gemini/util.js";
+} from "../packages/bot_brain/src/ai/conversation.js";
+import { extractJSON } from "../packages/bot_brain/src/ai/util.js";
 import {
   translationPrompt,
   botTranslationPrompt,

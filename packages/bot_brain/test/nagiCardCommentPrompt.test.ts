@@ -7,7 +7,7 @@ import {
   SLOT_NAGI_REGISTERED_DAY,
   SLOT_USER_ANNIVERSARY,
 } from "@bsky-affirmative-bot/shared-configs";
-import { buildNagiCardCommentPrompt } from "../src/gemini/generateNagiCardComment.js";
+import { buildNagiCardCommentPrompt } from "../src/ai/generateNagiCardComment.js";
 
 function card(id: number) {
   const definition = getCardDef(1, id);

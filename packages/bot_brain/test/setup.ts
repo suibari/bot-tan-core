@@ -1,7 +1,7 @@
 import {
   setGenerationTelemetrySinkForTest,
   type GenerationTelemetrySink,
-} from "../src/gemini/aiCallStats.js";
+} from "../src/ai/aiCallStats.js";
 
 const noOpTelemetrySink: GenerationTelemetrySink = {
   async incrementStats() {},

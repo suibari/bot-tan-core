@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildGoodNightPrompt } from "../src/gemini/generateGoodNight.js";
+import { buildGoodNightPrompt } from "../src/ai/generateGoodNight.js";
 
 const base = {
   currentMood: "のんびりしていた",

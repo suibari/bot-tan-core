@@ -2,7 +2,7 @@ import {
   ollamaTextContextLength,
   aiModel,
 } from "@bsky-affirmative-bot/shared-configs";
-import { reportAiCallAsync } from "../../gemini/aiCallStats.js";
+import { reportAiCallAsync } from "../../ai/aiCallStats.js";
 import { createHash } from "node:crypto";
 import { db, nagiNewsScreening } from "@bsky-affirmative-bot/database";
 import { and, eq, gt } from "drizzle-orm";

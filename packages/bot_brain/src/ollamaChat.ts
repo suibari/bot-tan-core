@@ -4,7 +4,7 @@ import {
   ollamaNativeUrl,
 } from "@bsky-affirmative-bot/shared-configs";
 import type { AiFeatureKey } from "@bsky-affirmative-bot/shared-configs";
-import { reportAiCallAsync } from "./gemini/aiCallStats.js";
+import { reportAiCallAsync } from "./ai/aiCallStats.js";
 
 export type OllamaMessage = { role: string; content: string };
 

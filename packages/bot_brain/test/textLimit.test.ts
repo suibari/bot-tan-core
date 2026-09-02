@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { POST_TEXT_LIMIT } from "@bsky-affirmative-bot/shared-configs";
-import { exceedsTextLimit, resolveTextLimit } from "../src/gemini/util.js";
+import { exceedsTextLimit, resolveTextLimit } from "../src/ai/util.js";
 
 test("未指定なら投稿用の POST_TEXT_LIMIT が既定になる", () => {
   assert.equal(resolveTextLimit(undefined), POST_TEXT_LIMIT);

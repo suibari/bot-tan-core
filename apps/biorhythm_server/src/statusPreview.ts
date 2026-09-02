@@ -70,7 +70,7 @@ const RESPONSE_SCHEMA = {
 async function generate(prompt: string, variant: (typeof VARIANTS)[number]) {
   // ルートを明示して requestOptions で上書きする。「明示 requestOptions > feature のルート」の
   // 優先順位に乗るので、BIORHYTHM_STATUS の既定値を変えずに複数ルートを撃ち比べられる
-  // （packages/bot_brain/src/gemini/util.ts の generateContentWithRetry を参照）。
+  // （packages/bot_brain/src/ai/util.ts の generateContentWithRetry を参照）。
   const route = resolveAiRouteByName(variant.route);
   let usage = "";
   const response = await generateContentWithRetry(

@@ -8,7 +8,7 @@ import {
   NAGI_FEATURE_INTRO_JA,
   sanitizeMemoryDocumentSelection,
   WhimsicalPostGenerator,
-} from "../src/gemini/generateWhimsicalPost.js";
+} from "../src/ai/generateWhimsicalPost.js";
 
 test("日本語のアプリ紹介候補にNagiならではの体験を含める", () => {
   assert.match(NAGI_FEATURE_INTRO_JA, /botたんのために作られた全肯定SNS/);

@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { ImageRef, UserInfoGemini } from "@bsky-affirmative-bot/shared-configs";
 import { SYSTEM_INSTRUCTION } from "@bsky-affirmative-bot/shared-configs";
-import { buildAffirmativePrompt } from "../src/gemini/generateAffirmativeWord.js";
-import { buildConversationPrompt } from "../src/gemini/conversation.js";
+import { buildAffirmativePrompt } from "../src/ai/generateAffirmativeWord.js";
+import { buildConversationPrompt } from "../src/ai/conversation.js";
 
 const userinfo = (
   text: string,

@@ -4,8 +4,8 @@ import type { Content } from "@google/genai";
 import {
   buildConversationPrompt,
   prepareConversationHistory,
-} from "../src/gemini/conversation.js";
-import { formatBotContext } from "../src/gemini/util.js";
+} from "../src/ai/conversation.js";
+import { formatBotContext } from "../src/ai/util.js";
 
 const turn = (role: "user" | "model", text: string): Content => ({
   role,

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { DegenerateReplyError, assertUsableReply } from "../src/gemini/replyGuard.js";
+import { DegenerateReplyError, assertUsableReply } from "../src/ai/replyGuard.js";
 
 test("呼びかけ名をそのまま返した本文は投稿させない", () => {
   // 2026-08-31 の事故そのもの。コンテキストを使い切って表示名だけが出力された。

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { mock, test } from "node:test";
-import { researchSelfHosted } from "../src/gemini/grounding.js";
+import { researchSelfHosted } from "../src/ai/grounding.js";
 import { MemoryService } from "@bsky-affirmative-bot/database";
 
 /**

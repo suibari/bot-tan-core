@@ -30,7 +30,7 @@ import {
   searxngSearch,
   type SearchHit,
 } from "../packages/bot_brain/src/api/searxng/index.js";
-import { seasonalWorksQueries } from "../packages/bot_brain/src/gemini/grounding.js";
+import { seasonalWorksQueries } from "../packages/bot_brain/src/ai/grounding.js";
 import { fetchReadableText } from "../packages/nagi-linkcard/src/readable.js";
 
 // BIORHYTHM_SEASONAL_WORKS が実際に投げるクエリそのもの。ここを固定文字列で

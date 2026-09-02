@@ -8,8 +8,8 @@ import type {
 import {
   affirmativeImageLabel,
   buildAffirmativeImageParts,
-} from "../src/gemini/affirmativeImages.js";
-import { buildAffirmativePrompt } from "../src/gemini/generateAffirmativeWord.js";
+} from "../src/ai/affirmativeImages.js";
+import { buildAffirmativePrompt } from "../src/ai/generateAffirmativeWord.js";
 
 const userinfo = (
   text: string,

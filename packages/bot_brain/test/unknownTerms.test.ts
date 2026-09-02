@@ -5,7 +5,7 @@ import {
   replyWithUnknownTermsSchema,
   sanitizeUnknownTerms,
   unwrapReplyWithTerms,
-} from "../src/gemini/unknownTerms.js";
+} from "../src/ai/unknownTerms.js";
 
 
 /**
