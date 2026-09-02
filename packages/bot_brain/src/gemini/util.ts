@@ -2,10 +2,13 @@ import { PartListUnion, Type } from '@google/genai';
 import { SYSTEM_INSTRUCTION, POST_TEXT_LIMIT, safeFetch, resolveAiRoute, formatJstActivityTime, energyLabel, OLLAMA_LONG_OUTPUT_TOKENS } from '@bsky-affirmative-bot/shared-configs';
 import type { AiFeatureKey } from '@bsky-affirmative-bot/shared-configs';
 import { UserInfoGemini, GeminiScore, BotContext, LanguageName } from '@bsky-affirmative-bot/shared-configs';
-import { MemoryService, reportHealthFailure, reportHeartbeat } from '@bsky-affirmative-bot/database';
 import { buildAffirmativeImageParts } from './affirmativeImages.js';
 import { toServiceTier } from './aiRoute.js';
 import { generateContentForProvider } from './generationClient.js';
+import {
+  reportGenerationHealthFailureAsync,
+  reportGenerationHeartbeatAsync,
+} from './aiCallStats.js';
 import { groundingPolicyForFeature, prepareOllamaGrounding } from './grounding.js';
 import {
   UNKNOWN_TERMS_INSTRUCTION,
@@ -278,12 +281,12 @@ export async function generateContentWithRetry(
       // 死活監視は「最後に成功したのはいつか」だけでは足りない。エラーを返し続けて
       // いる状態を検知するため、失敗そのものを記録する。追加の API 呼び出しは
       // しない（プローブで RPD を消費したくない）。
-      reportHealthFailure(provider === 'ollama' ? 'local-llm' : 'gemini', e).catch(() => {});
+      reportGenerationHealthFailureAsync(provider, e);
       throw e;
     }
     const text = response.text || '';
 
-    reportHeartbeat(provider === 'ollama' ? 'local-llm' : 'gemini').catch(() => {});
+    reportGenerationHeartbeatAsync(provider);
 
     // 文字数制限チェック（文字数超過時のみ、モデル生成のやり直しとして内部リトライを許容）
     if (!exceedsTextLimit(text, textLimit)) {

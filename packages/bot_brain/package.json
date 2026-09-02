@@ -28,7 +28,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "test": "tsx --test test/*.test.ts"
+    "test": "tsx --test --import ./test/setup.ts test/*.test.ts"
   },
   "dependencies": {
     "@atproto/api": "^0.18.21",
