@@ -684,10 +684,15 @@ export type PreferencesView = {
   lastBookmarkFolderId?: string;
   lastBookmarkFolderUpdatedAt?: string;
   /**
-   * 年齢確認の状態。生年月日そのものは返さない（本人にも返す必要がなく、
-   * 漏らす面を増やさないため）。declared が false なら未申告＝未成年扱い。
+   * 年齢確認の状態。本人にだけ返す（getPreferences は requiredServiceAuth 必須で、
+   * 他人の分は引けない）。declared が false なら未申告＝未成年扱い。
    */
-  ageAssurance?: { isAdult: boolean; declared: boolean };
+  ageAssurance?: {
+    isAdult: boolean;
+    declared: boolean;
+    /** 申告済みなら本人が確認できるよう返す。legacy 扱いの既存ユーザーは未申告なので省略。 */
+    birthDate?: string;
+  };
 };
 export type PutPreferencesInput = {
   readPositions?: ReadPosition[];

@@ -356,7 +356,12 @@ export async function getPreferences(did: string): Promise<PreferencesView> {
   ]);
   return {
     ...preferences,
-    ageAssurance: { isAdult: age.isAdult, declared: age.declared },
+    ageAssurance: {
+      isAdult: age.isAdult,
+      declared: age.declared,
+      // 本人にだけ返す。設定画面で「自分が何を登録したか」を確認できるようにするため。
+      ...(age.birthDate ? { birthDate: age.birthDate } : {}),
+    },
   };
 }
 
