@@ -6,6 +6,7 @@ import {
   nagiBookmarkFolders,
   nagiBookmarkPreferences,
   nagiLanguagePreferences,
+  nagiModerationPreferences,
   nagiPreferredNames,
   nagiReadPositions,
 } from "@bsky-affirmative-bot/database";
@@ -22,6 +23,7 @@ import {
   type PutPreferencesInput,
   type ReadPosition,
   type ReadPositionSection,
+  type SyncedModerationPreferences,
   type SyncedLanguagePreferences,
 } from "@bsky-affirmative-bot/nagi-lexicon";
 import { eq, sql } from "drizzle-orm";
@@ -37,6 +39,7 @@ const LANGUAGE_VALUES = new Set<string>([
   ...NAGI_SUPPORTED_LANGUAGES,
 ]);
 const TRANSLATION_PROVIDERS = new Set(["kagi", "deepl", "google"]);
+const MODERATION_PREFERENCES = new Set(["warn", "hide", "ignore"]);
 
 const isSection = (value: unknown): value is ReadPositionSection =>
   READ_POSITION_SECTIONS.includes(value as ReadPositionSection);
@@ -137,6 +140,22 @@ export function parseLanguagePreferences(
     translation: item.translation as SyncedLanguagePreferences["translation"],
     provider: item.provider as SyncedLanguagePreferences["provider"],
     autoTranslate: item.autoTranslate as boolean,
+  };
+}
+
+export function parseModerationPreferences(
+  input: unknown,
+): SyncedModerationPreferences {
+  if (!input || typeof input !== "object") invalid("moderationPreferences");
+  const item = input as Record<string, unknown>;
+  for (const key of ["automatic", "selfAi", "selfNsfw"] as const) {
+    if (!MODERATION_PREFERENCES.has(String(item[key])))
+      invalid(`moderationPreferences.${key}`);
+  }
+  return {
+    automatic: item.automatic as SyncedModerationPreferences["automatic"],
+    selfAi: item.selfAi as SyncedModerationPreferences["selfAi"],
+    selfNsfw: item.selfNsfw as SyncedModerationPreferences["selfNsfw"],
   };
 }
 
@@ -247,6 +266,7 @@ async function selectPreferences(did: string): Promise<PreferencesView> {
     preferredNames,
     followerRows,
     languageRows,
+    moderationRows,
     bookmarkRows,
   ] = await Promise.all([
     db
@@ -287,6 +307,11 @@ async function selectPreferences(did: string): Promise<PreferencesView> {
       .limit(1),
     db
       .select()
+      .from(nagiModerationPreferences)
+      .where(eq(nagiModerationPreferences.did, did))
+      .limit(1),
+    db
+      .select()
       .from(nagiBookmarkPreferences)
       .where(eq(nagiBookmarkPreferences.did, did))
       .limit(1),
@@ -296,6 +321,7 @@ async function selectPreferences(did: string): Promise<PreferencesView> {
   const preferredName = preferredNames[0]?.name;
   const followerRow = followerRows[0];
   const languageRow = languageRows[0];
+  const moderationRow = moderationRows[0];
   const bookmarkRow = bookmarkRows[0];
   return {
     readPositions: positions
@@ -333,6 +359,19 @@ async function selectPreferences(did: string): Promise<PreferencesView> {
             autoTranslate: languageRow.autoTranslate,
           },
           languagePreferencesUpdatedAt: languageRow.updatedAt.toISOString(),
+        }
+      : {}),
+    ...(moderationRow
+      ? {
+          moderationPreferences: {
+            automatic:
+              moderationRow.automatic as SyncedModerationPreferences["automatic"],
+            selfAi:
+              moderationRow.selfAi as SyncedModerationPreferences["selfAi"],
+            selfNsfw:
+              moderationRow.selfNsfw as SyncedModerationPreferences["selfNsfw"],
+          },
+          moderationPreferencesUpdatedAt: moderationRow.updatedAt.toISOString(),
         }
       : {}),
     ...(bookmarkRow
@@ -392,6 +431,16 @@ export async function putPreferences(
     ? parseUpdatedAt(
         "languagePreferencesUpdatedAt",
         input.languagePreferencesUpdatedAt,
+      )
+    : undefined;
+  const hasModerationPreferences = input.moderationPreferences !== undefined;
+  const moderationPreferences = hasModerationPreferences
+    ? parseModerationPreferences(input.moderationPreferences)
+    : undefined;
+  const moderationPreferencesUpdatedAt = hasModerationPreferences
+    ? parseUpdatedAt(
+        "moderationPreferencesUpdatedAt",
+        input.moderationPreferencesUpdatedAt,
       )
     : undefined;
   const hasLastBookmarkFolder = input.lastBookmarkFolderId !== undefined;
@@ -533,6 +582,26 @@ export async function putPreferences(
           updatedAt: sql`excluded.updated_at`,
         },
         setWhere: sql`excluded.updated_at > language_preferences.updated_at`,
+      });
+  }
+
+  if (moderationPreferences && moderationPreferencesUpdatedAt) {
+    await db
+      .insert(nagiModerationPreferences)
+      .values({
+        did,
+        ...moderationPreferences,
+        updatedAt: moderationPreferencesUpdatedAt,
+      })
+      .onConflictDoUpdate({
+        target: nagiModerationPreferences.did,
+        set: {
+          automatic: sql`excluded.automatic`,
+          selfAi: sql`excluded.self_ai`,
+          selfNsfw: sql`excluded.self_nsfw`,
+          updatedAt: sql`excluded.updated_at`,
+        },
+        setWhere: sql`excluded.updated_at > moderation_preferences.updated_at`,
       });
   }
 

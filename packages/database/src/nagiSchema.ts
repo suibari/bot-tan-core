@@ -968,6 +968,27 @@ export const nagiLanguagePreferences = nagiSchema.table(
   (t) => [index("nagi_language_preferences_updated_idx").on(t.updatedAt)],
 );
 
+/** モデレーションラベルの表示方法。本人の端末間だけで同期する。 */
+export const nagiModerationPreferences = nagiSchema.table(
+  "moderation_preferences",
+  {
+    did: text("did").primaryKey(),
+    automatic: text("automatic").notNull(),
+    selfAi: text("self_ai").notNull(),
+    selfNsfw: text("self_nsfw").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    check(
+      "nagi_moderation_preferences_values_check",
+      sql`${t.automatic} IN ('warn', 'hide', 'ignore') AND ${t.selfAi} IN ('warn', 'hide', 'ignore') AND ${t.selfNsfw} IN ('warn', 'hide', 'ignore')`,
+    ),
+    index("nagi_moderation_preferences_updated_idx").on(t.updatedAt),
+  ],
+);
+
 /**
  * 購読（参加）中のチャンネル。private_list_members と同じ設計で、
  * PDS レコードにはせず AppView だけが持ち、認証した本人にしか返さない

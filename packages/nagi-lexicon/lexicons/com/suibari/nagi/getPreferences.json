@@ -4,7 +4,7 @@
   "defs": {
     "main": {
       "type": "query",
-      "description": "端末をまたいで同期する本人の設定（既読位置、お気に入り絵文字、フィードタブ、投稿・翻訳言語、最後のブックマークフォルダ）を返す。他ユーザーからは参照できない。",
+      "description": "端末をまたいで同期する本人の設定（既読位置、お気に入り絵文字、フィードタブ、投稿・翻訳言語、コンテンツ表示、最後のブックマークフォルダ）を返す。他ユーザーからは参照できない。",
       "output": {
         "encoding": "application/json",
         "schema": {
@@ -54,6 +54,14 @@
               "ref": "#languagePreferences"
             },
             "languagePreferencesUpdatedAt": {
+              "type": "string",
+              "format": "datetime"
+            },
+            "moderationPreferences": {
+              "type": "ref",
+              "ref": "#moderationPreferences"
+            },
+            "moderationPreferencesUpdatedAt": {
               "type": "string",
               "format": "datetime"
             },
@@ -118,6 +126,24 @@
           "knownValues": ["kagi", "deepl", "google"]
         },
         "autoTranslate": { "type": "boolean" }
+      }
+    },
+    "moderationPreferences": {
+      "type": "object",
+      "required": ["automatic", "selfAi", "selfNsfw"],
+      "properties": {
+        "automatic": {
+          "type": "string",
+          "knownValues": ["warn", "hide", "ignore"]
+        },
+        "selfAi": {
+          "type": "string",
+          "knownValues": ["warn", "hide", "ignore"]
+        },
+        "selfNsfw": {
+          "type": "string",
+          "knownValues": ["warn", "hide", "ignore"]
+        }
       }
     },
     "readPosition": {

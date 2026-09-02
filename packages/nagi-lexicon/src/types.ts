@@ -669,6 +669,12 @@ export type SyncedLanguagePreferences = {
   provider: "kagi" | "deepl" | "google";
   autoTranslate: boolean;
 };
+export type ModerationPreference = "warn" | "hide" | "ignore";
+export type SyncedModerationPreferences = {
+  automatic: ModerationPreference;
+  selfAi: ModerationPreference;
+  selfNsfw: ModerationPreference;
+};
 export type PreferencesView = {
   readPositions: ReadPosition[];
   emojiFavorites: EmojiFavorite[];
@@ -683,6 +689,8 @@ export type PreferencesView = {
   preferredName?: string;
   languagePreferences?: SyncedLanguagePreferences;
   languagePreferencesUpdatedAt?: string;
+  moderationPreferences?: SyncedModerationPreferences;
+  moderationPreferencesUpdatedAt?: string;
   lastBookmarkFolderId?: string;
   lastBookmarkFolderUpdatedAt?: string;
   /**
@@ -713,6 +721,8 @@ export type PutPreferencesInput = {
   preferredName?: string;
   languagePreferences?: SyncedLanguagePreferences;
   languagePreferencesUpdatedAt?: string;
+  moderationPreferences?: SyncedModerationPreferences;
+  moderationPreferencesUpdatedAt?: string;
   lastBookmarkFolderId?: string | null;
   lastBookmarkFolderUpdatedAt?: string;
   /**

@@ -4,7 +4,7 @@
   "defs": {
     "main": {
       "type": "procedure",
-      "description": "同期対象の本人設定を書き込む。既読位置は単調マージ、配列・言語設定・最後のブックマークフォルダは updatedAt による後勝ち。各項目は省略でき、送った分だけを更新する。",
+      "description": "同期対象の本人設定を書き込む。既読位置は単調マージ、配列・言語・コンテンツ表示設定・最後のブックマークフォルダは updatedAt による後勝ち。各項目は省略でき、送った分だけを更新する。",
       "input": {
         "encoding": "application/json",
         "schema": {
@@ -58,6 +58,14 @@
               "ref": "com.suibari.nagi.getPreferences#languagePreferences"
             },
             "languagePreferencesUpdatedAt": {
+              "type": "string",
+              "format": "datetime"
+            },
+            "moderationPreferences": {
+              "type": "ref",
+              "ref": "com.suibari.nagi.getPreferences#moderationPreferences"
+            },
+            "moderationPreferencesUpdatedAt": {
               "type": "string",
               "format": "datetime"
             },
@@ -122,6 +130,14 @@
               "ref": "com.suibari.nagi.getPreferences#languagePreferences"
             },
             "languagePreferencesUpdatedAt": {
+              "type": "string",
+              "format": "datetime"
+            },
+            "moderationPreferences": {
+              "type": "ref",
+              "ref": "com.suibari.nagi.getPreferences#moderationPreferences"
+            },
+            "moderationPreferencesUpdatedAt": {
               "type": "string",
               "format": "datetime"
             },
