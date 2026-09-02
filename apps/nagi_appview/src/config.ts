@@ -32,28 +32,37 @@ const did = (name: string, fallback?: string) => {
   return value;
 };
 
-function amaterasConfig() {
-  const endpoint = process.env.AMATERAS_INTERNAL_URL;
-  const token = process.env.AMATERAS_INTERNAL_TOKEN;
-  if (!endpoint && !token) {
+/**
+ * この AppView 自身の公開オリジン。モデレーション判定で OpenAI に画像を取りに
+ * 来てもらう URL を組むために要る。既定は did:web の AppView DID から導出する
+ * （did:web はホスト名そのものなので、環境変数を1つ増やさずに済む）。
+ */
+function publicUrl(): string {
+  const override = process.env.NAGI_APPVIEW_PUBLIC_URL;
+  if (override) return url("NAGI_APPVIEW_PUBLIC_URL");
+  const appviewDid = process.env.NAGI_APPVIEW_DID ?? "did:web:nagi-api.suibari.com";
+  if (!appviewDid.startsWith("did:web:"))
+    throw new Error(
+      "NAGI_APPVIEW_PUBLIC_URL is required when NAGI_APPVIEW_DID is not a did:web",
+    );
+  return `https://${decodeURIComponent(appviewDid.slice("did:web:".length))}`;
+}
+
+/**
+ * モデレーション設定。判定は取り込みと非同期に走るので、ここが undefined でも
+ * 投稿・取り込みは一切止まらない（判定待ちのまま残るだけ）。
+ */
+function moderationConfig() {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
     if (process.env.NODE_ENV === "production")
-      throw new Error(
-        "AMATERAS_INTERNAL_URL and AMATERAS_INTERNAL_TOKEN are required in production",
-      );
+      throw new Error("OPENAI_API_KEY is required in production");
     return undefined;
   }
-  if (!endpoint || !token)
-    throw new Error(
-      "AMATERAS_INTERNAL_URL and AMATERAS_INTERNAL_TOKEN must be set together",
-    );
-  const parsed = new URL(endpoint);
-  if (
-    parsed.protocol !== "http:" ||
-    !["127.0.0.1", "localhost", "[::1]"].includes(parsed.hostname)
-  ) {
-    throw new Error("AMATERAS_INTERNAL_URL must be an HTTP loopback URL");
-  }
-  return { url: parsed.toString().replace(/\/$/, ""), token };
+  return {
+    apiKey,
+    discordWebhookUrl: process.env.NAGI_MODERATION_DISCORD_WEBHOOK_URL || "",
+  };
 }
 
 /**
@@ -161,7 +170,8 @@ export const config = {
   // 内部エンドポイント(/internal)専用のループバックポート。nagi_bot_server と同じく
   // 127.0.0.1 に束縛して OS にアクセス制御させるので、共有シークレットは持たない。
   internalPort: integer("NAGI_APPVIEW_INTERNAL_PORT", 3004, 1, 65_535),
-  amateras: amaterasConfig(),
+  publicUrl: publicUrl(),
+  moderation: moderationConfig(),
   clientOrigins: parseClientOrigins(
     required("NAGI_CLIENT_ORIGIN", "http://localhost:5173"),
   ),

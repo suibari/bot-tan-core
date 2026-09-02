@@ -39,6 +39,8 @@ import {
 import { getNewsQuoteViews } from "./positiveNews.js";
 import { getReactionViews } from "./reactions.js";
 import { parseContentWarning } from "../util/contentWarning.js";
+import { ADULT_LABELS } from "../services/moderation/index.js";
+import { viewerIsAdult } from "../services/ageAssurance.js";
 import { loadPrivateListMemberDids } from "./privateList.js";
 export const encodeCursor = (date: Date, uri: string) =>
   Buffer.from(JSON.stringify([date.toISOString(), uri])).toString("base64url");
@@ -131,6 +133,36 @@ export function kossoriVisibility(viewerDid?: string): SQL {
 }
 
 /**
+ * 未成年ビューアに成人向けコンテンツを渡さないためのフィルタ。
+ *
+ * クライアント設定（warn/hide/ignore）とは別物で、これはサーバ側の強制。未成年は
+ * 設定で解除できない。判定待ち（moderation_version IS NULL）も落とすのは、判定が
+ * 非同期になったことで生じる数秒の露出窓を、守るべき相手にだけ閉じるため。
+ * 18歳の誕生日を過ぎれば getAgeAssurance が成人を返すので自動的に外れる。
+ */
+export function adultContentVisibility(isAdult: boolean): SQL[] {
+  if (isAdult) return [];
+  return [
+    sql`${nagiPosts.moderationVersion} is not null`,
+    sql`not (${nagiPosts.moderationLabels} && ${ADULT_LABELS_ARRAY})`,
+    sql`not (${nagiPosts.selfLabels} && ${ADULT_LABELS_ARRAY})`,
+  ];
+}
+
+/** 上の式で使う text[] リテラル。 */
+const ADULT_LABELS_ARRAY = sql`${sql.raw(
+  `array[${ADULT_LABELS.map((label) => `'${label}'`).join(",")}]::text[]`,
+)}`;
+
+/** 未成年ビューアが見てはいけない行か。SQL を通らない経路の最後の砦。 */
+export function isAdultOnlyRow(post: typeof nagiPosts.$inferSelect): boolean {
+  if (post.moderationVersion === null) return true;
+  return [...post.moderationLabels, ...post.selfLabels].some((label) =>
+    (ADULT_LABELS as readonly string[]).includes(label),
+  );
+}
+
+/**
  * my Nagi の「リストの動き」用。1人1件の最新ルート投稿を選ぶ経路なので、返信は候補に
  * 入れない（スレッド単位の最新活動順で見せるホームTLとは意味が違う）。
  */
@@ -176,6 +208,10 @@ export async function hydratePostViews(
   quoteDepth = 0,
   mutes: MuteSet = EMPTY_MUTES,
 ): Promise<PostView[]> {
+  // SQL 側でも落としているが、スレッド・ブックマーク・通知など経路が多いので
+  // hydrate でも必ず落とす。未成年に成人向けを渡さないことをここ1箇所で担保する。
+  if (!(await viewerIsAdult(viewerDid)))
+    rows = rows.filter((r) => !isAdultOnlyRow(r.post));
   const uris = rows.map((r) => r.post.uri);
   const reactions = await getReactionViews(uris, viewerDid);
   const dids = rows.map((r) => r.post.did);
@@ -316,11 +352,7 @@ export async function hydratePostViews(
         ? { contentWarning: contentWarning.range }
         : {}),
       langs: (post.langs as string[] | null) ?? undefined,
-      selfLabels: Array.isArray(record?.labels?.values)
-        ? record.labels.values.flatMap((label: any) =>
-            typeof label?.val === "string" ? [label.val] : [],
-          )
-        : undefined,
+      selfLabels: post.selfLabels.length ? post.selfLabels : undefined,
       moderationLabels: post.moderationLabels.length
         ? post.moderationLabels
         : undefined,
@@ -841,6 +873,9 @@ export async function getTimeline(opts: {
   // ミュート著者の投稿は代表になれないので sib からも除く（1つ前へフォールバックさせる）。
   if (opts.group)
     filters.push(latestThreadActivity(mutes, muteActors, homeActors));
+  // 未成年には成人向け・判定待ちを SQL 段階で落とす。hydrate 側でも落とすが、
+  // ページングの件数がずれないようにここで先に外す。
+  filters.push(...adultContentVisibility(await viewerIsAdult(opts.viewerDid)));
   const rows = await db
     .select(postSelection)
     .from(nagiPosts)

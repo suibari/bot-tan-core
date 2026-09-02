@@ -26,6 +26,7 @@ import {
 } from "@bsky-affirmative-bot/nagi-lexicon";
 import { eq, sql } from "drizzle-orm";
 import { ApiError } from "../middleware/errors.js";
+import { declareBirthDate, getAgeAssurance } from "../services/ageAssurance.js";
 
 const MAX_URI_LENGTH = 2048;
 const MAX_UNICODE_EMOJI_LENGTH = 64;
@@ -346,8 +347,17 @@ async function selectPreferences(did: string): Promise<PreferencesView> {
 }
 
 /** 本人の同期設定を返す唯一の読み出し口。呼び出し側は必ず requiredServiceAuth を使うこと。 */
-export function getPreferences(did: string): Promise<PreferencesView> {
-  return selectPreferences(did);
+export async function getPreferences(did: string): Promise<PreferencesView> {
+  // 年齢確認は専用の lexicon を足さず設定へ相乗りさせる。新しい XRPC を公開すると
+  // permission-set の再公開が要り、認可サーバのキャッシュが最大24時間残るため。
+  const [preferences, age] = await Promise.all([
+    selectPreferences(did),
+    getAgeAssurance(did),
+  ]);
+  return {
+    ...preferences,
+    ageAssurance: { isAdult: age.isAdult, declared: age.declared },
+  };
 }
 
 export async function putPreferences(
@@ -394,6 +404,13 @@ export async function putPreferences(
         input.lastBookmarkFolderUpdatedAt,
       )
     : undefined;
+
+  // 生年月日は他の設定と違って上書きできない。2度目以降は declareBirthDate が 409。
+  if (input.birthDate !== undefined)
+    await declareBirthDate(did, {
+      birthDate: input.birthDate,
+      parentalConsent: input.parentalConsent,
+    });
 
   if (readPositions.length) {
     await db
@@ -543,5 +560,5 @@ export async function putPreferences(
   }
 
   // 送った値ではなくマージ後の確定値を返す。負けた端末はこれで自分側を直せる。
-  return selectPreferences(did);
+  return getPreferences(did);
 }

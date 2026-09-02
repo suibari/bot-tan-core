@@ -10,7 +10,7 @@ import {
   nagiDiaries,
   nagiEmojis,
   nagiIngestState,
-  nagiModerationRejections,
+  nagiModerationDecisions,
   nagiNotifications,
   nagiNews,
   nagiNewsReviewJobs,
@@ -42,10 +42,11 @@ import { reconciledIndexedAt } from "./reconcileOrder.js";
 import { shouldAcceptSemanticRecord } from "./semanticRecord.js";
 import { validateRecord } from "./validateRecord.js";
 import {
-  AMATERAS_RULE_VERSION,
-  evaluateNagiPost,
-  type AmaterasDecision,
-} from "../services/amateras.js";
+  MODERATED_COLLECTIONS,
+  MODERATION_SKIPPED,
+  isKossoriSubject,
+} from "../services/moderation/index.js";
+import { wakeModerationWorker } from "./moderationWorker.js";
 import {
   hasContentWarning,
   parseContentWarning,
@@ -97,6 +98,18 @@ const extractTags = (value: any): string[] | null => {
   }
 
   return tags.size ? [...tags] : null;
+};
+
+/**
+ * 投稿者自身が付けたセルフラベル。record_json にも入っているが、未成年ビューアへの
+ * フィルタを SQL の where で書けるように列へも取り出す。
+ */
+const extractSelfLabels = (value: any): string[] => {
+  const values = value?.labels?.values;
+  if (!Array.isArray(values)) return [];
+  return values.flatMap((label: any) =>
+    typeof label?.val === "string" ? [label.val] : [],
+  );
 };
 
 export type ApplyMutationOptions = {
@@ -161,7 +174,16 @@ export async function applyMutation(
       );
     }
   }
-  let moderationDecision: AmaterasDecision | undefined;
+  /**
+   * モデレーション判定は取り込みと同期させない。ここでは「判定待ち」か「対象外」かだけを
+   * 決めて即コミットし、OpenAI 呼び出しは moderationWorker が後から行う。投稿API・
+   * botたんの返信・Jetstream 取り込みのどれも判定を待たせないための設計。
+   */
+  const moderated =
+    MODERATED_COLLECTIONS.includes(collection) &&
+    commit.operation !== "delete" &&
+    !isKossoriSubject(uri, commit.record, appviewOnly);
+  const moderationVersion = moderated ? null : MODERATION_SKIPPED;
   const id = trackJetstream
     ? `${did}:${evt.time_us}:${commit.rev ?? ""}:${collection}:${commit.rkey}`
     : undefined;
@@ -203,63 +225,6 @@ export async function applyMutation(
         resolved.adultOnly
       )
         return { cursorAdvanced: false };
-    }
-  }
-  if (
-    collection === NAGI.post &&
-    commit.operation !== "delete" &&
-    validateRecord(collection, commit.record)
-  ) {
-    // Jetstream replay・reconcile・同一イベント再試行で同じCIDを再送しない。
-    // 保存拒否済みCIDは本文を復活させず、受理済みCIDは既存ラベルを再利用する。
-    const [rejected] = await db
-      .select({
-        cid: nagiModerationRejections.cid,
-        category: nagiModerationRejections.category,
-        labels: nagiModerationRejections.labels,
-        ruleVersion: nagiModerationRejections.ruleVersion,
-      })
-      .from(nagiModerationRejections)
-      .where(eq(nagiModerationRejections.uri, uri))
-      .limit(1);
-    if (
-      rejected?.cid === commit.cid &&
-      rejected.ruleVersion === AMATERAS_RULE_VERSION
-    ) {
-      moderationDecision = {
-        action: "drop",
-        labels: rejected.labels,
-        maxScore: 0,
-        highestCategory: rejected.category,
-      };
-    } else {
-      const [indexed] = await db
-        .select({
-          cid: nagiPosts.cid,
-          labels: nagiPosts.moderationLabels,
-          version: nagiPosts.moderationVersion,
-        })
-        .from(nagiPosts)
-        .where(and(eq(nagiPosts.uri, uri), isNull(nagiPosts.deletedAt)))
-        .limit(1);
-      if (
-        indexed?.cid === commit.cid &&
-        indexed.version === AMATERAS_RULE_VERSION
-      ) {
-        moderationDecision = {
-          action: indexed.labels.length ? "label" : "none",
-          labels: indexed.labels,
-          maxScore: 0,
-          highestCategory: "",
-        };
-      } else {
-        moderationDecision = await evaluateNagiPost({
-          uri,
-          cid: commit.cid,
-          did,
-          record: commit.record,
-        });
-      }
     }
   }
   // トランザクション内で実際に挿入できた通知だけを収集し、コミット成功後に
@@ -307,10 +272,12 @@ export async function applyMutation(
             .limit(1)
         : [];
     if (commit.operation === "delete") {
-      if (collection === NAGI.post) {
+      // 判定記録もレコードと一緒に消す。同じ rkey が作り直されたら判定もやり直す。
+      if (MODERATED_COLLECTIONS.includes(collection))
         await tx
-          .delete(nagiModerationRejections)
-          .where(eq(nagiModerationRejections.uri, uri));
+          .delete(nagiModerationDecisions)
+          .where(eq(nagiModerationDecisions.uri, uri));
+      if (collection === NAGI.post) {
         const quotingSourceUris = (
           await tx
             .select({ uri: nagiPosts.uri })
@@ -405,56 +372,6 @@ export async function applyMutation(
         await tx.delete(nagiProfiles).where(eq(nagiProfiles.did, did));
       if (collection === BLUEMOJI_ITEM)
         await tx.delete(nagiEmojis).where(eq(nagiEmojis.uri, uri));
-    } else if (
-      collection === NAGI.post &&
-      moderationDecision?.action === "drop"
-    ) {
-      // 本文・画像・record_jsonをAppViewに保持しない。既存投稿の編集が拒否された場合も
-      // 旧本文を残さず、PDSから再判定できる最小tombstoneだけを保存する。
-      await tx
-        .update(nagiPosts)
-        .set({
-          text: "",
-          facets: null,
-          tags: null,
-          langs: null,
-          recordJson: null,
-          embedImages: null,
-          quoteUri: null,
-          quoteCid: null,
-          embedding: null,
-          deletedAt: new Date(),
-        })
-        .where(eq(nagiPosts.uri, uri));
-      await tx
-        .delete(nagiTranslations)
-        .where(eq(nagiTranslations.postUri, uri));
-      await tx
-        .delete(nagiNotifications)
-        .where(eq(nagiNotifications.subjectUri, uri));
-      await tx
-        .delete(nagiCommunityAffirmations)
-        .where(eq(nagiCommunityAffirmations.sourceUri, uri));
-      await tx
-        .insert(nagiModerationRejections)
-        .values({
-          uri,
-          cid: commit.cid,
-          did,
-          category: moderationDecision.highestCategory || "unknown",
-          labels: moderationDecision.labels,
-          ruleVersion: AMATERAS_RULE_VERSION,
-        })
-        .onConflictDoUpdate({
-          target: nagiModerationRejections.uri,
-          set: {
-            cid: commit.cid,
-            category: moderationDecision.highestCategory || "unknown",
-            labels: moderationDecision.labels,
-            ruleVersion: AMATERAS_RULE_VERSION,
-            updatedAt: new Date(),
-          },
-        });
     } else if (validateRecord(collection, commit.record)) {
       const value: any = commit.record;
       const createdAt = new Date(value.createdAt);
@@ -463,9 +380,6 @@ export async function applyMutation(
           ? reconciledIndexedAt(createdAt)
           : undefined;
       if (collection === NAGI.post) {
-        await tx
-          .delete(nagiModerationRejections)
-          .where(eq(nagiModerationRejections.uri, uri));
         // 既存投稿 かつ cid が変わった＝投稿後編集。翻訳キャッシュ破棄と edited フラグ立てに使う。
         const isEdit = !!existingPost[0] && existingPost[0].cid !== commit.cid;
         // 所属チャンネルはこっそりと同じくスレッドルートが所有する。返信は自分のレコードの
@@ -532,13 +446,9 @@ export async function applyMutation(
             tags: extractTags(value),
             langs: value.langs,
             recordJson: value,
-            moderationLabels:
-              moderationDecision?.action === "label"
-                ? moderationDecision.labels
-                : [],
-            moderationVersion: moderationDecision
-              ? AMATERAS_RULE_VERSION
-              : null,
+            moderationLabels: [],
+            moderationVersion,
+            selfLabels: extractSelfLabels(value),
             replyRootUri: value.reply?.root.uri,
             replyParentUri: value.reply?.parent.uri,
             embedImages: value.embed?.images,
@@ -571,15 +481,11 @@ export async function applyMutation(
               tags: extractTags(value),
               langs: value.langs,
               recordJson: value,
-              ...(moderationDecision
-                ? {
-                    moderationLabels:
-                      moderationDecision.action === "label"
-                        ? moderationDecision.labels
-                        : [],
-                    moderationVersion: AMATERAS_RULE_VERSION,
-                  }
-                : {}),
+              // 内容が変わった（cid 変化＝投稿後編集）ときだけ判定待ちに戻す。
+              // Jetstream の再配信で同じ cid が来ても再判定はしない。
+              moderationLabels: sql`case when ${nagiPosts.cid} is distinct from excluded.cid then '{}'::text[] else ${nagiPosts.moderationLabels} end`,
+              moderationVersion: sql`case when ${nagiPosts.cid} is distinct from excluded.cid then ${moderationVersion}::text else ${nagiPosts.moderationVersion} end`,
+              selfLabels: extractSelfLabels(value),
               replyRootUri: value.reply?.root.uri ?? null,
               replyParentUri: value.reply?.parent.uri ?? null,
               embedImages: value.embed?.images ?? null,
@@ -745,6 +651,8 @@ export async function applyMutation(
             sourceUrl: value.sourceUrl ?? null,
             publishedAt: value.publishedAt ? new Date(value.publishedAt) : null,
             langs: value.langs,
+            moderationLabels: [],
+            moderationVersion,
             recordCreatedAt: createdAt,
             deletedAt: null,
           })
@@ -761,6 +669,8 @@ export async function applyMutation(
                 ? new Date(value.publishedAt)
                 : null,
               langs: value.langs,
+              moderationLabels: sql`case when ${nagiNews.cid} is distinct from excluded.cid then '{}'::text[] else ${nagiNews.moderationLabels} end`,
+              moderationVersion: sql`case when ${nagiNews.cid} is distinct from excluded.cid then ${moderationVersion}::text else ${nagiNews.moderationVersion} end`,
               recordCreatedAt: createdAt,
               deletedAt: null,
               // 意味検索の埋め込みソース(titleJa)が変わったら再生成させる。
@@ -781,6 +691,8 @@ export async function applyMutation(
             bannerCid: value.banner?.ref?.$link ?? null,
             pinnedPostUri: value.pinnedPost?.uri ?? null,
             pinnedPostCid: value.pinnedPost?.cid ?? null,
+            moderationLabels: [],
+            moderationVersion,
             recordCreatedAt: createdAt,
             deletedAt: null,
           })
@@ -793,6 +705,8 @@ export async function applyMutation(
               bannerCid: value.banner?.ref?.$link ?? null,
               pinnedPostUri: value.pinnedPost?.uri ?? null,
               pinnedPostCid: value.pinnedPost?.cid ?? null,
+              moderationLabels: sql`case when ${nagiChannels.cid} is distinct from excluded.cid then '{}'::text[] else ${nagiChannels.moderationLabels} end`,
+              moderationVersion: sql`case when ${nagiChannels.cid} is distinct from excluded.cid then ${moderationVersion}::text else ${nagiChannels.moderationVersion} end`,
               recordCreatedAt: createdAt,
               deletedAt: null,
               // 意味検索の埋め込みソース(name/description)が変わったら再生成させる。
@@ -1040,6 +954,8 @@ export async function applyMutation(
             displayName: value.displayName,
             description: value.description,
             avatarCid: value.avatar?.ref?.$link,
+            moderationLabels: [],
+            moderationVersion,
             createdAt,
           })
           .onConflictDoUpdate({
@@ -1048,6 +964,9 @@ export async function applyMutation(
               displayName: value.displayName,
               description: value.description,
               avatarCid: value.avatar?.ref?.$link,
+              // 表示名・説明・アバターのどれかが変われば判定待ちに戻す。
+              moderationLabels: sql`case when (${nagiProfiles.displayName} is distinct from excluded.display_name) or (${nagiProfiles.description} is distinct from excluded.description) or (${nagiProfiles.avatarCid} is distinct from excluded.avatar_cid) then '{}'::text[] else ${nagiProfiles.moderationLabels} end`,
+              moderationVersion: sql`case when (${nagiProfiles.displayName} is distinct from excluded.display_name) or (${nagiProfiles.description} is distinct from excluded.description) or (${nagiProfiles.avatarCid} is distinct from excluded.avatar_cid) then ${moderationVersion}::text else ${nagiProfiles.moderationVersion} end`,
               // 意味検索の埋め込みソース(displayName/description)が変わったら再生成させる
               // （analysisJa 側の更新は NagiAnalysisFeature が別途 NULL リセットする）。
               embedding: sql`case when (${nagiProfiles.displayName} is distinct from excluded.display_name) or (${nagiProfiles.description} is distinct from excluded.description) then null else ${nagiProfiles.embedding} end`,
@@ -1281,5 +1200,7 @@ export async function applyMutation(
   // コミット後に配信。送信失敗はイングェストに影響させない。
   if (emitPush && pushJobs.length) dispatchPushAll(pushJobs);
   for (const postUri of englishPrewarmUris) startEnglishPrewarm(postUri);
+  // 判定待ちの行が増えたことだけ知らせる。await しない（判定を待たないのが要件）。
+  if (moderated) wakeModerationWorker();
   return { cursorAdvanced: trackJetstream };
 }

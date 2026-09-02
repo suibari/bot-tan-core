@@ -312,7 +312,7 @@ export type PostView = {
   langs?: string[];
   /** 投稿者自身がレコードへ埋め込んだNagiセルフラベル。 */
   selfLabels?: string[];
-  /** AppViewが信頼するAmateras DIDから現在CIDへ付与されたラベル。 */
+  /** 現在CIDについて自動判定が付けたラベル。AppViewのPostgresが唯一の出所。 */
   moderationLabels?: string[];
   createdAt: string;
   indexedAt: string;
@@ -683,6 +683,11 @@ export type PreferencesView = {
   languagePreferencesUpdatedAt?: string;
   lastBookmarkFolderId?: string;
   lastBookmarkFolderUpdatedAt?: string;
+  /**
+   * 年齢確認の状態。生年月日そのものは返さない（本人にも返す必要がなく、
+   * 漏らす面を増やさないため）。declared が false なら未申告＝未成年扱い。
+   */
+  ageAssurance?: { isAdult: boolean; declared: boolean };
 };
 export type PutPreferencesInput = {
   readPositions?: ReadPosition[];
@@ -703,6 +708,13 @@ export type PutPreferencesInput = {
   languagePreferencesUpdatedAt?: string;
   lastBookmarkFolderId?: string | null;
   lastBookmarkFolderUpdatedAt?: string;
+  /**
+   * 生年月日の申告。YYYY-MM-DD。設定できるのは1度だけで、以後は 409 を返す
+   * （成人向けコンテンツを見るために年齢を上書きされないようにするため）。
+   * 18歳未満なら parentalConsent: true が必須。
+   */
+  birthDate?: string;
+  parentalConsent?: boolean;
 };
 export type PutPreferencesResult = PreferencesView;
 

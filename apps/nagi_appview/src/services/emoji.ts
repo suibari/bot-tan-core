@@ -86,8 +86,20 @@ export async function indexEmoji(
   // 段階デプロイ中は旧 UNIQUE(did, name) が残っていても動作させる。
   // 旧制約下では同名・別URIの INSERT だけが no-op になり、制約撤去後の
   // reconcile でURIごとの行が追加される。同じURIの現在値は常に下のUPDATEで追従する。
-  await executor.insert(nagiEmojis).values(values).onConflictDoNothing();
-  await executor.update(nagiEmojis).set(values).where(eq(nagiEmojis.uri, uri));
+  await executor
+    .insert(nagiEmojis)
+    .values({ ...values, moderationLabels: [], moderationVersion: null })
+    .onConflictDoNothing();
+  await executor
+    .update(nagiEmojis)
+    .set({
+      ...values,
+      // 中身が変わった（cid 変化）ときだけ判定待ちに戻す。reconcile や参照による
+      // 再取り込みで同じ絵文字を何度も判定し直さないため。
+      moderationLabels: sql`case when ${nagiEmojis.cid} is distinct from ${cid} then '{}'::text[] else ${nagiEmojis.moderationLabels} end`,
+      moderationVersion: sql`case when ${nagiEmojis.cid} is distinct from ${cid} then null else ${nagiEmojis.moderationVersion} end`,
+    })
+    .where(eq(nagiEmojis.uri, uri));
 }
 
 const NEGATIVE_TTL_MS = 5 * 60_000;

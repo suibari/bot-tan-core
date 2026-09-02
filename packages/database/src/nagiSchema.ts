@@ -4,6 +4,8 @@ import {
   boolean,
   check,
   customType,
+  date,
+  doublePrecision,
   foreignKey,
   index,
   integer,
@@ -100,10 +102,15 @@ export const nagiPosts = nagiSchema.table(
     tags: text("tags").array(),
     langs: jsonb("langs"),
     recordJson: jsonb("record_json"),
-    /** 現在CIDについてAmaterasが返した表示用ラベル。署名ラベル本体はLabelerが保持する。 */
+    /** 現在CIDについて自動判定が付けた表示用ラベル。 */
     moderationLabels: text("moderation_labels").array().default([]).notNull(),
-    /** nullは未評価の既存行。ルール更新時は値を変えて再評価できる。 */
+    /** null=判定待ち（ワーカーが拾う） / 'skipped'=対象外 / それ以外はルールバージョン。 */
     moderationVersion: text("moderation_version"),
+    /**
+     * 投稿者自身がレコードへ付けたセルフラベル。record_json からも取れるが、
+     * 未成年ビューアへのフィルタを SQL で書くために列として持つ。
+     */
+    selfLabels: text("self_labels").array().default([]).notNull(),
     replyRootUri: text("reply_root_uri"),
     replyParentUri: text("reply_parent_uri"),
     embedImages: jsonb("embed_images"),
@@ -159,18 +166,27 @@ export const nagiPosts = nagiSchema.table(
 );
 
 /**
- * AppViewへ本文を保存しないと判断した投稿の最小tombstone。
- * PDSが真実源なので本文・画像・record_json・OpenAIのraw responseは保持しない。
+ * モデレーション判定の記録。allow / label / reject を問わず全件残す。
+ *
+ * 同一 CID・同一ルールバージョンなら再判定しないための冪等キーであり、
+ * drop 閾値を実データの分布から決めるための材料でもある。本文・画像・
+ * OpenAI の raw response は保持しない（PDS が真実源のため）。
  */
-export const nagiModerationRejections = nagiSchema.table(
-  "moderation_rejections",
+export const nagiModerationDecisions = nagiSchema.table(
+  "moderation_decisions",
   {
     uri: text("uri").primaryKey(),
     cid: text("cid").notNull(),
     did: text("did").notNull(),
-    category: text("category").notNull(),
-    labels: text("labels").array().notNull(),
-    ruleVersion: text("rule_version").default("amateras-v1").notNull(),
+    collection: text("collection").notNull(),
+    /** allow | label | reject-policy | reject-invalid */
+    decision: text("decision").notNull(),
+    labels: text("labels").array().default([]).notNull(),
+    /** 最高スコアのカテゴリ。判定なしの経路では null。 */
+    category: text("category"),
+    /** そのカテゴリのスコア。閾値見直しの材料。 */
+    score: doublePrecision("score"),
+    ruleVersion: text("rule_version").notNull(),
     decidedAt: timestamp("decided_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -178,8 +194,31 @@ export const nagiModerationRejections = nagiSchema.table(
       .defaultNow()
       .notNull(),
   },
-  (t) => [index("nagi_moderation_rejections_did_idx").on(t.did)],
+  (t) => [
+    index("nagi_moderation_decisions_did_idx").on(t.did),
+    index("nagi_moderation_decisions_decision_idx").on(t.decision, t.decidedAt),
+  ],
 );
+
+/**
+ * 年齢確認。生年月日は PDS レコードにすると誰でも読めてしまうので AppView だけが持つ。
+ *
+ * 行が無い／birth_date が null なら未成年として扱う。source='legacy' は
+ * この機能を入れる前からいたユーザーで、一律に成人として扱う。
+ * 成人判定は birth_date との日付比較なので、18歳到達時に行を更新する必要はない。
+ */
+export const nagiAgeAssurance = nagiSchema.table("age_assurance", {
+  did: text("did").primaryKey(),
+  /** null は未申告（＝未成年扱い）。設定できるのは1度だけ。 */
+  birthDate: date("birth_date"),
+  /** 18歳未満で利用開始する際の保護者同意の自己申告。 */
+  parentalConsentAt: timestamp("parental_consent_at", { withTimezone: true }),
+  /** self | legacy */
+  source: text("source").notNull(),
+  assuredAt: timestamp("assured_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
 /** ユーザーが作るチャンネル（com.suibari.nagi.channel）。作成者の PDS が真実源。 */
 export const nagiChannels = nagiSchema.table(
   "channels",
@@ -191,6 +230,10 @@ export const nagiChannels = nagiSchema.table(
     name: text("name").notNull(),
     description: text("description"),
     bannerCid: text("banner_cid"),
+    /** 現在CIDについて自動判定が付けた表示用ラベル。 */
+    moderationLabels: text("moderation_labels").array().default([]).notNull(),
+    /** null=判定待ち（ワーカーが拾う） / 'skipped'=対象外 / それ以外はルールバージョン。 */
+    moderationVersion: text("moderation_version"),
     pinnedPostUri: text("pinned_post_uri"),
     pinnedPostCid: text("pinned_post_cid"),
     // NL検索(意味検索)用。ソースは name+description。EmbeddingWorker が生成し、CH 編集で
@@ -230,6 +273,10 @@ export const nagiNews = nagiSchema.table(
     titleJa: text("title_ja").notNull(),
     sourceName: text("source_name"),
     sourceUrl: text("source_url"),
+    /** 現在CIDについて自動判定が付けた表示用ラベル。 */
+    moderationLabels: text("moderation_labels").array().default([]).notNull(),
+    /** null=判定待ち（ワーカーが拾う） / 'skipped'=対象外 / それ以外はルールバージョン。 */
+    moderationVersion: text("moderation_version"),
     publishedAt: timestamp("published_at", { withTimezone: true }),
     langs: jsonb("langs"),
     // NL検索(意味検索)用。ソースは titleJa[+sourceName]。EmbeddingWorker が生成し、titleJa が
@@ -380,6 +427,10 @@ export const nagiEmojis = nagiSchema.table(
     // 固定 Bluemoji Lexicon から選んだ表示資産 { version: 1, asset: ... }。
     formats: jsonb("formats").notNull(),
     adultOnly: boolean("adult_only").default(false).notNull(),
+    /** 現在CIDについて自動判定が付けた表示用ラベル。 */
+    moderationLabels: text("moderation_labels").array().default([]).notNull(),
+    /** null=判定待ち（ワーカーが拾う） / 'skipped'=対象外 / それ以外はルールバージョン。 */
+    moderationVersion: text("moderation_version"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
     indexedAt: timestamp("indexed_at", { withTimezone: true })
       .defaultNow()
@@ -397,6 +448,10 @@ export const nagiProfiles = nagiSchema.table(
     displayName: text("display_name").notNull(),
     description: text("description"),
     avatarCid: text("avatar_cid"),
+    /** 現在CIDについて自動判定が付けた表示用ラベル。 */
+    moderationLabels: text("moderation_labels").array().default([]).notNull(),
+    /** null=判定待ち（ワーカーが拾う） / 'skipped'=対象外 / それ以外はルールバージョン。 */
+    moderationVersion: text("moderation_version"),
     // NL検索(意味検索)用のプロフィール埋め込み。ソースは displayName+description に、あれば
     // botたん分析(nagiActorAnalyses.analysisJa)を連結したもの。EmbeddingWorker が生成し、
     // プロフィール編集・分析更新で NULL に戻して再生成する。

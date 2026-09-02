@@ -18,6 +18,7 @@ import { errorHandler, notFound } from "./middleware/errors.js";
 import { startCommunityAffirmationDismissalCleanup } from "./queries/communityAffirmationDismissals.js";
 import { startJetstream } from "./ingest/jetstream.js";
 import { startEmbeddingWorker } from "./ingest/embeddingWorker.js";
+import { startModerationWorker } from "./ingest/moderationWorker.js";
 import { startActorResolveWorker } from "./ingest/actorResolveWorker.js";
 import {
   startReconcileWorker,
@@ -120,6 +121,7 @@ reportHeartbeat("nagi-appview").catch(() => {});
 // NL検索(意味検索)用の投稿本文埋め込みを非同期生成（既存投稿のバックフィルも兼ねる）。
 // OLLAMA_BASE_URL 未設定なら実質 no-op。
 startEmbeddingWorker();
+startModerationWorker();
 // did→handle/pds を解決して nagiActors をインデックス（searchActors とハンドル表示に必要）。
 startActorResolveWorker();
 startReconcileWorker();
