@@ -365,8 +365,37 @@ async function applyDecision(
   }
 }
 
+/**
+ * 判定1件のログ。allow でも必ず1行出す。
+ *
+ * 出さないと「安全と判定された」のか「ワーカーが動いていない」のか区別できない。
+ * 量は投稿ペースと同じなので、行あたりの情報を絞って1行に収める。
+ */
+function logDecision(
+  item: Pending,
+  decision: ModerationDecision,
+  labels: string[],
+  category: string,
+  score: number,
+  cached: boolean,
+  elapsedMs: number,
+): void {
+  const rkey = item.uri.slice(item.uri.lastIndexOf("/") + 1);
+  const parts = [
+    `[moderation] ${decision}`,
+    `${item.collection}/${rkey}`,
+    labels.length ? `labels=${labels.join(",")}` : "",
+    category ? `top=${category} ${score.toFixed(3)}` : "",
+    cached ? "(cached)" : `${elapsedMs}ms`,
+  ].filter(Boolean);
+  const line = parts.join(" ");
+  if (decision === "allow") console.log(line);
+  else console.warn(line);
+}
+
 /** 判定を1件処理する。再試行したい失敗だけを投げ返す。 */
 async function judge(item: Pending): Promise<void> {
+  const startedAt = Date.now();
   // 同じ内容を評価済みなら OpenAI を呼ばない。reconcile・再取り込み・
   // ワーカー再起動で同じ行を何度も課金対象にしないため。
   const [cached] = await db
@@ -385,9 +414,11 @@ async function judge(item: Pending): Promise<void> {
   let category = "";
   let score = 0;
 
-  if (cached?.cid === item.cid && cached.ruleVersion === MODERATION_RULE_VERSION) {
-    decision = cached.decision as ModerationDecision;
-    labels = cached.labels;
+  const reusedDecision =
+    cached?.cid === item.cid && cached.ruleVersion === MODERATION_RULE_VERSION;
+  if (reusedDecision) {
+    decision = cached!.decision as ModerationDecision;
+    labels = cached!.labels;
   } else {
     const evaluation = await evaluateModerationInput(item.input);
     decision = evaluation.decision;
@@ -435,6 +466,15 @@ async function judge(item: Pending): Promise<void> {
   }
 
   await applyDecision(item, decision, labels);
+  logDecision(
+    item,
+    decision,
+    labels,
+    category,
+    score,
+    reusedDecision,
+    Date.now() - startedAt,
+  );
 }
 
 type TickResult = { processed: number; failure?: unknown };
@@ -543,4 +583,22 @@ export function startModerationWorker(): void {
   console.log(
     `[moderationWorker] started (public url: ${config.publicUrl}, rule: ${MODERATION_RULE_VERSION})`,
   );
+  // 判定待ちの残数を起動時に1回だけ出す。バックフィルをやめた後は 0 が正常で、
+  // ここが大きい＝マイグレーションの legacy マークが効いていない、と分かる。
+  void reportPendingBacklog();
+}
+
+async function reportPendingBacklog(): Promise<void> {
+  try {
+    const counts = await Promise.all(
+      sources.map(async (source) => {
+        // 実際に拾う経路と同じ条件で数える。BATCH+1 件まで見れば「多いか」は分かる。
+        const rows = await source.fetchBatch(BATCH_SIZE + 1);
+        return `${source.name}=${rows.length > BATCH_SIZE ? `${BATCH_SIZE}+` : rows.length}`;
+      }),
+    );
+    console.log(`[moderationWorker] pending: ${counts.join(" ")}`);
+  } catch (error) {
+    console.error("[ERROR][moderationWorker] failed to count pending:", error);
+  }
 }

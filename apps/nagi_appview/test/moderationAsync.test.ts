@@ -47,6 +47,24 @@ test("the worker leaves the pending marker alone when the failure is retryable",
   assert.doesNotMatch(worker, /process\.exit/);
 });
 
+/**
+ * allow を無音にすると「安全と判定された」のか「ワーカーが動いていない」のか
+ * 運用者が区別できない。判定1件につき必ず1行出すことを固定する。
+ */
+test("every completed judgement is logged, including allow", () => {
+  assert.match(worker, /function logDecision\(/);
+  assert.match(worker, /if \(decision === "allow"\) console\.log\(line\);/);
+  // judge() の最後で必ず呼ぶ（reject 経路だけで終わらせない）。
+  assert.match(
+    worker,
+    /await applyDecision\(item, decision, labels\);\n\s*logDecision\(/,
+  );
+});
+
+test("the pending backlog is reported once at startup", () => {
+  assert.match(worker, /\[moderationWorker\] pending:/);
+});
+
 test("applyMutation marks non-judged records as skipped rather than pending", () => {
   assert.match(
     applyMutation,
