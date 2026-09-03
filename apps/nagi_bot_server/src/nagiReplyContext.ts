@@ -1,6 +1,7 @@
 import {
   db,
   nagiActors,
+  nagiEmojis,
   nagiPosts,
   nagiProfiles,
   nagiReactions,
@@ -24,6 +25,23 @@ type ContextLink = { uri: string; title?: string; description?: string };
  * 先頭だけで足りる。書記素単位で切るのは絵文字・結合文字を割らないため。
  */
 const MEMORY_EXCERPT_LIMIT = 400;
+
+type NagiReactionPromptRow = {
+  emoji: string;
+  emojiUri: string | null;
+  emojiName: string | null;
+};
+
+/** DBのリアクション行を、生成プロンプトへ渡す最小限の情報へ変換する。 */
+export function receivedNagiReaction(row?: NagiReactionPromptRow) {
+  if (!row) return undefined;
+  return {
+    emoji: row.emoji,
+    ...(row.emojiUri
+      ? { customEmojiName: row.emojiName ?? row.emoji }
+      : {}),
+  };
+}
 
 export function clipMemoryExcerpt(text: string): string {
   const segmenter = new Intl.Segmenter("ja", { granularity: "grapheme" });
@@ -149,9 +167,14 @@ export async function buildNagiReplyContext(job: any) {
           })
         : Promise.resolve([]),
       db
-        .select({ emoji: nagiReactions.emoji, text: nagiPosts.text })
+        .select({
+          emoji: nagiReactions.emoji,
+          emojiUri: nagiReactions.emojiUri,
+          emojiName: nagiEmojis.name,
+        })
         .from(nagiReactions)
         .innerJoin(nagiPosts, eq(nagiPosts.uri, nagiReactions.subjectUri))
+        .leftJoin(nagiEmojis, eq(nagiEmojis.uri, nagiReactions.emojiUri))
         .where(
           and(
             eq(nagiReactions.did, job.authorDid),
@@ -268,9 +291,7 @@ export async function buildNagiReplyContext(job: any) {
     posts: [text, ...relatedPosts],
     image: image.length ? image : undefined,
     embed: Object.keys(embed).length ? embed : undefined,
-    likedByFollower: reactionRows[0]
-      ? `${reactionRows[0].emoji} ${reactionRows[0].text}`
-      : undefined,
+    receivedNagiReaction: receivedNagiReaction(reactionRows[0]),
     followersFriend: followersFriend ? [followersFriend] : undefined,
     isSubscriber: false,
     urlContextEnabled: links.length > 0,

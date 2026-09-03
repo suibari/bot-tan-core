@@ -141,6 +141,17 @@ export async function conversation(
 }
 
 export const buildConversationPrompt = (userinfo: UserInfoGemini) => {
+  const reaction = userinfo.receivedNagiReaction;
+  const reactionInstructionJa = reaction
+    ? reaction.customEmojiName
+      ? `- ユーザがNagiであなたの投稿にカスタム絵文字「${reaction.customEmojiName}」でリアクションしてくれました。「いいね」と言い換えず、その名前に自然に触れて感謝してください。`
+      : `- ユーザがNagiであなたの投稿に「${reaction.emoji}」の絵文字でリアクションしてくれました。「いいね」と言い換えず、その絵文字に自然に触れて感謝してください。`
+    : '';
+  const reactionInstructionEn = reaction
+    ? reaction.customEmojiName
+      ? `- The user reacted to your post on Nagi with the custom emoji named ${reaction.customEmojiName}. Mention that name naturally and thank them; do not call it a like.`
+      : `- The user reacted to your post on Nagi with the ${reaction.emoji} emoji. Mention that emoji naturally and thank them; do not call it a like.`
+    : '';
   const base =
     userinfo.langStr === '日本語'
       ? `以下のユーザからメッセージが来ているので、会話してください。
@@ -155,6 +166,7 @@ export const buildConversationPrompt = (userinfo: UserInfoGemini) => {
 - 「ありがとう」「おやすみ」「またね」のほか、ねぎらい、休息の勧め、短い相づちなど、会話を穏やかに締めるメッセージには質問を付けず、短く受け止めてください。
 - 直近の会話ですでに話した近況を繰り返してはいけません。
 - 自分の過去について話す場合、下の行動履歴と会話履歴を優先してください。現在の状況を過去にも続いていたことにしたり、履歴の間を想像で補ったりしてはいけません。
+${reactionInstructionJa}
 
 # 自分の話をするとき
 ${SELF_DISCLOSURE_RULES_JA}
@@ -188,6 +200,7 @@ ${TONE_RULES_JA}
 - Do not ask a question when the user is gently closing the conversation with thanks, good night, see you, encouragement to rest, sympathy, or a brief acknowledgement.
 - Do not repeat a situation already mentioned recently.
 - When mentioning your past, follow the recorded activity and conversation histories. Do not project the current situation backward or fill gaps with invented events.
+${reactionInstructionEn}
 
 # Talking about yourself
 ${SELF_DISCLOSURE_RULES_EN}

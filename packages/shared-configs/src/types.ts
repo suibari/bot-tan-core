@@ -173,6 +173,16 @@ export type UserInfoGemini = {
   posts?: string[];
   lastYearPosts?: string[];
   likedByFollower?: string[];
+  /**
+   * Nagi でユーザがbotたんの投稿に付けた直近のリアクション。
+   *
+   * Bluesky の like と混同して「いいね」と一般化しないよう、返信生成では
+   * likedByFollower と分けて扱う。customEmojiName は参照先 Bluemoji の正規名。
+   */
+  receivedNagiReaction?: {
+    emoji: string;
+    customEmojiName?: string;
+  };
   history?: Content[];
   image?: ImageRef[];
   anniversary?: Holiday[];

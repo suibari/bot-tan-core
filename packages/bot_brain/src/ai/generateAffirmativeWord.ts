@@ -124,6 +124,24 @@ const formatSharedLinks = (userinfo: UserInfoGemini, empty: string) => {
 const urlContextEnabled = (userinfo: UserInfoGemini) =>
   userinfo.urlContextEnabled ?? Boolean(userinfo.embed?.uri_embed && userinfo.isSubscriber);
 
+const nagiReactionInstructionJa = (userinfo: UserInfoGemini) => {
+  const reaction = userinfo.receivedNagiReaction;
+  if (!reaction) return '';
+  if (reaction.customEmojiName) {
+    return `ユーザがNagiであなたの投稿にカスタム絵文字「${reaction.customEmojiName}」でリアクションしてくれました。「いいね」と言い換えず、そのカスタム絵文字の名前に自然に触れて感謝を伝えてください。`;
+  }
+  return `ユーザがNagiであなたの投稿に「${reaction.emoji}」の絵文字でリアクションしてくれました。「いいね」と言い換えず、その絵文字に自然に触れて感謝を伝えてください。`;
+};
+
+const nagiReactionInstructionEn = (userinfo: UserInfoGemini) => {
+  const reaction = userinfo.receivedNagiReaction;
+  if (!reaction) return '';
+  if (reaction.customEmojiName) {
+    return `The user reacted to your post on Nagi with the custom emoji named ${reaction.customEmojiName}. Mention that custom emoji name naturally and thank them; do not call it a like.`;
+  }
+  return `The user reacted to your post on Nagi with the ${reaction.emoji} emoji. Mention that emoji naturally and thank them; do not call it a like.`;
+};
+
 export const buildAffirmativePrompt = async (userinfo: UserInfoGemini) => {
   const postText = userinfo.posts?.[0] || '';
   const postLength = postText.length;
@@ -188,6 +206,7 @@ export const buildAffirmativePrompt = async (userinfo: UserInfoGemini) => {
    - もし相手が自分を卑下していたり、難しい悩みを吐露している場合は、無理にテンション高く励ますのではなく、優しく寄り添って「よく考えていてえらいね」「そういう時もあるよね」といった方向で肯定してください。
    - **過去のポストの扱いについて**: 過去のポストは、ユーザーの普段の関心や人柄を理解するための「バックグラウンド（背景情報）」としてのみ使用してください。過去のポストに直接言及したり、過去の話題を引っ張り出して長々と語ったりすることは絶対に避けてください。今回のポストに対して、すっきりと、しかし熱量高く全肯定することに集中し、無駄に冗長な返答にならないようにしてください。
    - ${userinfo.likedByFollower !== undefined ? 'ユーザがあなたの投稿にイイネしてくれたので、その感謝も伝えてください。' : ''}
+   - ${nagiReactionInstructionJa(userinfo)}
    - ${
      userinfo.followersFriend
        ? `以下は別のbotたんフォロワーのポストです。ユーザを褒める際、このポストとの共通点を踏まえて褒めてください。ポスト内容はそのまま記載しないでください。`
@@ -267,6 +286,7 @@ ${TONE_RULES_JA}
    - If the user is self-deprecating or expressing difficult worries, do not force high-tension encouragement. Instead, gently empathize and affirm them with phrases like "You're thinking so deeply about this, that's amazing" or "Everyone has those days."
    - **Handling of Previous Posts**: Use the previous posts strictly as background context to understand the user's personality and general interests. Do NOT directly mention, bring up, or elaborate on the content of previous posts. Keep the response concise and focused entirely on validating and praising "This Post" without getting bogged down in past details.
    - ${userinfo.likedByFollower !== undefined ? 'The user liked your post. Express gratitude.' : ''}
+   - ${nagiReactionInstructionEn(userinfo)}
    - ${
      userinfo.followersFriend
        ? `Below is a post from another Bottan follower. When praising a user, consider the similarities between this post and the user's. Do not copy the exact content of the post.`
