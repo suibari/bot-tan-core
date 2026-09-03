@@ -285,7 +285,12 @@ test("maxOutputTokens未指定でもnum_predictが必ず入る", async () => {
   });
   assert.equal(typeof body.options.num_predict, "number");
   assert.ok(body.options.num_predict > 0);
-  assert.equal(body.options.num_ctx, ollamaTextContextLength());
+  // num_ctx は送らない（サーバの OLLAMA_CONTEXT_LENGTH が唯一の源）。
+  // ollamaTextContextLength() はプロンプト予算の計算にだけ使う。
+  assert.ok(
+    !("num_ctx" in body.options),
+    "num_ctx はサーバ既定に任せる（送るとrunnerの作り直しを誘発する）",
+  );
 });
 
 test("maxOutputTokensを明示した場合はその値をnum_predictへ渡す", async () => {

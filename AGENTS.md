@@ -51,3 +51,57 @@ sql`${currentTime}::timestamptz < scheduled_end_at`;
   `Date`インスタンスが残っていないことも検証する。
 - 可能な限り、Drizzleとpostgres.jsの実ドライバ境界を通るテストを追加する。
 - raw SQLが必要な場合は、ISO文字列への変換と明示キャストをテスト対象にする。
+
+## Ollama の num_ctx
+
+**Ollama へのリクエストに `options.num_ctx` を入れてはいけない。**
+サーバ側の `OLLAMA_CONTEXT_LENGTH`（LLM 機の
+`/etc/systemd/system/ollama.service.d/override.conf`）が唯一の源で、
+送らないクライアントは全員そこに乗る。
+
+Ollama は num_ctx が違うと**同じモデルでも runner を作り直す**。11GB の 26B が
+丸ごと読み直され、同じ Ollama を共用している別アプリまで巻き込む。
+
+### 禁止例
+
+```ts
+options: { num_ctx: ollamaTextContextLength(), num_predict: 1024 }
+options: { num_ctx: 16384, temperature: 0 }
+```
+
+2026-09-02 の実測では、32768 と 4096 が交互に来て `load_tensors` が **1時間に114回**。
+I/O を食い切り（`%iowait` 36% に対し `%user` 17%）、同居している ARDY の生成が
+17秒 → 129秒 → 300秒超（タイムアウト）と崩れた。
+
+### 正しい形
+
+```ts
+options: { num_predict: numPredict, temperature }
+```
+
+`num_predict` は**必ず送る**。省くと Ollama 既定の `-1`（＝残りコンテキストまで）になり、
+プロンプトが num_ctx を埋めた瞬間に生成余地が数トークンになる。エラーにはならず、
+リプライが空文字や表示名だけになって投稿される。
+
+### ollamaTextContextLength() の役割
+
+この関数は**送る値ではなく、プロンプト予算の計算がサーバ既定をミラーするためのもの**。
+Ollama は num_predict を考慮せずプロンプトを num_ctx まで詰めるので、出力枠は
+`ollamaBudget.ts` が先に取り置く。そのために「サーバがいくつで動いているか」だけは
+知っている必要がある。
+
+VRAM が足りなくなったら、**まず systemd の `OLLAMA_CONTEXT_LENGTH` を下げ、それから**
+`OLLAMA_TEXT_CONTEXT_LENGTH` を同じ値へ合わせる。順序を逆にすると予算計算だけが
+小さくなり、プロンプトが無駄に切り詰められる。
+ズレは `biorhythm_server` の健康監視が `/api/ps` の `context_length` と突き合わせて
+`[WARN][OLLAMA_CTX]` を出す。
+
+### レビューとテスト
+
+- Ollama を叩くコードを追加・変更したら、`options` に `num_ctx` が無いことを確認する。
+- 評価スクリプト（`scripts/evaluateLocalModels.mts` など）も対象。ここが本番と違う
+  num_ctx を送ると、評価を回すだけでリロード地獄を起こす。
+- リクエスト本体を組み立てるコードにはテストを添え、`num_ctx` を含めないことを検証する。
+- OpenAI 互換 `/v1/chat/completions` は `options` を黙って捨てるので自動的にサーバ既定へ
+  乗る。ネイティブ `/api/chat` を使うのは `think: false` を送るためであって、
+  num_ctx を送るためではない。

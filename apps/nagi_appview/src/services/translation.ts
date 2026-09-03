@@ -353,7 +353,7 @@ export async function requestTranslationWithRetry(
               stream: false,
               think: false,
               options: {
-                num_ctx: numCtx,
+                // num_ctx は送らない。サーバの OLLAMA_CONTEXT_LENGTH が唯一の源。
                 num_predict: numPredict,
                 temperature,
               },

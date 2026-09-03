@@ -8,7 +8,11 @@ import {
   type HealthState,
   type HeartbeatRecord,
 } from "@bsky-affirmative-bot/database";
-import { safeFetch } from "@bsky-affirmative-bot/shared-configs";
+import {
+  safeFetch,
+  ollamaNativeUrl,
+  ollamaTextContextLength,
+} from "@bsky-affirmative-bot/shared-configs";
 
 /**
  * bot-tan.com のダッシュボードに出す死活監視。
@@ -182,12 +186,54 @@ async function probeLocalLlm(): Promise<ProbeResult> {
     if (!response.ok) {
       return { state: "down", lastError: `HTTP ${response.status}` };
     }
+    void warnOnContextLengthDrift(baseUrl);
     return { state: "ok", lastOkAt: new Date().toISOString() };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     return { state: "down", lastError: message.slice(0, 300) };
   } finally {
     clearTimeout(timer);
+  }
+}
+
+/**
+ * サーバが実際に使っている num_ctx と、こちらの予算計算が前提にしている値のズレを見張る。
+ *
+ * クライアントは num_ctx を送らない（サーバの OLLAMA_CONTEXT_LENGTH が唯一の源）ので、
+ * 揃え忘れで runner が作り直される事故はもう起きない。代わりに、サーバ側だけ変えられると
+ * ollamaBudget.ts の予算計算が実際とずれる。大きすぎればプロンプトが num_ctx を溢れて
+ * リプライが空文字になり、小さすぎれば無駄に切り詰める。どちらも例外は出ないので
+ * 気付けない。ここで能動的に気付く。
+ *
+ * 疎通確認のついでなので、失敗しても握り潰す（監視のために監視を壊さない）。
+ * モデル未ロードのときは `models` が空なので、その回は黙って見送る。
+ */
+let lastContextDriftWarnAt = 0;
+async function warnOnContextLengthDrift(baseUrl: string): Promise<void> {
+  // 毎回の疎通ごとに出すとログが埋まる。1時間に1回で十分気付ける。
+  if (Date.now() - lastContextDriftWarnAt < 60 * 60 * 1_000) return;
+  try {
+    const response = await fetch(`${ollamaNativeUrl(baseUrl)}/api/ps`, {
+      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+    });
+    if (!response.ok) return;
+    const data = (await response.json()) as {
+      models?: { model?: string; context_length?: number }[];
+    };
+    const expected = ollamaTextContextLength();
+    for (const loaded of data.models ?? []) {
+      const actual = loaded.context_length;
+      if (typeof actual !== "number" || actual === expected) continue;
+      lastContextDriftWarnAt = Date.now();
+      console.warn(
+        `[WARN][OLLAMA_CTX] サーバの num_ctx が ${actual}、こちらの予算計算は ${expected} を前提にしている` +
+          `（model=${loaded.model ?? "?"}）。systemd の OLLAMA_CONTEXT_LENGTH と ` +
+          `OLLAMA_TEXT_CONTEXT_LENGTH を揃えること。`,
+      );
+      return;
+    }
+  } catch {
+    // 監視のついでなので握り潰す。
   }
 }
 

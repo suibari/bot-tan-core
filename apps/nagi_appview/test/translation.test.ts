@@ -172,12 +172,17 @@ test("sends the requested model and temperature, defaulting to the shared Gemma 
   assert.equal(bodies[0].options.temperature, 0);
   assert.equal(bodies[1].model, model);
   assert.equal(bodies[1].options.temperature, 0.3);
-  // ネイティブ /api/chat を使い、思考を切って num_ctx を他のローカル呼び出しと揃える。
-  // OpenAI互換だと num_ctx を指定できず、26Bモデルがリクエストのたびにリロードされる。
+  // ネイティブ /api/chat を使い、思考を切る。OpenAI互換だと think を切れず、訳文の前に
+  // reasoning を数百トークン吐いてレイテンシが倍増する。
+  // num_ctx は送らない（サーバの OLLAMA_CONTEXT_LENGTH が唯一の源）。
   assert.ok(urls.every((url) => url.endsWith("/api/chat")), urls.join(", "));
   assert.equal(bodies[0].think, false);
-  assert.equal(bodies[0].options.num_ctx, ollamaTextContextLength());
-  assert.equal(bodies[1].options.num_ctx, ollamaTextContextLength());
+  for (const body of bodies) {
+    assert.ok(
+      !("num_ctx" in body.options),
+      "num_ctx はサーバ既定に任せる（送るとrunnerの作り直しを誘発する）",
+    );
+  }
   // num_predict を省くと Ollama 既定の -1（残りコンテキストまで）になり、プロンプトが
   // num_ctx を埋めた瞬間に訳文が数トークンで切れて、それが正常な訳として保存される。
   assert.equal(typeof bodies[0].options.num_predict, "number");

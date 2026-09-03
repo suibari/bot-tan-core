@@ -1,7 +1,4 @@
-import {
-  ollamaTextContextLength,
-  aiModel,
-} from "@bsky-affirmative-bot/shared-configs";
+import { aiModel } from "@bsky-affirmative-bot/shared-configs";
 import { reportAiCallAsync } from "../../ai/aiCallStats.js";
 import { createHash } from "node:crypto";
 import { db, nagiNewsScreening } from "@bsky-affirmative-bot/database";
@@ -390,9 +387,8 @@ export class PositiveNewsService {
           think: false,
           format: CLASSIFIER_SCHEMA,
           keep_alive: "10m",
-          // num_ctx は他のローカル呼び出しと必ず揃える（ずれるとrunnerが作り直される）。
+          // num_ctx は送らない。サーバの OLLAMA_CONTEXT_LENGTH が唯一の源。
           options: {
-            num_ctx: ollamaTextContextLength(),
             temperature: 0,
             num_predict: 100,
           },

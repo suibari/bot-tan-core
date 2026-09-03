@@ -1,8 +1,4 @@
-import {
-  ollamaTextContextLength,
-  aiModel,
-  ollamaNativeUrl,
-} from "@bsky-affirmative-bot/shared-configs";
+import { aiModel, ollamaNativeUrl } from "@bsky-affirmative-bot/shared-configs";
 import type { AiFeatureKey } from "@bsky-affirmative-bot/shared-configs";
 import { reportAiCallAsync } from "./ai/aiCallStats.js";
 
@@ -27,12 +23,13 @@ export const isOllamaConfigured = (): boolean =>
  * モデルの選択はレジストリに任せる（呼び出し側は feature キーを名乗る）。
  * OLLAMA_MODEL の「有無」だけは Ollama が設定済みかどうかの判定として使い続ける。
  *
- * OpenAI互換の /v1/chat/completions ではなくネイティブを使う理由は2つ。
- * 1. `think: false`。思考するモデルは reasoning を別フィールドへ吐き、その分が生成上限を
- *    食う。分類は maxTokens が数トークンしかないので、切らないと content が空文字のまま
- *    返って機能が丸ごと死ぬ。
- * 2. `num_ctx`。OpenAI互換には指定手段が無く、context 4096 のrunnerが別にロードされて
- *    26Bモデルのリロードが頻発する。詳細は ollamaTextContextLength のコメント。
+ * OpenAI互換の /v1/chat/completions ではなくネイティブを使う理由は `think: false`。
+ * 思考するモデルは reasoning を別フィールドへ吐き、その分が生成上限を食う。分類は
+ * maxTokens が数トークンしかないので、切らないと content が空文字のまま返って機能が
+ * 丸ごと死ぬ。
+ *
+ * **num_ctx は送らない。** サーバの OLLAMA_CONTEXT_LENGTH が唯一の源。
+ * 詳細は AGENTS.md「Ollama の num_ctx」と ollamaTextContextLength のコメント。
  */
 export async function ollamaChat(
   feature: AiFeatureKey,
@@ -52,7 +49,7 @@ export async function ollamaChat(
         stream: false,
         think: false,
         options: {
-          num_ctx: ollamaTextContextLength(),
+          // num_ctx は送らない。サーバの OLLAMA_CONTEXT_LENGTH が唯一の源。
           temperature: options.temperature ?? 0,
           num_predict: options.maxTokens,
         },

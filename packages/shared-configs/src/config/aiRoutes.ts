@@ -35,26 +35,40 @@ export type AiTextProvider = "ollama" | "gemini";
 export const DEFAULT_OLLAMA_TEXT_MODEL =
   "hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S";
 
-/** `OLLAMA_TEXT_CONTEXT_LENGTH` 未設定時の num_ctx。 */
+/** `OLLAMA_TEXT_CONTEXT_LENGTH` 未設定時の既定。サーバの OLLAMA_CONTEXT_LENGTH と同値。 */
 export const DEFAULT_OLLAMA_TEXT_CONTEXT_LENGTH = 32_768;
 
 let contextLengthCache: number | undefined;
 
 /**
- * ローカル生成の全リクエストで使う num_ctx。**必ず全呼び出し箇所でこの関数を使うこと。**
+ * プロンプト予算の計算に使う num_ctx。**サーバ側 `OLLAMA_CONTEXT_LENGTH` のミラーであって、
+ * リクエストに載せる値ではない。**
  *
- * 1. Ollama の既定は 4096 しかない。SYSTEM_INSTRUCTION だけで約3,900トークンあり、
- *    そこへ会話履歴と grounding の調査ブロック（最大8,000字）が乗る。4096 のままだと
- *    実測でリプライが**空文字**になる（エラーにならないので気付けない）。
- * 2. Ollama は num_ctx が違うと runner を作り直す。1箇所でも値がずれると、リプライ生成と
- *    分類・翻訳が交互に来るたびに26Bモデルが5〜8秒かけてリロードされる。
- * 3. Ollama は **num_predict を考慮せず**プロンプトを num_ctx まで詰めるので、num_ctx を
- *    上げるだけでは事故は止まらない。出力枠の確保は ollamaBudget.ts が受け持つ。
+ * ## この値を Ollama へ送ってはいけない
+ *
+ * Ollama は num_ctx が違うと同じモデルでも runner を作り直す。以前は全クライアントが
+ * この値を明示送信し、systemd の override・本ファイル・bot-tan-youtuber の
+ * `common/llm.py` の3箇所を人手で 32768 に揃えていた。1箇所ずれるだけで、リプライ生成と
+ * 分類・翻訳が交互に来るたびに26Bモデルが5〜8秒かけてリロードされる
+ * （2026-09-02 の実測: `load_tensors` が1時間に114回、%iowait 36%）。
+ *
+ * いまは **クライアントから num_ctx を送らない**。サーバの `OLLAMA_CONTEXT_LENGTH` が
+ * 唯一の源で、送らないクライアントは全員そこに乗る。揃え忘れが構造的に起きなくなった。
+ * 実効値のズレは healthMonitor が `/api/ps` の `context_length` と突き合わせて WARN を出す。
+ *
+ * ## それでもこの関数が要る理由
+ *
+ * Ollama は **num_predict を考慮せず**プロンプトを num_ctx まで詰める。出力枠は
+ * ollamaBudget.ts が先に取り置く必要があり、そのために「サーバがいくつで動いているか」を
+ * 知らないといけない。ここが実際より大きいと出力枠が足りず、リプライが**空文字**になる
+ * （エラーにならないので気付けない）。
  *
  * 定数ではなく関数なのは、env をモジュール評価時に読むと `dotenv.config()` より先に
  * 走ってしまうため（アプリの index.ts は ESM の import 解決後に dotenv を呼ぶ）。
- * 1関数に集約したうえでメモ化するので、値が経路ごとにずれる心配は無い。
- * ホスト側の VRAM が足りなければ `OLLAMA_TEXT_CONTEXT_LENGTH=16384` で戻せる。
+ *
+ * ホスト側の VRAM が足りなくなったら、**まず systemd の `OLLAMA_CONTEXT_LENGTH` を下げ、
+ * それから** `OLLAMA_TEXT_CONTEXT_LENGTH` を同じ値に合わせること。順序を逆にすると
+ * 予算計算だけが小さくなり、プロンプトが無駄に切り詰められる。
  */
 export function ollamaTextContextLength(): number {
   if (contextLengthCache !== undefined) return contextLengthCache;
@@ -245,7 +259,8 @@ export const AI_FEATURES = {
   NEWS_POSITIVE_GATE: "lite-flex", // ポジニュース判定（構造化JSON）
   NEWS_POSITIVE_COMMENT: "lite-flex", // ポジニュースのbotたんコメント
 
-  // Ollama 運用時にも残す、検索・URL調査だけの Gemini。人格や最終文面は生成しない。
+  // 検索・URL調査だけの経路。人格や最終文面は生成しない。Grounding に Gemini は使わない
+  // （利用者が第三者AIサービスの規約に同意する関係を作らないため。docs/ai-routes.md 参照）。
   GROUNDING_RESEARCH: "ollama-chat", // SearXNGで集めた素材の要約（自前ホスト）
 
   // ══════ ローカル Ollama（ServiceTier なし） ════════════════════════

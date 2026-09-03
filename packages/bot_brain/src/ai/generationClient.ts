@@ -321,7 +321,8 @@ export async function generateOllamaContent(params: any): Promise<any> {
       think: false,
       ...(schema ? { format: schema } : {}),
       options: {
-        num_ctx: numCtx,
+        // num_ctx は送らない。サーバの OLLAMA_CONTEXT_LENGTH が唯一の源。
+        // numCtx は上の fitOllamaMessages（プロンプト予算）にだけ使う。
         num_predict: numPredict,
         ...(typeof config.temperature === "number" ? { temperature: config.temperature } : {}),
         ...(typeof config.topP === "number" ? { top_p: config.topP } : {}),

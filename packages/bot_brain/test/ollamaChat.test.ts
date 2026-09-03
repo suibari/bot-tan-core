@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { mock, test } from "node:test";
-import { ollamaTextContextLength } from "@bsky-affirmative-bot/shared-configs";
 import { ollamaChat } from "../src/ollamaChat.js";
 
 function withOllamaEnv<T>(run: () => Promise<T>): Promise<T> {
@@ -19,11 +18,14 @@ function withOllamaEnv<T>(run: () => Promise<T>): Promise<T> {
 }
 
 /**
- * OpenAI互換ではなくネイティブ /api/chat を使い、think を切り num_ctx を揃える。
- * think を切らないと分類は content が空文字のまま返って死に、num_ctx がずれると
- * 26Bモデルが呼び出しのたびにリロードされる。
+ * OpenAI互換ではなくネイティブ /api/chat を使い、think を切る。think を切らないと
+ * 分類は content が空文字のまま返って死ぬ。
+ *
+ * **num_ctx は送らない。** Ollama は num_ctx が違うと同じモデルでも runner を作り直す。
+ * 送る値を持つと systemd 側と揃え忘れたときに26Bモデルがリロードされ続けるので、
+ * サーバの OLLAMA_CONTEXT_LENGTH を唯一の源にしている。
  */
-test("ネイティブ /api/chat へ think:false と共通num_ctxで投げる", async () => {
+test("ネイティブ /api/chat へ think:false で投げ、num_ctx は送らない", async () => {
   await withOllamaEnv(async () => {
     let url = "";
     let body: any;
@@ -47,7 +49,10 @@ test("ネイティブ /api/chat へ think:false と共通num_ctxで投げる", a
       assert.equal(body.think, false);
       assert.equal(body.stream, false);
       assert.equal(body.options.num_predict, 5);
-      assert.equal(body.options.num_ctx, ollamaTextContextLength());
+      assert.ok(
+        !("num_ctx" in body.options),
+        "num_ctx はサーバ既定に任せる（送るとrunnerの作り直しを誘発する）",
+      );
     } finally {
       fetchMock.mock.restore();
     }

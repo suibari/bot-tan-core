@@ -37,6 +37,7 @@ import path from "node:path";
 import {
   SYSTEM_INSTRUCTION,
   AFFIRMATIVE_REPLY_RUNAWAY_LIMIT,
+  ollamaTextContextLength,
 } from "../packages/shared-configs/src/index.js";
 import { NAGI_LANGUAGES } from "../packages/nagi-lexicon/src/constants.js";
 import {
@@ -203,8 +204,15 @@ function adhocArms(): { reply: Arm[]; translation: Arm[] } {
 
 /** リプライ生成の温度。本番の Gemini 既定（=1.0）に合わせる。分類用の 0 とは別物 */
 const REPLY_TEMPERATURE = 1.0;
-/** 本番プロンプトは system+user で約6,200トークン。再現性のため明示する */
-const NUM_CTX = 16384;
+/**
+ * 本番プロンプトは system+user で約6,200トークン。
+ *
+ * **ここで num_ctx を送ってはいけない。** 以前は 16384 を明示していたが、Ollama は
+ * num_ctx が違うと同じモデルでも runner を作り直す。評価を回すたびに 11GB の 26B が
+ * 読み直され、同居している ARDY / YouTuber botたんの生成まで巻き込んで壊れる。
+ * 本番と同じく、サーバの OLLAMA_CONTEXT_LENGTH に乗る（この値は報告用の記録だけに使う）。
+ */
+const NUM_CTX = ollamaTextContextLength();
 
 // ---------------------------------------------------------------------------
 // Ollama 呼び出し（native /api/chat。詳細なタイミングと think 制御が取れる）
@@ -234,7 +242,8 @@ async function callOllama(
     model: arm.model,
     messages,
     stream: false,
-    options: { num_ctx: NUM_CTX, num_predict: arm.numPredict, temperature },
+    // num_ctx は送らない（サーバの OLLAMA_CONTEXT_LENGTH が唯一の源）。本番と同じ条件で測る。
+    options: { num_predict: arm.numPredict, temperature },
   };
   if (arm.think === false) body.think = false;
   const startedAt = Date.now();
