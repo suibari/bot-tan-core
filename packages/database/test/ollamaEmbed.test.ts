@@ -184,3 +184,78 @@ test("embedSearchQuery はクエリ前後の空白を落としてから接頭辞
     restore();
   }
 });
+
+// --- バッチのタイムアウト -----------------------------------------------------
+// 16件バッチに1件ぶんの予算しか与えないと、qwen3 のような重いモデルで常時ぎりぎりになり、
+// 超えるたび cooldown が開いて埋め込みが全面停止する。件数に比例していることを固定する。
+
+/** delayMs 後に count 件を返す fetch。abort されたら reject する。 */
+const slowFetch = (delayMs: number) =>
+  ((_url: unknown, init: RequestInit | undefined) => {
+    const body = JSON.parse(String(init?.body));
+    const count = Array.isArray(body.input) ? body.input.length : 1;
+    const one = Array.from({ length: 1024 }, () => 0.1);
+    return new Promise<Response>((resolve, reject) => {
+      const timer = setTimeout(
+        () =>
+          resolve(
+            new Response(
+              JSON.stringify({
+                data: Array.from({ length: count }, () => ({ embedding: one })),
+              }),
+              { status: 200, headers: { "content-type": "application/json" } },
+            ),
+          ),
+        delayMs,
+      );
+      init?.signal?.addEventListener("abort", () => {
+        clearTimeout(timer);
+        reject(init.signal?.reason);
+      });
+    });
+  }) as typeof fetch;
+
+test("埋め込みのタイムアウトは件数に比例する", async () => {
+  process.env.OLLAMA_BASE_URL = "http://ollama.test/v1";
+  delete process.env.OLLAMA_EMBED_BASE_URL;
+  // 1件なら予算 60ms、16件なら 60 + 15*40 = 660ms。応答は 200ms かかる。
+  process.env.OLLAMA_EMBED_TIMEOUT_MS = "60";
+  process.env.OLLAMA_EMBED_TIMEOUT_PER_ITEM_MS = "40";
+  // 1件目の失敗で開くサーキットを、次の検証まで持ち越さない。
+  process.env.OLLAMA_EMBED_COOLDOWN_MS = "1";
+  globalThis.fetch = slowFetch(200);
+
+  try {
+    assert.equal(
+      await generateEmbedding("single"),
+      null,
+      "1件は予算60msを超えるので落ちる",
+    );
+
+    await new Promise((r) => setTimeout(r, 10)); // cooldown(1ms) を明ける
+    const batch = await generateEmbeddings(Array.from({ length: 16 }, (_, i) => `t${i}`));
+    assert.equal(batch.length, 16);
+    assert.ok(
+      batch.every((v) => Array.isArray(v)),
+      "16件は比例予算(660ms)で通る",
+    );
+  } finally {
+    delete process.env.OLLAMA_EMBED_TIMEOUT_PER_ITEM_MS;
+    restore();
+  }
+});
+
+test("OLLAMA_EMBED_TIMEOUT_PER_ITEM_MS 未設定でも既定で比例する", async () => {
+  process.env.OLLAMA_BASE_URL = "http://ollama.test/v1";
+  delete process.env.OLLAMA_EMBED_BASE_URL;
+  delete process.env.OLLAMA_EMBED_TIMEOUT_PER_ITEM_MS;
+  // 既定は 5000 + 1500*(n-1)。16件なら 27.5秒あるので 200ms の応答は当然通る。
+  delete process.env.OLLAMA_EMBED_TIMEOUT_MS;
+  globalThis.fetch = slowFetch(200);
+  try {
+    const batch = await generateEmbeddings(Array.from({ length: 16 }, (_, i) => `t${i}`));
+    assert.ok(batch.every((v) => Array.isArray(v)));
+  } finally {
+    restore();
+  }
+});

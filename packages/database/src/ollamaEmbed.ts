@@ -1,6 +1,22 @@
 import { aiModel } from "@bsky-affirmative-bot/shared-configs";
 
 const DEFAULT_TIMEOUT_MS = 5_000;
+/**
+ * バッチ1件あたりの追加猶予。**バッチのタイムアウトを件数に比例させるためのもの。**
+ *
+ * OLLAMA_EMBED_TIMEOUT_MS は「返信前の履歴検索を長時間止めない」ための予算で、
+ * クエリ1本を測って決めてある。ところが埋め込みワーカーは16件をまとめて投げるので、
+ * 同じ予算を当てると件数に比例して破綻する。
+ *
+ * 実測（qwen3-embedding:0.6b / CPU の ollama-embed）: 1件 約330ms、16件 約4.4秒。
+ * 固定5秒だと16件バッチが常時ぎりぎりで、超えるたびに下の cooldown が60秒開いて
+ * **埋め込みが全面停止する**（利用者の検索も巻き込む）。実際 arctic-embed2 から
+ * qwen3 へ差し替えた直後、再埋め込みの実効速度が 64行/分 まで落ちた。
+ *
+ * そこで「1件ぶんは従来の予算、2件目以降はここで足す」形にする。
+ * 16件なら 5000 + 15*1500 = 27.5秒。速いモデルへ戻せば早く返るだけで害はない。
+ */
+const DEFAULT_TIMEOUT_PER_ITEM_MS = 1_500;
 const DEFAULT_COOLDOWN_MS = 60_000;
 const EMBEDDING_DIMENSIONS = 1024;
 
@@ -20,10 +36,15 @@ async function requestEmbeddings(
   const baseUrl = process.env.OLLAMA_EMBED_BASE_URL ?? process.env.OLLAMA_BASE_URL;
   if (!baseUrl || Date.now() < unavailableUntil) return null;
 
-  const timeoutMs = positiveEnvNumber(
-    "OLLAMA_EMBED_TIMEOUT_MS",
-    DEFAULT_TIMEOUT_MS,
-  );
+  // 件数に比例させる。1件なら従来どおりの予算のまま。
+  const count = Array.isArray(input) ? input.length : 1;
+  const timeoutMs =
+    positiveEnvNumber("OLLAMA_EMBED_TIMEOUT_MS", DEFAULT_TIMEOUT_MS) +
+    positiveEnvNumber(
+      "OLLAMA_EMBED_TIMEOUT_PER_ITEM_MS",
+      DEFAULT_TIMEOUT_PER_ITEM_MS,
+    ) *
+      Math.max(0, count - 1);
   const cooldownMs = positiveEnvNumber(
     "OLLAMA_EMBED_COOLDOWN_MS",
     DEFAULT_COOLDOWN_MS,
@@ -63,7 +84,8 @@ async function requestEmbeddings(
   } catch (error) {
     unavailableUntil = Date.now() + cooldownMs;
     console.error(
-      `[ERROR][ollamaEmbed] request failed; suppressing retries for ${cooldownMs}ms`,
+      `[ERROR][ollamaEmbed] request failed (count=${count}, timeout=${timeoutMs}ms); ` +
+        `suppressing retries for ${cooldownMs}ms`,
       error,
     );
     return null;

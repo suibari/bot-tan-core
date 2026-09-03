@@ -135,7 +135,15 @@ async function main() {
     );
   }
 
-  // ワーカーが無い表だけ自前で埋める。
+  // ワーカーが無い表は「NULL に落としてから自前で埋める」。落とす対象に含めてしまうと
+  // 誰も埋め直さないので、ここで一気通貫にやる。
+  const cleared = await db
+    .update(posts)
+    .set({ embedding: null })
+    .where(isNotNull(posts.embedding))
+    .returning({ one: sql<number>`1` });
+  console.log(`  affirmative_bot.posts: ${cleared.length} 行`);
+
   const pending = await db
     .select({ did: posts.did, post: posts.post })
     .from(posts)

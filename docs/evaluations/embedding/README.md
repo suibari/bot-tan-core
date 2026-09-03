@@ -125,6 +125,36 @@ pnpm embedding:evaluate -- --run --source=memory --corpus-limit=5000 \
   768次元なので、スキーマ変更と全件再埋め込みが要る。`qwen3-embedding:0.6b` は 1024次元
   なのでスキーマ変更なしで差し替えられる。
 
+## 本番への反映（2026-09-04）
+
+評価の結論を2段階で入れた。
+
+**Stage 1 — env のみ（再埋め込みなし）**: `OLLAMA_QUERY_PREFIX="query: "` と
+`SEARCH_SEM_DIST_MAX=0.80` / `SEARCH_SEM_REL_MARGIN=0.12` / `SEARCH_ACTOR_SEM_DIST_MAX=0.95`。
+本番DBに対する前後比較で、あいまい検索「ワルプルギス」の
+`hewwo` / `おっひるー` / `:nurupo:` / `:orz:` が消え、hybrid モードは上位8件すべてが
+まどマギ投稿になった。「散歩」も関連ヒットが 3/10 → 6/10。
+
+**Stage 2 — `qwen3-embedding:0.6b` へ差し替え**: 1024次元同士なのでスキーマ変更なし。
+`packages/database/src/ollamaEmbed.ts` の `embedSearchQuery()` にクエリ接頭辞を集約し、
+Nagi 検索（`hybridSearch.embedQuery`）と botMemory RAG（`searchBotMemory`）の両方が経由する。
+文書側（`embeddingWorker` / `botMemoryEmbeddingWorker` / `upsertPost` /
+`findFollowersByTopic`）は接頭辞なしの `generateEmbedding(s)` のまま。
+しきい値は `SEARCH_SEM_DIST_MAX=0.60` / `SEARCH_SEM_REL_MARGIN=0.08` /
+`SEARCH_ACTOR_SEM_DIST_MAX=0.75`。全件再埋め込みは `scripts/reembedAll.mts`。
+
+はまった点:
+
+- **接頭辞の `\n`。** dotenv も `node --env-file` も**二重引用符内**の `\n` は実改行へ
+  展開する（単引用符は展開しない）。systemd の `Environment=` や docker の `-e` は
+  展開しないので、`searchQueryPrefix()` が残った `\n` を保険で展開する。
+- **`affirmative_bot.posts` にはワーカーが無い。** `upsertPost` 時にしか埋まらないので、
+  NULL に落としただけでは誰も埋め直さない。`reembedAll.mts` がこの表だけ直接埋める。
+  初版はこの表を NULL 化対象から外していたため旧ベクトルが残り、「0行」で素通りした。
+- **しきい値はコーパス上の実距離で決めること。** 手元で作った文と適当なクエリの
+  cosine 距離（0.67）を根拠にすると誤る。実際の上位ヒットは walpurgis 0.332〜0.404 /
+  madomagi 0.409〜0.469 / walk 0.274〜0.401 で、0.60 を余裕で通る。
+
 ## 2026-09-04 の結果
 
 `nagi.posts` 3000件 × 27クエリ × 25アーム。人手915件 + LLM下書き714件の混在採点。
