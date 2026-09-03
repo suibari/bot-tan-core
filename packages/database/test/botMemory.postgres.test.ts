@@ -4,7 +4,7 @@ import postgres from "postgres";
 
 const databaseUrl = process.env.BOT_MEMORY_TEST_DATABASE_URL;
 
-test("migration-backed upsert and backfill are idempotent", {
+test("migration-backed upsert, backfill, and reaction purge are idempotent", {
   skip: !databaseUrl,
 }, async () => {
   const target = new URL(databaseUrl!);
@@ -164,22 +164,48 @@ test("migration-backed upsert and backfill are idempotent", {
     const text = contents.map((row) => row.content).join("\n");
     assert.match(text, /購読者のAI対象/);
     assert.doesNotMatch(text, /非購読者のAI対象|定型文対象|こっそりAI対象/);
-    assert.match(text, /購読者がいいねしたbotたんの朝/);
-    assert.doesNotMatch(text, /非購読者がいいねしたbotたんの夜/);
+    assert.doesNotMatch(text, /購読者がいいねしたbotたんの朝|非購読者がいいねしたbotたんの夜/);
     assert.match(text, /Nagiで受けた返信/);
-    assert.match(text, /喜んで跳ねる猫/);
+    assert.doesNotMatch(text, /喜んで跳ねる猫/);
     assert.match(text, /YouTubeのコメント/);
 
-    const lexical = await memory.searchBotMemory({
-      query: "喜んで跳ねる猫",
-      purpose: "reply_history",
-      sources: ["nagi_received_reaction"],
-      authorId: "did:plc:reactor",
-      since: new Date(Date.now() - 60_000),
-      limit: 3,
+    const likeMemory = await memory.upsertBotMemoryDocument({
+      sourceType: "bsky_received_like",
+      sourceId: "legacy-like",
+      content: "botたんの投稿へのいいね",
+      occurredAt: new Date(),
+    });
+    const reactionMemory = await memory.upsertBotMemoryDocument({
+      sourceType: "nagi_received_reaction",
+      sourceId: "legacy-reaction",
+      content: "botたんの投稿へのリアクション",
+      occurredAt: new Date(),
+    });
+    assert.ok(likeMemory && reactionMemory);
+    await memory.recordBotMemoryUsages(
+      [likeMemory.id, reactionMemory.id],
+      "live_filler",
+    );
+
+    const inactiveSearch = await memory.searchBotMemory({
+      query: "botたんの投稿",
+      purpose: "live_reply",
+      sources: ["bsky_received_like", "nagi_received_reaction"],
     }, { embed: async () => null });
-    assert.equal(lexical.length, 1);
-    assert.equal(lexical[0].sourceType, "nagi_received_reaction");
+    assert.deepEqual(inactiveSearch, []);
+
+    const dryRun = await memory.purgeReactionBotMemory(false);
+    assert.equal(dryRun.deleted, 0);
+    assert.equal(dryRun.before.reduce((sum, row) => sum + row.documents, 0), 2);
+    assert.equal(dryRun.before.reduce((sum, row) => sum + row.usages, 0), 2);
+    assert.equal((await memory.purgeReactionBotMemory(true)).deleted, 2);
+    assert.equal((await memory.purgeReactionBotMemory(true)).deleted, 0);
+    const remaining = await setup`
+      select count(*)::int as count
+      from affirmative_bot.bot_memory_documents
+      where source_type in ('bsky_received_like', 'nagi_received_reaction')
+    `;
+    assert.equal(remaining[0].count, 0);
   } finally {
     await backfill.closeBotMemoryBackfillDatabase();
     await database.client.end();

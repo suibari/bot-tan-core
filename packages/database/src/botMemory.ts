@@ -43,7 +43,97 @@ export const BOT_MEMORY_SOURCE_TYPES = [
 ] as const;
 
 export type BotMemorySourceType = (typeof BOT_MEMORY_SOURCE_TYPES)[number];
-export type BotMemoryPurpose = "reply_history" | "scheduled_post" | "live_filler";
+export type BotMemoryPurpose =
+  | "reply_history"
+  | "scheduled_post"
+  | "live_filler"
+  | "live_reply";
+
+/**
+ * 反応イベントは旧YouTubeクライアントとのローリングデプロイ互換のため型には残すが、
+ * 検索対象にはしない。反応された本文はbotたん自身の投稿であり、会話記憶ではない。
+ */
+export const BOT_MEMORY_ACTIVE_SOURCE_TYPES: readonly BotMemorySourceType[] =
+  BOT_MEMORY_SOURCE_TYPES.filter(
+    (sourceType) =>
+      sourceType !== "bsky_received_like" &&
+      sourceType !== "nagi_received_reaction",
+  );
+
+export function activeBotMemorySourceTypes(
+  requested?: readonly BotMemorySourceType[],
+): BotMemorySourceType[] {
+  return (requested ?? BOT_MEMORY_ACTIVE_SOURCE_TYPES).filter((sourceType) =>
+    BOT_MEMORY_ACTIVE_SOURCE_TYPES.includes(sourceType)
+  );
+}
+
+export const REACTION_MEMORY_SOURCE_TYPES = [
+  "bsky_received_like",
+  "nagi_received_reaction",
+] as const satisfies readonly BotMemorySourceType[];
+
+export type ReactionMemoryPurgeSummary = {
+  sourceType: (typeof REACTION_MEMORY_SOURCE_TYPES)[number];
+  documents: number;
+  usages: number;
+};
+
+export type ReactionMemoryPurgeDependencies = {
+  loadSummary: () => Promise<ReactionMemoryPurgeSummary[]>;
+  deleteDocuments: () => Promise<number>;
+};
+
+export async function loadReactionMemoryPurgeSummary(): Promise<ReactionMemoryPurgeSummary[]> {
+  const documentRows = await db
+    .select({
+      sourceType: bot_memory_documents.source_type,
+      count: sql<number>`count(*)::int`,
+    })
+    .from(bot_memory_documents)
+    .where(inArray(bot_memory_documents.source_type, [...REACTION_MEMORY_SOURCE_TYPES]))
+    .groupBy(bot_memory_documents.source_type);
+  const usageRows = await db
+    .select({
+      sourceType: bot_memory_documents.source_type,
+      count: sql<number>`count(*)::int`,
+    })
+    .from(bot_memory_usages)
+    .innerJoin(
+      bot_memory_documents,
+      eq(bot_memory_documents.id, bot_memory_usages.document_id),
+    )
+    .where(inArray(bot_memory_documents.source_type, [...REACTION_MEMORY_SOURCE_TYPES]))
+    .groupBy(bot_memory_documents.source_type);
+  const documents = new Map(documentRows.map((row) => [row.sourceType, Number(row.count)]));
+  const usages = new Map(usageRows.map((row) => [row.sourceType, Number(row.count)]));
+  return REACTION_MEMORY_SOURCE_TYPES.map((sourceType) => ({
+    sourceType,
+    documents: documents.get(sourceType) ?? 0,
+    usages: usages.get(sourceType) ?? 0,
+  }));
+}
+
+async function deleteReactionMemoryDocuments() {
+  const deleted = await db.transaction(async (tx) => tx
+    .delete(bot_memory_documents)
+    .where(inArray(bot_memory_documents.source_type, [...REACTION_MEMORY_SOURCE_TYPES]))
+    .returning({ id: bot_memory_documents.id }));
+  return deleted.length;
+}
+
+export async function purgeReactionBotMemory(
+  shouldApply = false,
+  dependencies: ReactionMemoryPurgeDependencies = {
+    loadSummary: loadReactionMemoryPurgeSummary,
+    deleteDocuments: deleteReactionMemoryDocuments,
+  },
+) {
+  const before = await dependencies.loadSummary();
+  if (!shouldApply) return { applied: false, before, deleted: 0 };
+  const deleted = await dependencies.deleteDocuments();
+  return { applied: true, before, deleted };
+}
 
 export interface BotMemoryDocumentInput {
   sourceType: BotMemorySourceType;
@@ -171,15 +261,6 @@ export function shouldRememberAffirmedPost(input: {
 }) {
   return input.aiReplyPosted && input.isTopLevel && input.isPublic &&
     (input.surface === "nagi" || input.isSubscriber === true);
-}
-
-export const shouldRememberBskyLike = (isSubscriber: boolean) => isSubscriber;
-
-export function formatReactionMemoryContent(
-  targetText: string,
-  reaction: string,
-) {
-  return `botたんの投稿「${targetText.trim()}」へのリアクション ${reaction.trim()}`;
 }
 
 export function isBotMemorySourceType(value: unknown): value is BotMemorySourceType {
@@ -310,45 +391,6 @@ export async function updateBotMemoriesByUri(sourceUri: string, content: string)
       deleted_at: null,
     })
     .where(eq(bot_memory_documents.source_uri, sourceUri));
-}
-
-/** いいね/リアクションが参照するbot投稿の編集を、合成済み検索本文へ反映する。 */
-export async function updateBotReactionMemorySubjects(
-  subjectUri: string,
-  targetText: string,
-) {
-  const rows = await db
-    .select({
-      id: bot_memory_documents.id,
-      sourceType: bot_memory_documents.source_type,
-      metadata: bot_memory_documents.metadata,
-    })
-    .from(bot_memory_documents)
-    .where(and(
-      sql`${bot_memory_documents.metadata}->>'subjectUri' = ${subjectUri}`,
-      isNull(bot_memory_documents.deleted_at),
-    ));
-  for (const row of rows) {
-    const metadata = (row.metadata ?? {}) as Record<string, unknown>;
-    const label = typeof metadata.reactionLabel === "string"
-      ? metadata.reactionLabel
-      : row.sourceType === "bsky_received_like"
-        ? "いいね"
-        : [metadata.emojiName ?? metadata.emoji, metadata.emojiAlt]
-            .filter((value): value is string => typeof value === "string" && value.length > 0)
-            .join(" ");
-    const content = formatReactionMemoryContent(targetText, label || "リアクション");
-    await db
-      .update(bot_memory_documents)
-      .set({
-        content,
-        content_hash: botMemoryContentHash(content),
-        embedding: null,
-        embedding_model: null,
-        updated_at: new Date(),
-      })
-      .where(eq(bot_memory_documents.id, row.id));
-  }
 }
 
 export async function getPendingBotMemoryDocuments(limit = 16) {
@@ -622,11 +664,12 @@ export function mergeBotMemoryRanks(
 }
 
 function searchConditions(request: BotMemorySearchRequest) {
+  const activeSources = activeBotMemorySourceTypes(request.sources);
   return [
     isNull(bot_memory_documents.deleted_at),
-    ...(request.sources?.length
-      ? [inArray(bot_memory_documents.source_type, request.sources)]
-      : []),
+    activeSources.length
+      ? inArray(bot_memory_documents.source_type, activeSources)
+      : sql`false`,
     ...(request.authorId ? [eq(bot_memory_documents.author_id, request.authorId)] : []),
     ...(request.excludeAuthorId ? [ne(bot_memory_documents.author_id, request.excludeAuthorId)] : []),
     ...(request.since ? [gte(bot_memory_documents.occurred_at, request.since)] : []),

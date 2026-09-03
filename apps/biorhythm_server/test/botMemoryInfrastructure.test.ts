@@ -5,6 +5,7 @@ import {
   isBotMemoryAuthorized,
   serializeBotMemorySearchResult,
   validateBotMemorySearchBody,
+  validateBotMemoryUsageBody,
 } from "../src/botMemoryRouter.js";
 import { processBotMemoryEmbeddingBatch } from "../src/botMemoryEmbeddingWorker.js";
 import {
@@ -88,12 +89,37 @@ test("search body validates purpose, sources, and query length", () => {
     purpose: "live_filler",
     sources: ["nagi_affirmed_post"],
   });
+  assert.deepEqual(validateBotMemorySearchBody({
+    query: "Blueskyで前に何があった？",
+    purpose: "live_reply",
+    sources: ["bsky_received_reply", "bsky_received_like"],
+  }), {
+    query: "Blueskyで前に何があった？",
+    purpose: "live_reply",
+    sources: ["bsky_received_reply", "bsky_received_like"],
+  });
   assert.throws(() => validateBotMemorySearchBody({ query: "", purpose: "live_filler" }));
   assert.throws(() => validateBotMemorySearchBody({ query: "ok", purpose: "unknown" }));
   assert.throws(() => validateBotMemorySearchBody({
     query: "ok",
     purpose: "live_filler",
     sources: ["kossori"],
+  }));
+});
+
+test("usage body accepts live_reply and keeps its existing limits", () => {
+  assert.deepEqual(validateBotMemoryUsageBody({
+    purpose: "live_reply",
+    documentIds: [1, 1, "bad", ...Array.from({ length: 25 }, (_, i) => i + 2)],
+    outputRef: "broadcast-1",
+  }), {
+    purpose: "live_reply",
+    documentIds: Array.from({ length: 20 }, (_, i) => i + 1),
+    outputRef: "broadcast-1",
+  });
+  assert.throws(() => validateBotMemoryUsageBody({
+    purpose: "unknown",
+    documentIds: [1],
   }));
 });
 

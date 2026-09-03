@@ -1,7 +1,6 @@
 import {
   db,
   client,
-  formatReactionMemoryContent,
   upsertBotMemoryDocument,
   type BotMemoryDocumentInput,
 } from "@bsky-affirmative-bot/database";
@@ -75,63 +74,6 @@ export async function loadBotMemoryBackfillCandidates(): Promise<Candidate[]> {
         backfill: "nagi_bot_reply_jobs",
         replyUri: row.reply_uri,
         generationMode: row.generation_mode,
-      },
-    });
-  }
-
-  const bskyLikes = await rows<any>(sql`
-    select id, did, details, created_at
-    from affirmative_bot.interaction
-    where type = 'like'
-      and nullif(btrim(details->>'text'), '') is not null
-      and exists (
-        select 1 from affirmative_bot.subscribers s
-        where s.did = interaction.did and s.status = 'active'
-      )
-    order by id
-  `);
-  for (const row of bskyLikes) {
-    candidates.push({
-      sourceType: "bsky_received_like",
-      sourceId: `interaction:${row.id}`,
-      authorId: row.did,
-      content: formatReactionMemoryContent(row.details.text, "いいね"),
-      occurredAt: new Date(row.created_at),
-      metadata: { backfill: "interaction", subjectUri: row.details.uri, reaction: "like", reactionLabel: "いいね" },
-    });
-  }
-
-  const nagiReactions = await rows<any>(sql`
-    select r.uri, r.did, r.subject_uri, r.emoji, r.emoji_uri,
-           e.name as emoji_name, e.alt as emoji_alt, r.created_at, p.text
-    from nagi.reactions r
-    join nagi.posts p on p.uri = r.subject_uri
-    left join nagi.emojis e on e.uri = r.emoji_uri
-    where p.did = ${process.env.NAGI_BOT_DID ?? ""}
-      and p.deleted_at is null
-      and p.kossori = false
-      and p.channel_only = false
-    order by r.created_at
-  `);
-  for (const row of nagiReactions) {
-    const label = [row.emoji_name ?? row.emoji, row.emoji_alt]
-      .filter(Boolean)
-      .join(" ");
-    candidates.push({
-      sourceType: "nagi_received_reaction",
-      sourceId: row.uri,
-      sourceUri: row.uri,
-      authorId: row.did,
-      content: formatReactionMemoryContent(row.text, label),
-      occurredAt: new Date(row.created_at),
-      metadata: {
-        backfill: "nagi.reactions",
-        subjectUri: row.subject_uri,
-        emoji: row.emoji,
-        emojiUri: row.emoji_uri,
-        emojiName: row.emoji_name,
-        emojiAlt: row.emoji_alt,
-        reactionLabel: label,
       },
     });
   }

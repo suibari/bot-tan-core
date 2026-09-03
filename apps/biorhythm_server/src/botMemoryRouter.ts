@@ -13,6 +13,7 @@ const PURPOSES = new Set<BotMemoryPurpose>([
   "reply_history",
   "scheduled_post",
   "live_filler",
+  "live_reply",
 ]);
 
 export function isBotMemoryAuthorized(header: string | undefined, secret: string | undefined) {
@@ -32,6 +33,19 @@ export function validateBotMemorySearchBody(body: any) {
     !Array.isArray(sources) || !sources.every(isBotMemorySourceType)
   )) throw new Error(`sources must use: ${BOT_MEMORY_SOURCE_TYPES.join(", ")}`);
   return { query, purpose: purpose as BotMemoryPurpose, sources };
+}
+
+export function validateBotMemoryUsageBody(body: any) {
+  const purpose = body?.purpose;
+  const documentIds = body?.documentIds;
+  if (!PURPOSES.has(purpose) || !Array.isArray(documentIds)) {
+    throw new Error("invalid usage");
+  }
+  return {
+    purpose: purpose as BotMemoryPurpose,
+    documentIds: [...new Set(documentIds.filter(Number.isInteger))].slice(0, 20),
+    outputRef: typeof body?.outputRef === "string" ? body.outputRef : undefined,
+  };
 }
 
 export function serializeBotMemorySearchResult(result: BotMemorySearchResult) {
@@ -107,20 +121,14 @@ export function createBotMemoryRouter(secret: string | undefined) {
 
   router.post("/memory/usages", async (req, res) => {
     try {
-      const purpose = req.body?.purpose;
-      const documentIds = req.body?.documentIds;
-      if (!PURPOSES.has(purpose) || !Array.isArray(documentIds)) {
-        res.status(400).json({ error: "invalid usage" });
+      const { purpose, documentIds, outputRef } = validateBotMemoryUsageBody(req.body);
+      await recordBotMemoryUsages(documentIds, purpose, outputRef);
+      res.json({ success: true, recorded: documentIds.length });
+    } catch (error) {
+      if (error instanceof Error && error.message === "invalid usage") {
+        res.status(400).json({ error: error.message });
         return;
       }
-      const ids = [...new Set(documentIds.filter(Number.isInteger))].slice(0, 20);
-      await recordBotMemoryUsages(
-        ids,
-        purpose,
-        typeof req.body?.outputRef === "string" ? req.body.outputRef : undefined,
-      );
-      res.json({ success: true, recorded: ids.length });
-    } catch (error) {
       console.error("[ERROR][BOT_MEMORY_API] usage failed", error);
       res.status(500).json({ error: "memory usage failed" });
     }

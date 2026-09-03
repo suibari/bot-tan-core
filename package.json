@@ -11,6 +11,7 @@
     "ai-migration:evaluate": "tsx --env-file=.env scripts/evaluateMigratedAiFeatures.mts",
     "searxng:probe": "tsx --env-file=.env scripts/probeSearxng.mts",
     "bot-memory:backfill": "tsx --env-file=.env scripts/backfillBotMemory.ts",
+    "bot-memory:purge-reactions": "tsx --env-file=.env scripts/purgeReactionBotMemory.ts",
     "tts-pronunciation": "tsx --env-file=.env scripts/manageTtsPronunciations.ts",
     "dev": "pnpm -r dev"
   },

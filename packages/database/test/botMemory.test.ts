@@ -1,15 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  BOT_MEMORY_ACTIVE_SOURCE_TYPES,
+  activeBotMemorySourceTypes,
   botMemoryContentHash,
   dailyPlanImpressionCooldownCondition,
-  formatReactionMemoryContent,
   isBotMemorySourceType,
   isBotMemoryImpressionSourceType,
   mergeBotMemoryRanks,
+  purgeReactionBotMemory,
   selectRecentBotMemoryImpressions,
   shouldRememberAffirmedPost,
-  shouldRememberBskyLike,
   selectReplyMemoryContext,
 } from "../src/botMemory.js";
 import { bot_memory_impressions, db } from "../src/db.js";
@@ -32,9 +33,48 @@ const row = (id: number, occurredAt = new Date("2026-08-21T00:00:00Z")) => ({
   metadata: null,
 });
 
-test("Bluesky like memory is subscriber-only", () => {
-  assert.equal(shouldRememberBskyLike(true), true);
-  assert.equal(shouldRememberBskyLike(false), false);
+test("reaction event sources remain API-compatible but are not searchable", () => {
+  assert.equal(isBotMemorySourceType("bsky_received_like"), true);
+  assert.equal(isBotMemorySourceType("nagi_received_reaction"), true);
+  assert.equal(BOT_MEMORY_ACTIVE_SOURCE_TYPES.includes("bsky_received_like"), false);
+  assert.equal(BOT_MEMORY_ACTIVE_SOURCE_TYPES.includes("nagi_received_reaction"), false);
+  assert.deepEqual(activeBotMemorySourceTypes([
+    "bsky_received_reply",
+    "bsky_received_like",
+    "nagi_received_reaction",
+  ]), ["bsky_received_reply"]);
+  assert.deepEqual(activeBotMemorySourceTypes([
+    "bsky_received_like",
+    "nagi_received_reaction",
+  ]), []);
+});
+
+test("reaction memory purge is dry-run by default and idempotent when applied", async () => {
+  let remaining = 2;
+  let deleteCalls = 0;
+  const dependencies = {
+    loadSummary: async () => [{
+      sourceType: "bsky_received_like" as const,
+      documents: remaining,
+      usages: remaining,
+    }, {
+      sourceType: "nagi_received_reaction" as const,
+      documents: 0,
+      usages: 0,
+    }],
+    deleteDocuments: async () => {
+      deleteCalls += 1;
+      const deleted = remaining;
+      remaining = 0;
+      return deleted;
+    },
+  };
+
+  assert.equal((await purgeReactionBotMemory(false, dependencies)).deleted, 0);
+  assert.equal(deleteCalls, 0);
+  assert.equal((await purgeReactionBotMemory(true, dependencies)).deleted, 2);
+  assert.equal((await purgeReactionBotMemory(true, dependencies)).deleted, 0);
+  assert.equal(deleteCalls, 2);
 });
 
 test("memory content hash is deterministic and content-sensitive", () => {
@@ -109,13 +149,6 @@ test("affirmed post memory keeps Nagi AI posts and subscriber-only Bluesky AI po
   assert.equal(shouldRememberAffirmedPost({ ...base, surface: "bsky", isSubscriber: false }), false);
   assert.equal(shouldRememberAffirmedPost({ ...base, surface: "nagi", aiReplyPosted: false }), false);
   assert.equal(shouldRememberAffirmedPost({ ...base, surface: "nagi", isPublic: false }), false);
-});
-
-test("reaction memory includes custom emoji meaning", () => {
-  assert.equal(
-    formatReactionMemoryContent("今日もうれしい", ":party_blob: 喜んで跳ねる猫"),
-    "botたんの投稿「今日もうれしい」へのリアクション :party_blob: 喜んで跳ねる猫",
-  );
 });
 
 test("RRF merges duplicates and keeps candidates from both rankings", () => {

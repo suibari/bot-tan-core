@@ -164,12 +164,17 @@ RAG（Retrieval-Augmented Generation）は、保存、更新・削除同期、�
 | `nagi_affirmed_post` | botたんがAIリプライできた公開トップレベル投稿。全ユーザー |
 | `bsky_received_reply` | botたん宛の公開返信。購読状態を問わない |
 | `nagi_received_reply` | botたん宛の公開返信 |
-| `bsky_received_like` | botたんの公開投稿へ購読者から届いたいいね |
-| `nagi_received_reaction` | botたんの公開投稿へ届いた絵文字・カスタム絵文字。名前とaltも保持 |
 | `biorhythm` | 生成・保存に成功した活動履歴 |
 | `youtube_live_comment` | sanitizeを通過したYouTube Liveコメント |
 
 定型文だけで返したトップレベル投稿は記憶しません。フォロワー全投稿を収集せず、botたんがAIで実際に反応した投稿へ絞ってノイズと保存量を抑えます。Nagiの`kossori`、`channelOnly`、削除済み投稿は保存・検索しません。
+BlueskyのいいねとNagiの絵文字リアクションは、相手の発言ではなく反応されたbotたん自身の
+投稿本文を複製するため、記憶へ保存しません。旧クライアント互換でsource名だけは受理しますが、
+検索結果には含めません。
+
+既存の反応由来文書は、まず `pnpm bot-memory:purge-reactions` でsource別の文書・usage件数を
+確認し、次に `pnpm bot-memory:purge-reactions -- --apply` で物理削除します。既定はdry-runで、
+適用時は文書をトランザクション内で削除し、従属usage等はFKのcascadeへ任せます。再実行は0件です。
 
 ### daily plan の会話由来テーマ
 
@@ -234,11 +239,12 @@ botたんは返信の同期パスで検索しません。ローカル推論を�
 
 - Bluesky／Nagi返信：本人の過去記憶と、本人以外の公開肯定投稿を別検索します。保存済み文書は再embeddingせず、検索文だけをembeddingします。本人履歴は語彙フォールバック可、友達紹介はsemantic候補がある場合だけです。
 - 気まぐれ投稿：現在の気分・活動・未読返信から横断候補を取得し、既存の生成モデル（既定はローカルのGemma 4、`AI_TEXT_PROVIDER=gemini`ならGemini）が最終話題を選びます。専用再ランキングモデルは追加しません。
-- YouTubeフリートーク：現在のbiorhythm、最近のコメント、直前の発話からLAN内APIを先読みします。コメント返信のホットパスでは検索しません。
+- YouTubeフリートーク：現在のbiorhythm、最近のコメント、直前の発話からLAN内APIを先読みします。
+- YouTubeコメント返信：`SELF`判定された質問文で公開SNS・biorhythm記憶を同期検索し、読み上げに成功した候補を`live_reply`として記録します。一般知識は`web_research`を別枠で検索します。
 
 ### usage・プライバシー・prompt injection対策
 
-`bot_memory_usages`は、候補に出ただけではなく実際の投稿・発話に使われた文書だけを記録します。投稿失敗、音声合成失敗、LLMフォールバックでは記録しません。返信用途は関連度を優先し、usage抑制をしません。
+`bot_memory_usages`は、候補に出ただけではなく実際の投稿・発話に使われた文書だけを記録します。投稿失敗、音声合成失敗、LLMフォールバックでは記録しません。YouTubeコメント返信はプロンプトへ渡した候補を`live_reply`で記録します。返信用途は関連度を優先し、usage抑制をしません。
 
 検索資料はプロンプト内で「ユーザー由来の未信頼な参考資料」と明示します。資料中の命令、役割変更、URL誘導には従わせません。YouTube APIレスポンスは作者ID・元URI・内部source IDを返さず、一般フリートークでも投稿者名・channel IDを出しません。モデルが返した文書IDは、渡した候補集合との一致をコードで検証します。
 
