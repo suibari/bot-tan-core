@@ -21,7 +21,7 @@ import {
   bot_memory_usages,
   db,
 } from "./db.js";
-import { generateEmbedding } from "./ollamaEmbed.js";
+import { embedSearchQuery } from "./ollamaEmbed.js";
 
 export const BOT_MEMORY_SOURCE_TYPES = [
   "bsky_affirmed_post",
@@ -710,14 +710,16 @@ const selection = {
 
 export async function searchBotMemory(
   request: BotMemorySearchRequest,
-  deps: { embed?: typeof generateEmbedding } = {},
+  deps: { embed?: typeof embedSearchQuery } = {},
 ): Promise<BotMemorySearchResult[]> {
   const query = request.query.trim();
   if (!query) return [];
   const limit = Math.max(1, Math.min(20, request.limit ?? 10));
   const candidateLimit = Math.max(30, limit * 3);
   const base = searchConditions(request);
-  const embedding = await (deps.embed ?? generateEmbedding)(query);
+  // 検索クエリなので接頭辞を付ける側（文書の埋め込みは botMemoryEmbeddingWorker が
+  // generateEmbeddings で行う）。instruction-aware なモデルではここが精度を左右する。
+  const embedding = await (deps.embed ?? embedSearchQuery)(query);
 
   const [semanticRows, lexicalRows] = await Promise.all([
     embedding

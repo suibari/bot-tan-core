@@ -75,6 +75,40 @@ export async function generateEmbedding(text: string): Promise<number[] | null> 
   return embeddings?.[0] ?? null;
 }
 
+/**
+ * 検索クエリ用の接頭辞。**文書側には付けない**（クエリ側だけに付けるのが
+ * arctic-embed v2.0 / Qwen3-Embedding 両方の設計）。
+ *
+ * Qwen3-Embedding の instruction は "Instruct: ...\nQuery: " という形で改行を含む。
+ * .env に**二重引用符**で書けば dotenv も `node --env-file` も `\n` を実改行へ展開する
+ * （単引用符だと展開されない）。ただし systemd の `Environment=` や docker の `-e` は
+ * 展開しないので、`\n` の2文字が残っていた場合の保険としてここでも展開しておく。
+ *
+ * 値は scripts/evaluateEmbeddingModels.mts のエンコーダ定義と**一字一句揃える**こと。
+ * 揃っていないと評価で出た数字が本番で再現しない。
+ */
+export function searchQueryPrefix(): string {
+  return (process.env.OLLAMA_QUERY_PREFIX ?? "").replace(/\\n/g, "\n");
+}
+
+/**
+ * 検索クエリを埋め込む。文書側の generateEmbedding とは接頭辞の扱いが違うので分けてある。
+ *
+ * 使い分け:
+ *   embedSearchQuery … 利用者が打った検索語（Nagi 検索・botMemory RAG）
+ *   generateEmbedding … 投稿・プロフィール・記憶などの**文書本文**
+ *
+ * 文書側にクエリ接頭辞を付けると、接頭辞そのものが本文として埋め込まれて
+ * 全文書のベクトルが同じ方向へ寄る。逆にクエリ側に付け忘れると、
+ * instruction-aware なモデル（Qwen3-Embedding など）の精度が出ない。
+ */
+export async function embedSearchQuery(
+  text: string,
+): Promise<number[] | null> {
+  const t = text.trim();
+  return t ? generateEmbedding(`${searchQueryPrefix()}${t}`) : null;
+}
+
 export async function generateEmbeddings(
   texts: string[],
 ): Promise<(number[] | null)[]> {

@@ -11,3 +11,7 @@ service-account.json
 *.db-shm
 *.db-wal
 *_cache.json
+# 評価ハーネスのキャッシュ（実ユーザーの投稿本文を含むのでコミットしない）
+.cache/
+# 評価サイドカーの Python 仮想環境
+scripts/embedding-eval/.venv/

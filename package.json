@@ -9,6 +9,8 @@
     "predefined-reply:evaluate": "tsx --env-file=.env scripts/evaluatePredefinedReplies.ts",
     "local-model:evaluate": "tsx --env-file=.env scripts/evaluateLocalModels.mts",
     "ai-migration:evaluate": "tsx --env-file=.env scripts/evaluateMigratedAiFeatures.mts",
+    "embedding:evaluate": "tsx --env-file=.env scripts/evaluateEmbeddingModels.mts",
+    "test:embedding": "tsx --test scripts/test/embeddingEvaluation.test.ts",
     "searxng:probe": "tsx --env-file=.env scripts/probeSearxng.mts",
     "bot-memory:backfill": "tsx --env-file=.env scripts/backfillBotMemory.ts",
     "bot-memory:purge-reactions": "tsx --env-file=.env scripts/purgeReactionBotMemory.ts",
@@ -19,6 +21,7 @@
     "typescript": "^5.8.3",
     "tsx": "^4.20.3",
     "@types/node": "^22.15.12",
-    "postgres": "^3.4.8"
+    "postgres": "^3.4.8",
+    "drizzle-orm": "^0.45.1"
   }
 }

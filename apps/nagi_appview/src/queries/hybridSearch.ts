@@ -1,17 +1,41 @@
-import { generateEmbedding } from "@bsky-affirmative-bot/database";
+import { embedSearchQuery } from "@bsky-affirmative-bot/database";
 import { and, or, sql, type SQL, type SQLWrapper } from "drizzle-orm";
 
-// 意味検索の距離しきい値（cosine 距離 = 1 - 類似度）。実コーパスの実測（関連 ~0.5-0.6 /
-// 無関連 ~0.65+）に合わせた既定。テスト中に手元調整できるよう env 可変。
+/**
+ * 意味検索の距離しきい値（cosine 距離 = 1 - 類似度）。
+ *
+ * **この値に「関連/無関連を選り分ける」能力はない。** 3000件×27クエリの実測では、
+ * 関連ヒットと無関連ヒットの距離分布がどのモデルでもほぼ重なる
+ * （arctic 0.480/0.511、arctic-q 0.666/0.707、qwen3 0.403/0.404 ＝ 関連 p50/無関連 p50）。
+ * 実際に品質を決めているのは SEMANTIC_LIMIT の打ち止めとランキングそのもの。
+ * したがってここは**関連を取りこぼさない側**に置く（QUERY_PREFIX ありで 0.80 なら関連 100% 残存、
+ * 0.75 では 95% まで落ちる）。詳細は docs/evaluations/embedding/summary.md。
+ *
+ * QUERY_PREFIX を変えたら**必ず一緒に**動かすこと（下記参照）。
+ */
 export const SEM_DIST_MAX = (() => {
   const v = Number(process.env.SEARCH_SEM_DIST_MAX);
   return Number.isFinite(v) && v > 0 ? v : 0.65;
 })();
-// クエリ接頭辞。arctic-embed v2.0 は本来「クエリ側だけ query: を付ける」設計だが、Ollama の
-// snowflake-arctic-embed2 は接頭辞を実装しておらず、付けると literal 本文として埋め込まれて
-// 類似度が一律に圧縮される（実測でランキング不変・スコアのみ低下）。よって既定は無効（空文字）。
-// 接頭辞を実装したモデルへ差し替える場合のみ env で "query: " 等を設定する。
-const QUERY_PREFIX = process.env.OLLAMA_QUERY_PREFIX ?? "";
+/**
+ * クエリ接頭辞。arctic-embed v2.0 は「クエリ側だけ query: を付ける」設計（文書側は素のまま）。
+ *
+ * かつてここには「Ollama の snowflake-arctic-embed2 は接頭辞を実装しておらず、付けても
+ * ランキング不変・スコアのみ低下」と書いてあったが、**2026-09-04 の実測でこれは誤りと判明した**。
+ * 接頭辞ありで nDCG@10 は 0.366 → 0.548、固有名詞カテゴリは 0.214 → 0.356 に上がり、
+ * 「ワルプルギス」「まどマギ」はどちらも nDCG@10 1.000（＝満点）になる。
+ * 文書側の再埋め込みは不要（クエリ側だけの話なので既存の埋め込みをそのまま使える）。
+ *
+ * 当時「効かない」と見えた原因は SEM_DIST_MAX。接頭辞は距離スケール全体を約 +0.19 押し上げる
+ * （関連ヒットの距離中央値 0.480 → 0.666）ため、0.65 のままだと top-10 の 162/270 を
+ * 絶対ガードが切り落とし、改善が閾値の裏に隠れる。
+ * **接頭辞と SEM_DIST_MAX / ACTOR_SEM_DIST_MAX は必ずセットで動かすこと。**
+ *
+ * 既定が空文字なのは env 未設定の既存環境を壊さないため。運用値は .env.example を参照。
+ *
+ * 接頭辞の適用そのものは packages/database の embedSearchQuery() が持つ（botMemory RAG と
+ * 共有するため）。ここに定数を置き直さないこと。
+ */
 // 意味スコアと語彙スコアの重み（意味を主・語彙を補完）。
 const SEM_WEIGHT = 0.7;
 const LEX_WEIGHT = 0.3;
@@ -26,8 +50,7 @@ export type SearchMode = "exact" | "semantic" | "hybrid";
 
 /** 検索クエリを埋め込む。空文字や Ollama 不通なら null（呼び出し側は語彙のみにフォールバック）。 */
 export async function embedQuery(q: string): Promise<number[] | null> {
-  const t = q.trim();
-  return t ? generateEmbedding(`${QUERY_PREFIX}${t}`) : null;
+  return embedSearchQuery(q);
 }
 
 /**
@@ -85,9 +108,13 @@ export const SEMANTIC_LIMIT = 10;
 
 /**
  * 相対しきい値のマージン。「最良ヒットの距離 + これ」を超えたら切る。
- * 固定しきい値だけだと、固有名詞のようにクエリ埋め込みが定まらず全件が中距離に並ぶケースで
- * 素通ししてしまう（実際 actors の 0.8 はノイズ床より上で機能していなかった）。最良との差で
- * 見ればクエリごとに自動で締まる。
+ *
+ * SEM_DIST_MAX と同じく**選別能力はない**。実測ではどのマージンでも
+ * 「関連の残存率 ≒ 無関連の通過率」で、両者を分けられない
+ * （arctic-q の 0.08 で関連 76%/無関連 90%、0.12 で 99%/98%）。
+ * 事実上ここは「1クエリあたり何件返すか」の調整つまみであり、
+ * 距離スケールがモデルごとに違う以上、モデルを替えたら必ず測り直すこと。
+ * 取りこぼしのほうが害が大きいので（SEMANTIC_LIMIT が上限を押さえているため）緩めに置く。
  */
 const SEM_REL_MARGIN = (() => {
   const v = Number(process.env.SEARCH_SEM_REL_MARGIN);

@@ -1,0 +1,13 @@
+# 埋め込みモデル評価サイドカー専用。本番サービスはこれに依存しない。
+#
+# torch は**先に**環境へ合わせて入れる。この機は Ollama の gemma-4-26B が
+# 16GB 中 11.8GB を占めていて VRAM が 2GB 強しか空かないため、CPU 版で回している:
+#
+#   pip install --index-url https://download.pytorch.org/whl/cpu torch
+#
+# GPU で回すなら先に Ollama を止めるか、VRAM を空けてから CUDA 版 torch を入れること。
+torch>=2.4
+fastapi>=0.115
+uvicorn>=0.30
+sentence-transformers>=3.4
+FlagEmbedding>=1.3

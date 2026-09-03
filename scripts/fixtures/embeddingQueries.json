@@ -1,0 +1,45 @@
+{
+  "_comment": [
+    "埋め込みモデル評価のクエリセット。scripts/evaluateEmbeddingModels.mts が読む。",
+    "category ごとに集計を割るので、増やすときも既存カテゴリのどれかに入れること。",
+    "expect は人手・LLM 採点のガイドであって正解リストではない（正解は review.md の採点で決まる）。"
+  ],
+  "queries": [
+    {
+      "id": "walpurgis",
+      "category": "proper-noun",
+      "text": "ワルプルギス",
+      "expect": "まどか☆マギカ関連、あるいは魔女・アニメの文脈。現状ここが完全に壊れている（今回の起点）。"
+    },
+    { "id": "madomagi", "category": "proper-noun", "text": "まどマギ", "expect": "魔法少女まどか☆マギカの話題" },
+    { "id": "bluearchive", "category": "proper-noun", "text": "ブルアカ", "expect": "ブルーアーカイブの話題" },
+    { "id": "umamusume", "category": "proper-noun", "text": "ウマ娘", "expect": "ウマ娘の話題、競馬ネタ" },
+    { "id": "zelda", "category": "proper-noun", "text": "ゼルダの伝説", "expect": "ゼルダ、任天堂ゲームの話題" },
+    { "id": "jujutsu", "category": "proper-noun", "text": "呪術廻戦", "expect": "呪術廻戦、少年漫画の話題" },
+    { "id": "vrchat", "category": "proper-noun", "text": "VRChat", "expect": "VR・メタバースの話題" },
+
+    { "id": "walk", "category": "general", "text": "散歩", "expect": "散歩・徒歩・外出の話題" },
+    { "id": "ramen", "category": "general", "text": "ラーメン", "expect": "ラーメン、外食、麺類" },
+    { "id": "cat", "category": "general", "text": "猫", "expect": "猫、ペット" },
+    { "id": "rain", "category": "general", "text": "雨", "expect": "雨、天気" },
+    { "id": "work", "category": "general", "text": "仕事", "expect": "仕事・職場・残業" },
+    { "id": "sleep", "category": "general", "text": "睡眠", "expect": "睡眠・寝不足・昼寝" },
+
+    { "id": "cheered-up", "category": "emotion", "text": "落ち込んでいるときに励まされた話", "expect": "励まし・慰め・立ち直りの体験" },
+    { "id": "happy", "category": "emotion", "text": "今日あった嬉しいこと", "expect": "喜び・良かった出来事" },
+    { "id": "exhausted", "category": "emotion", "text": "疲れて何もしたくない", "expect": "疲労・無気力・休みたい" },
+    { "id": "lonely-night", "category": "emotion", "text": "ひとりで泣いた夜", "expect": "孤独・悲しみ・夜の心情" },
+    { "id": "anxious", "category": "emotion", "text": "不安で眠れない", "expect": "不安・焦り・不眠" },
+
+    { "id": "anime-review", "category": "compound", "text": "アニメ 感想", "expect": "アニメの視聴感想" },
+    { "id": "breakfast", "category": "compound", "text": "朝ごはん 作った", "expect": "自炊・朝食" },
+    { "id": "oshi", "category": "compound", "text": "推し 尊い", "expect": "推し活・オタク的な感情表現" },
+    { "id": "game-clear", "category": "compound", "text": "ゲーム クリア", "expect": "ゲームのクリア報告" },
+    { "id": "coffee-morning", "category": "compound", "text": "朝 コーヒー", "expect": "朝のコーヒー・カフェ" },
+
+    { "id": "en-sakura", "category": "cross-lingual", "text": "cherry blossom", "expect": "桜・花見（日本語の投稿がヒットしてほしい）" },
+    { "id": "en-cat", "category": "cross-lingual", "text": "cat photo", "expect": "猫の写真（日本語の投稿）" },
+    { "id": "en-lonely", "category": "cross-lingual", "text": "feeling lonely", "expect": "寂しさ（日本語の投稿）" },
+    { "id": "en-anime", "category": "cross-lingual", "text": "anime review", "expect": "アニメ感想（日本語の投稿）" }
+  ]
+}

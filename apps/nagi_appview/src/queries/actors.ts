@@ -35,6 +35,9 @@ export async function resolveActorDid(rawActor: string): Promise<string> {
 
 // プロフィール埋め込み(displayName+description+分析)は短文で距離が出やすいので、投稿より緩めの
 // しきい値を既定にする。env で調整可能。
+// hybridSearch.ts の SEM_DIST_MAX と同じ注意: OLLAMA_QUERY_PREFIX を入れると距離スケールが
+// 約 +0.19 上がるので、接頭辞を有効にするならここも一緒に上げること（0.8 → 0.95）。
+// この値自体に関連/無関連の選別能力はなく、実際に効いているのは relativeCut と SEMANTIC_LIMIT。
 const ACTOR_SEM_DIST_MAX = (() => {
   const v = Number(process.env.SEARCH_ACTOR_SEM_DIST_MAX);
   return Number.isFinite(v) && v > 0 ? v : 0.8;
