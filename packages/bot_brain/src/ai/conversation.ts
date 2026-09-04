@@ -11,7 +11,7 @@ import {
   resolveAiRoute,
 } from '@bsky-affirmative-bot/shared-configs';
 import { UserInfoGemini, GeminiScore } from '@bsky-affirmative-bot/shared-configs';
-import { formatBotContext, ollamaUsageFields } from './util.js';
+import { formatBotContext, memoryAgeLabel, ollamaUsageFields } from './util.js';
 import type { GeminiRequestOptions } from './util.js';
 import { toServiceTier } from './aiRoute.js';
 import { generateContentForProvider } from './generationClient.js';
@@ -140,6 +140,21 @@ export async function conversation(
   return { text_bot, new_history };
 }
 
+/**
+ * 「この前の話」として触れてよい思い出。無ければ行ごと出さない。
+ *
+ * 触れるかどうかは検索側（selectNotableMemory）が既に決めている。ここでは
+ * 事実として置くだけで、使えとも使うなとも指示しない。指示にすると、指示を
+ * 満たすために毎回むりやり差し込むようになる。
+ */
+const notableMemoryLine = (userinfo: UserInfoGemini, ja: boolean, now = new Date()) => {
+  const memory = userinfo.notableMemory;
+  if (!memory) return '';
+  return ja
+    ? `\n覚えている出来事: ${memoryAgeLabel(memory.occurredAt, now, true)}、この人は「${memory.content}」と話していました。今の話と自然につながるときだけ、ひとこと触れてかまいません。`
+    : `\nSomething you remember: ${memoryAgeLabel(memory.occurredAt, now, false)}, they said "${memory.content}". You may refer to it briefly, but only if it connects naturally to what they are saying now.`;
+};
+
 export const buildConversationPrompt = (userinfo: UserInfoGemini) => {
   const reaction = userinfo.receivedNagiReaction;
   const reactionInstructionJa = reaction
@@ -187,7 +202,7 @@ ${TONE_RULES_JA}
 ユーザ名: ${addressName(userinfo)}
 メッセージ: ${userinfo.posts?.[0] || ''}
 ユーザが引用したポスト: ${userinfo.embed?.text_embed ? userinfo.embed.text_embed + ' by ' + userinfo.embed.profile_embed?.displayName : 'なし'}
-ユーザが共有したリンク: ${userinfo.embed?.uri_embed ? `${userinfo.embed.title_embed} (${userinfo.embed.uri_embed}) ${userinfo.embed.description_embed || ''}` : 'なし'}
+ユーザが共有したリンク: ${userinfo.embed?.uri_embed ? `${userinfo.embed.title_embed} (${userinfo.embed.uri_embed}) ${userinfo.embed.description_embed || ''}` : 'なし'}${notableMemoryLine(userinfo, true)}
 `
       : `Please respond to the latest message from the following user.
 
@@ -218,7 +233,7 @@ ${NAME_RULES_EN(addressName(userinfo))}
 Username: ${addressName(userinfo)}
 Message: ${userinfo.posts?.[0] || ''}
 Posts quoted by this user: ${userinfo.embed?.text_embed ? userinfo.embed.text_embed + ' by ' + userinfo.embed.profile_embed?.displayName : 'None'}
-Links shared by this user: ${userinfo.embed?.uri_embed ? `${userinfo.embed.title_embed} (${userinfo.embed.uri_embed}) ${userinfo.embed.description_embed || ''}` : 'None'}
+Links shared by this user: ${userinfo.embed?.uri_embed ? `${userinfo.embed.title_embed} (${userinfo.embed.uri_embed}) ${userinfo.embed.description_embed || ''}` : 'None'}${notableMemoryLine(userinfo, false)}
 `;
   return (
     base +

@@ -186,9 +186,14 @@ BlueskyのいいねとNagiの絵文字リアクションは、相手の発言で
 
 `bot_memory_documents` の公開会話から、非同期workerが原文に明示された作品名と印象語だけを
 `bot_memory_impressions` へ抽出します。Blueskyは購読状態を問わずbot宛の公開返信を含み、
-Nagiは`visibility='public'`の会話（こっそりを除く）、YouTubeはsanitize済みコメントが対象です。
-抽出結果はdaily plan・定期ポスト・bot-tan.comのダッシュボードへ流れるため、こっそりは入口で落とし、
+対象はこっそりを含む全会話ですが、**印象語（label）を残すのは`visibility='public'`の文書だけ**です。
+判定は呼び出し側ではなく`saveBotMemoryImpressions`のトランザクション内で対象行のvisibilityを読んで行うため、
+将来の呼び出し側から回避できません。こっそり由来の語は調査キュー（web_research）へも積みません。
 公開側の読み出しでも重ねて`visibility='public'`で絞ります（抽出後にこっそりへ編集される経路があるため）。
+
+同じLLM呼び出しで**印象度（`salience` 0-100）**も付けます。こちらは可視範囲に関係なく保存します。
+公開出力へは出ず、「本人がこっそりで話しているときに、その人自身の思い出へ触れてよいか」の判定にしか
+使わないためです。ワーカーもLLM呼び出しも増えません。
 元文書の編集時は本文ハッシュ単位で再抽出し、削除・非公開化された元文書はdaily plan候補から外します。
 
 候補は半年以内、同じ候補の再利用間隔は14日です。会話ネタを毎日強制せず、3 bot日のうち
@@ -256,6 +261,11 @@ botたんは返信の同期パスで検索しません。ローカル推論を�
 - Bluesky／Nagi返信：`buildMemoryContext`が本人レグ・全体レグ・web_researchを並行取得します。保存済み文書は再embeddingせず、検索文だけをembeddingします。本人履歴は語彙フォールバック可、友達紹介はsemantic候補がある場合だけです。
   - 返信の「その人の過去投稿」スロットへ入れるのは`own`（本人レグのみ）です。係数で畳んだ`related`を入れると、他人の発言を本人が言ったことにしてしまいます。
   - `subjectKey`は**フィルタではなく係数**（既定2倍）。その人との記憶が無くても全体の記憶は残ります。
+  - **思い出（notable）**: 「この前の話」に触れてよいかは、プロンプトの条件分岐ではなく検索側が決めます。
+    肯定リプライには既に「過去のポストに直接言及するな」という明示的な禁止があるため、そこへ条件付きモードを
+    足すのではなく、`selectNotableMemory`が条件を満たすときだけ**1件**返し、無ければプロンプトに節ごと出ません。
+    条件は「本人の記憶」「`salience`が閾値以上」「`semanticRank`がある（＝意味的に今回の話と繋がっている。
+    語彙一致だけの偶然で昔話を始めない）」の3つです。時期は日付ではなく「この前」「だいぶ前」に丸めます。
 - 気まぐれ投稿：現在の気分・活動・未読返信から横断候補を取得し、既存の生成モデル（既定はローカルのGemma 4、`AI_TEXT_PROVIDER=gemini`ならGemini）が最終話題を選びます。専用再ランキングモデルは追加しません。
 - YouTubeフリートーク：現在のbiorhythm、最近のコメント、直前の発話からLAN内APIを先読みします。
 - YouTubeコメント返信：`SELF`判定された質問文で公開SNS・biorhythm記憶を同期検索し、読み上げに成功した候補を`live_reply`として記録します。一般知識は`web_research`を別枠で検索します。
@@ -370,6 +380,8 @@ git diff --check
 | 記憶source・検索・RRF・usage | `packages/database/src/botMemory.ts`、schema、migrationと本README |
 | 可視範囲（こっそり） | `visibilityCondition`／`searchConditions`、公開出力側の`visibility='public'`と本README |
 | 短期記憶・日次ダイジェスト | `src/botMemoryDigestWorker.ts`、`bot_memory_daily_digests`、`formatBotContext` |
+| 印象度・思い出の出し方 | `src/botMemoryImpressions.ts`、`selectNotableMemory`、`notableMemoryBlockJa/En` |
+| author_idの名前空間 | `normalizeMemorySubjectKey` と `bot-tan-youtuber/live/memory.py` の `normalize_subject_key`（**両方揃えること**） |
 | embedding batch・待機時間 | `src/botMemoryEmbeddingWorker.ts`、`packages/database/src/ollamaEmbed.ts` と本README |
 | 定期投稿候補・ID検証 | `src/botMemoryTopics.ts`、`ScheduledPostCoordinator.ts`、`generateWhimsicalPost.ts` |
 | 内部API・匿名化 | `src/botMemoryRouter.ts`、`src/botMemoryInternalServer.ts` |

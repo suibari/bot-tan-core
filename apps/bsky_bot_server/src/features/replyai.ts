@@ -37,10 +37,8 @@ export async function replyAI(
     let result: GeminiScore | undefined;
     const text_user = record.text;
 
-    const { relatedPosts, friendMemory, researchMemory } = await loadReplyMemories(
-        text_user,
-        follower.did,
-    );
+    const { relatedPosts, friendMemory, researchMemory, notableMemory } =
+        await loadReplyMemories(text_user, follower.did);
     const image = await getImageUrl(follower.did, record.embed);
 
     // 引用ポスト・リンク解析
@@ -128,6 +126,7 @@ export async function replyAI(
             isSubscriber,
             botContext: await getBotContext(),
             researchMemory,
+            notableMemory,
         });
 
         // お気に入りポスト登録
@@ -200,7 +199,10 @@ export async function replyAI(
 }
 export async function loadReplyMemories(text: string, authorDid: string) {
     if (!text.trim())
-        return { relatedPosts: [], friendMemory: undefined, researchMemory: null };
+        return {
+            relatedPosts: [], friendMemory: undefined, researchMemory: null,
+            notableMemory: null,
+        };
     // 本人の記憶は「フィルタ」ではなく「係数」で効かせる。その人との記憶が無くても
     // 全体の記憶は残るので、初対面でも思い出の引き出しが空にならない。
     // web_research は related の枠を食わないよう buildMemoryContext が別枠で返す。
@@ -219,13 +221,20 @@ export async function loadReplyMemories(text: string, authorDid: string) {
         return undefined;
     });
     if (!context)
-        return { relatedPosts: [], friendMemory: undefined, researchMemory: null };
+        return {
+            relatedPosts: [], friendMemory: undefined, researchMemory: null,
+            notableMemory: null,
+        };
     return {
         // 本人の記憶だけ。ここは「その人自身の過去の投稿」として扱われるスロットなので、
         // 係数で畳んだ related を入れると他人の発言を本人のものにしてしまう。
         relatedPosts: context.own.map((row) => row.content),
         friendMemory: context.friend,
         researchMemory: context.research.map((row) => row.content).join("\n\n") || null,
+        // 触れてよいかは検索側（selectNotableMemory）が既に判断済み。
+        notableMemory: context.notable
+            ? { content: context.notable.content, occurredAt: context.notable.occurredAt }
+            : null,
     };
 }
 

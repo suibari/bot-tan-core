@@ -105,6 +105,24 @@ function recentActivityLines(
  */
 const MAX_RECENT_DIGESTS = 4;
 
+/**
+ * 思い出の時期をぼかした相対表現にする。
+ *
+ * 日付そのものを渡すと「2026年8月21日にあなたはこう言いました」という言い方になる。
+ * 人が過去に触れるときの粒度は「この前」「ちょっと前」なので、そこへ寄せる。
+ */
+export function memoryAgeLabel(occurredAt: Date, now: Date, ja: boolean): string {
+  const days = Math.floor(
+    (Date.parse(`${jstDateString(now)}T00:00:00+09:00`) -
+      Date.parse(`${jstDateString(occurredAt)}T00:00:00+09:00`)) / 86_400_000,
+  );
+  if (!Number.isFinite(days) || days <= 1) return ja ? 'ついこの前' : 'just recently';
+  if (days <= 7) return ja ? 'この前' : 'the other day';
+  if (days <= 30) return ja ? 'ちょっと前' : 'a little while back';
+  if (days <= 120) return ja ? 'だいぶ前' : 'a while back';
+  return ja ? 'ずっと前' : 'a long time ago';
+}
+
 /** JST の "YYYY-MM-DD" を「きのう」「3日前」のような相対表現へ。 */
 function digestDayLabel(date: string, now: Date, ja: boolean): string {
   const day = Date.parse(`${date}T00:00:00+09:00`);

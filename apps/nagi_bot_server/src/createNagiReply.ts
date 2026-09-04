@@ -167,6 +167,8 @@ async function generateConversationReply(
       // botMemoryResearchWorker が先に調べておいた事実。同期パスでは検索しないので、
       // 鮮度が要る話題の根拠になるのはここに載っている分だけ。
       researchMemory: context.researchMemory,
+      // 触れてよいかは検索側が判断済み。無ければプロンプトに行ごと出ない。
+      notableMemory: context.notableMemory,
       botContext: await getBotContext(),
       langStr,
     } as any,
@@ -280,6 +282,8 @@ export async function createNagiReply(
             isSubscriber: context.isSubscriber,
             urlContextEnabled: context.urlContextEnabled,
             researchMemory: context.researchMemory,
+            // 触れてよいかは検索側が判断済み。無ければプロンプトに節ごと出ない。
+            notableMemory: context.notableMemory,
             botContext: await getBotContext(),
             langStr: language.name,
           } as any,

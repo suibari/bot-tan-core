@@ -1,5 +1,5 @@
 import { UserInfoGemini, GeminiScore } from '@bsky-affirmative-bot/shared-configs';
-import { generateSingleResponseWithScore } from './util.js';
+import { generateSingleResponseWithScore, memoryAgeLabel } from './util.js';
 import type { GeminiRequestOptions } from './util.js';
 import {
   getWhatDay,
@@ -11,6 +11,42 @@ import {
   AFFIRMATIVE_REPLY_RUNAWAY_LIMIT,
   addressName,
 } from '@bsky-affirmative-bot/shared-configs';
+
+
+/**
+ * 「この前の話」に触れてよい思い出のブロック。
+ *
+ * 直上の「過去のポストに直接言及するな」ルールの**唯一の例外**。ここが空のときは
+ * ブロックごと出ないので、生成側に条件分岐を持たせない（触れるかどうかは
+ * buildMemoryContext の selectNotableMemory が既に決めている）。
+ *
+ * 使えとも使うなとも書かない。事実として置くだけにする。指示にすると、
+ * 指示を満たすために毎回むりやり差し込むようになる。
+ */
+function notableMemoryBlockJa(userinfo: UserInfoGemini, now = new Date()): string {
+  const memory = userinfo.notableMemory;
+  if (!memory) return '';
+  return `
+## 覚えている出来事
+${memoryAgeLabel(memory.occurredAt, now, true)}、この人はこんな話をしていました。
+「${memory.content}」
+これは上の「過去のポストに言及しない」の例外で、触れてかまいません。今の話と自然につながる
+ときだけ、ひとこと添える程度にしてください。要約したり、内容をなぞって説明したりはしないこと。
+`;
+}
+
+function notableMemoryBlockEn(userinfo: UserInfoGemini, now = new Date()): string {
+  const memory = userinfo.notableMemory;
+  if (!memory) return '';
+  return `
+## Something you remember
+${memoryAgeLabel(memory.occurredAt, now, false)}, this person told you about this:
+"${memory.content}"
+This is the one exception to the rule about not mentioning previous posts; you may refer to it.
+Only do so if it connects naturally to what they are saying now, and keep it to a brief aside.
+Do not summarize it or restate its contents.
+`;
+}
 
 export async function generateAffirmativeWord(userinfo: UserInfoGemini, requestOptions: GeminiRequestOptions = {}) {
   const prompt = await buildAffirmativePrompt(userinfo);
@@ -223,6 +259,7 @@ export const buildAffirmativePrompt = async (userinfo: UserInfoGemini) => {
 
    **注意: commentにはscoreに関する情報を絶対に含めないこと**
 
+${notableMemoryBlockJa(userinfo)}
 ## 長さについて
 ${SUBSTANCE_RULES_JA}
 
@@ -303,6 +340,7 @@ ${TONE_RULES_JA}
 
    **Important: Do not reveal score in the comment.**
 
+${notableMemoryBlockEn(userinfo)}
 ## About length
 ${SUBSTANCE_RULES_EN}
 

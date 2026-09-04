@@ -206,6 +206,103 @@ test("migration-backed upsert, backfill, and reaction purge are idempotent", {
       where source_type in ('bsky_received_like', 'nagi_received_reaction')
     `;
     assert.equal(remaining[0].count, 0);
+
+    // --- こっそりの可視範囲と印象語の書き分け ---
+    // 印象語は日次予定表・定期ポスト・bot-tan.com へ流れるので、こっそりからは
+    // 1件も作ってはいけない。判定は呼び出し側ではなくトランザクション内で行う。
+    const kossoriDoc = await memory.upsertBotMemoryDocument({
+      sourceType: "nagi_received_reply",
+      sourceId: "kossori-one",
+      sourceUri: "at://did:web:appview/com.suibari.nagi.post/kossori",
+      authorId: "did:plc:teller",
+      content: "『葬送のフリーレン』を見て泣いた",
+      occurredAt: new Date(),
+      visibility: "kossori",
+    });
+    assert.ok(kossoriDoc);
+    assert.equal(kossoriDoc.visibility, "kossori");
+
+    const savedKossori = await memory.saveBotMemoryImpressions(
+      kossoriDoc.id,
+      kossoriDoc.content_hash,
+      [{ kind: "work", label: "葬送のフリーレン", relation: "discussed" }],
+      92,
+    );
+    assert.equal(savedKossori, true);
+    const kossoriImpressions = await setup`
+      select count(*)::int as count from affirmative_bot.bot_memory_impressions
+      where document_id = ${kossoriDoc.id}
+    `;
+    // 印象語は書かれない。
+    assert.equal(kossoriImpressions[0].count, 0);
+    const kossoriSalience = await setup`
+      select salience from affirmative_bot.bot_memory_documents where id = ${kossoriDoc.id}
+    `;
+    // 印象度は書かれる（公開出力へ出ず、思い出の判定にしか使わないため）。
+    assert.equal(kossoriSalience[0].salience, 92);
+
+    // 公開の文書では従来どおり印象語が入る。
+    const publicDoc = await memory.upsertBotMemoryDocument({
+      sourceType: "nagi_received_reply",
+      sourceId: "public-one",
+      sourceUri: "at://did:plc:teller/com.suibari.nagi.post/public",
+      authorId: "did:plc:teller",
+      content: "『葬送のフリーレン』をおすすめしたい",
+      occurredAt: new Date(),
+    });
+    assert.ok(publicDoc);
+    assert.equal(publicDoc.visibility, "public");
+    await memory.saveBotMemoryImpressions(
+      publicDoc.id,
+      publicDoc.content_hash,
+      [{ kind: "work", label: "葬送のフリーレン", relation: "recommended" }],
+      55,
+    );
+    const publicImpressions = await setup`
+      select count(*)::int as count from affirmative_bot.bot_memory_impressions
+      where document_id = ${publicDoc.id}
+    `;
+    assert.equal(publicImpressions[0].count, 1);
+
+    // 通常の検索ではこっそりが1件も出ない。
+    const publicSearch = await memory.searchBotMemory(
+      { query: "葬送のフリーレン", purpose: "reply_history" },
+      { embed: async () => null },
+    );
+    assert.ok(publicSearch.every((hit) => hit.id !== kossoriDoc.id));
+    assert.ok(publicSearch.some((hit) => hit.id === publicDoc.id));
+
+    // 本人のこっそり文脈でだけ出る。
+    const kossoriSearch = await memory.searchBotMemory(
+      {
+        query: "葬送のフリーレン",
+        purpose: "reply_history",
+        kossoriSubjectKey: "did:plc:teller",
+      },
+      { embed: async () => null },
+    );
+    assert.ok(kossoriSearch.some((hit) => hit.id === kossoriDoc.id));
+
+    // 別人のこっそり文脈では出ない。
+    const otherSearch = await memory.searchBotMemory(
+      {
+        query: "葬送のフリーレン",
+        purpose: "reply_history",
+        kossoriSubjectKey: "did:plc:someone-else",
+      },
+      { embed: async () => null },
+    );
+    assert.ok(otherSearch.every((hit) => hit.id !== kossoriDoc.id));
+
+    // author_id は名前空間の印付きで入る（YouTube のチャンネルIDと DID の同居対策）。
+    const youtubeDoc = await memory.upsertBotMemoryDocument({
+      sourceType: "youtube_live_comment",
+      sourceId: "yt-one",
+      authorId: "UCabc",
+      content: "配信たのしい",
+      occurredAt: new Date(),
+    });
+    assert.equal(youtubeDoc?.author_id, "youtube:UCabc");
   } finally {
     await backfill.closeBotMemoryBackfillDatabase();
     await database.client.end();

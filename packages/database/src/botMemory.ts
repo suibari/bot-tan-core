@@ -200,6 +200,8 @@ export interface BotMemorySearchResult {
   botResponse: string | null;
   occurredAt: Date;
   affirmationScore: number | null;
+  /** 印象度 0-100。未評価は null。 */
+  salience: number | null;
   metadata: Record<string, unknown> | null;
   relevance: number;
   semanticRank?: number;
@@ -220,6 +222,8 @@ export interface PendingBotMemoryImpressionDocument {
   sourceType: BotMemorySourceType;
   content: string;
   contentHash: string;
+  /** こっそり由来では印象語を作らない。判定の正は saveBotMemoryImpressions 側。 */
+  visibility: string;
 }
 
 export interface DailyPlanMemoryImpression extends BotMemoryImpressionInput {
@@ -280,6 +284,45 @@ export function selectReplyMemoryContext(
   };
 }
 
+/** YouTube のチャンネルIDに付ける名前空間の印。 */
+const YOUTUBE_SUBJECT_PREFIX = "youtube:";
+
+/**
+ * author_id の形を揃える。
+ *
+ * この列には Nagi/Bluesky の `did:plc:...` と YouTube のチャンネルID `UC...` が
+ * 同居している。形式が違うので現状は衝突しないが、こっそりの可視判定が
+ * `author_id = kossoriSubjectKey` の一致に乗った以上、その偶然に依存したくない。
+ *
+ * **名寄せはしない。** 同一人物が Nagi と YouTube で別人として扱われるのは意図的な
+ * 割り切りで、ここでやるのは名前空間の印付けだけ。
+ *
+ * 冪等。すでに印が付いている値をもう一度通しても二重にならない。
+ */
+export function normalizeMemorySubjectKey(
+  sourceType: BotMemorySourceType,
+  rawId: string | null | undefined,
+): string | null {
+  const id = rawId?.trim();
+  if (!id) return null;
+  if (sourceType !== "youtube_live_comment") return id;
+  return id.startsWith(YOUTUBE_SUBJECT_PREFIX) ? id : `${YOUTUBE_SUBJECT_PREFIX}${id}`;
+}
+
+/**
+ * 0-100 の整数へ丸める。LLM は範囲外や小数を返してくるので、DB の CHECK 前に潰す。
+ *
+ * **null / undefined / 空文字は 0 ではなく null**。`Number(null)` は 0 なので、
+ * 素直に Number() へ通すと「未評価」が「まったく印象に残らなかった」になってしまう。
+ * この2つは意味が違う（未評価はあとで付け直せるが、0 は確定した低評価）。
+ */
+export function clampSalience(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) return null;
+  return Math.max(0, Math.min(100, Math.round(n)));
+}
+
 export const botMemoryContentHash = (content: string): string =>
   createHash("sha256").update(content, "utf8").digest("hex");
 
@@ -313,13 +356,15 @@ export async function upsertBotMemoryDocument(input: BotMemoryDocumentInput) {
   const content = input.content.trim();
   if (!content) return null;
   const contentHash = botMemoryContentHash(content);
+  // どの経路から来ても author_id の形が揃うよう、入口で正規化する。
+  const authorId = normalizeMemorySubjectKey(input.sourceType, input.authorId);
   const [row] = await db
     .insert(bot_memory_documents)
     .values({
       source_type: input.sourceType,
       source_id: input.sourceId,
       source_uri: input.sourceUri ?? null,
-      author_id: input.authorId ?? null,
+      author_id: authorId,
       content,
       bot_response: input.botResponse ?? null,
       occurred_at: input.occurredAt,
@@ -332,7 +377,7 @@ export async function upsertBotMemoryDocument(input: BotMemoryDocumentInput) {
       target: [bot_memory_documents.source_type, bot_memory_documents.source_id],
       set: {
         source_uri: input.sourceUri ?? null,
-        author_id: input.authorId ?? null,
+        author_id: authorId,
         content,
         bot_response: input.botResponse ?? null,
         occurred_at: input.occurredAt,
@@ -496,6 +541,7 @@ export async function getPendingBotMemoryImpressionDocuments(
       sourceType: bot_memory_documents.source_type,
       content: bot_memory_documents.content,
       contentHash: bot_memory_documents.content_hash,
+      visibility: bot_memory_documents.visibility,
     })
     .from(bot_memory_documents)
     .leftJoin(
@@ -504,9 +550,10 @@ export async function getPendingBotMemoryImpressionDocuments(
     )
     .where(and(
       isNull(bot_memory_documents.deleted_at),
-      // 抽出結果は日次予定表・定期ポスト・bot-tan.com のダッシュボードへ流れる。
-      // こっそりをここへ通すと公開側へ漏れるので、入口で落とす。
-      eq(bot_memory_documents.visibility, "public"),
+      // こっそりも通す。salience（印象度）は感情が動いた話にこそ付いてほしく、
+      // それはこっそりに多いため。ただし印象語は公開出力（日次予定表・定期ポスト・
+      // bot-tan.com）へ流れるので、こっそりからは作らない。書き分けは
+      // saveBotMemoryImpressions がトランザクション内で行う（入口フィルタより強い）。
       inArray(bot_memory_documents.source_type, IMPRESSION_SOURCE_TYPES),
       gte(bot_memory_documents.occurred_at, since),
       sql`(${bot_memory_impression_scans.document_id} is null or ${bot_memory_impression_scans.content_hash} <> ${bot_memory_documents.content_hash})`,
@@ -519,15 +566,30 @@ export async function getPendingBotMemoryImpressionDocuments(
   }));
 }
 
-/** 本文ハッシュが同じ場合だけ抽出結果を確定し、編集との競合で古い結果を残さない。 */
+/**
+ * 本文ハッシュが同じ場合だけ抽出結果を確定し、編集との競合で古い結果を残さない。
+ *
+ * **印象語は public な文書からしか作らない。** 印象語は日次予定表・定期ポスト・
+ * bot-tan.com のダッシュボードへ流れるので、こっそり由来を1件でも入れると公開側へ漏れる。
+ * 判定は呼び出し側ではなく**このトランザクションの中で対象行の visibility を読んで**行う。
+ * 入口フィルタと違って、将来の呼び出し側から回避できない。
+ *
+ * salience（印象度）は可視範囲に関係なく保存する。こちらは公開出力へ出ず、
+ * 「本人がこっそりで話しているときに、その人自身の思い出へ触れてよいか」の判定にしか
+ * 使わないため。
+ */
 export async function saveBotMemoryImpressions(
   documentId: number,
   contentHash: string,
   impressions: BotMemoryImpressionInput[],
+  salience?: number | null,
 ): Promise<boolean> {
   return db.transaction(async (tx) => {
     const [document] = await tx
-      .select({ contentHash: bot_memory_documents.content_hash })
+      .select({
+        contentHash: bot_memory_documents.content_hash,
+        visibility: bot_memory_documents.visibility,
+      })
       .from(bot_memory_documents)
       .where(and(
         eq(bot_memory_documents.id, documentId),
@@ -540,13 +602,20 @@ export async function saveBotMemoryImpressions(
     await tx
       .delete(bot_memory_impressions)
       .where(eq(bot_memory_impressions.document_id, documentId));
-    if (impressions.length > 0) {
+    // 公開文書のときだけ印象語を残す。こっそりからは1件も作らない。
+    if (impressions.length > 0 && document.visibility === "public") {
       await tx.insert(bot_memory_impressions).values(impressions.map((item) => ({
         document_id: documentId,
         kind: item.kind,
         label: item.label,
         relation: item.relation,
       })));
+    }
+    if (salience !== undefined) {
+      await tx
+        .update(bot_memory_documents)
+        .set({ salience: clampSalience(salience) })
+        .where(eq(bot_memory_documents.id, documentId));
     }
     await tx
       .insert(bot_memory_impression_scans)
@@ -797,6 +866,7 @@ function toRanked(row: any): RankedRow {
     botResponse: row.botResponse,
     occurredAt: row.occurredAt instanceof Date ? row.occurredAt : new Date(row.occurredAt),
     affirmationScore: row.affirmationScore,
+    salience: row.salience ?? null,
     metadata: row.metadata as Record<string, unknown> | null,
   };
 }
@@ -811,6 +881,7 @@ const selection = {
   botResponse: bot_memory_documents.bot_response,
   occurredAt: bot_memory_documents.occurred_at,
   affirmationScore: bot_memory_documents.affirmation_score,
+  salience: bot_memory_documents.salience,
   metadata: bot_memory_documents.metadata,
 };
 
@@ -1096,11 +1167,57 @@ export interface MemoryContext {
   related: BotMemorySearchResult[];
   /** 他の人の記憶から1件だけ。劣化時ガードを通したもの。 */
   friend?: BotMemorySearchResult;
+  /**
+   * 「この前の話」として触れてよい、その人自身の思い出。最大1件。
+   *
+   * 触れるかどうかをプロンプトの条件分岐で決めない。肯定リプライには既に
+   * 「過去のポストに直接言及するな」という明示的な禁止があり、そこへ
+   * 「感情が動いているときだけ触れて」を足すとルールが矛盾する。
+   * **条件を満たすときだけここに1件入り、無い日は節ごとプロンプトに出ない。**
+   */
+  notable?: BotMemorySearchResult;
   /** web_research。related とは別枠。 */
   research: BotMemorySearchResult[];
 }
 
 const DEFAULT_SUBJECT_WEIGHT = 2;
+
+/**
+ * 「この前の話」に触れてよいと判断する印象度の下限。
+ *
+ * botMemoryImpressions のプロンプトでは 80 以上が「本人にとって大きな出来事」。
+ * ここを下げると、挨拶や近況にまで昔話を持ち出すようになる。
+ */
+const NOTABLE_SALIENCE_MIN = 70;
+
+/**
+ * 思い出として渡してよい1件を選ぶ。
+ *
+ * - 本人の記憶（own レグ）からしか選ばない
+ * - 印象度が閾値以上
+ * - `semanticRank !== undefined` ＝ 意味的に今回の話と繋がっている。
+ *   語彙一致だけの偶然（同じ単語がたまたま出た）で昔話を始めさせない。
+ *   embedding 障害時は lexical だけになるので、そのときは何も返さないのが正しい
+ * - 同じ話を毎回持ち出さないよう、直近で使ったものは呼び出し側が
+ *   excludeDocumentIds で外せる
+ *
+ * 最大1件。供給量で制御するので、プロンプトに水増しの余地を作らない。
+ */
+export function selectNotableMemory(
+  ownRows: BotMemorySearchResult[],
+  minSalience = NOTABLE_SALIENCE_MIN,
+): BotMemorySearchResult | undefined {
+  const candidates = ownRows.filter((row) =>
+    row.semanticRank !== undefined &&
+    row.salience !== null &&
+    row.salience >= minSalience
+  );
+  if (candidates.length === 0) return undefined;
+  // 印象の強い順。同点なら今回の話に近い順（relevance）。
+  return [...candidates].sort(
+    (a, b) => (b.salience! - a.salience!) || (b.relevance - a.relevance),
+  )[0];
+}
 
 /**
  * 思い出レグの既定 source。web_research を外す。
@@ -1235,5 +1352,12 @@ export async function buildMemoryContext(
     Math.max(1, researchLimit),
   );
 
-  return { recent, own, related, friend: friendMemory, research };
+  return {
+    recent,
+    own,
+    related,
+    friend: friendMemory,
+    notable: selectNotableMemory(own),
+    research,
+  };
 }

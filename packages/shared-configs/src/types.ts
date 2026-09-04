@@ -221,6 +221,19 @@ export type UserInfoGemini = {
    * 根拠になる。prepareOllamaGrounding が <grounding_research> として差し込む。
    */
   researchMemory?: string | null;
+  /**
+   * 「この前の話」として触れてよい、その人自身の思い出。最大1件。
+   *
+   * 触れるかどうかは**検索側が決めている**（buildMemoryContext の selectNotableMemory）。
+   * 印象度が高く、かつ今回の投稿と意味的に繋がっているときだけここに入る。
+   * 無い場合はプロンプトに節ごと出ないので、生成側に条件分岐を持たせない。
+   *
+   * posts[1..]（背景情報として渡す過去投稿。言及禁止）とは別枠であることに注意。
+   */
+  notableMemory?: {
+    content: string;
+    occurredAt: Date;
+  } | null;
 };
 
 export interface Embed {

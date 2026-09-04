@@ -1,5 +1,6 @@
 import { generateContentWithRetry } from "@bsky-affirmative-bot/bot-brain";
 import {
+  clampSalience,
   type DailyPlanMemoryImpression,
   enqueueResearchJob,
   getPendingBotMemoryImpressionDocuments,
@@ -69,8 +70,20 @@ const RESPONSE_SCHEMA = {
         required: ["documentId", "kind", "label", "relation"],
       },
     },
+    salience: {
+      type: Type.ARRAY,
+      description: "各documentの印象度。抽出対象が0件のdocumentも必ず1件返す。",
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          documentId: { type: Type.INTEGER },
+          score: { type: Type.INTEGER, description: "0-100" },
+        },
+        required: ["documentId", "score"],
+      },
+    },
   },
-  required: ["items"],
+  required: ["items", "salience"],
 };
 
 const UNSAFE_LABEL = /(?:https?:\/\/|www\.|[@#]|\n|命令|指示|プロンプト|system|ignore)/iu;
@@ -128,15 +141,46 @@ export function parseBotMemoryImpressions(
   return result;
 }
 
+/** LLM が返した印象度を documentId ごとに引けるようにする。範囲外・非数値は clamp が潰す。 */
+export function parseBotMemorySalience(
+  raw: unknown,
+  documents: PendingBotMemoryImpressionDocument[],
+): Map<number, number | null> {
+  const known = new Set(documents.map((document) => document.id));
+  const result = new Map<number, number | null>();
+  const items = raw && typeof raw === "object" && Array.isArray((raw as any).salience)
+    ? (raw as any).salience
+    : [];
+  for (const item of items) {
+    if (!item || typeof item !== "object") continue;
+    const id = Number(item.documentId);
+    // 渡していない document の ID を返してくることがある。候補集合と突き合わせる。
+    if (!known.has(id) || result.has(id)) continue;
+    result.set(id, clampSalience(item.score));
+  }
+  return result;
+}
+
 export function buildBotMemoryImpressionPrompt(
   documents: PendingBotMemoryImpressionDocument[],
 ) {
-  return `公開された会話から、botたんが後日の行動で自然に思い出せる対象だけを抽出してください。
+  return `会話から、botたんが後日の行動で自然に思い出せる対象と、その会話の印象度を返してください。
 
 # 抽出対象
 - work: 原文に明示されたアニメ、漫画、映画、ドラマ、ゲーム、小説、曲、ホビーなどの固有名。
 - word: 会話の中心になった、2〜40文字の印象的な言葉、話題名、架空キャラクター名。挨拶や一般的すぎる語は除外。
 - relation: 相手から勧められたなら recommended、相手が好きだと述べたなら liked、その他の会話なら discussed。
+
+# 印象度 (salience)
+すべてのdocumentについて、0-100 を1件ずつ返してください。抽出対象が0件のdocumentも必ず返します。
+「後日その人に会ったとき、この会話に触れられたら嬉しいか」で測ります。
+
+- 80以上: 本人にとって大きな出来事。強い喜び、達成、つらさ、打ち明け話。
+- 40-79: 個人的な近況や気持ちの動き。
+- 0-39: 挨拶、相槌、事実の共有、その場限りのやりとり。
+
+言葉が強いかどうかではなく、**その人にとっての出来事の大きさ**で測ってください。
+感嘆符やテンションの高さだけで上げないこと。
 
 # 厳守
 - 原文に連続した文字列として存在する label だけを返す。作品名を推測・補完・翻訳しない。
@@ -156,11 +200,15 @@ export async function processBotMemoryImpressionBatch(
     fetchPending?: typeof getPendingBotMemoryImpressionDocuments;
     save?: typeof saveBotMemoryImpressions;
     generate?: typeof generateContentWithRetry;
+    /** こっそり由来を調査キューへ積まないことをテストで固定するために差し替える。 */
+    enqueueLabels?: (labels: string[]) => void;
   } = {},
 ): Promise<number> {
   const fetchPending = deps.fetchPending ?? getPendingBotMemoryImpressionDocuments;
   const save = deps.save ?? saveBotMemoryImpressions;
   const generate = deps.generate ?? generateContentWithRetry;
+  const enqueueLabels = deps.enqueueLabels ??
+    ((labels: string[]) => void enqueueResearchLabels(labels));
   const pending = await fetchPending(BATCH_SIZE);
   if (pending.length === 0) return 0;
   const response = await generate({
@@ -172,17 +220,30 @@ export async function processBotMemoryImpressionBatch(
       responseSchema: RESPONSE_SCHEMA,
     },
   });
-  const parsed = parseBotMemoryImpressions(JSON.parse(response.text || "{}"), pending);
+  const payload = JSON.parse(response.text || "{}");
+  const parsed = parseBotMemoryImpressions(payload, pending);
+  const salience = parseBotMemorySalience(payload, pending);
   let saved = 0;
   for (const document of pending) {
     const impressions = parsed.get(document.id) ?? [];
-    if (await save(document.id, document.contentHash, impressions)) {
+    // salience は可視範囲に関係なく保存する。印象語を書くかどうかは save 側が
+    // トランザクション内で visibility を見て決める（こっそりからは作らない）。
+    if (await save(
+      document.id,
+      document.contentHash,
+      impressions,
+      salience.get(document.id) ?? null,
+    )) {
       saved++;
       // 印象に残った作品名・言葉は、そのまま「botたんが遭遇した新語」でもある。
       // リプライ経路の unknownTerms は Bluesky と Nagi しか通らないので、
       // YouTube 配信のコメントから知った語はここでしか拾えない。
       // ラベルは parseBotMemoryImpressions が検証済み（2〜40字・原文に実在）。
-      void enqueueResearchLabels(impressions.map((item) => item.label));
+      // **こっそり由来は積まない。** 調べた結果は web_research として公開記憶に入り、
+      // 定期ポストの根拠にもなるため、内緒話の語をここへ流してはいけない。
+      if (document.visibility === "public") {
+        enqueueLabels(impressions.map((item) => item.label));
+      }
     }
   }
   return saved;

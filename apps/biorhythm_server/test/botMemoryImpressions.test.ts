@@ -5,6 +5,8 @@ import {
   buildBotMemoryImpressionPrompt,
   buildMemoryImpressionsSection,
   parseBotMemoryImpressions,
+  parseBotMemorySalience,
+  processBotMemoryImpressionBatch,
   selectDailyMemoryImpressions,
 } from "../src/botMemoryImpressions.js";
 
@@ -13,6 +15,7 @@ const documents = [{
   sourceType: "nagi_received_reply" as const,
   content: "Nagiで『葬送のフリーレン』をおすすめしたい。https://example.com は見なくていい",
   contentHash: "hash",
+  visibility: "public",
 }];
 
 test("原文にある安全な作品名だけを抽出する", () => {
@@ -90,4 +93,86 @@ test("kind の値や自分の名前は label として採らない", () => {
   }, [...documents]);
 
   assert.deepEqual(parsed.get(1), []);
+});
+
+test("印象度は候補集合のIDだけを受け取り、範囲外は潰す", () => {
+  const parsed = parseBotMemorySalience({
+    salience: [
+      { documentId: 10, score: 130 },
+      // 渡していない document の ID を返してくることがある。無視する。
+      { documentId: 999, score: 90 },
+    ],
+  }, documents);
+  assert.equal(parsed.get(10), 100);
+  assert.equal(parsed.has(999), false);
+});
+
+test("印象度が返ってこなかった document は未評価のまま", () => {
+  const parsed = parseBotMemorySalience({ items: [] }, documents);
+  assert.equal(parsed.has(10), false);
+});
+
+test("同じ document を二重に返してきても最初の1件だけ採る", () => {
+  const parsed = parseBotMemorySalience({
+    salience: [{ documentId: 10, score: 80 }, { documentId: 10, score: 10 }],
+  }, documents);
+  assert.equal(parsed.get(10), 80);
+});
+
+test("こっそりでも印象度は保存し、印象語は調査キューへ積まない", async () => {
+  const kossori = [{
+    id: 20,
+    sourceType: "nagi_received_reply" as const,
+    content: "『葬送のフリーレン』を見て泣いた",
+    contentHash: "hash-kossori",
+    visibility: "kossori",
+  }];
+  const saved: any[] = [];
+  const enqueued: string[][] = [];
+  const processed = await processBotMemoryImpressionBatch({
+    enqueueLabels: (labels) => enqueued.push(labels),
+    fetchPending: async () => kossori,
+    generate: async () => ({
+      text: JSON.stringify({
+        items: [{
+          documentId: 20, kind: "work",
+          label: "葬送のフリーレン", relation: "discussed",
+        }],
+        salience: [{ documentId: 20, score: 92 }],
+      }),
+    }),
+    save: async (id, hash, impressions, salience) => {
+      saved.push({ id, hash, impressions, salience });
+      return true;
+    },
+  });
+
+  assert.equal(processed, 1);
+  // 印象度は可視範囲に関係なく保存側へ渡す。
+  assert.equal(saved[0].salience, 92);
+  // 印象語そのものは渡すが、書くかどうかは saveBotMemoryImpressions が
+  // トランザクション内で visibility を見て決める（ここでは落とさない）。
+  assert.equal(saved[0].impressions.length, 1);
+  // 調査キューへは積まない。調べた結果は web_research として公開記憶へ入り、
+  // 定期ポストの根拠にもなるので、内緒話の語を流してはいけない。
+  assert.deepEqual(enqueued, []);
+});
+
+test("公開の会話では印象語を調査キューへ積む", async () => {
+  const enqueued: string[][] = [];
+  await processBotMemoryImpressionBatch({
+    enqueueLabels: (labels) => enqueued.push(labels),
+    fetchPending: async () => documents,
+    generate: async () => ({
+      text: JSON.stringify({
+        items: [{
+          documentId: 10, kind: "work",
+          label: "葬送のフリーレン", relation: "recommended",
+        }],
+        salience: [{ documentId: 10, score: 60 }],
+      }),
+    }),
+    save: async () => true,
+  });
+  assert.deepEqual(enqueued, [["葬送のフリーレン"]]);
 });

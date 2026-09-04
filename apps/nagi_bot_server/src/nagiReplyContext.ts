@@ -306,6 +306,14 @@ export async function buildNagiReplyContext(job: any) {
     // 事前に調べてある分だけが鮮度の要る話題の根拠になる。無ければ
     // prepareOllamaGrounding が「知らないなら知らないと言う」ノートを渡す。
     researchMemory: memory.research.map((row) => row.content).join("\n\n") || null,
+    // 触れてよいかは検索側（selectNotableMemory）が既に判断済み。無ければ
+    // プロンプトに節ごと出ないので、生成側に条件分岐は増えない。
+    notableMemory: memory.notable
+      ? {
+          content: clipMemoryExcerpt(memory.notable.content),
+          occurredAt: memory.notable.occurredAt,
+        }
+      : null,
     diagnostics: {
       imageCount: image.length,
       directImageCount: image.filter((item) => item.origin === "direct").length,
@@ -325,6 +333,8 @@ export async function buildNagiReplyContext(job: any) {
       urlContextEnabled: links.length > 0,
       hasReaction: Boolean(reactionRows[0]),
       hasFollowersFriend: Boolean(followersFriend),
+      hasNotableMemory: Boolean(memory.notable),
+      notableSalience: memory.notable?.salience ?? null,
     },
   };
 }

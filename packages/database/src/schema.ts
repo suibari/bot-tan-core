@@ -5,6 +5,7 @@ import {
   timestamp,
   jsonb,
   serial,
+  smallint,
   pgSchema,
   customType,
   index,
@@ -159,6 +160,13 @@ export const bot_memory_documents = affirmativeBotSchema.table(
      * 検索は「明示的に許可した範囲だけ」を足す実装にしてある（searchConditions）。
      */
     visibility: text("visibility").default("public").notNull(),
+    /**
+     * 印象度 0-100。「あとから思い出す価値がどれくらいあるか」。
+     *
+     * botMemoryImpressionWorker が印象語の抽出と同じLLM呼び出しで付ける。
+     * 返信で「この前の話」に触れてよいかの判定に使う。NULL は未評価。
+     */
+    salience: smallint("salience"),
     occurred_at: timestamp("occurred_at", { withTimezone: true }).notNull(),
     affirmation_score: integer("affirmation_score"),
     metadata: jsonb("metadata"),
@@ -178,6 +186,10 @@ export const bot_memory_documents = affirmativeBotSchema.table(
       sql`${table.visibility} in ('public', 'kossori')`,
     ),
     index("bot_memory_visibility_occurred_idx").on(table.visibility, table.occurred_at),
+    check(
+      "bot_memory_salience_range_check",
+      sql`${table.salience} is null or (${table.salience} >= 0 and ${table.salience} <= 100)`,
+    ),
     index("bot_memory_pending_embedding_idx")
       .on(table.embedding_model, table.updated_at)
       .where(sql`${table.deleted_at} is null and ${table.embedding} is null`),

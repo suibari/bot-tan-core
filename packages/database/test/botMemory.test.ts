@@ -10,7 +10,10 @@ import {
   isBotMemoryImpressionSourceType,
   addBotMemoryRanks,
   finalizeBotMemoryRanks,
+  clampSalience,
   isBotMemoryVisibility,
+  normalizeMemorySubjectKey,
+  selectNotableMemory,
   searchConditions,
   memoryDigestDate,
   memoryDigestDayRange,
@@ -368,4 +371,112 @@ test("どの検索条件にも可視範囲が必ず入る", () => {
   const kossori = render({ ...base, kossoriSubjectKey: "did:plc:teller" });
   assert.ok(kossori.params.includes("kossori"));
   assert.ok(kossori.params.includes("did:plc:teller"));
+});
+
+test("author_id は source ごとに名前空間を揃える（名寄せはしない）", () => {
+  // YouTube のチャンネルIDだけ印を付ける。DID と同じ列に入るため。
+  assert.equal(
+    normalizeMemorySubjectKey("youtube_live_comment", "UCabc"),
+    "youtube:UCabc",
+  );
+  // atproto 由来は did: がすでに名前空間なので触らない。
+  assert.equal(
+    normalizeMemorySubjectKey("nagi_affirmed_post", "did:plc:someone"),
+    "did:plc:someone",
+  );
+  assert.equal(
+    normalizeMemorySubjectKey("bsky_affirmed_post", "did:plc:someone"),
+    "did:plc:someone",
+  );
+  // web_research のように author を持たない source。
+  assert.equal(normalizeMemorySubjectKey("web_research", null), null);
+  assert.equal(normalizeMemorySubjectKey("youtube_live_comment", "  "), null);
+});
+
+test("author_id の正規化は冪等（バックフィルを二度流しても壊れない）", () => {
+  const once = normalizeMemorySubjectKey("youtube_live_comment", "UCabc");
+  const twice = normalizeMemorySubjectKey("youtube_live_comment", once);
+  assert.equal(twice, "youtube:UCabc");
+  assert.equal(twice, once);
+});
+
+test("同じ人物でも Nagi と YouTube は別キーのまま（名寄せしない割り切り）", () => {
+  assert.notEqual(
+    normalizeMemorySubjectKey("youtube_live_comment", "UCabc"),
+    normalizeMemorySubjectKey("nagi_affirmed_post", "did:plc:abc"),
+  );
+});
+
+test("clampSalience は LLM の雑な出力を 0-100 の整数へ潰す", () => {
+  assert.equal(clampSalience(85), 85);
+  assert.equal(clampSalience(85.6), 86);
+  assert.equal(clampSalience("72"), 72);
+  assert.equal(clampSalience(120), 100);
+  assert.equal(clampSalience(-5), 0);
+  assert.equal(clampSalience("たかい"), null);
+  // 未評価(null/undefined/空文字)は 0 ではなく null。0 は「確定した低評価」なので
+  // 意味が違い、あとで付け直せなくなる。Number(null) が 0 になる罠。
+  assert.equal(clampSalience(undefined), null);
+  assert.equal(clampSalience(null), null);
+  assert.equal(clampSalience(""), null);
+});
+
+const memoryRow = (
+  id: number,
+  overrides: Partial<ReturnType<typeof row>> & {
+    salience?: number | null;
+    semanticRank?: number;
+    relevance?: number;
+  } = {},
+) => ({
+  ...row(id),
+  salience: 90,
+  relevance: 0.5,
+  semanticRank: 1,
+  ...overrides,
+});
+
+test("印象度が高く、意味的に繋がっている記憶だけを思い出にする", () => {
+  const picked = selectNotableMemory([
+    memoryRow(1, { salience: 20 }),
+    memoryRow(2, { salience: 95 }),
+  ]);
+  assert.equal(picked?.id, 2);
+});
+
+test("印象度が閾値に届かなければ思い出は出さない（節ごとプロンプトに出ない）", () => {
+  assert.equal(selectNotableMemory([memoryRow(1, { salience: 50 })]), undefined);
+  // 未評価（NULL）も出さない。評価前の記憶で昔話を始めない。
+  assert.equal(selectNotableMemory([memoryRow(1, { salience: null })]), undefined);
+});
+
+test("語彙一致だけの記憶は思い出にしない（embedding障害時に昔話を始めない）", () => {
+  // semanticRank が無い = 同じ単語がたまたま出ただけ。印象度が高くても採らない。
+  assert.equal(
+    selectNotableMemory([memoryRow(1, { salience: 100, semanticRank: undefined })]),
+    undefined,
+  );
+});
+
+test("思い出は必ず1件だけ返る", () => {
+  const picked = selectNotableMemory([
+    memoryRow(1, { salience: 95 }),
+    memoryRow(2, { salience: 99 }),
+    memoryRow(3, { salience: 100 }),
+  ]);
+  // 配列ではなく1件。供給量で制御するので、複数渡して水増しさせない。
+  assert.equal(picked?.id, 3);
+  assert.ok(!Array.isArray(picked));
+});
+
+test("印象度が同点なら、今回の話に近い方を選ぶ", () => {
+  const picked = selectNotableMemory([
+    memoryRow(1, { salience: 90, relevance: 0.1 }),
+    memoryRow(2, { salience: 90, relevance: 0.9 }),
+  ]);
+  assert.equal(picked?.id, 2);
+});
+
+test("候補が無ければ undefined（空配列や null を返さない）", () => {
+  assert.equal(selectNotableMemory([]), undefined);
 });
