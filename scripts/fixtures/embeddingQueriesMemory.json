@@ -1,0 +1,157 @@
+{
+  "_comment": [
+    "botMemory RAG（bot_memory_documents）評価のクエリセット。--source=memory で読まれる。",
+    "",
+    "**クエリは『botに届いた投稿本文そのもの』であること。** 本番の呼び出しは全て",
+    "searchBotMemory({ query: text }) で、text は受信した投稿の本文をそのまま渡している",
+    "（apps/bsky_bot_server/src/features/replyai.ts:206,215,229 と",
+    "apps/nagi_bot_server/src/nagiReplyContext.ts:116,127）。",
+    "つまりこれは『質問→文書』ではなく『投稿→過去の関連記憶』の検索であって、",
+    "Nagi 検索用の embeddingQueries.json のような短い検索語で測ると結論を誤る。",
+    "",
+    "コーパスの内訳（2026-09-04 実測、15,075件）:",
+    "  bsky_affirmed_post 9128 / biorhythm 2560 / bsky_received_reply 2016 /",
+    "  nagi_affirmed_post 1091 / youtube_live_comment 84 / nagi_received_reply 65 / web_research 54",
+    "web_research の実在トピックに寄せたクエリを入れてあるので、そこは必ず正解が存在する。"
+  ],
+  "queries": [
+    {
+      "id": "mem-madomagi",
+      "category": "research-hit",
+      "text": "劇場版まどか☆マギカのワルプルギスの廻天、やっと見てきた！ほむらの描写が刺さって帰り道ずっと考え込んでたよ",
+      "expect": "まどマギ関連の過去投稿と web_research の『劇場版まどか☆マギカ〈ワルプルギスの廻天〉』"
+    },
+    {
+      "id": "mem-kancolle",
+      "category": "research-hit",
+      "text": "今日は艦これのイベント海域を進めるぞ！ネルソンタッチが決まると気持ちいいんだよね",
+      "expect": "艦これ・ネルソンの過去投稿、web_research の『艦これ』『ネルソン』"
+    },
+    {
+      "id": "mem-zelda",
+      "category": "research-hit",
+      "text": "ゼルダの伝説の新作、ようやく祠を全部集め終わった。達成感がすごい",
+      "expect": "ゼルダ・任天堂ゲームの記憶、web_research の『ゼルダの伝説』"
+    },
+    {
+      "id": "mem-miku",
+      "category": "research-hit",
+      "text": "初音ミクの新しいボカロ曲めっちゃいい…マジカルミライの余韻がまだ抜けない",
+      "expect": "初音ミク・ボカロ・マジカルミライ関連、web_research の『Miku』"
+    },
+    {
+      "id": "mem-dq8",
+      "category": "research-hit",
+      "text": "ドラクエ8をまた最初からやり直してる。空と海と大地の景色が今見ても綺麗なんだよなあ",
+      "expect": "ドラクエ・RPG の記憶、web_research の『ドラクエ8』"
+    },
+    {
+      "id": "mem-perseid",
+      "category": "research-hit",
+      "text": "ペルセウス座流星群、今夜がピークらしいので夜更かしして見に行こうと思ってる",
+      "expect": "流星群・天体観測の記憶、web_research の『ペルセウス座流星群』"
+    },
+    {
+      "id": "mem-catpunch",
+      "category": "research-hit",
+      "text": "うちの猫にまた猫パンチされた。全然痛くないんだけど本人は本気なのがかわいい",
+      "expect": "猫の話題、web_research の『猫パンチ』『Napping with a Stray Cat』"
+    },
+    {
+      "id": "mem-tired",
+      "category": "emotion",
+      "text": "しごおわ。今日はほんとに疲れた…もう何もしたくないので風呂入って寝る",
+      "expect": "過去の『疲れた』『しごおわ』系の投稿と、それに寄り添った記憶"
+    },
+    {
+      "id": "mem-anxious",
+      "category": "emotion",
+      "text": "明日の打ち合わせのことを考えると胃が痛い。うまく話せる気がしないなあ",
+      "expect": "不安・緊張を吐露した過去の記憶"
+    },
+    {
+      "id": "mem-happy",
+      "category": "emotion",
+      "text": "やった！ずっと欲しかったやつがようやく届いた！開封するの楽しみすぎる",
+      "expect": "喜び・達成の過去の記憶"
+    },
+    {
+      "id": "mem-lonely",
+      "category": "emotion",
+      "text": "夜中にふと目が覚めて、なんだか無性に寂しくなってしまった",
+      "expect": "寂しさ・夜更かしの記憶"
+    },
+    {
+      "id": "mem-walk",
+      "category": "daily",
+      "text": "天気がいいのでちょっと散歩してくる。近所の公園まで歩こうかな",
+      "expect": "散歩・ウォーキング・外出の記憶"
+    },
+    {
+      "id": "mem-morning",
+      "category": "daily",
+      "text": "おはよう！今日も一日がんばるぞ",
+      "expect": "朝の挨拶の記憶。近い文が大量にあるので、どれを引いても大差ないはず（RAGとして無害か）"
+    },
+    {
+      "id": "mem-ramen",
+      "category": "daily",
+      "text": "仕事帰りにラーメン食べてきた。こってり系は疲れた日によく効く",
+      "expect": "食事・ラーメンの記憶"
+    },
+    {
+      "id": "mem-sleepy",
+      "category": "daily",
+      "text": "寝落ちしてた…気づいたら朝だった",
+      "expect": "睡眠・寝落ちの記憶"
+    },
+    {
+      "id": "mem-biorhythm",
+      "category": "bot-self",
+      "text": "botたんは今日なにしてたの？",
+      "expect": "biorhythm（botたん自身の日常ナレーション）が引けること"
+    },
+    {
+      "id": "mem-morpho",
+      "category": "bot-self",
+      "text": "モルフォちゃん元気にしてる？また一緒に空を飛んでるのかな",
+      "expect": "モルフォが出てくる biorhythm の記憶"
+    },
+    {
+      "id": "mem-en-tired",
+      "category": "cross-lingual",
+      "text": "i should probably go to the store, but im so fucking tired :(",
+      "expect": "英語の疲労・億劫さの投稿、および日本語の『疲れた』系の記憶"
+    },
+    {
+      "id": "mem-en-show",
+      "category": "cross-lingual",
+      "text": "i should check out the new show probably, everyone keeps talking about it",
+      "expect": "英語のアニメ・ドラマ視聴の投稿"
+    },
+    {
+      "id": "mem-en-cat",
+      "category": "cross-lingual",
+      "text": "found a stray cat napping on my porch this morning, so cute",
+      "expect": "猫の記憶（日英どちらでも）、web_research の『Napping with a Stray Cat』"
+    },
+    {
+      "id": "mem-short-thanks",
+      "category": "degenerate",
+      "text": "Thank you!",
+      "expect": "短すぎて手がかりがない。無関係な記憶を大量に引かないことが望ましい（引いても害の少ないものか）"
+    },
+    {
+      "id": "mem-short-emoji",
+      "category": "degenerate",
+      "text": "😅",
+      "expect": "情報量ゼロ。ここで自信満々に無関係な記憶を引くモデルは RAG に向かない"
+    },
+    {
+      "id": "mem-short-saturday",
+      "category": "degenerate",
+      "text": "土曜日だよ",
+      "expect": "曜日の言及だけ。曜日・休日まわりの記憶なら妥当"
+    }
+  ]
+}

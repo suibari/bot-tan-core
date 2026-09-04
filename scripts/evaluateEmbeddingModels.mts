@@ -71,7 +71,19 @@ const CORPUS_LIMIT = Math.max(1, Number(option("corpus-limit") ?? 10_000));
 const ARM_FILTER = list("arms");
 const QUERY_FILTER = list("queries");
 const RERANK_BASE = list("rerank-base");
-const OUT_DIR = path.resolve(option("out") ?? "docs/evaluations/embedding");
+/**
+ * コーパスの出どころ。posts は Nagi 検索、memory は botMemory RAG。
+ * 型は下の CorpusSource だが、OUT_DIR の既定を決めるためここで先に読む。
+ */
+const SOURCE = (option("source") ?? "posts") as "posts" | "memory";
+// 出力先も source ごとに分ける。分けないと memory の実行が posts の result.json を
+// 上書きして、せっかくの人手採点が消える。
+const OUT_DIR = path.resolve(
+  option("out") ??
+    (SOURCE === "memory"
+      ? "docs/evaluations/embedding-memory"
+      : "docs/evaluations/embedding"),
+);
 const CACHE_DIR = path.resolve(option("cache") ?? ".cache/embedding-eval");
 const SIDECAR_URL = (
   process.env.EMBED_EVAL_SIDECAR_URL ?? "http://127.0.0.1:7997"
@@ -116,12 +128,28 @@ export type EvalQuery = {
   expect?: string;
 };
 
-async function loadQueries(): Promise<EvalQuery[]> {
-  const raw = await readFile(
-    path.resolve("scripts/fixtures/embeddingQueries.json"),
-    "utf8",
+/**
+ * クエリセットの場所。`--queries-file=` で明示でき、無指定なら --source に追従する。
+ * posts（Nagi 検索）と memory（botMemory RAG）では対象文書の性質がまるで違うので、
+ * 同じクエリで測ると両方について誤った結論が出る。
+ */
+function queriesPath(): string {
+  const explicit = option("queries-file");
+  if (explicit) return path.resolve(explicit);
+  return path.resolve(
+    SOURCE === "memory"
+      ? "scripts/fixtures/embeddingQueriesMemory.json"
+      : "scripts/fixtures/embeddingQueries.json",
   );
-  const all = (JSON.parse(raw).queries ?? []) as EvalQuery[];
+}
+
+async function loadQueries(): Promise<EvalQuery[]> {
+  const file = queriesPath();
+  const raw = await readFile(file).catch(() => {
+    throw new Error(`クエリセットが見つかりません: ${file}`);
+  });
+  const all = (JSON.parse(raw.toString("utf8")).queries ?? []) as EvalQuery[];
+  if (!all.length) throw new Error(`クエリが0件です: ${file}`);
   return QUERY_FILTER ? all.filter((q) => QUERY_FILTER.includes(q.id)) : all;
 }
 
@@ -149,26 +177,31 @@ export type Encoder = {
 export const ENCODERS: Encoder[] = [
   {
     id: "arctic",
-    label: "snowflake-arctic-embed2（現行本番）",
+    label: "snowflake-arctic-embed2（2026-09-04 まで本番）",
     provider: "ollama",
-    model: process.env.OLLAMA_EMBED_MODEL ?? "snowflake-arctic-embed2",
+    // **env を見ないこと。** かつて OLLAMA_EMBED_MODEL を既定にしていたが、
+    // 本番を qwen3 へ差し替えた瞬間にベースラインまで qwen3 になり、
+    // 「現行との比較」が成立しなくなった（実際 --source=memory のドライランで発覚）。
+    // 過去との比較可能性を保つため、ここは常に固定のモデル名を指す。
+    model: "snowflake-arctic-embed2",
     dim: 1024,
     docPrefix: "",
-    // 本番も接頭辞なし（hybridSearch.ts の OLLAMA_QUERY_PREFIX 既定は空文字）。
+    // 当時の本番も接頭辞なし（OLLAMA_QUERY_PREFIX の既定が空文字だった）。
     queryPrefix: "",
-    note: "ベースライン。これに勝てないなら置き換える理由がない。",
+    note: "旧ベースライン。過去の結果と地続きにするために残してある。",
   },
   {
     id: "arctic-q",
     label: "snowflake-arctic-embed2 + query: 接頭辞",
     provider: "ollama",
-    model: process.env.OLLAMA_EMBED_MODEL ?? "snowflake-arctic-embed2",
+    model: "snowflake-arctic-embed2",
     dim: 1024,
     docPrefix: "",
-    // arctic-embed v2.0 本来の設計。hybridSearch.ts:10-14 は「効かない」と結論づけて
-    // いるが、それはランキングではなくスコアの目視で判断したもの。ここで測り直す。
+    // arctic-embed v2.0 本来の設計。hybridSearch.ts のコメントは「効かない」と
+    // 結論づけていたが、それはランキングではなくスコアの目視で判断したもので、
+    // 2026-09-04 の実測で誤りと分かった（nDCG 0.366 → 0.548）。
     queryPrefix: "query: ",
-    note: "現行の『接頭辞は無効』という判断の再検証。",
+    note: "接頭辞のみで現行からどこまで戻せるかの対照。",
   },
   {
     id: "bge-dense",
@@ -212,7 +245,7 @@ export const ENCODERS: Encoder[] = [
     docPrefix: "",
     queryPrefix:
       "Instruct: Given a search query, retrieve relevant social media posts written in Japanese\nQuery: ",
-    note: "Ollama 公式ライブラリにあり、instruction-aware。",
+    note: "2026-09-04 から本番。Ollama 公式ライブラリにあり、instruction-aware。",
   },
   {
     id: "e5-large",
@@ -588,8 +621,6 @@ async function sidecarAvailable(): Promise<boolean> {
 
 export type CorpusSource = "posts" | "memory";
 export type CorpusDoc = { id: string; text: string };
-
-const SOURCE = (option("source") ?? "posts") as CorpusSource;
 
 async function loadCorpus(source: CorpusSource): Promise<CorpusDoc[]> {
   if (source === "posts") {

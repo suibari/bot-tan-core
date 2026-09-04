@@ -73,7 +73,8 @@ pnpm embedding:evaluate -- --run --source=memory --corpus-limit=5000 \
 | オプション | 既定 | 意味 |
 | --- | --- | --- |
 | `--run` | — | 付けないとドライラン（外部通信なし） |
-| `--source=posts\|memory` | `posts` | コーパスの取得元 |
+| `--source=posts\|memory` | `posts` | コーパスの取得元。クエリセットと出力先の既定もこれに追従する |
+| `--queries-file=PATH` | `--source` に追従 | クエリセットを明示する。既定は posts→`scripts/fixtures/embeddingQueries.json`、memory→`scripts/fixtures/embeddingQueriesMemory.json` |
 | `--corpus-limit=N` | `10000` | コーパス件数。まず 3000 で試すと速い |
 | `--arms=a,b` | 全部 | 測るアームを絞る（rerank の土台は自動で足される）。**`result.json` は指定したアームだけで作り直されるので、集計に全アームを残したいなら絞らずに回すこと**（埋め込みはキャッシュされるので2回目以降は速い） |
 | `--queries=id,id` | 全部 | クエリを絞る。定性確認に使う |
@@ -82,7 +83,7 @@ pnpm embedding:evaluate -- --run --source=memory --corpus-limit=5000 \
 | `--refresh` | — | 埋め込み・sparse・trgm のキャッシュを捨てて取り直す |
 | `--resume` | — | 前回の人手採点を引き継ぐ |
 | `--with-gemini` | — | 課金経路を開く（`--gemini-cap` 回で強制停止） |
-| `--out=DIR` / `--cache=DIR` | `docs/evaluations/embedding` / `.cache/embedding-eval` | 出力先 |
+| `--out=DIR` / `--cache=DIR` | `--source` に追従 / `.cache/embedding-eval` | 出力先。posts→`docs/evaluations/embedding`、memory→`docs/evaluations/embedding-memory`。分けないと memory の実行が posts の `result.json` を上書きして人手採点が消える |
 
 ## 出力
 
@@ -105,6 +106,12 @@ pnpm embedding:evaluate -- --run --source=memory --corpus-limit=5000 \
 
 `summary.md` の「判断」節がこの2条件を自動で判定して ✅ を付ける。
 併せて、そのアームが**サイドカー常駐を要するか**（`依存` 列）を移行コストとして見ること。
+
+ただし ✅ だけで決めないこと。下の「結果表の読み方」のとおり、この数字は
+あいまい検索セクション単体の実力ではない。実際 2026-09-04 の判断では、
+✅ が付いた `egemma` を**採らなかった**（全体平均では勝つが固有名詞で負けるため）。
+移行コストは「サイドカー常駐」だけでなく**次元**も見ること — 1024次元同士なら
+`embedding` を NULL にするだけだが、768次元へ移るとスキーマ変更が要る。
 
 ## 注意
 
@@ -154,6 +161,73 @@ Nagi 検索（`hybridSearch.embedQuery`）と botMemory RAG（`searchBotMemory`�
 - **しきい値はコーパス上の実距離で決めること。** 手元で作った文と適当なクエリの
   cosine 距離（0.67）を根拠にすると誤る。実際の上位ヒットは walpurgis 0.332〜0.404 /
   madomagi 0.409〜0.469 / walk 0.274〜0.401 で、0.60 を余裕で通る。
+- **モデルを遅いものへ替えるとバッチのタイムアウトが破綻する。**
+  `OLLAMA_EMBED_TIMEOUT_MS` はクエリ1本を基準に 5000ms と決めてあったが、埋め込みワーカーは
+  16件をまとめて投げる。実測（qwen3 / CPU）は 1件 約330ms・16件 約4.4秒で、固定5秒だと
+  常時ぎりぎり。超えるたび `ollamaEmbed.ts` の cooldown が60秒開き、**再埋め込みだけでなく
+  利用者の検索も含めて埋め込みが全面停止する**。実際、再埋め込みの実効速度が
+  64→96→192→32 行/分 と振動し、`bot_memory_documents` は 80行で止まった。
+  → タイムアウトを件数比例（`OLLAMA_EMBED_TIMEOUT_PER_ITEM_MS`、既定1500ms）にして解消。
+  **埋め込みモデルを替えるときは必ずバッチ1回の実測を取ること。**
+- **評価ハーネスのベースラインを env 追従にしない。** `ENCODERS` の `arctic` は
+  `OLLAMA_EMBED_MODEL` を既定にしていたため、本番を qwen3 へ替えた瞬間に
+  ベースラインまで qwen3 になり「現行との比較」が成立しなくなった。固定名に直した。
+
+## ⚠ 結果表の読み方（2026-09-04 追記）
+
+**このハーネスはコーパス全体でランキングするが、本番のあいまい検索はそうではない。**
+`semanticConditions`（`apps/nagi_appview/src/queries/hybridSearch.ts`）は一致セクションと
+排他にするため **ILIKE ヒット（本文に検索語がそのまま入っている行）を除外**する。
+ハーネスはこれを模していないので、`summary.md` の数字は
+**hybrid モード（タイプアヘッド既定）と一致セクションを含めた総合力**であって、
+あいまい検索セクション単体の実力ではない。
+
+除外して測り直すと順位が変わる:
+
+| アーム | 全体（ハーネス既定） | 全体（ILIKE除外） | 固有名詞（既定） | 固有名詞（除外） |
+|---|---:|---:|---:|---:|
+| `egemma` | 0.632 | **0.517** | 0.351 | 0.185 |
+| `ruri310` | 0.653 | 0.485 | 0.554 | **0.362** |
+| `qwen3-06b` | 0.639 | 0.415 | 0.458 | 0.263 |
+| `arctic-q` | 0.548 | 0.363 | 0.356 | 0.179 |
+| `arctic` | 0.343 | 0.230 | 0.162 | 0.040 |
+
+qwen3 の優位の多くは「語をそのまま含む投稿を上位に出す力」から来ており、
+その部分は本番では一致セクションへ回る。それでも旧 arctic からは除外後でも
+0.230 → 0.415 と改善しているので採用の判断は変わらない。
+egemma は全体平均では勝つが**固有名詞では qwen3 より下**（0.185 対 0.263）で、
+今回の起点だった症状の領域が悪化するため採らなかった。
+
+### 埋め込みモデルでは直らない領域がある
+
+ILIKE 除外後の固有名詞クエリを1本ずつ見ると:
+
+| クエリ | qwen3 | egemma | ruri310 | 除外後プール / うち関連 |
+|---|---:|---:|---:|---|
+| **walpurgis** | **0.000** | **0.000** | **0.000** | 7件 / **0件** |
+| madomagi | 0.457 | 0.836 | 0.658 | 19件 / 10件 |
+| zelda | 0.145 | 0.307 | 0.530 | 95件 / 18件 |
+| jujutsu | 0.395 | 0.066 | 0.690 | 76件 / 18件 |
+
+**「ワルプルギス」は全モデルが 0.000。** どのアームも、語を含まない関連投稿を
+top-20 に1件も出せていない。一方 madomagi のプールには「魔法少女まどか☆マギカの
+ポスター」のような、ワルプルギスの語を含まない関連投稿が10件ある。
+つまり**拾えるはずの投稿が存在するのに、どの埋め込みモデルも見つけられていない**。
+ここはモデル交換では動かない語彙ギャップで、doc2query 的な文書拡張か
+クエリ拡張でしか埋まらない。次はそれを測る。
+
+## botMemory RAG を測るときの注意
+
+`--source=memory` のクエリセット（`scripts/fixtures/embeddingQueriesMemory.json`）は
+**「botに届いた投稿本文そのもの」**でなければならない。本番の呼び出しは全て
+`searchBotMemory({ query: text })` で、`text` は受信した投稿の本文をそのまま渡している
+（`apps/bsky_bot_server/src/features/replyai.ts:206,215,229` と
+`apps/nagi_bot_server/src/nagiReplyContext.ts:116,127`）。
+
+つまりこれは「検索語 → 文書」ではなく**「投稿 → 過去の関連記憶」**の検索で、
+Nagi 検索用の短い検索語で測ると両方について誤った結論が出る。
+`embedSearchQuery()` のクエリ接頭辞がこの対称的なタスクでも有効かどうかは、
+ここで実測して決めること。
 
 ## 2026-09-04 の結果
 
