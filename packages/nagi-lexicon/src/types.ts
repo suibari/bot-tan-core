@@ -59,8 +59,6 @@ export type NagiPost = {
   silentReply?: boolean;
   /** 所属チャンネル（com.suibari.nagi.channel）への参照。返信は親の channel を継承する。 */
   channel?: StrongRef;
-  /** true なら CH 限定＝グローバルTL非表示（kossori と同じ除外扱い）。 */
-  channelOnly?: boolean;
   reply?: { root: StrongRef; parent: StrongRef };
   linkCards?: NagiLinkCard[];
   embed?:
@@ -341,8 +339,6 @@ export type PostView = {
   threadKossori?: boolean;
   /** 所属チャンネル（あれば）。バッジ表示・返信時の継承元に使う。 */
   channel?: { uri: string; cid: string; name?: string };
-  /** CH 限定投稿（グローバル非表示）か。 */
-  channelOnly?: boolean;
   /** 投稿後に編集された（AppView が cid 変化を観測した）か。UI の「編集済み」バッジ用。 */
   edited?: boolean;
   deleted?: boolean;

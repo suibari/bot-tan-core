@@ -381,7 +381,7 @@ export async function getChannel(
 }
 
 /**
- * CH タイムライン。channelOnly に関係なく当該 CH の投稿を全部（返信も）出す。
+ * CH タイムライン。当該 CH の投稿を全部（返信も）出す。
  * こっそりだけは本人以外に見せない（getTimeline の kossoriVisibility が効く）。
  */
 export function getChannelTimeline(opts: {

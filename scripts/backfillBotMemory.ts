@@ -49,13 +49,11 @@ export async function loadBotMemoryBackfillCandidates(): Promise<Candidate[]> {
 
   const nagi = await rows<any>(sql`
     select j.source_uri, j.author_did, j.record_json, j.reply_uri, j.score,
-           j.generation_mode, j.created_at
+           j.generation_mode, j.created_at, p.kossori
     from nagi.bot_reply_jobs j
     join nagi.posts p on p.uri = j.source_uri
     where j.state = 'posted'
       and p.deleted_at is null
-      and p.kossori = false
-      and p.channel_only = false
       and (j.record_json->'reply' is not null or j.generation_mode = 'ai')
       and nullif(btrim(j.record_json->>'text'), '') is not null
     order by j.created_at
@@ -68,6 +66,8 @@ export async function loadBotMemoryBackfillCandidates(): Promise<Candidate[]> {
       sourceUri: row.source_uri,
       authorId: row.author_did,
       content: record.text,
+      // こっそりも覚えるが、引ける範囲は visibility が持つ。
+      visibility: row.kossori ? "kossori" : "public",
       occurredAt: new Date(record.createdAt ?? row.created_at),
       affirmationScore: row.score ?? null,
       metadata: {

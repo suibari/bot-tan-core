@@ -19,8 +19,7 @@ import { parseEmbedPost } from "../bsky/parseEmbedPost.js";
 import { followerMap } from "../bsky/followerManagement.js";
 import { replyRandom } from "./replyrandom.js";
 import {
-    searchBotMemory,
-    selectReplyMemoryContext,
+    buildMemoryContext,
     type BotMemorySearchResult,
 } from "@bsky-affirmative-bot/database";
 
@@ -202,51 +201,31 @@ export async function replyAI(
 export async function loadReplyMemories(text: string, authorDid: string) {
     if (!text.trim())
         return { relatedPosts: [], friendMemory: undefined, researchMemory: null };
-    const affirmedSources = ["bsky_affirmed_post", "nagi_affirmed_post"] as const;
-    const ownPromise = searchBotMemory({
+    // 本人の記憶は「フィルタ」ではなく「係数」で効かせる。その人との記憶が無くても
+    // 全体の記憶は残るので、初対面でも思い出の引き出しが空にならない。
+    // web_research は related の枠を食わないよう buildMemoryContext が別枠で返す。
+    // bot_memory_documents は Nagi と共通なので、Nagi 側で覚えた語もここで使える。
+    const context = await buildMemoryContext({
         query: text,
         purpose: "reply_history",
-        authorId: authorDid,
+        subjectKey: authorDid,
         limit: 10,
+        researchLimit: 3,
+        // 短期記憶は botContext 側（formatBotContext）が常時載せるので、ここでは引かない。
+        digestDays: 0,
+        excludeAuthorIds: [process.env.BSKY_DID, process.env.NAGI_BOT_DID],
     }).catch((error) => {
-        console.warn(`[WARN][${authorDid}] Failed to retrieve own bot memory:`, error);
-        return [];
+        console.warn(`[WARN][${authorDid}] Failed to build memory context:`, error);
+        return undefined;
     });
-    const friendPromise = searchBotMemory({
-        query: text,
-        purpose: "reply_history",
-        sources: [...affirmedSources],
-        excludeAuthorId: authorDid,
-        limit: 10,
-    }).catch((error) => {
-        console.warn(`[WARN][${authorDid}] Failed to retrieve friend bot memory:`, error);
-        return [];
-    });
-    // botMemoryResearchWorker が調べておいた事実。bot_memory_documents は Nagi と共通なので、
-    // Nagi 側で覚えた語も Bluesky のリプライで使える。authorId が null なので
-    // ownPromise（authorId 絞り込み）にも friendPromise（source 限定）にも掛からず、
-    // 専用に引く必要がある。
-    const researchPromise = searchBotMemory({
-        query: text,
-        purpose: "reply_history",
-        sources: ["web_research"],
-        limit: 3,
-    }).catch((error) => {
-        console.warn(`[WARN][${authorDid}] Failed to retrieve research memory:`, error);
-        return [];
-    });
-    const [own, friends, research] = await Promise.all([
-        ownPromise,
-        friendPromise,
-        researchPromise,
-    ]);
+    if (!context)
+        return { relatedPosts: [], friendMemory: undefined, researchMemory: null };
     return {
-        ...selectReplyMemoryContext(own, friends, [
-            process.env.BSKY_DID,
-            process.env.NAGI_BOT_DID,
-        ]),
-        // 思い出の枠を食わせないよう selectReplyMemoryContext には通さない。
-        researchMemory: research.map((row) => row.content).join("\n\n") || null,
+        // 本人の記憶だけ。ここは「その人自身の過去の投稿」として扱われるスロットなので、
+        // 係数で畳んだ related を入れると他人の発言を本人のものにしてしまう。
+        relatedPosts: context.own.map((row) => row.content),
+        friendMemory: context.friend,
+        researchMemory: context.research.map((row) => row.content).join("\n\n") || null,
     };
 }
 

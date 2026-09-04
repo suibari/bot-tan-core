@@ -68,9 +68,9 @@ const homeActorsParam = (actorDids: string[]) =>
 
 /**
  * ホーム候補の可視性条件。スレッド単位の最新活動順に並べるため、リストメンバーの返信も
- * 候補に含める。公開範囲(kossori)と CH 限定はスレッドルートが所有するので、ルート行を
+ * 候補に含める。公開範囲(kossori)はスレッドルートが所有するので、ルート行を
  * 引いて判定する（ルート行では coalesce が自分自身を指すので、ルート・返信を1本で扱える）。
- * 本人の kossori だけを許し、channelOnly は本人分も含めてホームへ出さない。
+ * 本人の kossori だけを許す。
  */
 export function homeTimelineVisibility(
   homeDid: string,
@@ -83,7 +83,6 @@ export function homeTimelineVisibility(
       where thread_root.uri = coalesce(${nagiPosts.replyRootUri}, ${nagiPosts.uri})
         and thread_root.deleted_at is null
         and thread_root.did = any(${homeActorsParam(actorDids)})
-        and thread_root.channel_only = false
         and (not thread_root.kossori or thread_root.did = ${homeDid})
     )`,
   ];
@@ -173,7 +172,6 @@ export function homeRootVisibility(
   return [
     isNull(nagiPosts.replyParentUri),
     inArray(nagiPosts.did, actorDids),
-    eq(nagiPosts.channelOnly, false),
     or(eq(nagiPosts.did, homeDid), eq(nagiPosts.kossori, false))!,
   ];
 }
@@ -234,7 +232,6 @@ export async function hydratePostViews(
               uri: nagiPosts.uri,
               cid: nagiPosts.cid,
               kossori: nagiPosts.kossori,
-              channelOnly: nagiPosts.channelOnly,
             })
             .from(nagiPosts)
             .where(
@@ -245,10 +242,7 @@ export async function hydratePostViews(
             )
         ).map((root) => [root.uri, root]),
       )
-    : new Map<
-        string,
-        { uri: string; cid: string; kossori: boolean; channelOnly: boolean }
-      >();
+    : new Map<string, { uri: string; cid: string; kossori: boolean }>();
   // バッジ表示用にチャンネルを引く（uri→{name,cid}）。所属 CH のある投稿だけ。
   // 返信はレコードに channel を持たない（ルート所有）ので、cid もここから解決する。
   const channelUris = [
@@ -280,14 +274,13 @@ export async function hydratePostViews(
     const threadRoot = post.replyRootUri
       ? threadRoots.get(post.replyRootUri)
       : undefined;
-    // こっそりは返信レコードの値ではなくルートが所有する。旧 channelOnly も、
-    // 過去のチャンネル限定スレッドを再公開しないため同じ非共有設定として扱う。
+    // こっそりは返信レコードの値ではなくルートが所有する。
     // 参照先を解決できない返信は、意図しない共有TL露出を避けるため非共有側に倒す。
     const threadKossori = post.replyRootUri
       ? threadRoot
-        ? threadRoot.kossori || threadRoot.channelOnly
+        ? threadRoot.kossori
         : true
-      : post.kossori || post.channelOnly;
+      : post.kossori;
     const images =
       !deleted && Array.isArray(post.embedImages)
         ? post.embedImages.flatMap((item: any) => {
@@ -395,7 +388,6 @@ export async function hydratePostViews(
               : {}),
           }
         : undefined,
-      channelOnly: post.channelOnly || undefined,
       deleted: deleted || undefined,
     };
   });
@@ -757,7 +749,7 @@ export async function getTimeline(opts: {
   viewerDid?: string;
   affirmation?: boolean;
   actorDid?: string;
-  /** CH タイムライン: この URI の channel を持つ投稿だけを、kossori/channelOnly に関係なく出す。 */
+  /** CH タイムライン: この URI の channel を持つ投稿だけを、kossori に関係なく出す。 */
   channelUri?: string;
   /** タグ検索(/search): この小文字タグを含む投稿だけを出す。呼び出し側で小文字化済みであること。 */
   tag?: string;
@@ -772,7 +764,7 @@ export async function getTimeline(opts: {
   /**
    * 本人向けホーム。指定時は本人・botたん・本人の非公開リストの投稿（返信を含む）を候補にし、
    * スレッド単位の最新活動順に並べる。公開範囲はスレッドルートで判定するので、本人の kossori
-   * だけは表示するが、channelOnly は本人分も含めてホームへ出さない。
+   * だけは表示する。
    */
   homeDid?: string;
   /** 呼び出し側が既に引いている場合に渡す。省略時は viewerDid から自分で引く。 */
@@ -840,8 +832,8 @@ export async function getTimeline(opts: {
     filters.push(
       or(ne(nagiPosts.did, config.botDid), isNull(nagiPosts.replyParentUri)),
     );
-  // こっそりは返信ごとではなくスレッドルートが所有する。旧 channelOnly も互換性のため
-  // ルートの非共有設定として扱う。ルート未解決時に true へ倒すのは、壊れた参照によって
+  // こっそりは返信ごとではなくスレッドルートが所有する。
+  // ルート未解決時に非共有へ倒すのは、壊れた参照によって
   // 本来こっそりだった返信を共有TLへ露出させないため。
 	if (!opts.actorDid && !opts.channelUri && !opts.homeDid) {
 		const viewerMatch = opts.viewerDid
@@ -853,9 +845,9 @@ export async function getTimeline(opts: {
 		filters.push(sql`
       case
         when ${nagiPosts.replyRootUri} is null
-          then not ${nagiPosts.channelOnly} and (not ${nagiPosts.kossori} or ${viewerMatch})
+          then (not ${nagiPosts.kossori} or ${viewerMatch})
         else coalesce((
-          select not thread_root.channel_only and (not thread_root.kossori or ${threadRootViewerMatch})
+          select (not thread_root.kossori or ${threadRootViewerMatch})
           from nagi.posts as thread_root
           where thread_root.uri = ${nagiPosts.replyRootUri}
             and thread_root.deleted_at is null

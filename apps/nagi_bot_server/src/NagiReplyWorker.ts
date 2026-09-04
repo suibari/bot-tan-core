@@ -102,19 +102,19 @@ export function startNagiReplyWorker() {
     let generationMode: "ai" | "template" | undefined;
     try {
       // bot宛返信はAI/定型/最終的な生成成否を問わず「受けた入力」として残す。
-      // AppViewの公開判定が確定した行だけを採用する。
+      // AppViewの公開判定が確定した行だけを採用する。こっそりも覚えるが、
+      // visibility="kossori" を付けて「本人がこっそりで話しているときだけ」引けるようにする。
       const incomingRecord = job.recordJson as any;
       if (incomingRecord?.reply && typeof incomingRecord.text === "string") {
         const [receivedPost] = await db
           .select({
             kossori: nagiPosts.kossori,
-            channelOnly: nagiPosts.channelOnly,
             deletedAt: nagiPosts.deletedAt,
           })
           .from(nagiPosts)
           .where(eq(nagiPosts.uri, job.sourceUri))
           .limit(1);
-        if (receivedPost && !receivedPost.kossori && !receivedPost.channelOnly && !receivedPost.deletedAt) {
+        if (receivedPost && !receivedPost.deletedAt) {
           await tryUpsertBotMemoryDocument({
             sourceType: "nagi_received_reply",
             sourceId: job.sourceUri,
@@ -122,6 +122,7 @@ export function startNagiReplyWorker() {
             authorId: job.authorDid,
             content: incomingRecord.text,
             occurredAt: new Date(incomingRecord.createdAt ?? job.createdAt),
+            visibility: receivedPost.kossori ? "kossori" : "public",
             metadata: { receivedByBot: true },
           });
         }
@@ -188,27 +189,23 @@ export function startNagiReplyWorker() {
           .where(eq(nagiBotReplyJobs.sourceUri, job.sourceUri));
       });
 
-      // AppView が確定した公開範囲を正とする。行がまだ無い場合も、非公開を誤って
-      // 横断記憶へ入れるより安全なので次回のバックフィルへ任せる。
+      // AppView が確定した可視範囲を正とする。行がまだ無い場合は、こっそりを誤って
+      // public として覚えるより安全なので次回のバックフィルへ任せる。
       const [sourcePost] = await db
         .select({
           kossori: nagiPosts.kossori,
-          channelOnly: nagiPosts.channelOnly,
           deletedAt: nagiPosts.deletedAt,
         })
         .from(nagiPosts)
         .where(eq(nagiPosts.uri, job.sourceUri))
         .limit(1);
-      const isPublicSource = Boolean(
-        sourcePost && !sourcePost.kossori && !sourcePost.channelOnly && !sourcePost.deletedAt,
-      );
       const record = job.recordJson as any;
 
       if (sourcePost && typeof record?.text === "string" && shouldRememberAffirmedPost({
         surface: "nagi",
         aiReplyPosted: generationMode === "ai",
         isTopLevel: !record.reply,
-        isPublic: isPublicSource,
+        sourceAlive: !sourcePost.deletedAt,
       })) {
         await tryUpsertBotMemoryDocument({
           sourceType: "nagi_affirmed_post",
@@ -218,6 +215,7 @@ export function startNagiReplyWorker() {
           content: record.text,
           botResponse: null,
           occurredAt: new Date(record.createdAt ?? job.createdAt),
+          visibility: sourcePost.kossori ? "kossori" : "public",
           affirmationScore: result.score ?? null,
           metadata: { replyUri: result.uri, generationMode: "ai" },
         });

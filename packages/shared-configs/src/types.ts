@@ -165,6 +165,18 @@ export interface BotContext {
     activity: string;
     activityEn: string;
   }[];
+  /**
+   * 短期記憶。直近数日の出来事のダイジェスト（新しい順）。
+   *
+   * recentActivities が「botたん自身が何をしていたか」なのに対し、こちらは
+   * 「まわりで何があったか」。ベクトル検索とは無関係に常時載せる。似ている過去
+   * しか出てこないRAGでは、直近の出来事の連続性がそもそも取れないため。
+   */
+  recentDigests?: {
+    /** JST の "YYYY-MM-DD"。 */
+    date: string;
+    summary: string;
+  }[];
 }
 
 export type UserInfoGemini = {

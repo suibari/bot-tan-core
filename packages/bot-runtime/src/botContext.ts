@@ -8,6 +8,20 @@ export type RuntimeBotContext = {
   botEnergy: number;
   surface?: BotSurface;
   recentActivities?: RuntimeBotActivity[];
+  recentDigests?: RuntimeBotDigest[];
+};
+
+/**
+ * 短期記憶。直近数日の出来事を1日1件にまとめたもの（新しい順）。
+ *
+ * recentActivities が「botたん自身が何をしていたか」なのに対し、こちらは
+ * 「まわりで何があったか」。bot_memory_daily_digests が出どころで、
+ * ベクトル検索を通していない。
+ */
+export type RuntimeBotDigest = {
+  /** JST の "YYYY-MM-DD"。 */
+  date: string;
+  summary: string;
 };
 
 export type RuntimeBotActivity = {
@@ -20,6 +34,7 @@ type BotContextSources = {
   getWeather: () => Promise<string>;
   getStatus: () => Promise<{ mood: string; mood_en: string; energy: number }>;
   getRecentActivities?: () => Promise<RuntimeBotActivity[]>;
+  getRecentDigests?: () => Promise<RuntimeBotDigest[]>;
   /** このプロセスがどのSNSに向いているか。プロセス単位で固定なのでキャッシュに載せない。 */
   surface?: BotSurface;
 };
@@ -51,10 +66,11 @@ function dateTime() {
 export async function getBotContext(): Promise<RuntimeBotContext> {
   if (!sources) throw new Error("Bot context sources are not configured");
   if (!cache || Date.now() - cache.time > TTL_MS) {
-    const [weather, status, recentActivities] = await Promise.all([
+    const [weather, status, recentActivities, recentDigests] = await Promise.all([
       sources.getWeather(),
       sources.getStatus(),
       sources.getRecentActivities?.() ?? Promise.resolve([]),
+      sources.getRecentDigests?.() ?? Promise.resolve([]),
     ]);
     cache = {
       value: {
@@ -63,6 +79,7 @@ export async function getBotContext(): Promise<RuntimeBotContext> {
         botActivityEn: status.mood_en,
         botEnergy: status.energy,
         ...(recentActivities.length ? { recentActivities } : {}),
+        ...(recentDigests.length ? { recentDigests } : {}),
       },
       time: Date.now(),
     };

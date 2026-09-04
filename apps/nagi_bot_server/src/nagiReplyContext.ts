@@ -5,8 +5,8 @@ import {
   nagiPosts,
   nagiProfiles,
   nagiReactions,
-  searchBotMemory,
-  selectReplyMemoryContext,
+  buildMemoryContext,
+  type MemoryContext,
 } from "@bsky-affirmative-bot/database";
 import {
   blobImagesToImageRefs,
@@ -14,6 +14,7 @@ import {
 } from "@bsky-affirmative-bot/bot-runtime";
 import type { ImageRef } from "@bsky-affirmative-bot/shared-configs";
 import { loadPreferredName } from "@bsky-affirmative-bot/clients";
+import { isAppviewOwnedUri } from "@bsky-affirmative-bot/nagi-lexicon";
 import { and, desc, eq, isNull } from "drizzle-orm";
 
 type ContextLink = { uri: string; title?: string; description?: string };
@@ -113,59 +114,69 @@ export async function loadNagiReplyAuthor(did: string) {
   };
 }
 
+/**
+ * この返信がこっそりの文脈か。
+ *
+ * こっそりの記憶は**本人がこっそりで話しているときだけ**引ける。通常投稿への返信では
+ * 1件も混ざらない（buildMemoryContext の既定が public のみ）。
+ *
+ * 可視性の正は nagi.posts.kossori 列。URI が AppView DID 配下かどうか
+ * （＝保管場所）とは別物なので、URI だけでは判定しない。URI で先に絞るのは、
+ * 公開投稿のたびに1クエリ増やさないため。
+ *
+ * 行がまだ無いときは true に倒す。取り込みが追いつく前でも、こっそりを
+ * 通常文脈と誤認して公開記憶と混ぜるより安全側だから。ここで true にしても
+ * 増えるのは「本人自身のこっそり記憶」だけで、他人の記憶は出ない。
+ */
+async function isKossoriSource(sourceUri: string): Promise<boolean> {
+  const [post] = await db
+    .select({ kossori: nagiPosts.kossori })
+    .from(nagiPosts)
+    .where(eq(nagiPosts.uri, sourceUri))
+    .limit(1);
+  return post?.kossori ?? true;
+}
+
 export async function buildNagiReplyContext(job: any) {
   const record: any = job.recordJson;
   const botDid = process.env.NAGI_BOT_DID!;
   const text = typeof record.text === "string" ? record.text : "";
 
+  const emptyMemory: MemoryContext = { recent: [], own: [], related: [], research: [] };
+  const kossori = isAppviewOwnedUri(job.sourceUri)
+    ? await isKossoriSource(job.sourceUri)
+    : false;
   const [
     author,
     preferredName,
-    ownMemoryRows,
-    friendMemoryRows,
-    researchRows,
+    memory,
     reactionRows,
     quoteRows,
   ] = await Promise.all([
       loadNagiReplyAuthor(job.authorDid),
       // 本人が「こう呼んで」と申告していればそれを使う（無ければ displayName）。
       loadPreferredName(job.authorDid),
+      // 本人の記憶は「フィルタ」ではなく「係数」で効かせる。その人との記憶が無くても
+      // 全体の記憶は残るので、初対面でも思い出の引き出しが空にならない。
+      // web_research は思い出の枠を食わないよう buildMemoryContext が別枠で返す。
       text.trim()
-        ? searchBotMemory({
+        ? buildMemoryContext({
             query: text,
             purpose: "reply_history",
-            authorId: job.authorDid,
+            subjectKey: job.authorDid,
+            // こっそりの文脈のときだけ、その人自身のこっそり記憶を候補へ足す。
+            // 通常投稿では未指定なので public しか引かれない。
+            kossoriSubjectKey: kossori ? job.authorDid : undefined,
             limit: 10,
+            researchLimit: 3,
+            // 短期記憶は botContext 側（formatBotContext）が常時載せる。ここでは引かない。
+            digestDays: 0,
+            excludeAuthorIds: [botDid, process.env.BSKY_DID],
           }).catch((error) => {
-            console.warn(`[WARN][${job.authorDid}] Failed to retrieve own bot memory:`, error);
-            return [];
+            console.warn(`[WARN][${job.authorDid}] Failed to build memory context:`, error);
+            return emptyMemory;
           })
-        : Promise.resolve([]),
-      text.trim()
-        ? searchBotMemory({
-            query: text,
-            purpose: "reply_history",
-            sources: ["bsky_affirmed_post", "nagi_affirmed_post"],
-            excludeAuthorId: job.authorDid,
-            limit: 10,
-          }).catch((error) => {
-            console.warn(`[WARN][${job.authorDid}] Failed to retrieve friend bot memory:`, error);
-            return [];
-          })
-        : Promise.resolve([]),
-      // botMemoryResearchWorker が先に調べておいた事実。思い出の枠を食わないよう
-      // selectReplyMemoryContext には通さず、独立した根拠として渡す。
-      text.trim()
-        ? searchBotMemory({
-            query: text,
-            purpose: "reply_history",
-            sources: ["web_research"],
-            limit: 3,
-          }).catch((error) => {
-            console.warn(`[WARN][${job.authorDid}] Failed to retrieve research memory:`, error);
-            return [];
-          })
-        : Promise.resolve([]),
+        : Promise.resolve(emptyMemory),
       db
         .select({
           emoji: nagiReactions.emoji,
@@ -208,38 +219,35 @@ export async function buildNagiReplyContext(job: any) {
   // generateAffirmativeWord が posts.slice(1) を丸ごとプロンプトへ入れるので、
   // Nagi の投稿上限（3000書記素）× 10件がそのままコンテキストを食う。
   // ここで抑えないと、下流の予算トリムでは「今回の入力を切る」しか手が無くなる。
-  const relatedPosts = ownMemoryRows.map((row) =>
+  // 本人の記憶だけを使う。ここは「その人自身の過去の投稿」として
+  // generateAffirmativeWord へ渡るスロットなので、他人の記憶を混ぜると
+  // 本人が言っていないことを言ったことにしてしまう。
+  const relatedPosts = memory.own.map((row) =>
     clipMemoryExcerpt(row.content),
   );
 
   let followersFriend:
     | { profile: ReturnType<typeof profileView>; post: string; uri: string }
     | undefined;
-  if (text.trim()) {
-    const { friendMemory: friendPost } = selectReplyMemoryContext(
-      ownMemoryRows,
-      friendMemoryRows,
-      [botDid, process.env.BSKY_DID],
-    );
-    if (friendPost) {
-      const [actors, profiles] = await Promise.all([
-        db
-          .select()
-          .from(nagiActors)
-          .where(eq(nagiActors.did, friendPost.authorId!))
-          .limit(1),
-        db
-          .select()
-          .from(nagiProfiles)
-          .where(eq(nagiProfiles.did, friendPost.authorId!))
-          .limit(1),
-      ]);
-      followersFriend = {
-        profile: profileView(friendPost.authorId!, actors[0], profiles[0]),
-        post: friendPost.content,
-        uri: friendPost.sourceUri!,
-      };
-    }
+  const friendPost = memory.friend;
+  if (friendPost) {
+    const [actors, profiles] = await Promise.all([
+      db
+        .select()
+        .from(nagiActors)
+        .where(eq(nagiActors.did, friendPost.authorId!))
+        .limit(1),
+      db
+        .select()
+        .from(nagiProfiles)
+        .where(eq(nagiProfiles.did, friendPost.authorId!))
+        .limit(1),
+    ]);
+    followersFriend = {
+      profile: profileView(friendPost.authorId!, actors[0], profiles[0]),
+      post: friendPost.content,
+      uri: friendPost.sourceUri!,
+    };
   }
 
   const authorPds =
@@ -297,7 +305,7 @@ export async function buildNagiReplyContext(job: any) {
     urlContextEnabled: links.length > 0,
     // 事前に調べてある分だけが鮮度の要る話題の根拠になる。無ければ
     // prepareOllamaGrounding が「知らないなら知らないと言う」ノートを渡す。
-    researchMemory: researchRows.map((row) => row.content).join("\n\n") || null,
+    researchMemory: memory.research.map((row) => row.content).join("\n\n") || null,
     diagnostics: {
       imageCount: image.length,
       directImageCount: image.filter((item) => item.origin === "direct").length,

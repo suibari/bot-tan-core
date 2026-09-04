@@ -13,6 +13,7 @@ import {
   loadPreferredName,
   MemoryService,
 } from "@bsky-affirmative-bot/clients";
+import { getRecentMemoryDigests } from "@bsky-affirmative-bot/database";
 import {
   configureBotContext,
   getBotContext,
@@ -50,6 +51,20 @@ configureBotContext({
       activity: row.mood,
       activityEn: row.mood_en || row.mood,
     }));
+  },
+  // 短期記憶。ベクトル検索を通さず、直近の出来事をそのまま載せる。
+  // 記憶基盤が落ちても返信そのものは止めない。
+  getRecentDigests: async () => {
+    try {
+      const digests = await getRecentMemoryDigests(7);
+      return digests.map((digest) => ({
+        date: digest.digestDate,
+        summary: digest.summaryJa,
+      }));
+    } catch (error) {
+      console.warn("[WARN][BOT_CONTEXT] 短期記憶の取得に失敗", error);
+      return [];
+    }
   },
 });
 

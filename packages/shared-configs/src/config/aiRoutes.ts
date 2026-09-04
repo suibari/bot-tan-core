@@ -224,6 +224,7 @@ export const AI_FEATURES = {
   // 今期の話題作リスト（grounding）。日次予定表を作るときだけ呼び、さらに7日キャッシュするので実質週1回。
   BIORHYTHM_SEASONAL_WORKS: "flash-flex",
   BIORHYTHM_MEMORY_IMPRESSIONS: "lite-flex", // 公開会話から作品名・印象語を非同期抽出
+  BIORHYTHM_MEMORY_DIGEST: "lite-flex", // 短期記憶: 前日の出来事を1日1回まとめる
   BIORHYTHM_TTS_PRONUNCIATIONS: "lite-flex", // 作品名・固有名詞の発話用かなを非同期生成
   // 今日の予定表。1日1回しか撃たず、落ちると丸1日プラン無しで走ることになるので
   // NAGI_ANALYSIS と同じ理由で standard に置く（flex は 503 を踏みやすい）。

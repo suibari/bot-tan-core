@@ -743,7 +743,6 @@ async function loadCorpus(source: CorpusSource): Promise<CorpusDoc[]> {
           isNull(nagiPosts.deletedAt),
           ne(nagiPosts.text, ""),
           ne(nagiPosts.kossori, true),
-          ne(nagiPosts.channelOnly, true),
         ),
       )
       .orderBy(desc(nagiPosts.indexedAt))

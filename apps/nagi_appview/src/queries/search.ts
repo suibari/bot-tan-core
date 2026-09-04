@@ -125,13 +125,13 @@ export async function searchPostsByText(opts: {
     or(ne(nagiPosts.did, config.botDid), isNull(nagiPosts.replyParentUri)),
     // ミュート。条件の組み立ては getTimeline と共通（規則がズレないよう mutes.ts に集約）。
     ...muteVisibility(mutes, { actors: true, channels: true }),
-    // こっそり/CH限定はスレッドルートが所有。未解決の返信は非共有側へ倒す。
+    // こっそりはスレッドルートが所有。未解決の返信は非共有側へ倒す。
     sql`
       case
         when ${nagiPosts.replyRootUri} is null
-          then not ${nagiPosts.channelOnly} and (not ${nagiPosts.kossori} or ${viewerMatch})
+          then (not ${nagiPosts.kossori} or ${viewerMatch})
         else coalesce((
-          select not thread_root.channel_only and (not thread_root.kossori or ${threadRootViewerMatch})
+          select (not thread_root.kossori or ${threadRootViewerMatch})
           from nagi.posts as thread_root
           where thread_root.uri = ${nagiPosts.replyRootUri}
             and thread_root.deleted_at is null

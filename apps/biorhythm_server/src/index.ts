@@ -16,6 +16,7 @@ import { startBotMemoryEmbeddingWorker } from "./botMemoryEmbeddingWorker.js";
 import { startBotMemoryImpressionWorker } from "./botMemoryImpressions.js";
 import { startBotMemoryPronunciationWorker } from "./botMemoryPronunciations.js";
 import { startBotMemoryResearchWorker } from "./botMemoryResearchWorker.js";
+import { startBotMemoryDigestWorker } from "./botMemoryDigestWorker.js";
 import {
   readBotMemoryInternalServerConfig,
   startBotMemoryInternalServer,
@@ -182,6 +183,8 @@ server.listen(Number(PORT), HOST, async () => {
     startBotMemoryPronunciationWorker();
     // リプライの同期パスから外した検索を裏で回す。結果は共通の bot memory へ入る。
     startBotMemoryResearchWorker();
+    // 短期記憶。前日ぶんを1日1回まとめ、検索とは独立に常時プロンプトへ載せる。
+    startBotMemoryDigestWorker();
 
     await manager.init();
     // 各プロセスのハートビートを読み、ローカル LLM と Nagi ingest を自前で叩く。

@@ -97,6 +97,50 @@ function recentActivityLines(
     : `\n### Activity history from the last 24 hours (recorded facts; oldest first)\n${lines.join('\n')}\n`;
 }
 
+/**
+ * プロンプトに載せる短期記憶の日数。
+ *
+ * 1日1件・数文なので行動履歴ほど嵩まないが、載せすぎると「この前ね」の候補が
+ * 増えすぎて毎回どれかを話し出す。ここ数日ぶんに絞る。
+ */
+const MAX_RECENT_DIGESTS = 4;
+
+/** JST の "YYYY-MM-DD" を「きのう」「3日前」のような相対表現へ。 */
+function digestDayLabel(date: string, now: Date, ja: boolean): string {
+  const day = Date.parse(`${date}T00:00:00+09:00`);
+  if (!Number.isFinite(day)) return date;
+  const today = Date.parse(`${jstDateString(now)}T00:00:00+09:00`);
+  const diff = Math.round((today - day) / 86_400_000);
+  if (diff <= 0) return ja ? 'きょう' : 'today';
+  if (diff === 1) return ja ? 'きのう' : 'yesterday';
+  return ja ? `${diff}日前` : `${diff} days ago`;
+}
+
+function jstDateString(at: Date): string {
+  return new Date(at.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+/**
+ * 短期記憶の節。
+ *
+ * 「思い出せること」として置くだけで、話すことを指示しない。条件付きモードや
+ * 件数の言い含めで制御すると、指示を満たすための水増しが始まる。
+ */
+function recentDigestLines(
+  botContext: BotContext,
+  ja: boolean,
+  now: Date,
+): string {
+  const digests = (botContext.recentDigests ?? []).slice(0, MAX_RECENT_DIGESTS);
+  if (digests.length === 0) return '';
+  const lines = digests.map(
+    (item) => `- ${digestDayLabel(item.date, now, ja)}: ${item.summary}`,
+  );
+  return ja
+    ? `\n### この数日の出来事（記録された事実・新しい順）\n${lines.join('\n')}\n`
+    : `\n### What happened over the last few days (recorded facts; newest first)\n${lines.join('\n')}\n`;
+}
+
 /** いまいる場所。Nagi がホームで Bluesky が出張先、という関係をプロンプト側でも保つ。 */
 function surfaceLine(botContext: BotContext, ja: boolean): string {
   if (!botContext.surface) return '';
@@ -168,7 +212,7 @@ export function formatBotContext(
   const body = ja
     ? `- 日時：${botContext.datetime}\n- 天気：${botContext.weather}${surfaceLine(botContext, ja)}\n- いまやってること：${botContext.botActivity}\n- 元気度：${energyLabel(botContext.botEnergy, true)}`
     : `- Date/Time: ${botContext.datetime}\n- Weather: ${botContext.weather}${surfaceLine(botContext, ja)}\n- Currently: ${botContext.botActivityEn}\n- Energy: ${energyLabel(botContext.botEnergy, false)}`;
-  return `\n---\n${heading}\n${body}\n${recentActivityLines(botContext, ja, now)}${botContextFooter(purpose, ja)}`;
+  return `\n---\n${heading}\n${body}\n${recentActivityLines(botContext, ja, now)}${recentDigestLines(botContext, ja, now)}${botContextFooter(purpose, ja)}`;
 }
 
 /**

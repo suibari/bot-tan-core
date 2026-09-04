@@ -444,7 +444,6 @@ export async function applyMutation(
                 : null,
             kossori: value.kossori === true,
             channelUri,
-            channelOnly: value.channelOnly === true,
             appviewOnly,
             repoRev: commit.rev,
             recordCreatedAt: createdAt,
@@ -481,7 +480,6 @@ export async function applyMutation(
                   : null,
               kossori: value.kossori === true,
               channelUri,
-              channelOnly: value.channelOnly === true,
               appviewOnly,
               repoRev: commit.rev,
               recordCreatedAt: createdAt,
@@ -493,25 +491,21 @@ export async function applyMutation(
               deletedAt: null,
             },
           });
+        // 本文の編集を記憶へ反映する。こっそりも覚えるようになったので、
+        // 非公開化は行の削除ではなく visibility の付け替えで表す。公開へ戻す編集も
+        // 同じ経路で戻るよう、毎回どちらの値も書く。
         const memoryHash = botMemoryContentHash(value.text);
-        const memoryPrivate = value.kossori === true || value.channelOnly === true;
         await tx
           .update(bot_memory_documents)
-          .set(memoryPrivate
-            ? {
-                deleted_at: new Date(),
-                embedding: null,
-                embedding_model: null,
-                updated_at: new Date(),
-              }
-            : {
-                content: value.text,
-                content_hash: memoryHash,
-                embedding: sql`case when ${bot_memory_documents.content_hash} is distinct from ${memoryHash} then null else ${bot_memory_documents.embedding} end`,
-                embedding_model: sql`case when ${bot_memory_documents.content_hash} is distinct from ${memoryHash} then null else ${bot_memory_documents.embedding_model} end`,
-                deleted_at: null,
-                updated_at: new Date(),
-              })
+          .set({
+            content: value.text,
+            content_hash: memoryHash,
+            visibility: value.kossori === true ? "kossori" : "public",
+            embedding: sql`case when ${bot_memory_documents.content_hash} is distinct from ${memoryHash} then null else ${bot_memory_documents.embedding} end`,
+            embedding_model: sql`case when ${bot_memory_documents.content_hash} is distinct from ${memoryHash} then null else ${bot_memory_documents.embedding_model} end`,
+            deleted_at: null,
+            updated_at: new Date(),
+          })
           .where(eq(bot_memory_documents.source_uri, uri));
         // スレッドルートの所属を配下の返信へ配る。これ1つで「返信がルートより先に届いた
         // （firehose の順序前後・reconcile・backfill）」と「ルートの編集で所属が変わった」の

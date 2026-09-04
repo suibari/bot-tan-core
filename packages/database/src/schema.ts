@@ -135,8 +135,9 @@ export const biorhythm_history = affirmativeBotSchema.table("biorhythm_history",
 /**
  * Bluesky / Nagi / biorhythm / YouTube を横断する、botたんの内部記憶。
  *
- * ユーザー入力はすべて untrusted data として扱う。Nagi の kossori / channelOnly は
- * この表へ入れず、公開範囲を後段の検索だけに委ねない。
+ * ユーザー入力はすべて untrusted data として扱う。Nagi のこっそり投稿も覚えるが、
+ * visibility 列で範囲を持ち、本人がこっそりで話しているときしか引けない。
+ * channelOnly / 削除済みは従来どおりこの表へ入れない。
  */
 export const bot_memory_documents = affirmativeBotSchema.table(
   "bot_memory_documents",
@@ -148,6 +149,16 @@ export const bot_memory_documents = affirmativeBotSchema.table(
     author_id: text("author_id"),
     content: text("content").notNull(),
     bot_response: text("bot_response"),
+    /**
+     * 思い出せる範囲。
+     *
+     * - public: 誰との会話でも思い出してよい。定期ポストやダッシュボードにも出せる
+     * - kossori: **本人がこっそりで話しているときだけ**思い出せる。公開出力には一切出さない
+     *
+     * 既定は public。列を足したあとに読み手を直し忘れても公開側へ寄らないよう、
+     * 検索は「明示的に許可した範囲だけ」を足す実装にしてある（searchConditions）。
+     */
+    visibility: text("visibility").default("public").notNull(),
     occurred_at: timestamp("occurred_at", { withTimezone: true }).notNull(),
     affirmation_score: integer("affirmation_score"),
     metadata: jsonb("metadata"),
@@ -162,6 +173,11 @@ export const bot_memory_documents = affirmativeBotSchema.table(
     uniqueIndex("bot_memory_source_key_idx").on(table.source_type, table.source_id),
     index("bot_memory_source_occurred_idx").on(table.source_type, table.occurred_at),
     index("bot_memory_author_occurred_idx").on(table.author_id, table.occurred_at),
+    check(
+      "bot_memory_visibility_check",
+      sql`${table.visibility} in ('public', 'kossori')`,
+    ),
+    index("bot_memory_visibility_occurred_idx").on(table.visibility, table.occurred_at),
     index("bot_memory_pending_embedding_idx")
       .on(table.embedding_model, table.updated_at)
       .where(sql`${table.deleted_at} is null and ${table.embedding} is null`),
@@ -267,6 +283,30 @@ export const bot_memory_usages = affirmativeBotSchema.table(
     index("bot_memory_usage_document_used_idx").on(table.document_id, table.used_at),
     index("bot_memory_usage_purpose_used_idx").on(table.purpose, table.used_at),
   ],
+);
+
+/**
+ * 短期記憶。直近の出来事を1日1行にまとめたダイジェスト。
+ *
+ * **これは検索で引かない。** 「直近に何があったか」は類似度で引くものではなく、
+ * クエリに似ていなければ出てこない = 直近の出来事を忘れる、という穴になる。
+ * bot_memory_documents へのベクトル検索とは独立に、常時プロンプトへ載せる。
+ *
+ * 日付は daily_metrics と同じく JST の "YYYY-MM-DD" 文字列。timestamp 列の
+ * encoder を経由しない raw な日付比較を避けるため、あえて date 型にしない。
+ */
+export const bot_memory_daily_digests = affirmativeBotSchema.table(
+  "bot_memory_daily_digests",
+  {
+    /** JST 日付 "YYYY-MM-DD"。 */
+    digest_date: text("digest_date").primaryKey(),
+    summary_ja: text("summary_ja").notNull(),
+    /** [{ documentId, excerpt, surface }] */
+    highlights: jsonb("highlights"),
+    source_count: integer("source_count").default(0).notNull(),
+    created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updated_at: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
 );
 
 /**

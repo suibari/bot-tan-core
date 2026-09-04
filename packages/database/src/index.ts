@@ -392,7 +392,6 @@ export class MemoryService {
           and(
             isNull(nagiPosts.deletedAt),
             eq(nagiPosts.kossori, false),
-            eq(nagiPosts.channelOnly, false),
             gte(nagiPosts.recordCreatedAt, start),
             lt(nagiPosts.recordCreatedAt, end),
           ),

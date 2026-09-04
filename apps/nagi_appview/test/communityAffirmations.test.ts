@@ -57,10 +57,8 @@ test("匿名候補のSQLはCID・CW・自分・ミュートを再検証する", 
     query.params.includes("at://did:plc:owner/com.suibari.nagi.channel/one"),
   );
   assert.ok(
-    !text.includes('"kossori" =') &&
-      !text.includes('"channel_only" =') &&
-      !text.includes('"quote_uri" is null'),
-    "こっそり・CH限定・引用を除外してはいけない",
+    !text.includes('"kossori" =') && !text.includes('"quote_uri" is null'),
+    "こっそり・引用を除外してはいけない",
   );
 });
 

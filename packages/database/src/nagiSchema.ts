@@ -124,8 +124,6 @@ export const nagiPosts = nagiSchema.table(
     // 所有し、返信はレコードに channel を持たない。取り込み時に reply_root_uri から解決して
     // ここへ非正規化コピーするので、CH TL はこの1列だけで引ける（ルート取り込み時に配下へ伝播）。
     channelUri: text("channel_uri"),
-    // true なら CH 限定＝グローバル/全肯定TL非表示（kossori と同じ除外扱い）。CH TLには出る。
-    channelOnly: boolean("channel_only").default(false).notNull(),
     // 正本が PDS ではなくこのテーブルにしかない行（＝新方式のこっそり投稿と、その返信）。
     // 可視性の判定は kossori 列が持つので、この列は「保管場所」だけを表す:
     // reconcile の削除対象から外し、削除は PDS ではなく XRPC 経由にする。

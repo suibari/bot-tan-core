@@ -14,6 +14,7 @@ import {
   sql,
 } from "drizzle-orm";
 import {
+  bot_memory_daily_digests,
   bot_memory_documents,
   bot_memory_impressions,
   bot_memory_impression_scans,
@@ -135,6 +136,34 @@ export async function purgeReactionBotMemory(
   return { applied: true, before, deleted };
 }
 
+/**
+ * 記憶を思い出せる範囲。
+ *
+ * - `public`  … 誰との会話でも思い出してよい。定期ポスト・ダッシュボードにも出せる
+ * - `kossori` … **本人がこっそりで話しているときだけ**。公開出力には一切出さない
+ */
+export type BotMemoryVisibility = "public" | "kossori";
+
+export function isBotMemoryVisibility(value: unknown): value is BotMemoryVisibility {
+  return value === "public" || value === "kossori";
+}
+
+/**
+ * 検索が引いてよい範囲。
+ *
+ * 既定（未指定）は public だけ。**許可を足す形にしてあるのが要点で**、
+ * 新しい読み手が scope を渡し忘れても、こっそりが公開側へ漏れる方向には倒れない。
+ */
+export interface BotMemoryScope {
+  /**
+   * こっそりの文脈で話している本人の subjectKey。
+   *
+   * これが入っているときだけ「その人自身のこっそり記憶」が候補に加わる。
+   * 他人のこっそりは誰の文脈でも出ない（author_id が一致しないため）。
+   */
+  kossoriSubjectKey?: string;
+}
+
 export interface BotMemoryDocumentInput {
   sourceType: BotMemorySourceType;
   sourceId: string;
@@ -145,9 +174,11 @@ export interface BotMemoryDocumentInput {
   occurredAt: Date;
   affirmationScore?: number | null;
   metadata?: Record<string, unknown> | null;
+  /** 省略時は public。こっそり投稿を覚えるときだけ "kossori" を渡す。 */
+  visibility?: BotMemoryVisibility;
 }
 
-export interface BotMemorySearchRequest {
+export interface BotMemorySearchRequest extends BotMemoryScope {
   query: string;
   purpose: BotMemoryPurpose;
   sources?: BotMemorySourceType[];
@@ -252,14 +283,21 @@ export function selectReplyMemoryContext(
 export const botMemoryContentHash = (content: string): string =>
   createHash("sha256").update(content, "utf8").digest("hex");
 
+/**
+ * この投稿を記憶に残すか。
+ *
+ * `sourceAlive` は「AppView に生きている行があるか（削除されていないか）」。
+ * かつては「公開されているか」だったが、こっそりも visibility 付きで覚えるように
+ * なったので、公開かどうかはここではなく BotMemoryDocumentInput.visibility が持つ。
+ */
 export function shouldRememberAffirmedPost(input: {
   surface: "bsky" | "nagi";
   aiReplyPosted: boolean;
   isTopLevel: boolean;
-  isPublic: boolean;
+  sourceAlive: boolean;
   isSubscriber?: boolean;
 }) {
-  return input.aiReplyPosted && input.isTopLevel && input.isPublic &&
+  return input.aiReplyPosted && input.isTopLevel && input.sourceAlive &&
     (input.surface === "nagi" || input.isSubscriber === true);
 }
 
@@ -287,6 +325,7 @@ export async function upsertBotMemoryDocument(input: BotMemoryDocumentInput) {
       occurred_at: input.occurredAt,
       affirmation_score: input.affirmationScore ?? null,
       metadata: input.metadata ?? null,
+      visibility: input.visibility ?? "public",
       content_hash: contentHash,
     })
     .onConflictDoUpdate({
@@ -299,6 +338,7 @@ export async function upsertBotMemoryDocument(input: BotMemoryDocumentInput) {
         occurred_at: input.occurredAt,
         affirmation_score: input.affirmationScore ?? null,
         metadata: input.metadata ?? null,
+        visibility: input.visibility ?? "public",
         content_hash: contentHash,
         embedding: sql`case when ${bot_memory_documents.content_hash} is distinct from ${contentHash} then null else ${bot_memory_documents.embedding} end`,
         embedding_model: sql`case when ${bot_memory_documents.content_hash} is distinct from ${contentHash} then null else ${bot_memory_documents.embedding_model} end`,
@@ -464,6 +504,9 @@ export async function getPendingBotMemoryImpressionDocuments(
     )
     .where(and(
       isNull(bot_memory_documents.deleted_at),
+      // 抽出結果は日次予定表・定期ポスト・bot-tan.com のダッシュボードへ流れる。
+      // こっそりをここへ通すと公開側へ漏れるので、入口で落とす。
+      eq(bot_memory_documents.visibility, "public"),
       inArray(bot_memory_documents.source_type, IMPRESSION_SOURCE_TYPES),
       gte(bot_memory_documents.occurred_at, since),
       sql`(${bot_memory_impression_scans.document_id} is null or ${bot_memory_impression_scans.content_hash} <> ${bot_memory_documents.content_hash})`,
@@ -565,6 +608,9 @@ export async function getDailyPlanMemoryImpressions(
     )
     .where(and(
       isNull(bot_memory_documents.deleted_at),
+      // 抽出済みの後で本文がこっそりへ変わることがある（applyMutation が visibility を
+      // 付け替える）。impressions 行は残るので、公開出力側でももう一度弾く。
+      eq(bot_memory_documents.visibility, "public"),
       eq(bot_memory_impression_scans.content_hash, bot_memory_documents.content_hash),
       gte(bot_memory_documents.occurred_at, since),
       dailyPlanImpressionCooldownCondition(cooldown),
@@ -618,6 +664,8 @@ export async function getRecentBotMemoryImpressions(
     )
     .where(and(
       isNull(bot_memory_documents.deleted_at),
+      // bot-tan.com が公開するので、抽出後にこっそりへ変わった分もここで弾く。
+      eq(bot_memory_documents.visibility, "public"),
       inArray(bot_memory_documents.source_type, IMPRESSION_SOURCE_TYPES),
       eq(bot_memory_impression_scans.content_hash, bot_memory_documents.content_hash),
     ))
@@ -641,32 +689,90 @@ export async function markDailyPlanMemoryImpressionsUsed(
 
 type RankedRow = Omit<BotMemorySearchResult, "relevance" | "semanticRank" | "lexicalRank">;
 
-/** RRFは異なる尺度のsemantic/lexical scoreを直接足さず、順位だけを安定して統合する。 */
+/**
+ * RRFは異なる尺度のsemantic/lexical scoreを直接足さず、順位だけを安定して統合する。
+ *
+ * `weight` は複数の検索レグ（本人の記憶 / 全体の記憶）を1つの順位表へ畳むときに使う。
+ * 既定は 1 なので、単一レグの呼び出しの挙動は変わらない。
+ */
 export function mergeBotMemoryRanks(
   semanticRows: RankedRow[],
   lexicalRows: RankedRow[],
   limit: number,
   k = 60,
+  weight = 1,
 ): BotMemorySearchResult[] {
   const merged = new Map<number, BotMemorySearchResult>();
+  addBotMemoryRanks(merged, semanticRows, lexicalRows, k, weight);
+  return finalizeBotMemoryRanks(merged, limit);
+}
+
+/**
+ * 重み付きの多レグRRF。
+ *
+ * 「そのユーザーに関連する記憶が強めの係数で出る（ただし他をフィルタしない）」を
+ * 実現する土台。本人レグを weight > 1 で、全体レグを weight = 1 で同じ表へ積む。
+ * ハードフィルタ（searchConditions の authorId）と違い、本人の記憶が無くても
+ * 全体の記憶は残る。
+ */
+export function addBotMemoryRanks(
+  merged: Map<number, BotMemorySearchResult>,
+  semanticRows: RankedRow[],
+  lexicalRows: RankedRow[],
+  k = 60,
+  weight = 1,
+) {
   const add = (row: RankedRow, rank: number, kind: "semantic" | "lexical") => {
     const current = merged.get(row.id) ?? { ...row, relevance: 0 };
-    current.relevance += 1 / (k + rank);
-    if (kind === "semantic") current.semanticRank = rank;
-    else current.lexicalRank = rank;
+    current.relevance += weight / (k + rank);
+    // 複数レグで同じ文書が出たときは、より上位の順位を残す。劣化時ガード
+    // （selectReplyMemoryContext の semanticRank 判定）が弱まらないようにする。
+    if (kind === "semantic") {
+      current.semanticRank = Math.min(current.semanticRank ?? rank, rank);
+    } else {
+      current.lexicalRank = Math.min(current.lexicalRank ?? rank, rank);
+    }
     merged.set(row.id, current);
   };
   semanticRows.forEach((row, i) => add(row, i + 1, "semantic"));
   lexicalRows.forEach((row, i) => add(row, i + 1, "lexical"));
+  return merged;
+}
+
+export function finalizeBotMemoryRanks(
+  merged: Map<number, BotMemorySearchResult>,
+  limit: number,
+): BotMemorySearchResult[] {
   return [...merged.values()]
     .sort((a, b) => b.relevance - a.relevance || b.occurredAt.getTime() - a.occurredAt.getTime())
     .slice(0, limit);
 }
 
-function searchConditions(request: BotMemorySearchRequest) {
+/**
+ * 可視範囲の条件。**許可を足す形**で組む。
+ *
+ * 既定は public だけ。こっそりの文脈にいる本人の subjectKey が渡されたときに限り、
+ * 「その人自身のこっそり記憶」を候補へ足す。他人のこっそりは author_id が一致しないので
+ * どの文脈でも出ない。逆に、通常投稿の文脈ではこっそりが1件も混ざらない。
+ */
+export function visibilityCondition(scope: BotMemoryScope) {
+  const publicOnly = eq(bot_memory_documents.visibility, "public");
+  if (!scope.kossoriSubjectKey) return publicOnly;
+  return or(
+    publicOnly,
+    and(
+      eq(bot_memory_documents.visibility, "kossori"),
+      eq(bot_memory_documents.author_id, scope.kossoriSubjectKey),
+    ),
+  )!;
+}
+
+/** export しているのは、可視範囲がどの検索にも必ず入ることをテストで固定するため。 */
+export function searchConditions(request: BotMemorySearchRequest) {
   const activeSources = activeBotMemorySourceTypes(request.sources);
   return [
     isNull(bot_memory_documents.deleted_at),
+    visibilityCondition(request),
     activeSources.length
       ? inArray(bot_memory_documents.source_type, activeSources)
       : sql`false`,
@@ -708,19 +814,19 @@ const selection = {
   metadata: bot_memory_documents.metadata,
 };
 
-export async function searchBotMemory(
+/**
+ * 1レグぶんの候補取得。マージ前の semantic / lexical をそのまま返す。
+ *
+ * `embedding` を受け取れるのは、複数レグを走らせるときに同じクエリを
+ * 何度も埋め込み直さないため（embedSearchQuery は Ollama への往復）。
+ */
+export async function searchBotMemoryLegs(
   request: BotMemorySearchRequest,
-  deps: { embed?: typeof embedSearchQuery } = {},
-): Promise<BotMemorySearchResult[]> {
+  embedding: number[] | null,
+  candidateLimit: number,
+): Promise<{ semanticRows: RankedRow[]; lexicalRows: RankedRow[] }> {
   const query = request.query.trim();
-  if (!query) return [];
-  const limit = Math.max(1, Math.min(20, request.limit ?? 10));
-  const candidateLimit = Math.max(30, limit * 3);
   const base = searchConditions(request);
-  // 検索クエリなので接頭辞を付ける側（文書の埋め込みは botMemoryEmbeddingWorker が
-  // generateEmbeddings で行う）。instruction-aware なモデルではここが精度を左右する。
-  const embedding = await (deps.embed ?? embedSearchQuery)(query);
-
   const [semanticRows, lexicalRows] = await Promise.all([
     embedding
       ? (() => {
@@ -743,12 +849,29 @@ export async function searchBotMemory(
       .orderBy(sql`similarity(${bot_memory_documents.content}, ${query}) desc`, desc(bot_memory_documents.occurred_at))
       .limit(candidateLimit),
   ]);
+  return {
+    semanticRows: semanticRows.map(toRanked),
+    lexicalRows: lexicalRows.map(toRanked),
+  };
+}
 
-  return mergeBotMemoryRanks(
-    semanticRows.map(toRanked),
-    lexicalRows.map(toRanked),
-    limit,
+export async function searchBotMemory(
+  request: BotMemorySearchRequest,
+  deps: { embed?: typeof embedSearchQuery } = {},
+): Promise<BotMemorySearchResult[]> {
+  const query = request.query.trim();
+  if (!query) return [];
+  const limit = Math.max(1, Math.min(20, request.limit ?? 10));
+  const candidateLimit = Math.max(30, limit * 3);
+  // 検索クエリなので接頭辞を付ける側（文書の埋め込みは botMemoryEmbeddingWorker が
+  // generateEmbeddings で行う）。instruction-aware なモデルではここが精度を左右する。
+  const embedding = await (deps.embed ?? embedSearchQuery)(query);
+  const { semanticRows, lexicalRows } = await searchBotMemoryLegs(
+    request,
+    embedding,
+    candidateLimit,
   );
+  return mergeBotMemoryRanks(semanticRows, lexicalRows, limit);
 }
 
 export async function recordBotMemoryUsages(
@@ -777,4 +900,340 @@ export async function getRecentlyUsedBotMemoryDocumentIds(
       gte(bot_memory_usages.used_at, since),
     ));
   return [...new Set(rows.map((row) => row.documentId))];
+}
+
+// ---------------------------------------------------------------------------
+// 短期記憶: 日次ダイジェスト
+//
+// 「直近に何があったか」はベクトル検索で引かない。クエリに似ていなければ
+// 出てこない = 直近の出来事を忘れる、という穴になるため。ここは時間で引き、
+// 検索結果とは独立に常時プロンプトへ載せる。
+// ---------------------------------------------------------------------------
+
+export interface MemoryDigestHighlight {
+  documentId: number;
+  excerpt: string;
+  surface: "bsky" | "nagi" | "youtube";
+}
+
+export interface MemoryDailyDigest {
+  digestDate: string;
+  summaryJa: string;
+  highlights: MemoryDigestHighlight[];
+  sourceCount: number;
+}
+
+/** JST の "YYYY-MM-DD"。daily_metrics と同じ日付表現に揃える。 */
+export function memoryDigestDate(at: Date): string {
+  return new Date(at.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+/** "YYYY-MM-DD" の JST 一日ぶんを UTC の [from, to) へ開く。 */
+export function memoryDigestDayRange(digestDate: string): { from: Date; to: Date } {
+  const from = new Date(`${digestDate}T00:00:00+09:00`);
+  if (!Number.isFinite(from.getTime())) throw new Error(`invalid digest date: ${digestDate}`);
+  return { from, to: new Date(from.getTime() + 24 * 60 * 60 * 1000) };
+}
+
+function toDigest(row: {
+  digestDate: string;
+  summaryJa: string;
+  highlights: unknown;
+  sourceCount: number;
+}): MemoryDailyDigest {
+  return {
+    digestDate: row.digestDate,
+    summaryJa: row.summaryJa,
+    highlights: Array.isArray(row.highlights)
+      ? (row.highlights as MemoryDigestHighlight[])
+      : [],
+    sourceCount: row.sourceCount,
+  };
+}
+
+const digestSelection = {
+  digestDate: bot_memory_daily_digests.digest_date,
+  summaryJa: bot_memory_daily_digests.summary_ja,
+  highlights: bot_memory_daily_digests.highlights,
+  sourceCount: bot_memory_daily_digests.source_count,
+};
+
+/** 新しい順。既定は1週間ぶん。 */
+export async function getRecentMemoryDigests(
+  days = 7,
+  now = new Date(),
+): Promise<MemoryDailyDigest[]> {
+  const limit = Math.max(1, Math.min(30, days));
+  // 日付は text なので、境界日を計算して文字列比較する（timestamp encoder を経由しない）。
+  const since = memoryDigestDate(new Date(now.getTime() - limit * 24 * 60 * 60 * 1000));
+  const rows = await db
+    .select(digestSelection)
+    .from(bot_memory_daily_digests)
+    .where(gte(bot_memory_daily_digests.digest_date, since))
+    .orderBy(desc(bot_memory_daily_digests.digest_date))
+    .limit(limit);
+  return rows.map(toDigest);
+}
+
+export async function getMemoryDailyDigest(
+  digestDate: string,
+): Promise<MemoryDailyDigest | null> {
+  const [row] = await db
+    .select(digestSelection)
+    .from(bot_memory_daily_digests)
+    .where(eq(bot_memory_daily_digests.digest_date, digestDate))
+    .limit(1);
+  return row ? toDigest(row) : null;
+}
+
+export async function upsertMemoryDailyDigest(input: {
+  digestDate: string;
+  summaryJa: string;
+  highlights?: MemoryDigestHighlight[];
+  sourceCount?: number;
+}): Promise<void> {
+  const summary = input.summaryJa.trim();
+  if (!summary) return;
+  const values = {
+    summary_ja: summary,
+    highlights: input.highlights ?? [],
+    source_count: input.sourceCount ?? 0,
+    updated_at: new Date(),
+  };
+  await db
+    .insert(bot_memory_daily_digests)
+    .values({ digest_date: input.digestDate, ...values })
+    .onConflictDoUpdate({
+      target: bot_memory_daily_digests.digest_date,
+      set: values,
+    });
+}
+
+/** ダイジェスト生成の素材。1日ぶんを古い順に返す。 */
+export async function getMemoryDocumentsForDay(
+  digestDate: string,
+  limit = 60,
+): Promise<BotMemorySearchResult[]> {
+  const { from, to } = memoryDigestDayRange(digestDate);
+  const rows = await db
+    .select(selection)
+    .from(bot_memory_documents)
+    .where(and(
+      isNull(bot_memory_documents.deleted_at),
+      // ダイジェストは誰への返信でも常時プロンプトへ載る＝実質公開。こっそりは入れない。
+      eq(bot_memory_documents.visibility, "public"),
+      inArray(bot_memory_documents.source_type, [...BOT_MEMORY_ACTIVE_SOURCE_TYPES]),
+      gte(bot_memory_documents.occurred_at, from),
+      lt(bot_memory_documents.occurred_at, to),
+    ))
+    .orderBy(bot_memory_documents.occurred_at)
+    .limit(Math.max(1, Math.min(200, limit)));
+  return rows.map((row) => ({ ...toRanked(row), relevance: 0 }));
+}
+
+// ---------------------------------------------------------------------------
+// 統合記憶コンテキスト
+// ---------------------------------------------------------------------------
+
+export interface MemoryContextRequest extends BotMemoryScope {
+  query: string;
+  purpose: BotMemoryPurpose;
+  /**
+   * 記憶を強めたい相手。`did:plc:...` または `youtube:<channelId>`。
+   *
+   * **フィルタではなく係数。** 指定しても他の人の記憶は落ちない。本人レグを
+   * `subjectWeight` 倍して同じ順位表へ積むだけなので、その人との記憶が
+   * 無くても全体の記憶は今まで通り返る。
+   */
+  subjectKey?: string;
+  /** 本人レグの係数。既定 2。1 にすると重み無しと同じ。 */
+  subjectWeight?: number;
+  sources?: BotMemorySourceType[];
+  excludeAuthorIds?: (string | undefined)[];
+  excludeDocumentIds?: number[];
+  limit?: number;
+  /** 短期記憶に載せる日数。0 で無効。 */
+  digestDays?: number;
+  /** 外部から仕入れた事実。思い出の枠を食わせないので別枠で返す。 */
+  researchLimit?: number;
+  /**
+   * 「お友達の話」に使ってよい source。既定は肯定した投稿だけ。
+   *
+   * 他人の記憶を紹介する経路なので、botたんが実際に肯定した公開投稿に限る。
+   * related の候補（全体レグ）自体は絞らない。ここで絞るのは friend の選抜だけ。
+   */
+  friendSources?: BotMemorySourceType[];
+}
+
+/**
+ * HTTP 経由で受け付ける範囲。
+ *
+ * `kossoriSubjectKey` は**意図的に外してある**。内部シークレットを持つ相手なら誰でも
+ * 任意の人のこっそり記憶を引ける口になってしまう。こっそりの範囲を決めてよいのは、
+ * その返信がこっそりスレッドかを AppView の行で確かめられる TS 側の呼び出しだけ。
+ * `excludeAuthorIds` も内部呼び出し専用。
+ */
+export type BotMemoryContextRequestBody =
+  Omit<MemoryContextRequest, "excludeAuthorIds" | "kossoriSubjectKey">;
+
+export interface MemoryContext {
+  /** 短期記憶。検索を通していない、時間で引いた直近の出来事。 */
+  recent: MemoryDailyDigest[];
+  /**
+   * subjectKey 本人の記憶だけ。
+   *
+   * **related と混ぜてはいけない。** リプライ生成では「その人自身の過去の投稿」
+   * として扱われるスロットへ入るので、他人の記憶が紛れると本人が言っていない
+   * ことを言ったことにしてしまう。
+   */
+  own: BotMemorySearchResult[];
+  /**
+   * 本人レグを重み付けして全体レグと畳んだ順位表。
+   *
+   * 「その人に関連する記憶が強めに出る。ただし他をフィルタしない」という
+   * 統合APIの契約はこれ。誰の記憶かを区別しない用途（配信の話題出しなど）向け。
+   */
+  related: BotMemorySearchResult[];
+  /** 他の人の記憶から1件だけ。劣化時ガードを通したもの。 */
+  friend?: BotMemorySearchResult;
+  /** web_research。related とは別枠。 */
+  research: BotMemorySearchResult[];
+}
+
+const DEFAULT_SUBJECT_WEIGHT = 2;
+
+/**
+ * 思い出レグの既定 source。web_research を外す。
+ *
+ * web_research は「誰かとのやりとりの記憶」ではなく外部から仕入れた知識なので、
+ * 混ぜると related の枠を事実の羅列が食う。別レグで independent に返す。
+ */
+/** お友達の紹介に使う source。botたんが肯定した公開投稿だけ。 */
+export const DEFAULT_FRIEND_SOURCE_TYPES: BotMemorySourceType[] = [
+  "bsky_affirmed_post",
+  "nagi_affirmed_post",
+];
+
+export const RECOLLECTION_SOURCE_TYPES: BotMemorySourceType[] =
+  BOT_MEMORY_ACTIVE_SOURCE_TYPES.filter((sourceType) => sourceType !== "web_research");
+
+/**
+ * 三層をまとめて取り出す。
+ *
+ * - recent: 時間で引く（検索しない）。**常に public のみ**
+ * - related / friend: ベクトル+全文のハイブリッド検索。subjectKey は係数で効かせる
+ * - research: 外部知識。思い出の枠と混ぜない
+ *
+ * こっそりは `kossoriSubjectKey` を渡したときだけ、その人自身の分が候補へ入る。
+ * 通常投稿の文脈（未指定）では1件も混ざらない。
+ *
+ * 記憶基盤の障害で呼び出し元の返信生成を巻き戻さないよう、各レグは個別に握り潰す。
+ */
+export async function buildMemoryContext(
+  request: MemoryContextRequest,
+  deps: { embed?: typeof embedSearchQuery } = {},
+): Promise<MemoryContext> {
+  const query = request.query.trim();
+  const limit = Math.max(1, Math.min(20, request.limit ?? 10));
+  const candidateLimit = Math.max(30, limit * 3);
+  const digestDays = request.digestDays ?? 7;
+  const researchLimit = request.researchLimit ?? 3;
+  const subjectWeight = request.subjectWeight ?? DEFAULT_SUBJECT_WEIGHT;
+
+  const recentPromise = digestDays > 0
+    ? getRecentMemoryDigests(digestDays).catch((error) => {
+        console.warn("[WARN][BOT_MEMORY] daily digest lookup failed", error);
+        return [] as MemoryDailyDigest[];
+      })
+    : Promise.resolve([] as MemoryDailyDigest[]);
+
+  if (!query) {
+    return { recent: await recentPromise, own: [], related: [], research: [] };
+  }
+
+  const embedding = await (deps.embed ?? embedSearchQuery)(query).catch((error) => {
+    // 埋め込みが落ちても lexical だけで続ける。friend の誤紹介は
+    // selectReplyMemoryContext の semanticRank ガードが引き続き防ぐ。
+    console.warn("[WARN][BOT_MEMORY] query embedding failed; lexical only", error);
+    return null;
+  });
+
+  const leg = (
+    overrides: Partial<BotMemorySearchRequest>,
+    label: string,
+  ) =>
+    searchBotMemoryLegs(
+      {
+        query,
+        purpose: request.purpose,
+        sources: request.sources ?? RECOLLECTION_SOURCE_TYPES,
+        excludeDocumentIds: request.excludeDocumentIds,
+        limit,
+        // こっそりの範囲は全レグへ同じものを配る。全体レグは excludeAuthorId で
+        // 本人以外に絞られるため、他人のこっそりはそもそも一致しない。
+        kossoriSubjectKey: request.kossoriSubjectKey,
+        ...overrides,
+      },
+      embedding,
+      candidateLimit,
+    ).catch((error) => {
+      console.warn(`[WARN][BOT_MEMORY] ${label} leg failed`, error);
+      return { semanticRows: [] as RankedRow[], lexicalRows: [] as RankedRow[] };
+    });
+
+  const [recent, subjectLeg, globalLeg, researchLeg] = await Promise.all([
+    recentPromise,
+    request.subjectKey
+      ? leg({ authorId: request.subjectKey }, "subject")
+      : Promise.resolve({ semanticRows: [] as RankedRow[], lexicalRows: [] as RankedRow[] }),
+    leg(
+      request.subjectKey ? { excludeAuthorId: request.subjectKey } : {},
+      "global",
+    ),
+    researchLimit > 0
+      ? leg({ sources: ["web_research"], limit: researchLimit }, "research")
+      : Promise.resolve({ semanticRows: [] as RankedRow[], lexicalRows: [] as RankedRow[] }),
+  ]);
+
+  const merged = new Map<number, BotMemorySearchResult>();
+  addBotMemoryRanks(merged, subjectLeg.semanticRows, subjectLeg.lexicalRows, 60, subjectWeight);
+  addBotMemoryRanks(merged, globalLeg.semanticRows, globalLeg.lexicalRows, 60, 1);
+  const related = finalizeBotMemoryRanks(merged, limit);
+
+  const own = finalizeBotMemoryRanks(
+    addBotMemoryRanks(
+      new Map<number, BotMemorySearchResult>(),
+      subjectLeg.semanticRows,
+      subjectLeg.lexicalRows,
+    ),
+    limit,
+  );
+
+  const globalRanked = finalizeBotMemoryRanks(
+    addBotMemoryRanks(
+      new Map<number, BotMemorySearchResult>(),
+      globalLeg.semanticRows,
+      globalLeg.lexicalRows,
+    ),
+    limit,
+  );
+  const friendSources = new Set<BotMemorySourceType>(
+    request.friendSources ?? DEFAULT_FRIEND_SOURCE_TYPES,
+  );
+  const { friendMemory } = selectReplyMemoryContext(
+    [],
+    globalRanked.filter((row) => friendSources.has(row.sourceType)),
+    [request.subjectKey, ...(request.excludeAuthorIds ?? [])],
+  );
+
+  const research = finalizeBotMemoryRanks(
+    addBotMemoryRanks(
+      new Map<number, BotMemorySearchResult>(),
+      researchLeg.semanticRows,
+      researchLeg.lexicalRows,
+    ),
+    Math.max(1, researchLimit),
+  );
+
+  return { recent, own, related, friend: friendMemory, research };
 }

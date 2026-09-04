@@ -84,6 +84,7 @@ const EXPECTED: Record<AiFeatureKey, [model: string, tier: "flex" | "standard" |
   BIORHYTHM_SEASONAL_WORKS: [FLASH, "flex"],
   // 公開会話の非同期バッチ抽出。返信ホットパス外なので lite/flex でよい。
   BIORHYTHM_MEMORY_IMPRESSIONS: [LITE, "flex"],
+  BIORHYTHM_MEMORY_DIGEST: [LITE, "flex"],
   BIORHYTHM_TTS_PRONUNCIATIONS: [LITE, "flex"],
   // 今日の予定表。1日1回しか撃たず、落ちると丸1日プラン無しになるので standard。
   BIORHYTHM_DAILY_PLAN: [FLASH, "standard"],

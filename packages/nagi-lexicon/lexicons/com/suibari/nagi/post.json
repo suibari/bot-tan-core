@@ -29,7 +29,6 @@
             "description": "true の返信は直接の返信先へ通知しない。返信以外では効果を持たない。"
           },
           "channel": { "type": "ref", "ref": "com.atproto.repo.strongRef" },
-          "channelOnly": { "type": "boolean" },
           "reply": { "type": "ref", "ref": "#replyRef" },
           "linkCards": {
             "type": "array",

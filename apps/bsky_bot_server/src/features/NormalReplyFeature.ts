@@ -152,7 +152,7 @@ export class NormalReplyFeature implements BotFeature {
             surface: "bsky",
             aiReplyPosted,
             isTopLevel: true,
-            isPublic: true,
+            sourceAlive: true,
             isSubscriber,
         })) {
             const uri = uniteDidNsidRkey(did, event.commit.collection, event.commit.rkey);

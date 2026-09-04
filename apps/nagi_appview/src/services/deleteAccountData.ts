@@ -223,8 +223,8 @@ export async function deleteAccountData(did: string) {
           like(nagiChannelSubscriptions.channelUri, channelUri),
         ),
       );
-    // CH の行を消しても、他人の channelOnly 投稿が漏れることはない。可視性は投稿行の
-    // channel_only が持っていて CH 行を参照しないため（queries/timeline.ts）。
+    // CH の行を消しても、他人の投稿の可視性は変わらない。公開範囲は投稿行の
+    // kossori が持っていて CH 行を参照しないため（queries/timeline.ts）。
     await tx.delete(nagiChannels).where(eq(nagiChannels.did, did));
 
     // カード。comment_jobs → draws → instances の順で、instance_id を引ける間に消す。

@@ -4,6 +4,8 @@ import test from "node:test";
 import {
   isBotMemoryAuthorized,
   serializeBotMemorySearchResult,
+  serializeMemoryContext,
+  validateBotMemoryContextBody,
   validateBotMemorySearchBody,
   validateBotMemoryUsageBody,
 } from "../src/botMemoryRouter.js";
@@ -138,4 +140,77 @@ test("embedding batch saves successful rows and leaves failed rows pending", asy
   });
   assert.equal(count, 1);
   assert.deepEqual(saved, [1]);
+});
+
+test("context body accepts the subject weighting and rejects out-of-range values", () => {
+  assert.deepEqual(validateBotMemoryContextBody({
+    query: "  前に話したこと  ",
+    purpose: "live_reply",
+    subjectKey: " youtube:UC123 ",
+    subjectWeight: 3,
+    digestDays: 5,
+    limit: 8,
+  }), {
+    query: "前に話したこと",
+    purpose: "live_reply",
+    sources: undefined,
+    subjectKey: "youtube:UC123",
+    subjectWeight: 3,
+    digestDays: 5,
+    limit: 8,
+    researchLimit: undefined,
+    excludeDocumentIds: undefined,
+  });
+  // query 無しでも短期記憶だけは取れる（検索を通さない層なので）。
+  assert.equal(validateBotMemoryContextBody({ purpose: "live_filler" }).query, "");
+  assert.throws(() => validateBotMemoryContextBody({ purpose: "unknown" }));
+  assert.throws(() => validateBotMemoryContextBody({
+    purpose: "live_filler",
+    subjectWeight: 0,
+  }));
+  assert.throws(() => validateBotMemoryContextBody({
+    purpose: "live_filler",
+    digestDays: -1,
+  }));
+  assert.throws(() => validateBotMemoryContextBody({
+    purpose: "live_filler",
+    sources: ["kossori"],
+  }));
+});
+
+test("context response does not expose author or source identifiers", () => {
+  const memory = {
+    id: 1,
+    sourceType: "nagi_affirmed_post" as const,
+    sourceId: "private-source-id",
+    sourceUri: "at://did:plc:author/com.suibari.nagi.post/one",
+    authorId: "did:plc:author",
+    content: "本文",
+    botResponse: null,
+    occurredAt: new Date("2026-08-21T00:00:00Z"),
+    affirmationScore: null,
+    metadata: null,
+    relevance: 0.1,
+  };
+  const serialized = serializeMemoryContext({
+    recent: [{
+      digestDate: "2026-08-20",
+      summaryJa: "しずかな一日だった。",
+      highlights: [{ documentId: 42, excerpt: "抜粋", surface: "nagi" }],
+      sourceCount: 3,
+    }],
+    own: [memory],
+    related: [memory],
+    friend: memory,
+    research: [],
+  });
+  const flat = JSON.stringify(serialized);
+  assert.doesNotMatch(flat, /did:plc:author/);
+  assert.doesNotMatch(flat, /private-source-id/);
+  assert.doesNotMatch(flat, /at:\/\//);
+  // 内部の documentId もハイライトから落とす。
+  assert.deepEqual(serialized.recent[0].highlights, [
+    { excerpt: "抜粋", surface: "nagi" },
+  ]);
+  assert.deepEqual(Object.keys(serialized), ["recent", "related", "friend", "research"]);
 });
