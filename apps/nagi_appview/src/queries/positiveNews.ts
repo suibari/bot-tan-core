@@ -177,7 +177,8 @@ export async function searchNews(opts: {
   const offset = decodeOffset(opts.cursor);
   const mutes = await loadMutes(opts.viewerDid);
   // exact は埋め込みを使わないので Ollama 往復ごと省く。
-  const embedding = mode === "exact" ? null : await embedQuery(q);
+  const embedding =
+    mode === "exact" ? null : await embedQuery(q, { expand: mode === "semantic" });
   const textExpr = sql`coalesce(${nagiNewsApprovals.snapshotTitleJa}, ${nagiNews.titleJa})`;
   const noDistance = sql<number>`0`;
   const conditions =

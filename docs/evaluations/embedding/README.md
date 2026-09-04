@@ -120,6 +120,12 @@ pnpm embedding:evaluate -- --run --source=memory --corpus-limit=5000 \
 - **Ollama に `num_ctx` を送らない。** 評価スクリプトが本番と違う num_ctx を送ると
   runner が作り直され、同居アプリまで巻き込む（AGENTS.md「Ollama の num_ctx」）。
   `pnpm test:embedding` がリクエスト本体を直接検査している。
+- **評価は本番と同じ `ollama-embed`(11435) を使う。** このインスタンスは
+  `OLLAMA_MAX_LOADED_MODELS=1` なので、**評価がモデルを切り替えるたびに本番用のモデルが
+  追い出される**。CPU 上の 0.6〜1.2GB クラスなので1回あたり数秒で済み、実測では
+  6分間に3回（本番の埋め込みリクエストが細っている時間帯）だったが、
+  再埋め込みのような一括処理と同時に回すと双方が遅くなる。
+  **バックフィル中に評価を回さないこと。** 逆も同じ。
 - **VRAM。** GPU 16GB のうち Ollama の gemma-4-26B が 11.8GB を占め、空きは 2GB 強。
   サイドカーの3モデルは載らないので **CPU で回す**（`EMBED_EVAL_DEVICE=cpu`）。
   無理に載せると gemma が追い出され、同居アプリの生成が丸ごと崩れる。

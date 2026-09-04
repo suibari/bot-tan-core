@@ -64,6 +64,20 @@ const list = (name: string): string[] | null => {
 };
 
 const RUN = hasFlag("run");
+/**
+ * 本番のあいまい検索と同じく、本文にクエリ語をそのまま含む文書を候補から落とす。
+ *
+ * `semanticConditions`（apps/nagi_appview/src/queries/hybridSearch.ts）は一致セクションと
+ * 排他にするため `textExpr not ilike '%q%'` を掛けている。既定のハーネスはコーパス全体で
+ * ランキングするので、**その数字は hybrid モードと一致セクションを含めた総合力**であって、
+ * あいまい検索セクション単体の実力ではない。両者は順位すら変わる（README「結果表の読み方」）。
+ */
+const EXCLUDE_LITERAL = hasFlag("exclude-literal");
+
+/** 本番の ILIKE 判定と揃える（大文字小文字を無視した部分一致）。 */
+function containsLiteral(text: string, query: string): boolean {
+  return text.toLowerCase().includes(query.toLowerCase());
+}
 const RESUME = hasFlag("resume");
 const WITH_GEMINI = hasFlag("with-gemini");
 const JUDGE_MODE = (option("judge") ?? "llm") as "llm" | "human" | "none";
@@ -171,6 +185,13 @@ export type Encoder = {
   docPrefix: string;
   /** クエリ側に付ける接頭辞（instruction を含む）。 */
   queryPrefix: string;
+  /**
+   * クエリを LLM で膨らませてから埋め込む（接頭辞より先に適用）。
+   *  - "terms": 関連語を足す。「ワルプルギス」→「ワルプルギス まどか☆マギカ 魔法少女 …」
+   *  - "hyde":  そのクエリに答える架空の投稿を1本書かせ、それを埋め込む
+   * 文書側には一切影響しないので、文書埋め込みキャッシュは非拡張版と共有される。
+   */
+  expandQuery?: "terms" | "hyde" | "alias";
   note: string;
 };
 
@@ -246,6 +267,62 @@ export const ENCODERS: Encoder[] = [
     queryPrefix:
       "Instruct: Given a search query, retrieve relevant social media posts written in Japanese\nQuery: ",
     note: "2026-09-04 から本番。Ollama 公式ライブラリにあり、instruction-aware。",
+  },
+  {
+    id: "qwen3-noprefix",
+    label: "Qwen3-Embedding-0.6B（クエリ接頭辞なし）",
+    provider: "ollama",
+    model: "qwen3-embedding:0.6b",
+    dim: 1024,
+    docPrefix: "",
+    // botMemory RAG は「投稿 → 過去の関連記憶」という**対称的な**タスクで、
+    // 「検索語 → 文書」ではない。instruction 接頭辞がこの用途でも効くのかは
+    // 本番へ入れた時点では未検証だったので、ここで接頭辞なしと突き合わせる。
+    // 文書側キャッシュのキーは provider:model:docPrefix なので qwen3-06b と共有され、
+    // このアームを足しても文書の再埋め込みは発生しない。
+    queryPrefix: "",
+    note: "接頭辞の要否を切り分けるための対照。",
+  },
+  {
+    id: "qwen3-expand-terms",
+    label: "Qwen3-Embedding-0.6B + クエリ拡張（関連語）",
+    provider: "ollama",
+    model: "qwen3-embedding:0.6b",
+    dim: 1024,
+    // **docPrefix は qwen3-06b と一字一句同じにすること。** 文書埋め込みキャッシュは
+    // digest(provider:model:docPrefix) でキーされるので、ここがズレると
+    // 3,000件を無駄に再埋め込みする。拡張はクエリ側だけの操作。
+    docPrefix: "",
+    queryPrefix:
+      "Instruct: Given a search query, retrieve relevant social media posts written in Japanese\nQuery: ",
+    expandQuery: "terms",
+    note: "26B の世界知識でクエリを膨らませ、語彙ギャップを埋められるかを見る。",
+  },
+  {
+    id: "qwen3-expand-hyde",
+    label: "Qwen3-Embedding-0.6B + クエリ拡張（架空投稿/HyDE）",
+    provider: "ollama",
+    model: "qwen3-embedding:0.6b",
+    dim: 1024,
+    docPrefix: "",
+    queryPrefix:
+      "Instruct: Given a search query, retrieve relevant social media posts written in Japanese\nQuery: ",
+    expandQuery: "hyde",
+    note: "クエリを架空の投稿へ変換してから埋め込む。文書と同じ分布に寄せる狙い。",
+  },
+  {
+    id: "qwen3-expand-alias",
+    label: "Qwen3-Embedding-0.6B + 別名拡張（固有名詞のみ）",
+    provider: "ollama",
+    model: "qwen3-embedding:0.6b",
+    dim: 1024,
+    docPrefix: "",
+    queryPrefix:
+      "Instruct: Given a search query, retrieve relevant social media posts written in Japanese\nQuery: ",
+    // terms は全クエリを一律に膨らませて一般語を悪化させた（general 0.646 → 0.625）。
+    // alias は LLM が別名を知っている固有名詞だけを拡張し、それ以外は素通しする。
+    expandQuery: "alias",
+    note: "略称（まどマギ・ブルアカ）で正式名称の投稿を引けるようにする狙い。",
   },
   {
     id: "e5-large",
@@ -335,6 +412,14 @@ function buildArms(): Arm[] {
       note: "**真のベースライン**。候補はこれに勝たなければ置き換える意味がない。",
     },
     {
+      id: "qwen3-noprefix",
+      label: "qwen3 dense のみ（クエリ接頭辞なし）",
+      tier: 1,
+      dense: "qwen3-noprefix",
+      fusion: "raw",
+      weights: { dense: 1 },
+    },
+    {
       id: "ruri310",
       label: "ruri-v3-310m dense のみ",
       tier: 1,
@@ -372,6 +457,30 @@ function buildArms(): Arm[] {
       label: "Qwen3-Embedding-0.6B dense のみ",
       tier: 2,
       dense: "qwen3-06b",
+      fusion: "raw",
+      weights: { dense: 1 },
+    },
+    {
+      id: "qwen3-expand-terms",
+      label: "qwen3 + クエリ拡張（関連語）",
+      tier: 2,
+      dense: "qwen3-expand-terms",
+      fusion: "raw",
+      weights: { dense: 1 },
+    },
+    {
+      id: "qwen3-expand-hyde",
+      label: "qwen3 + クエリ拡張（架空投稿/HyDE）",
+      tier: 2,
+      dense: "qwen3-expand-hyde",
+      fusion: "raw",
+      weights: { dense: 1 },
+    },
+    {
+      id: "qwen3-expand-alias",
+      label: "qwen3 + 別名拡張（固有名詞のみ）",
+      tier: 2,
+      dense: "qwen3-expand-alias",
       fusion: "raw",
       weights: { dense: 1 },
     },
@@ -828,6 +937,8 @@ function rankArm(
   arm: Arm,
   corpus: CorpusDoc[],
   signals: Partial<Record<SignalName, Float32Array>>,
+  /** --exclude-literal のとき、この語を本文に含む文書を候補から落とす。 */
+  literalQuery?: string,
 ): ArmHit[] {
   const active = (Object.keys(signals) as SignalName[]).filter(
     (name) => signals[name] !== undefined,
@@ -838,7 +949,10 @@ function rankArm(
   for (const name of active) {
     for (const index of topIndices(signals[name]!, CANDIDATE_DEPTH)) candidates.add(index);
   }
-  const indices = [...candidates];
+  let indices = [...candidates];
+  if (literalQuery) {
+    indices = indices.filter((i) => !containsLiteral(corpus[i].text, literalQuery));
+  }
 
   const perSignal: Partial<Record<SignalName, number[]>> = {};
   for (const name of active) {
@@ -919,6 +1033,206 @@ function judgePrompt(query: EvalQuery, texts: string[]): string {
 }
 
 const JUDGE_BATCH = 8;
+
+// ---------------------------------------------------------------------------
+// クエリ拡張（doc2query の逆。文書ではなくクエリ側を膨らませる）
+//
+// 埋め込みモデルが 0.6B だと「ワルプルギス＝まどマギ」のような世界知識を持たず、
+// 語を含まない関連投稿へ届かない（実測で walpurgis は全モデル nDCG@10 = 0.000）。
+// そこを 26B の知識で埋められるかを測るためのもの。
+// 文書側を 3,515件タグ付けする案（約17時間）と違い、検索時に1生成で済む。
+// ---------------------------------------------------------------------------
+
+/**
+ * 拡張リクエストの本体。
+ *
+ * **options に num_ctx を入れない。** サーバの OLLAMA_CONTEXT_LENGTH が唯一の源で、
+ * 違う値を送ると同じモデルでも runner が作り直され、同居アプリごと巻き込む
+ * （AGENTS.md「Ollama の num_ctx」）。num_predict は必ず送る。
+ * テストから検証するため export している。
+ */
+export function buildExpansionRequestBody(
+  model: string,
+  prompt: string,
+  maxTokens: number,
+  /** alias モードは文字列ではなく配列を返させる。 */
+  shape: "expanded" | "aliases" = "expanded",
+) {
+  return {
+    model,
+    messages: [{ role: "user", content: prompt }],
+    stream: false,
+    // reasoning に生成枠を食わせない。切らないと expanded が空のまま返る。
+    think: false,
+    format:
+      shape === "aliases"
+        ? {
+            type: "object",
+            properties: { aliases: { type: "array", items: { type: "string" } } },
+            required: ["aliases"],
+          }
+        : {
+            type: "object",
+            properties: { expanded: { type: "string" } },
+            required: ["expanded"],
+          },
+    options: {
+      temperature: 0,
+      num_predict: maxTokens,
+    },
+  };
+}
+
+function expansionPrompt(mode: "terms" | "hyde" | "alias", query: string): string {
+  if (mode === "alias") {
+    // terms との違いは「**別名を知っているときだけ**返す」こと。
+    // terms は全クエリを一律に膨らませるので、一般語（散歩→ウォーキング 散策 運動…）まで
+    // 拡張して曖昧にし、実測で general が 0.646 → 0.625 に落ちた。
+    // ここで空配列を返せば呼び出し側が元のクエリをそのまま使うので、悪化しようがない。
+    return [
+      "あなたは日本語の検索を補助するアシスタントです。",
+      "与えられた検索語が**作品名・製品名・団体名などの固有名詞**で、かつ",
+      "別の呼ばれ方（正式名称・略称・原語表記）があるなら、それらを挙げてください。",
+      "",
+      "規則:",
+      "  - 固有名詞でない普通の言葉（散歩・仕事・猫など）は**必ず空配列**",
+      "  - 別名を知らない固有名詞も**空配列**。推測で書かない",
+      // **別名は「コーパスの言語」で出す。** 検索対象が日本語の投稿なので日本語で返させる。
+      // クエリの言語で決めるのではない点が肝で、これが両方向を同時に満たす:
+      //   日本語クエリ: まどマギ → 魔法少女まどか☆マギカ  (madomagi 0.641 → 1.000)
+      //   英語クエリ:   kantai collection → 艦隊これくしょん (該当ヒット 0/10 → 10/10)
+      // 逆に日本語クエリへ英語別名を足すと悪化する（zelda に The Legend of Zelda を
+      // 足した版は 0.287 → 0.225）。日本語コーパスからベクトルが離れるため。
+      "  - 別名がある場合のみ、**日本語表記のみ**で正式名称・別称を3個まで",
+      "  - 英語・ローマ字の表記は入れない（検索対象が日本語の投稿のため。",
+      "    検索語自体が英語やローマ字でも、返す別名は日本語にすること）",
+      "  - 元の検索語の単なる言い換えや部分一致は入れない（例: ウマ娘 → ウマ娘 プリティーダービー は不可）",
+      "  - 元の検索語は含めなくてよい（呼び出し側で足す）",
+      "",
+      "例:",
+      "  入力: エヴァ        → [\"エヴァンゲリオン\", \"新世紀エヴァンゲリオン\"]",
+      "  入力: 散歩          → []",
+      "  入力: ポケモン      → [\"ポケットモンスター\"]",
+      "  入力: 落ち込んだ話  → []",
+      "",
+      `検索語: ${query}`,
+      "",
+      "aliases に配列で入れて返してください。別名が無ければ空配列。",
+    ].join("\n");
+  }
+  if (mode === "terms") {
+    return [
+      "あなたは日本語の検索を補助するアシスタントです。",
+      "与えられた検索語について、同じ話題を指す別名・正式名称・関連する固有名詞・",
+      "上位カテゴリを挙げ、元の語と合わせて半角スペース区切りの1行にしてください。",
+      "",
+      "規則:",
+      "  - 元の検索語を必ず先頭に含める",
+      "  - 5〜10語程度。説明文や記号は書かない",
+      "  - 知らない語なら元の語だけを返す。**推測で無関係な語を足さない**",
+      "",
+      // **例に評価クエリを使わないこと。** 最初 "ワルプルギス" を例にしたところ、
+      // モデルが例文をそのまま返し、判断基準にしている当のクエリの答えを
+      // こちらが教えてしまっていた（生成結果が例文と一字一句一致）。
+      // ここは embeddingQueries.json / embeddingQueriesMemory.json のどちらにも
+      // 出てこない語を使う。
+      "例:",
+      "  入力: エヴァ",
+      "  出力: エヴァ エヴァンゲリオン 新世紀エヴァンゲリオン 庵野秀明 アニメ ロボット 使徒",
+      "",
+      `検索語: ${query}`,
+      "",
+      "expanded に1行で入れて返してください。",
+    ].join("\n");
+  }
+  return [
+    "あなたは日本語のSNS利用者です。",
+    "与えられた検索語について、その話題を語っている架空の投稿を1つ書いてください。",
+    "",
+    "規則:",
+    "  - 100文字程度の自然な口語。ハッシュタグやURLは書かない",
+    "  - その話題を知らなければ、検索語をそのまま含む当たり障りのない投稿にする",
+    "  - **知ったかぶりで別の話題にすり替えない**",
+    "",
+    `検索語: ${query}`,
+    "",
+    "expanded に投稿本文だけを入れて返してください。",
+  ].join("\n");
+}
+
+/**
+ * クエリを LLM で拡張する。結果はディスクにキャッシュする。
+ * 拡張は**エンコーダに依存しない**ので、qwen3 と egemma の拡張アームを両方測っても
+ * 生成は1回で済む（キャッシュキーに埋め込みモデルを含めない理由）。
+ */
+async function expandQueries(
+  mode: "terms" | "hyde" | "alias",
+  queries: EvalQuery[],
+): Promise<Map<string, string>> {
+  const cacheName = `expand-${mode}-${digest(JUDGE_MODEL)}.json`;
+  const cached = (await readJsonCache<Record<string, string>>(cacheName)) ?? {};
+  const out = new Map<string, string>();
+  let dirty = false;
+
+  const baseUrl = process.env.OLLAMA_BASE_URL;
+  const nativeUrl = baseUrl?.replace(/\/v1\/?$/, "").replace(/\/$/, "");
+
+  for (const query of queries) {
+    const hit = cached[query.text];
+    if (hit) {
+      out.set(query.id, hit);
+      continue;
+    }
+    if (!nativeUrl) throw new Error("OLLAMA_BASE_URL が未設定（クエリ拡張に必要）");
+    const response = await realFetch(`${nativeUrl}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        buildExpansionRequestBody(
+          JUDGE_MODEL,
+          expansionPrompt(mode, query.text),
+          256,
+          mode === "alias" ? "aliases" : "expanded",
+        ),
+      ),
+      signal: AbortSignal.timeout(180_000),
+    });
+    if (!response.ok) {
+      throw new Error(`expand HTTP ${response.status}: ${await response.text()}`);
+    }
+    const content = ((await response.json()) as any)?.message?.content ?? "";
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(content);
+    } catch {
+      parsed = null;
+    }
+
+    let text: string;
+    if (mode === "alias") {
+      // **空配列なら元のクエリをそのまま使う。** これが terms との決定的な違いで、
+      // 「別名を知らない語は触らない」から一般語を悪化させようがない。
+      const aliases = (parsed as any)?.aliases;
+      const list = Array.isArray(aliases)
+        ? aliases.map(String).map((a) => a.trim()).filter(Boolean).slice(0, 3)
+        : [];
+      text = list.length ? `${query.text} ${list.join(" ")}` : query.text;
+    } else {
+      // 生成に失敗したら元のクエリへフォールバックする。ここで空文字を通すと
+      // 「拡張が効かない」ではなく「クエリが消えた」結果を測ってしまう。
+      const expanded = (parsed as any)?.expanded;
+      text =
+        typeof expanded === "string" && expanded.trim() ? expanded.trim() : query.text;
+    }
+    cached[query.text] = text;
+    out.set(query.id, text);
+    dirty = true;
+    console.log(`  拡張[${mode}] ${query.id}: ${text.replace(/\s+/g, " ").slice(0, 70)}`);
+  }
+
+  if (dirty) await writeJsonCache(cacheName, cached);
+  return out;
+}
 
 async function llmJudge(query: EvalQuery, docs: CorpusDoc[]): Promise<Map<string, number>> {
   const baseUrl = process.env.OLLAMA_BASE_URL;
@@ -1156,8 +1470,23 @@ function renderSummary(result: EvaluationResult): string {
     `- コーパス: ${result.source} / ${result.corpusSize} 件 (hash ${result.corpusHash})`,
     `- 採点: ${JUDGE_MODE === "human" ? "人手（review.md）" : `LLM 下書きのみ（${result.judgeModel}）`}`,
     `- クエリ: ${result.queries.length} 件`,
+    `- 対象: ${
+      EXCLUDE_LITERAL
+        ? "あいまい検索セクション相当（本文にクエリ語を含む文書を除外）"
+        : "コーパス全体（hybrid モード・一致セクション込みの総合力）"
+    }`,
     "",
   ];
+
+  // 除外の有無で順位そのものが変わる。ここを書かないと後から読んだ人が必ず誤解する。
+  if (EXCLUDE_LITERAL) {
+    lines.push(
+      "> **ILIKE 除外モードで測った数字です。** 本番の `semanticConditions` と同じく、",
+      "> 本文にクエリ語をそのまま含む文書を候補から落としています（一致セクションと排他のため）。",
+      "> 既定モードの数字とは順位が変わるので、混ぜて比較しないこと。",
+      "",
+    );
+  }
 
   if (JUDGE_MODE !== "human") {
     lines.push(
@@ -1368,9 +1697,15 @@ async function main(): Promise<void> {
     } else {
       console.log(`埋め込みキャッシュ命中: ${id}`);
     }
+    // 拡張はクエリ側だけ。文書側は上のキャッシュをそのまま使うので再埋め込みは起きない。
+    const expanded = encoder.expandQuery
+      ? await expandQueries(encoder.expandQuery, queries)
+      : null;
     const queryVectors = await encode(
       encoder,
-      queries.map((q) => `${encoder.queryPrefix}${q.text}`),
+      queries.map(
+        (q) => `${encoder.queryPrefix}${expanded?.get(q.id) ?? q.text}`,
+      ),
     );
     vectors.set(id, {
       docs,
@@ -1448,7 +1783,12 @@ async function main(): Promise<void> {
         signals.sparse = sparseScores(sparseIndex, querySparse.get(query.id)!, corpus.length);
       }
       if (arm.lexical) signals.lexical = lexical.get(query.id)!;
-      rankings[arm.id][query.id] = rankArm(arm, corpus, signals);
+      rankings[arm.id][query.id] = rankArm(
+        arm,
+        corpus,
+        signals,
+        EXCLUDE_LITERAL ? query.text : undefined,
+      );
     }
     console.log(`ランキング完了: ${arm.id}`);
   }

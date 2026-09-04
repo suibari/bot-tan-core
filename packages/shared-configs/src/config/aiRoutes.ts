@@ -267,6 +267,7 @@ export const AI_FEATURES = {
   OLLAMA_PREDEFINED_AFFIRMATION: "ollama-chat", // 定型文リプライの分類/LLM選択
   OLLAMA_NEWS_PRESCREEN: "ollama-chat", // ニュースの事前スクリーニング
   OLLAMA_EMBED: "ollama-embed", // 埋め込み（投稿/ユーザ/チャンネル/ニュース）
+  OLLAMA_QUERY_EXPANSION: "ollama-chat", // 検索クエリの別名展開（略称→正式名称）
   OLLAMA_TRANSLATION: "ollama-translate", // 投稿の一般翻訳
   OLLAMA_BOT_TRANSLATION: "ollama-bot-translate", // botたん投稿のペルソナ翻訳
 } as const satisfies Record<string, AiRouteName>;

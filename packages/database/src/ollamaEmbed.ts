@@ -1,4 +1,6 @@
 import { aiModel } from "@bsky-affirmative-bot/shared-configs";
+import { embeddingProfile } from "./embeddingProfiles.js";
+import { expandSearchQuery } from "./queryExpansion.js";
 
 const DEFAULT_TIMEOUT_MS = 5_000;
 /**
@@ -101,16 +103,15 @@ export async function generateEmbedding(text: string): Promise<number[] | null> 
  * 検索クエリ用の接頭辞。**文書側には付けない**（クエリ側だけに付けるのが
  * arctic-embed v2.0 / Qwen3-Embedding 両方の設計）。
  *
- * Qwen3-Embedding の instruction は "Instruct: ...\nQuery: " という形で改行を含む。
- * .env に**二重引用符**で書けば dotenv も `node --env-file` も `\n` を実改行へ展開する
- * （単引用符だと展開されない）。ただし systemd の `Environment=` や docker の `-e` は
- * 展開しないので、`\n` の2文字が残っていた場合の保険としてここでも展開しておく。
+ * 値は埋め込みモデルと1対1に対応するので embeddingProfiles.ts のテーブルが持つ。
+ * env で個別に指定できたころは、モデルだけ差し替えて接頭辞を据え置くと
+ * **例外も出ずに検索結果が無意味になる**状態が作れてしまった。
  *
  * 値は scripts/evaluateEmbeddingModels.mts のエンコーダ定義と**一字一句揃える**こと。
  * 揃っていないと評価で出た数字が本番で再現しない。
  */
 export function searchQueryPrefix(): string {
-  return (process.env.OLLAMA_QUERY_PREFIX ?? "").replace(/\\n/g, "\n");
+  return embeddingProfile().queryPrefix;
 }
 
 /**
@@ -126,9 +127,20 @@ export function searchQueryPrefix(): string {
  */
 export async function embedSearchQuery(
   text: string,
+  opts: {
+    /**
+     * 別名展開を通す（「まどマギ」→「まどマギ 魔法少女まどか☆マギカ」）。
+     * LLM 生成が1回入るので約0.8秒かかる。**あいまい検索のような副次パネル専用**で、
+     * タイプアヘッドや botMemory RAG のような即応が要る経路では有効にしないこと。
+     * 詳細は queryExpansion.ts。
+     */
+    expand?: boolean;
+  } = {},
 ): Promise<number[] | null> {
   const t = text.trim();
-  return t ? generateEmbedding(`${searchQueryPrefix()}${t}`) : null;
+  if (!t) return null;
+  const q = opts.expand ? await expandSearchQuery(t) : t;
+  return generateEmbedding(`${searchQueryPrefix()}${q}`);
 }
 
 export async function generateEmbeddings(

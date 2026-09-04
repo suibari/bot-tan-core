@@ -111,6 +111,8 @@ const EXPECTED: Record<AiFeatureKey, [model: string, tier: "flex" | "standard" |
   OLLAMA_PREDEFINED_AFFIRMATION: [DEFAULT_OLLAMA_TEXT_MODEL, undefined],
   OLLAMA_NEWS_PRESCREEN: [DEFAULT_OLLAMA_TEXT_MODEL, undefined],
   OLLAMA_EMBED: ["snowflake-arctic-embed2", undefined],
+  // 検索クエリの別名展開。テキスト生成なので ollama-chat と同じモデルへ乗る。
+  OLLAMA_QUERY_EXPANSION: [DEFAULT_OLLAMA_TEXT_MODEL, undefined],
   OLLAMA_TRANSLATION: [DEFAULT_OLLAMA_TEXT_MODEL, undefined],
   OLLAMA_BOT_TRANSLATION: [DEFAULT_OLLAMA_TEXT_MODEL, undefined],
 };

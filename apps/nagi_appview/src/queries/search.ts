@@ -105,7 +105,11 @@ export async function searchPostsByText(opts: {
   const offset = decodeCursor(opts.cursor);
   const [embedding, mutes] = await Promise.all([
     // exact は埋め込みを使わないので Ollama 往復ごと省く。
-    mode === "exact" ? Promise.resolve(null) : embedQuery(q),
+    // 展開は約0.8秒かかるので、あいまい検索の枠でだけ通す。hybrid はタイプアヘッドが
+    // 使う経路なので付けない。
+    mode === "exact"
+      ? Promise.resolve(null)
+      : embedQuery(q, { expand: mode === "semantic" }),
     loadMutes(opts.viewerDid),
   ]);
   const viewerMatch = opts.viewerDid

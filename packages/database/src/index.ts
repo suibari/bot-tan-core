@@ -59,6 +59,8 @@ export * from './botMemory.js';
 export * from './botMemoryPronunciation.js';
 export * from './researchJobs.js';
 export { embedSearchQuery, filterRelatedHistory, generateEmbedding, generateEmbeddings, searchQueryPrefix } from './ollamaEmbed.js';
+export { expandSearchQuery, filterAliases, queryExpansionEnabled, resetQueryExpansionState } from './queryExpansion.js';
+export { embeddingProfile, resetEmbeddingProfileWarnings, KNOWN_EMBEDDING_MODELS, type EmbeddingProfile } from './embeddingProfiles.js';
 export type { DailyReport, Stats };
 
 /**

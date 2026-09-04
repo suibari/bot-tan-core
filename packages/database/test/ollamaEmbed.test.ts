@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { resetAiRouteCache } from "@bsky-affirmative-bot/shared-configs";
+import { resetEmbeddingProfileWarnings } from "../src/embeddingProfiles.js";
 import {
   embedSearchQuery,
   filterRelatedHistory,
@@ -13,7 +15,7 @@ const original = {
   embedBaseUrl: process.env.OLLAMA_EMBED_BASE_URL,
   timeoutMs: process.env.OLLAMA_EMBED_TIMEOUT_MS,
   cooldownMs: process.env.OLLAMA_EMBED_COOLDOWN_MS,
-  queryPrefix: process.env.OLLAMA_QUERY_PREFIX,
+  embedModel: process.env.OLLAMA_EMBED_MODEL,
   fetch: globalThis.fetch,
   now: Date.now,
 };
@@ -29,8 +31,10 @@ const restore = () => {
   if (original.cooldownMs === undefined)
     delete process.env.OLLAMA_EMBED_COOLDOWN_MS;
   else process.env.OLLAMA_EMBED_COOLDOWN_MS = original.cooldownMs;
-  if (original.queryPrefix === undefined) delete process.env.OLLAMA_QUERY_PREFIX;
-  else process.env.OLLAMA_QUERY_PREFIX = original.queryPrefix;
+  if (original.embedModel === undefined) delete process.env.OLLAMA_EMBED_MODEL;
+  else process.env.OLLAMA_EMBED_MODEL = original.embedModel;
+  resetAiRouteCache();
+  resetEmbeddingProfileWarnings();
   globalThis.fetch = original.fetch;
   Date.now = original.now;
 };
@@ -120,14 +124,22 @@ const captureInput = (sink: unknown[]) => {
   }) as typeof fetch;
 };
 
-test("searchQueryPrefix は env の \\n を実改行へ展開する", () => {
-  process.env.OLLAMA_QUERY_PREFIX = "Instruct: find posts\\nQuery: ";
-  assert.equal(searchQueryPrefix(), "Instruct: find posts\nQuery: ");
+test("searchQueryPrefix は埋め込みモデルに対応した接頭辞を返す", () => {
+  // env ではなく embeddingProfiles.ts のテーブル由来。モデルを変えれば接頭辞も追随する。
+  process.env.OLLAMA_EMBED_MODEL = "qwen3-embedding:0.6b";
+  resetAiRouteCache();
+  assert.match(searchQueryPrefix(), /^Instruct: .*\nQuery: $/);
+
+  process.env.OLLAMA_EMBED_MODEL = "snowflake-arctic-embed2";
+  resetAiRouteCache();
+  assert.equal(searchQueryPrefix(), "query: ");
   restore();
 });
 
-test("searchQueryPrefix は未設定なら空文字（既存環境を壊さない）", () => {
-  delete process.env.OLLAMA_QUERY_PREFIX;
+test("未知の埋め込みモデルでは接頭辞を付けない（間違った接頭辞は本文として埋まる）", () => {
+  process.env.OLLAMA_EMBED_MODEL = "some-unregistered-model";
+  resetAiRouteCache();
+  resetEmbeddingProfileWarnings();
   assert.equal(searchQueryPrefix(), "");
   restore();
 });
@@ -135,21 +147,23 @@ test("searchQueryPrefix は未設定なら空文字（既存環境を壊さな�
 test("embedSearchQuery はクエリに接頭辞を付け、generateEmbedding は付けない", async () => {
   const sent: unknown[] = [];
   captureInput(sent);
-  process.env.OLLAMA_QUERY_PREFIX = "query: ";
+  process.env.OLLAMA_EMBED_MODEL = "snowflake-arctic-embed2";
+  resetAiRouteCache();
   try {
     await embedSearchQuery("ワルプルギス");
     await generateEmbedding("ワルプルギス");
+    // 文書側に接頭辞を付けると接頭辞そのものが本文として埋まり、全文書が同じ方向へ寄る。
     assert.deepEqual(sent, ["query: ワルプルギス", "ワルプルギス"]);
   } finally {
     restore();
   }
 });
 
-test("embedSearchQuery は Qwen3 形式の instruction を改行込みで送る", async () => {
+test("Qwen3 では instruction を改行込みで送る", async () => {
   const sent: unknown[] = [];
   captureInput(sent);
-  process.env.OLLAMA_QUERY_PREFIX =
-    "Instruct: Given a search query, retrieve relevant social media posts written in Japanese\\nQuery: ";
+  process.env.OLLAMA_EMBED_MODEL = "qwen3-embedding:0.6b";
+  resetAiRouteCache();
   try {
     await embedSearchQuery("まどマギ");
     assert.deepEqual(sent, [
@@ -163,7 +177,8 @@ test("embedSearchQuery は Qwen3 形式の instruction を改行込みで送る"
 test("embedSearchQuery は空文字・空白のみなら Ollama を呼ばない", async () => {
   const sent: unknown[] = [];
   captureInput(sent);
-  process.env.OLLAMA_QUERY_PREFIX = "query: ";
+  process.env.OLLAMA_EMBED_MODEL = "snowflake-arctic-embed2";
+  resetAiRouteCache();
   try {
     assert.equal(await embedSearchQuery(""), null);
     assert.equal(await embedSearchQuery("   "), null);
@@ -176,7 +191,8 @@ test("embedSearchQuery は空文字・空白のみなら Ollama を呼ばない"
 test("embedSearchQuery はクエリ前後の空白を落としてから接頭辞を付ける", async () => {
   const sent: unknown[] = [];
   captureInput(sent);
-  process.env.OLLAMA_QUERY_PREFIX = "query: ";
+  process.env.OLLAMA_EMBED_MODEL = "snowflake-arctic-embed2";
+  resetAiRouteCache();
   try {
     await embedSearchQuery("  散歩  ");
     assert.deepEqual(sent, ["query: 散歩"]);
@@ -256,6 +272,41 @@ test("OLLAMA_EMBED_TIMEOUT_PER_ITEM_MS 未設定でも既定で比例する", as
     const batch = await generateEmbeddings(Array.from({ length: 16 }, (_, i) => `t${i}`));
     assert.ok(batch.every((v) => Array.isArray(v)));
   } finally {
+    restore();
+  }
+});
+
+// --- expand オプション ---------------------------------------------------------
+// 別名展開は約0.8秒の LLM 生成が入る。既定で走らせると botMemory RAG（返信経路）や
+// タイプアヘッドまで遅くなるので、明示的に頼まれたときだけ通ることを固定する。
+
+test("embedSearchQuery は既定で別名展開を呼ばない", async () => {
+  process.env.OLLAMA_BASE_URL = "http://ollama.test/v1";
+  delete process.env.OLLAMA_EMBED_BASE_URL;
+  process.env.SEARCH_QUERY_EXPANSION = "true";
+  const urls: string[] = [];
+  globalThis.fetch = ((url, init) => {
+    urls.push(String(url));
+    const body = JSON.parse(String(init?.body));
+    const one = Array.from({ length: 1024 }, () => 0.1);
+    const count = Array.isArray(body.input) ? body.input.length : 1;
+    return Promise.resolve(
+      new Response(
+        JSON.stringify({ data: Array.from({ length: count }, () => ({ embedding: one })) }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+  }) as typeof fetch;
+  try {
+    await embedSearchQuery("まどマギ");
+    assert.equal(
+      urls.some((u) => u.includes("/api/chat")),
+      false,
+      "expand を指定しなければ生成経路を叩かない",
+    );
+    assert.deepEqual(urls, ["http://ollama.test/v1/embeddings"]);
+  } finally {
+    delete process.env.SEARCH_QUERY_EXPANSION;
     restore();
   }
 });

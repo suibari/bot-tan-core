@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   ENCODERS,
+  buildExpansionRequestBody,
   buildJudgeRequestBody,
   parseReview,
   type EvaluationResult,
@@ -105,4 +106,69 @@ test("未知の key と見出し行は無視する", () => {
   const judgments = parseReview(markdown, resultFixture());
 
   assert.deepEqual(judgments, { walpurgis: { "at://a/1": 1 } });
+});
+
+// --- クエリ拡張 ---------------------------------------------------------------
+
+test("拡張リクエストに num_ctx が含まれない", () => {
+  const body = buildExpansionRequestBody("m", "prompt", 256);
+  // options に無いことだけでなく、本体のどこにも現れないことを見る。
+  // 送ると同じモデルでも runner が作り直され、同居アプリごと巻き込む（AGENTS.md）。
+  assert.equal(/num_ctx/.test(JSON.stringify(body)), false);
+  assert.equal("num_ctx" in body.options, false);
+});
+
+test("拡張リクエストは num_predict を必ず送る", () => {
+  // 省くと Ollama 既定の -1（＝残りコンテキストまで）になり、エラーにならず
+  // 空文字が返る。ここが空だとクエリが消えた状態を測ってしまう。
+  assert.equal(buildExpansionRequestBody("m", "p", 256).options.num_predict, 256);
+});
+
+test("拡張リクエストは think を切り、expanded を構造化出力で強制する", () => {
+  const body = buildExpansionRequestBody("m", "p", 256);
+  assert.equal(body.think, false);
+  assert.deepEqual(body.format.required, ["expanded"]);
+  assert.equal(body.format.properties.expanded.type, "string");
+  assert.equal(body.stream, false);
+});
+
+test("拡張エンコーダは非拡張の qwen3 と model/docPrefix が完全一致する", () => {
+  // 文書埋め込みキャッシュは digest(provider:model:docPrefix) でキーされる。
+  // ここがズレると拡張アームを足すたびに 3,000件を再埋め込みしてしまう。
+  const base = ENCODERS.find((e) => e.id === "qwen3-06b");
+  assert.ok(base);
+  for (const id of [
+    "qwen3-expand-terms",
+    "qwen3-expand-hyde",
+    "qwen3-expand-alias",
+    "qwen3-noprefix",
+  ]) {
+    const enc = ENCODERS.find((e) => e.id === id);
+    assert.ok(enc, `${id} が定義されていない`);
+    assert.equal(enc.provider, base.provider, `${id}: provider が違う`);
+    assert.equal(enc.model, base.model, `${id}: model が違う`);
+    assert.equal(enc.docPrefix, base.docPrefix, `${id}: docPrefix が違う`);
+  }
+});
+
+test("拡張エンコーダは expandQuery を持ち、非拡張版は持たない", () => {
+  const byId = new Map(ENCODERS.map((e) => [e.id, e]));
+  assert.equal(byId.get("qwen3-expand-terms")?.expandQuery, "terms");
+  assert.equal(byId.get("qwen3-expand-hyde")?.expandQuery, "hyde");
+  assert.equal(byId.get("qwen3-06b")?.expandQuery, undefined);
+});
+
+test("alias モードは配列を返させる構造化出力になる", () => {
+  const body = buildExpansionRequestBody("m", "p", 256, "aliases");
+  assert.deepEqual(body.format.required, ["aliases"]);
+  assert.equal((body.format.properties as any).aliases.type, "array");
+  // ここでも num_ctx は送らない（AGENTS.md）。
+  assert.equal(/num_ctx/.test(JSON.stringify(body)), false);
+});
+
+test("alias エンコーダは expandQuery=alias を持つ", () => {
+  const enc = ENCODERS.find((e) => e.id === "qwen3-expand-alias");
+  assert.equal(enc?.expandQuery, "alias");
+  // クエリ接頭辞は非拡張版と同じであること（比較対象を揃えるため）。
+  assert.equal(enc?.queryPrefix, ENCODERS.find((e) => e.id === "qwen3-06b")?.queryPrefix);
 });

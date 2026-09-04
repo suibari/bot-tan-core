@@ -184,7 +184,9 @@ export async function searchChannels(opts: {
   const offset = decodeOffset(opts.cursor);
   const [embedding, mutes] = await Promise.all([
     // exact は埋め込みを使わないので Ollama 往復ごと省く。
-    mode === "exact" ? Promise.resolve(null) : embedQuery(q),
+    mode === "exact"
+      ? Promise.resolve(null)
+      : embedQuery(q, { expand: mode === "semantic" }),
     loadMutes(opts.viewerDid),
   ]);
   const textExpr = sql`coalesce(${nagiChannels.name}, '') || ' ' || coalesce(${nagiChannels.description}, '')`;

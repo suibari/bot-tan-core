@@ -1,4 +1,4 @@
-import { embedSearchQuery } from "@bsky-affirmative-bot/database";
+import { embeddingProfile, embedSearchQuery } from "@bsky-affirmative-bot/database";
 import { and, or, sql, type SQL, type SQLWrapper } from "drizzle-orm";
 
 /**
@@ -13,10 +13,7 @@ import { and, or, sql, type SQL, type SQLWrapper } from "drizzle-orm";
  *
  * QUERY_PREFIX を変えたら**必ず一緒に**動かすこと（下記参照）。
  */
-export const SEM_DIST_MAX = (() => {
-  const v = Number(process.env.SEARCH_SEM_DIST_MAX);
-  return Number.isFinite(v) && v > 0 ? v : 0.65;
-})();
+export const semDistMax = (): number => embeddingProfile().semDistMax;
 /**
  * クエリ接頭辞。arctic-embed v2.0 は「クエリ側だけ query: を付ける」設計（文書側は素のまま）。
  *
@@ -48,9 +45,20 @@ const LEX_ONLY_MIN_SIM = 0.1;
  */
 export type SearchMode = "exact" | "semantic" | "hybrid";
 
-/** 検索クエリを埋め込む。空文字や Ollama 不通なら null（呼び出し側は語彙のみにフォールバック）。 */
-export async function embedQuery(q: string): Promise<number[] | null> {
-  return embedSearchQuery(q);
+/**
+ * 検索クエリを埋め込む。空文字や Ollama 不通なら null（呼び出し側は語彙のみにフォールバック）。
+ *
+ * `expand` は略称→正式名称の別名展開（「まどマギ」→「まどマギ 魔法少女まどか☆マギカ」）。
+ * LLM 生成が1回入って約0.8秒かかるので、**あいまい検索（semantic）でだけ有効にする**。
+ * タイプアヘッドが通る hybrid や一致検索では付けないこと。
+ * 効果と設計判断は packages/database/src/queryExpansion.ts と
+ * docs/evaluations/embedding-semantic/ を参照。
+ */
+export async function embedQuery(
+  q: string,
+  opts: { expand?: boolean } = {},
+): Promise<number[] | null> {
+  return embedSearchQuery(q, opts);
 }
 
 /**
@@ -73,7 +81,7 @@ export function hybridConditions(opts: {
     const vec = sql`${`[${embedding.join(",")}]`}::vector`;
     const dist = sql`(${embeddingCol} <=> ${vec})`;
     const match = or(
-      and(sql`${embeddingCol} is not null`, sql`${dist} < ${SEM_DIST_MAX}`),
+      and(sql`${embeddingCol} is not null`, sql`${dist} < ${semDistMax()}`),
       sql`${textExpr} ilike ${like}`,
     )!;
     const semScore = sql`case when ${embeddingCol} is not null then 1 - ${dist} else 0 end`;
@@ -116,10 +124,7 @@ export const SEMANTIC_LIMIT = 10;
  * 距離スケールがモデルごとに違う以上、モデルを替えたら必ず測り直すこと。
  * 取りこぼしのほうが害が大きいので（SEMANTIC_LIMIT が上限を押さえているため）緩めに置く。
  */
-const SEM_REL_MARGIN = (() => {
-  const v = Number(process.env.SEARCH_SEM_REL_MARGIN);
-  return Number.isFinite(v) && v > 0 ? v : 0.08;
-})();
+const semRelMargin = (): number => embeddingProfile().semRelMargin;
 
 /**
  * 距離昇順で取得済みの行を、先頭（最良）からの相対距離で切る。
@@ -132,7 +137,7 @@ export function relativeCut<T>(
 ): T[] {
   const best = rows.length ? distanceOf(rows[0]) : null;
   if (best === null || best === undefined || !Number.isFinite(best)) return rows;
-  const limit = best + SEM_REL_MARGIN;
+  const limit = best + semRelMargin();
   const cut = rows.findIndex((row) => {
     const d = distanceOf(row);
     return d !== null && d !== undefined && Number.isFinite(d) && d > limit;
@@ -152,7 +157,7 @@ export function semanticConditions(opts: {
   q: string;
   embeddingCol: SQLWrapper;
   textExpr: SQLWrapper;
-  /** 既定は SEM_DIST_MAX。プロフィールのように距離感が違う対象だけ差し替える。 */
+  /** 既定は semDistMax()。プロフィールのように距離感が違う対象だけ差し替える。 */
   distMax?: number;
 }): { match: SQL; orderBy: SQL; distance: SQL<number> } | null {
   const { embedding, q, embeddingCol, textExpr } = opts;
@@ -162,7 +167,7 @@ export function semanticConditions(opts: {
   const dist = sql<number>`(${embeddingCol} <=> ${vec})`;
   const match = and(
     sql`${embeddingCol} is not null`,
-    sql`${dist} < ${opts.distMax ?? SEM_DIST_MAX}`,
+    sql`${dist} < ${opts.distMax ?? semDistMax()}`,
     sql`${textExpr} not ilike ${`%${q}%`}`,
   )!;
   return { match, orderBy: sql`${dist} asc`, distance: dist };

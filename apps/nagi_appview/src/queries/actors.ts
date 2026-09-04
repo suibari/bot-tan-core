@@ -1,4 +1,4 @@
-import { db, nagiActors, nagiProfiles } from "@bsky-affirmative-bot/database";
+import { db, embeddingProfile, nagiActors, nagiProfiles } from "@bsky-affirmative-bot/database";
 import { and, asc, eq, ilike, or, sql } from "drizzle-orm";
 import {
   embedQuery,
@@ -35,13 +35,11 @@ export async function resolveActorDid(rawActor: string): Promise<string> {
 
 // プロフィール埋め込み(displayName+description+分析)は短文で距離が出やすいので、投稿より緩めの
 // しきい値を既定にする。env で調整可能。
-// hybridSearch.ts の SEM_DIST_MAX と同じ注意: OLLAMA_QUERY_PREFIX を入れると距離スケールが
-// 約 +0.19 上がるので、接頭辞を有効にするならここも一緒に上げること（0.8 → 0.95）。
+// 値は埋め込みモデルごとの較正テーブル（packages/database/src/embeddingProfiles.ts）が持つ。
+// 接頭辞を入れると距離スケールが約 +0.19 上がるため、接頭辞としきい値は必ずセットで動く
+// 必要があり、テーブルにまとめることでその結合を構造として担保している。
 // この値自体に関連/無関連の選別能力はなく、実際に効いているのは relativeCut と SEMANTIC_LIMIT。
-const ACTOR_SEM_DIST_MAX = (() => {
-  const v = Number(process.env.SEARCH_ACTOR_SEM_DIST_MAX);
-  return Number.isFinite(v) && v > 0 ? v : 0.8;
-})();
+const actorSemDistMax = (): number => embeddingProfile().actorDistMax;
 
 const actorView = ({
   actor,
@@ -98,7 +96,9 @@ export async function searchActors(
 
   // 短すぎるクエリは埋め込みがノイズにしかならないので意味検索をかけない。
   const embedding =
-    query.length >= MIN_SEMANTIC_LEN ? await embedQuery(query) : null;
+    query.length >= MIN_SEMANTIC_LEN
+      ? await embedQuery(query, { expand: mode === "semantic" })
+      : null;
 
   if (mode === "semantic") {
     const conditions = semanticConditions({
@@ -108,7 +108,7 @@ export async function searchActors(
       // 除外は ILIKE 一発ではなく handle/displayName の両方を見る必要があるので、
       // textExpr にはその連結を渡して semanticConditions の not ilike をそのまま効かせる。
       textExpr: sql`coalesce(${nagiActors.handle}, '') || ' ' || coalesce(${nagiProfiles.displayName}, '')`,
-      distMax: ACTOR_SEM_DIST_MAX,
+      distMax: actorSemDistMax(),
     });
     if (!conditions) return { actors: [] };
     const rows = await db
@@ -126,7 +126,7 @@ export async function searchActors(
   // hybrid（既定・タイプアヘッド互換）: 語彙一致と意味近傍を1本にまとめた従来の挙動。
   const vec = embedding ? sql`${`[${embedding.join(",")}]`}::vector` : null;
   const semMatch = vec
-    ? sql`(${nagiProfiles.embedding} is not null and (${nagiProfiles.embedding} <=> ${vec}) < ${ACTOR_SEM_DIST_MAX})`
+    ? sql`(${nagiProfiles.embedding} is not null and (${nagiProfiles.embedding} <=> ${vec}) < ${actorSemDistMax()})`
     : sql`false`;
   const rows = await from()
     .where(and(eq(nagiActors.status, "active"), or(lexical, semMatch)))
