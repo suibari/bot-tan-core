@@ -772,10 +772,13 @@ export function timelineVisibilityFilters(
   if (opts.channelUri) filters.push(eq(nagiPosts.channelUri, opts.channelUri));
   if (opts.tag)
     filters.push(sql`${nagiPosts.tags} @> ARRAY[${opts.tag}]::text[]`);
-  if (opts.affirmation)
+  if (opts.affirmation) {
     filters.push(
       sql`${nagiPostScores.score} >= ${config.affirmationThreshold}`,
     );
+    // 1人1日1投稿。多投稿の人がTLを占有せず、その日の代表作だけが並ぶ。
+    filters.push(dailyBestPerAuthor(opts.viewerDid, ctx.isAdult));
+  }
   if (!opts.group || !opts.actorDid) {
     if (opts.filter === "posts") filters.push(isNull(nagiPosts.replyParentUri));
     if (opts.filter === "replies")
@@ -949,6 +952,68 @@ export async function getTimeline(opts: {
         : undefined,
     hasMore: rows.length > opts.limit,
   };
+}
+
+/**
+ * 全肯定TLの代表選出。**1人1日1投稿**にし、その日いちばんスコアの高いものを残す。
+ *
+ * 並び順は時系列のままなので、`latestThreadActivity` と同じ「自分より良い兄弟が居なければ
+ * 代表」という NOT EXISTS で書く。ページをまたいでも代表が変わらないため、
+ * keyset ページング（indexed_at, uri）をそのまま使える。
+ *
+ * 「日」は **indexed_at の JST 日付**で切る。record_created_at はレコード側の申告値なので、
+ * 日付を散らせば1日1投稿の制限をすり抜けられてしまう。
+ *
+ * 兄弟の条件は本体のフィルタと揃える必要がある。**見えない投稿に代表を取らせると、
+ * その日のその人の投稿が丸ごと消える**（穴があく）ため:
+ * - こっそりはスレッドルートが所有するので、本体と同じ case 式で判定する
+ * - 未成年ビューアに隠す投稿も代表になれない
+ * - スコア未満・削除済み・botの返信はそもそも全肯定TLに出ないので争わせない
+ *
+ * ミュートは考慮しない。著者ごと消えるので、その人の投稿は1件も出ず穴にならない。
+ */
+export function dailyBestPerAuthor(viewerDid: string | undefined, isAdult: boolean): SQL {
+  const viewerMatch = viewerDid ? sql`best.did = ${viewerDid}` : sql`false`;
+  const rootViewerMatch = viewerDid
+    ? sql`best_root.did = ${viewerDid}`
+    : sql`false`;
+  const adultFilter = isAdult
+    ? sql``
+    : sql`
+          and best.moderation_version is not null
+          and not (best.moderation_labels && ${ADULT_LABELS_ARRAY})
+          and not (best.self_labels && ${ADULT_LABELS_ARRAY})`;
+  return sql`
+      not exists (
+        select 1
+          from nagi.posts as best
+          join nagi.post_scores as best_score on best_score.post_uri = best.uri
+         where best.did = ${nagiPosts.did}
+           and best.deleted_at is null
+           and best_score.score >= ${config.affirmationThreshold}
+           and (best.did <> ${config.botDid} or best.reply_parent_uri is null)
+           and (best.indexed_at at time zone 'Asia/Tokyo')::date
+             = (${nagiPosts.indexedAt} at time zone 'Asia/Tokyo')::date
+           and case
+                 when best.reply_root_uri is null
+                   then (not best.kossori or ${viewerMatch})
+                 else coalesce((
+                   select (not best_root.kossori or ${rootViewerMatch})
+                     from nagi.posts as best_root
+                    where best_root.uri = best.reply_root_uri
+                      and best_root.deleted_at is null
+                 ), false)
+               end${adultFilter}
+           and (
+             best_score.score > ${nagiPostScores.score}
+             or (best_score.score = ${nagiPostScores.score}
+                 and best.indexed_at > ${nagiPosts.indexedAt})
+             or (best_score.score = ${nagiPostScores.score}
+                 and best.indexed_at = ${nagiPosts.indexedAt}
+                 and best.uri > ${nagiPosts.uri})
+           )
+      )
+    `;
 }
 
 /** getTimeline の代表選出SQL。純粋なSQL断片として順序仕様の回帰テストにも使う。 */

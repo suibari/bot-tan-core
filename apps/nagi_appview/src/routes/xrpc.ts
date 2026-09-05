@@ -77,10 +77,7 @@ import {
   getCards,
 } from "../queries/cards.js";
 import { getCommunityAffirmations } from "../queries/communityAffirmations.js";
-import {
-  getAffirmationFeed,
-  loadPersonalizationContext,
-} from "../queries/personalizedFeed.js";
+import { loadPersonalizationContext } from "../queries/personalizedFeed.js";
 
 /** 全肯定ニュースの動的枠の件数。一覧の頭に置くので、多いと時系列が押し下げられる。 */
 const NEWS_RECOMMENDATION_LIMIT = 3;
@@ -393,24 +390,14 @@ for (const [nsid, affirmation] of [
 ] as const)
   xrpc.get(`/${nsid}`, optionalServiceAuth(nsid), async (req, res, next) => {
     try {
-      const pageLimit = limit(req.query.limit);
-      const cursor = String(req.query.cursor ?? "") || undefined;
-      // 全肯定TLだけ、時系列の固定枠に興味ベクトル由来の動的枠を差し込む。
-      // 興味ベクトルが無ければ getTimeline をそのまま呼んだのと同じ結果になる。
-      const data = affirmation
-        ? await getAffirmationFeed({
-            limit: pageLimit,
-            cursor,
-            viewerDid: req.viewerDid,
-          })
-        : await getTimeline({
-            limit: pageLimit,
-            cursor,
-            viewerDid: req.viewerDid,
-            affirmation,
-            // 会話グループ化はメイン共有TLのみ。全肯定TLは Phase 2 まで従来表示。
-            group: !affirmation,
-          });
+      const data = await getTimeline({
+        limit: limit(req.query.limit),
+        cursor: String(req.query.cursor ?? "") || undefined,
+        viewerDid: req.viewerDid,
+        affirmation,
+        // 会話グループ化はメイン共有TLのみ。全肯定TLは Phase 2 まで従来表示。
+        group: !affirmation,
+      });
       res
         .set(
           "Cache-Control",

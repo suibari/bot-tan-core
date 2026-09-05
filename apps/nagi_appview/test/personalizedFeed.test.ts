@@ -7,11 +7,7 @@ process.env.NAGI_BOT_DID ??= "did:plc:bot";
 const { db, nagiPosts } = await import("@bsky-affirmative-bot/database");
 const { and } = await import("drizzle-orm");
 const { timelineVisibilityFilters } = await import("../src/queries/timeline.js");
-const {
-  decodeAffirmationCursor,
-  encodeAffirmationCursor,
-  interleave,
-} = await import("../src/queries/personalizedFeed.js");
+const { dailyBestPerAuthor } = await import("../src/queries/timeline.js");
 
 const render = (conditions: any[]) => {
   const rendered = db
@@ -22,10 +18,7 @@ const render = (conditions: any[]) => {
   return { text: rendered.sql.replace(/\s+/g, " "), params: rendered.params };
 };
 
-/**
- * 動的枠は timelineVisibilityFilters を時系列側と共有している。ここが分岐して
- * 条件が1つでも欠けると、隠れているべき投稿が「あなたに近い」として漏れる。
- */
+/** 全肯定TLの可視性条件。ここが欠けると隠れているべき投稿が漏れる。 */
 const affirmationFilters = (opts: {
   viewerDid: string;
   mutes?: { actors: string[]; channels: string[] };
@@ -41,7 +34,7 @@ const affirmationFilters = (opts: {
     },
   );
 
-test("dynamic slots keep other people's kossori threads hidden", () => {
+test("the affirmation feed keeps other people's kossori threads hidden", () => {
   const { text, params } = render(
     affirmationFilters({ viewerDid: "did:plc:self" }),
   );
@@ -53,7 +46,7 @@ test("dynamic slots keep other people's kossori threads hidden", () => {
   assert.ok(params.includes("did:plc:self"));
 });
 
-test("dynamic slots apply actor and channel mutes", () => {
+test("the affirmation feed applies actor and channel mutes", () => {
   const { text, params } = render(
     affirmationFilters({
       viewerDid: "did:plc:self",
@@ -64,7 +57,7 @@ test("dynamic slots apply actor and channel mutes", () => {
   assert.ok(params.some((p) => String(p).includes("at://ch")), text);
 });
 
-test("dynamic slots drop adult and unjudged posts for minors", () => {
+test("the affirmation feed drops adult and unjudged posts for minors", () => {
   const { text } = render(
     affirmationFilters({ viewerDid: "did:plc:self", isAdult: false }),
   );
@@ -80,52 +73,52 @@ test("adults are not filtered by the adult conditions", () => {
   assert.equal(text.includes('"nagi"."posts"."moderation_version" is not null'), false);
 });
 
-test("dynamic slots still require the affirmation score threshold", () => {
+test("the affirmation feed requires the score threshold", () => {
   const { text } = render(affirmationFilters({ viewerDid: "did:plc:self" }));
   assert.ok(text.includes('"nagi"."post_scores"."score" >='), text);
 });
 
-test("bot replies never become dynamic slots", () => {
+test("bot replies never appear in the affirmation feed", () => {
   const { text } = render(affirmationFilters({ viewerDid: "did:plc:self" }));
   assert.ok(text.includes('"nagi"."posts"."reply_parent_uri" is null'), text);
 });
 
-test("interleave inserts dynamic items without reordering the timeline", () => {
-  const base = ["a", "b", "c", "d", "e", "f", "g", "h"];
-  const out = interleave(base, ["X", "Y"], 3);
-  assert.deepEqual(out, ["a", "b", "c", "X", "d", "e", "f", "Y", "g", "h"]);
-  // 時系列の相対順序は保たれる。
-  assert.deepEqual(out.filter((v) => !["X", "Y"].includes(v)), base);
+/**
+ * 1人1日1投稿。**見えない投稿に代表を取らせると、その日のその人の投稿が丸ごと消える**
+ * ので、兄弟側にも本体と同じ可視性条件が要る。ここが本命の回帰テスト。
+ */
+test("the daily-best pick only competes against posts the viewer can see", () => {
+  const { text, params } = render([dailyBestPerAuthor("did:plc:self", false)]);
+  // 同一著者・同一JST日で比べる。
+  assert.ok(text.includes("best.did ="), text);
+  assert.ok(text.includes("at time zone 'Asia/Tokyo'"), text);
+  // こっそりはスレッドルートで判定し、ルート未解決なら代表になれない（fail closed）。
+  assert.ok(text.includes("best_root.kossori"), text);
+  assert.ok(text.includes("coalesce("), text);
+  // 未成年ビューアには成人向け・判定待ちを代表にさせない。
+  assert.ok(text.includes("best.moderation_version is not null"), text);
+  // スコア未満・削除済み・botの返信は争いに参加しない。
+  assert.ok(text.includes("best_score.score >="), text);
+  assert.ok(text.includes("best.deleted_at is null"), text);
+  assert.ok(text.includes("best.reply_parent_uri is null"), text);
+  assert.ok(params.includes("did:plc:self"));
 });
 
-test("interleave appends leftovers when the timeline page is short", () => {
-  assert.deepEqual(interleave(["a"], ["X", "Y"], 3), ["a", "X", "Y"]);
+test("adults do not get the adult guard inside the daily-best subquery", () => {
+  const { text } = render([dailyBestPerAuthor("did:plc:self", true)]);
+  assert.equal(text.includes("best.moderation_version is not null"), false);
 });
 
-test("interleave returns the timeline untouched when there is nothing to insert", () => {
-  const base = ["a", "b"];
-  assert.equal(interleave(base, [], 3), base);
+test("the daily-best tie-break is total, so exactly one post survives per day", () => {
+  const { text } = render([dailyBestPerAuthor("did:plc:self", false)]);
+  // スコア → indexed_at → uri の順で必ず決着する（同点で2件残らない）。
+  assert.ok(text.includes("best_score.score >"), text);
+  assert.ok(text.includes("best.indexed_at >"), text);
+  assert.ok(text.includes("best.uri >"), text);
 });
 
-test("affirmation cursor round-trips the dynamic offset", () => {
-  const cursor = encodeAffirmationCursor("BASE", 4);
-  assert.deepEqual(decodeAffirmationCursor(cursor), {
-    base: "BASE",
-    dynOffset: 4,
-  });
-});
-
-test("a legacy timeline cursor is read as the base cursor", () => {
-  // 移行中のクライアントが送ってくる素の時系列カーソル（JSON 配列）。
-  const legacy = Buffer.from(
-    JSON.stringify(["2026-01-01T00:00:00.000Z", "at://post"]),
-  ).toString("base64url");
-  assert.deepEqual(decodeAffirmationCursor(legacy), {
-    base: legacy,
-    dynOffset: 0,
-  });
-});
-
-test("no cursor means the first page and no dynamic offset", () => {
-  assert.deepEqual(decodeAffirmationCursor(undefined), { dynOffset: 0 });
+test("a signed-out viewer never matches the kossori author", () => {
+  const { text, params } = render([dailyBestPerAuthor(undefined, true)]);
+  assert.ok(text.includes("not best.kossori or false"), text);
+  assert.equal(params.some((p) => String(p).startsWith("did:plc:s")), false);
 });

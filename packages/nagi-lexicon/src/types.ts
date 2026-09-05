@@ -381,11 +381,6 @@ export type FeedItem = PostView & {
   botReplyState?: BotReplyState;
   /** group モード時のみ。会話ブロックとして描画するためのデータ。 */
   conversation?: ConversationView;
-  /**
-   * 全肯定フィードの「動的枠」。時系列ではなく興味ベクトルの近さで差し込まれた投稿。
-   * UI のラベル用で、時系列枠には付かない。
-   */
-  recommended?: true;
 };
 export type Page<T> = {
   items: T[];

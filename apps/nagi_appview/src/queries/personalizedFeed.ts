@@ -1,43 +1,16 @@
 /**
- * 全肯定フィード・全肯定ニュースの「動的枠」。
+ * 全肯定ニュースの「動的枠」。ログインユーザーの投稿に近い記事を選ぶための道具立て。
  *
- * 時系列の固定枠はそのまま残し、**自分の直近の投稿のいずれかに cosine で近いもの**を混ぜる。
- * 投稿がまだ無い新規ユーザーは候補ゼロになり、自然に全固定枠へ落ちる。
+ * 全肯定フィードにも同じ動的枠を入れていたが撤去した。母数が小さすぎて「選んでいる」と
+ * 言える状態にならなかったため（本番実測で30日12件しか無く、固定枠8件を除いた残りから
+ * 2件を拾うだけになっていた）。フィードは時系列＋1人1日1投稿に戻してある。
  *
  * 採点に重心（平均ベクトル）を使わない理由は nearestOwnPost のコメントを参照。
- *
- * **可視性はここで書き直さない。** 投稿の候補は timelineVisibilityFilters をそのまま使う。
- * こっそり・ミュート・成人向け・bot返信除外のどれか1つでもズレると、隠れているべき投稿が
- * 動的枠から漏れる。
  */
-import {
-  db,
-  embeddingProfile,
-  nagiNewsReasons,
-  nagiActors,
-  nagiPostScores,
-  nagiPosts,
-  nagiProfiles,
-} from "@bsky-affirmative-bot/database";
-import {
-  and,
-  eq,
-  inArray,
-  isNotNull,
-  ne,
-  notInArray,
-  sql,
-  type SQLWrapper,
-} from "drizzle-orm";
+import { db, nagiNewsReasons } from "@bsky-affirmative-bot/database";
+import { and, eq, inArray, isNotNull, sql, type SQLWrapper } from "drizzle-orm";
 import { viewerIsAdult } from "../services/ageAssurance.js";
-import { loadMutes, type MuteSet } from "./mutes.js";
-import {
-  buildFeedItems,
-  getTimeline,
-  postSelection,
-  timelineVisibilityFilters,
-  type PostRow,
-} from "./timeline.js";
+import { loadMutes } from "./mutes.js";
 
 /**
  * 動的枠に載せる投稿の鮮度。古い投稿が「あなたに近い」として延々と出続けるのを防ぐ。
@@ -45,14 +18,6 @@ import {
  */
 const FEED_WINDOW_DAYS = 30;
 
-/**
- * 距離の絶対ガード。hybridSearch と同じ値を使う。
- *
- * hybridSearch.ts が実測付きで書いているとおり **しきい値そのものに関連/無関連を選り分ける
- * 能力はない**。ここでのガードは「明らかに遠いものを出さない」ためだけのもので、
- * 品質を決めているのは差し込み件数の少なさ（1ページに数件）である。
- */
-const distMax = () => embeddingProfile().semDistMax;
 
 /**
  * 採点に使う「自分の投稿」の本数。
@@ -109,104 +74,6 @@ export async function hasEnoughProbePosts(viewerDid?: string): Promise<boolean> 
 export { nearestOwnPost };
 
 /**
- * 全肯定フィードの動的枠の候補。時系列側とまったく同じ可視性条件で引き、
- * 興味ベクトルに近い順に返す。
- *
- * `offset` はページを跨いだ重複を避けるための送り。距離順は決定的なので、
- * 同じ興味ベクトルであれば 2 ページ目は 1 ページ目の続きになる。
- */
-export async function pickAffirmationRecommendations(opts: {
-  viewerDid: string;
-  limit: number;
-  /** 同じページの時系列枠に既に載っている URI。 */
-  excludeUris: string[];
-  offset: number;
-  mutes: MuteSet;
-  isAdult: boolean;
-}): Promise<PostRow[]> {
-  if (opts.limit <= 0) return [];
-  const dist = nearestOwnPost(opts.viewerDid, nagiPosts.embedding);
-  const filters = timelineVisibilityFilters(
-    { viewerDid: opts.viewerDid, affirmation: true },
-    {
-      mutes: opts.mutes,
-      muteActors: opts.mutes.actors.length > 0,
-      muteChannels: opts.mutes.channels.length > 0,
-      isAdult: opts.isAdult,
-    },
-  );
-  filters.push(
-    isNotNull(nagiPosts.embedding),
-    // 自分の投稿を「あなたに近い」として見せ返さない。重心が自分の投稿から作られている以上、
-    // これが無いと動的枠が自分の投稿で埋まる。
-    ne(nagiPosts.did, opts.viewerDid),
-    sql`${nagiPosts.indexedAt} >= now() - interval '${sql.raw(String(FEED_WINDOW_DAYS))} days'`,
-    sql`${dist} < ${distMax()}`,
-  );
-  if (opts.excludeUris.length)
-    filters.push(notInArray(nagiPosts.uri, opts.excludeUris));
-
-  return db
-    .select(postSelection)
-    .from(nagiPosts)
-    .leftJoin(nagiActors, eq(nagiActors.did, nagiPosts.did))
-    .leftJoin(nagiProfiles, eq(nagiProfiles.did, nagiPosts.did))
-    .leftJoin(nagiPostScores, eq(nagiPostScores.postUri, nagiPosts.uri))
-    .where(and(...filters))
-    .orderBy(sql`${dist} asc`, sql`${nagiPosts.uri} desc`)
-    .limit(opts.limit)
-    .offset(opts.offset);
-}
-
-/**
- * 動的枠を時系列の列へ差し込む。位置は `everyNth` 件ごと（0-indexed で everyNth-1, 2*everyNth-1 …）。
- * 動的枠が足りなければあるぶんだけ差し込む。**時系列の順序は変えない。**
- */
-export function interleave<T>(base: T[], dynamic: T[], everyNth: number): T[] {
-  if (!dynamic.length) return base;
-  const out: T[] = [];
-  const queue = [...dynamic];
-  for (let i = 0; i < base.length; i++) {
-    out.push(base[i]);
-    if ((i + 1) % everyNth === 0 && queue.length) out.push(queue.shift()!);
-  }
-  // 時系列が差し込み位置に届かないほど短いページでは、末尾に付ける。
-  out.push(...queue);
-  return out;
-}
-
-/**
- * 全肯定フィード専用のカーソル。時系列カーソル（encodeCursor の文字列）と動的枠の送りを束ねる。
- *
- * encodeCursor / decodeCursor は多数の呼び出し元が共有しているので触らない。
- * 旧形式（＝素の時系列カーソル）が来たら動的枠の送りを 0 として解釈する。
- */
-export const encodeAffirmationCursor = (base: string, dynOffset: number) =>
-  Buffer.from(JSON.stringify({ b: base, d: dynOffset })).toString("base64url");
-
-export const decodeAffirmationCursor = (
-  cursor?: string,
-): { base?: string; dynOffset: number } => {
-  if (!cursor) return { dynOffset: 0 };
-  try {
-    const parsed = JSON.parse(Buffer.from(cursor, "base64url").toString());
-    if (
-      parsed &&
-      typeof parsed === "object" &&
-      !Array.isArray(parsed) &&
-      typeof parsed.b === "string"
-    )
-      return {
-        base: parsed.b,
-        dynOffset: Number.isInteger(parsed.d) && parsed.d >= 0 ? parsed.d : 0,
-      };
-  } catch {
-    // 旧形式のカーソルは JSON 配列なので、そのまま時系列カーソルとして通す。
-  }
-  return { base: cursor, dynOffset: 0 };
-};
-
-/**
  * 「おすすめの理由」。ローカルLLMが先に判定して nagi.news_reasons に置いたものを読むだけ。
  *
  * ここで距離計算も LLM 呼び出しもしない。前者は尺度が合わず嘘の理由が出るため、
@@ -247,72 +114,3 @@ export async function loadPersonalizationContext(viewerDid?: string) {
   ]);
   return { mutes, isAdult };
 }
-
-/**
- * 何件ごとに動的枠を差し込むか。limit=10・動的枠2件なら 4件目と8件目に入る。
- */
-const INTERLEAVE_EVERY = 3;
-/** 1ページあたりの動的枠の割合（limit の 1/5）。 */
-const DYNAMIC_RATIO = 5;
-
-/**
- * 全肯定フィード（getAffirmation）本体。時系列の固定枠に動的枠を差し込んで返す。
- *
- * ページ全体の件数は limit のまま保つため、時系列側は limit - 動的枠ぶんだけ引く。
- * 時系列カーソルの進みが遅くなるだけで、投稿の取りこぼしは起きない。
- *
- * 動的枠が無い（未ログイン／興味ベクトル未生成／候補ゼロ）ときは、
- * 従来の getTimeline の戻り値と完全に同じものを返す。
- */
-export async function getAffirmationFeed(opts: {
-  limit: number;
-  cursor?: string;
-  viewerDid?: string;
-}): Promise<Awaited<ReturnType<typeof getTimeline>>> {
-  const { base, dynOffset } = decodeAffirmationCursor(opts.cursor);
-  const context = await loadPersonalizationContext(opts.viewerDid);
-  if (!context)
-    return getTimeline({
-      limit: opts.limit,
-      cursor: base,
-      viewerDid: opts.viewerDid,
-      affirmation: true,
-      group: false,
-    });
-
-  const dynamicCount = Math.floor(opts.limit / DYNAMIC_RATIO);
-  const timeline = await getTimeline({
-    limit: Math.max(1, opts.limit - dynamicCount),
-    cursor: base,
-    viewerDid: opts.viewerDid,
-    affirmation: true,
-    group: false,
-    mutes: context.mutes,
-  });
-
-  const rows = await pickAffirmationRecommendations({
-    viewerDid: opts.viewerDid!,
-    limit: dynamicCount,
-    // 同じページの時系列枠との重複だけをここで消す。前のページに出たものと重なる可能性は
-    // 残るが、それを消すには見せた URI を全部カーソルへ積むことになる。クライアントの
-    // Feed.loadMore が既読み込みぶんとの重複を feedKey で落とすので、そちらに任せる。
-    excludeUris: timeline.items.map((item) => item.uri),
-    offset: dynOffset,
-    mutes: context.mutes,
-    isAdult: context.isAdult,
-  });
-  if (!rows.length) return { ...timeline, cursor: nextCursor(timeline.cursor, dynOffset) };
-
-  const dynamic = (
-    await buildFeedItems(rows, opts.viewerDid, true, false, context.mutes)
-  ).map((item) => ({ ...item, recommended: true as const }));
-
-  return {
-    ...timeline,
-    items: interleave(timeline.items, dynamic, INTERLEAVE_EVERY),
-    cursor: nextCursor(timeline.cursor, dynOffset + dynamic.length),
-  };
-}
-
-const nextCursor = (base: string | undefined, dynOffset: number) =>
-  base ? encodeAffirmationCursor(base, dynOffset) : undefined;
