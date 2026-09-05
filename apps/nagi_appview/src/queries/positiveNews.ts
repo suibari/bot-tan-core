@@ -428,8 +428,16 @@ export async function getRecommendedNews(opts: {
   mutes: MuteSet;
 }): Promise<RecommendedNewsView[]> {
   if (opts.limit <= 0) return [];
-  // 重心ではなく「自分の直近の投稿のいずれかとの最短距離」で採点する。
-  // 平均を取ると全員に同じ記事が配られることを本番実測で確認している（nearestOwnPost 参照）。
+  // **テーマが当たった記事だけを出す。** 理由は飾りではなく掲載条件。
+  // 近い順に3件並べるだけだと、実測で大半が「近いが話題は無関係」な記事になり
+  // （本番で判定200ペア中 一致12件）、「あなたに近いかも」という見出しが実態を伴わなかった。
+  // 当たりが無ければセクションごと出さない。
+  const matched = await loadNewsReasons(opts.viewerDid, null);
+  const uris = [...matched.keys()].filter(
+    (uri) => !opts.excludeUris.includes(uri),
+  );
+  if (!uris.length) return [];
+  // 重心ではなく「自分の直近の投稿のいずれかとの最短距離」で並べる（nearestOwnPost 参照）。
   const dist = sql<number>`${nearestOwnPost(opts.viewerDid, nagiNews.embedding)}`;
   const rows = await db
     .select({
@@ -445,6 +453,7 @@ export async function getRecommendedNews(opts: {
     .leftJoin(nagiProfiles, eq(nagiProfiles.did, nagiNews.did))
     .where(
       and(
+        inArray(nagiNews.uri, uris),
         isNull(nagiNews.deletedAt),
         eq(nagiNewsApprovals.status, "approved"),
         eq(nagiNewsApprovals.newsCid, nagiNews.cid),
@@ -455,30 +464,22 @@ export async function getRecommendedNews(opts: {
           eq(nagiActors.status, "active"),
         ),
         isNotNull(nagiNews.embedding),
-        sql`${dist} < ${embeddingProfile().semDistMax}`,
         ...(opts.mutes.actors.length
           ? [notInArray(nagiNews.did, opts.mutes.actors)]
-          : []),
-        ...(opts.excludeUris.length
-          ? [notInArray(nagiNews.uri, opts.excludeUris)]
           : []),
       ),
     )
     .orderBy(sql`${dist} asc`, sql`${nagiNews.uri} desc`)
     .limit(opts.limit);
-  // 裾を引きずるほど精度が落ちるので、検索と同じ相対しきい値で切る。
-  const page = relativeCut(rows, (row) => Number(row.semDistance));
+  const page = rows;
   if (!page.length) return [];
-  const uris = page.map((row) => row.news.uri);
-  const [reactions, reasons] = await Promise.all([
-    getReactionViews(uris, opts.viewerDid),
-    loadNewsReasons(opts.viewerDid, uris),
-  ]);
-  return page.map((row) => {
-    const keyword = reasons.get(row.news.uri);
-    return {
-      ...view(row, opts.lang, reactions.get(row.news.uri) ?? []),
-      ...(keyword ? { reason: { keyword } } : {}),
-    };
-  });
+  const reactions = await getReactionViews(
+    page.map((row) => row.news.uri),
+    opts.viewerDid,
+  );
+  return page.map((row) => ({
+    ...view(row, opts.lang, reactions.get(row.news.uri) ?? []),
+    // uris は matched から作っているので、ここで必ず語が取れる。
+    reason: { keyword: matched.get(row.news.uri)! },
+  }));
 }

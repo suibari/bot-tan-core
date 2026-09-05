@@ -215,9 +215,10 @@ export const decodeAffirmationCursor = (
  */
 export async function loadNewsReasons(
   viewerDid: string,
-  newsUris: string[],
+  /** URI を絞る場合に渡す。null なら「当たったもの全部」。 */
+  newsUris: string[] | null,
 ): Promise<Map<string, string>> {
-  if (!newsUris.length) return new Map();
+  if (newsUris && !newsUris.length) return new Map();
   const rows = await db
     .select({
       newsUri: nagiNewsReasons.newsUri,
@@ -227,7 +228,8 @@ export async function loadNewsReasons(
     .where(
       and(
         eq(nagiNewsReasons.did, viewerDid),
-        inArray(nagiNewsReasons.newsUri, newsUris),
+        isNotNull(nagiNewsReasons.keyword),
+        ...(newsUris ? [inArray(nagiNewsReasons.newsUri, newsUris)] : []),
       ),
     );
   return new Map(

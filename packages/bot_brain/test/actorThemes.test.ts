@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { normalizeMatches, normalizeThemes } from "../src/ai/actorThemes.js";
+import { MAX_MATCH_ARTICLES, normalizeMatches, normalizeThemes } from "../src/ai/actorThemes.js";
 
 test("themes are trimmed, de-duplicated and capped", () => {
   const out = normalizeThemes(
@@ -44,4 +44,12 @@ test("a short or long match array never shifts reasons onto the wrong article", 
 test("malformed match output leaves every article without a reason", () => {
   assert.deepEqual(normalizeMatches("oops", ["猫"], 2), [null, null]);
   assert.deepEqual(normalizeMatches(JSON.stringify({ matches: {} }), ["猫"], 2), [null, null]);
+});
+
+test("生成上限は記事数に比例して確保する", () => {
+  // 30件ぶんの JSON 配列は 256 トークンに収まらない。足りないと配列が途中で切れ、
+  // パースに失敗して全件 null（＝理由が一切出ない）に落ちる。
+  const budget = (n: number) => 128 + n * 16;
+  assert.ok(budget(MAX_MATCH_ARTICLES) >= 500, String(budget(MAX_MATCH_ARTICLES)));
+  assert.ok(budget(3) < budget(30));
 });

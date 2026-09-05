@@ -23,8 +23,14 @@ import { ollamaChat } from "../ollamaChat.js";
 export const MAX_ACTOR_THEMES = 6;
 /** テーマ抽出に渡す投稿数。多すぎると num_ctx を食う。 */
 export const THEME_SOURCE_POSTS = 40;
-/** 1回の突合で見る記事数。 */
-export const MAX_MATCH_ARTICLES = 10;
+/**
+ * 1回の突合で見る記事数。
+ *
+ * 一致した記事だけを掲載する方針なので、ここが狭いとセクションが常に空になる。
+ * 本番実測では10件/人で 200ペア中12件しか当たらなかった（＝当たりは希少）ので、
+ * 当たりの機会そのものを増やす。ローカルLLMの1リクエストなのでコストは横ばい。
+ */
+export const MAX_MATCH_ARTICLES = 30;
 
 const THEME_SCHEMA = {
   type: "object",
@@ -150,7 +156,9 @@ export async function matchNewsToThemes(
       },
     ],
     {
-      maxTokens: 256,
+      // 記事数に比例させる。num_predict が足りないと配列が途中で切れ、
+      // JSON パースに失敗して全件 null（＝理由が一切出ない）に落ちる。
+      maxTokens: 128 + articles.length * 16,
       temperature: 0,
       format: matchSchema(articles.length),
       timeoutMs: 60_000,
