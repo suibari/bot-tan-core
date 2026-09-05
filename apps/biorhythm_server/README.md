@@ -150,6 +150,117 @@ daily planは「9時に学校」のような時刻表ではなく、Statusごと
 
 ## Bot MemoryとRAG
 
+### 三層記憶の全体像
+
+botたんの記憶は3つの層でできています。層ごとに「どうやって思い出すか」が違うのが要点で、
+すべてをベクトル検索で引くわけではありません。
+
+| 層 | 実体 | 思い出し方 | 更新のされ方 |
+| --- | --- | --- | --- |
+| 長期（自分） | `SYSTEM_INSTRUCTION` | 常に全部 | ビルド時固定。会話では変わらない |
+| 短期（直近の出来事） | `bot_memory_daily_digests` | **検索しない。時間で引いて常時ロード** | 1日1回workerが前日ぶんを要約 |
+| 中期（関係の記憶） | `bot_memory_documents` | ベクトル+全文のハイブリッド検索 | 会話のたびに追記、workerが埋め込み・印象度を付与 |
+
+**短期をベクトル検索で引かないのが設計上の分かれ目です。**「直近に何があったか」を
+類似度で引くと、いまの話に似ていない出来事はそもそも候補に出てきません。つまり
+直近を忘れます。そこで日次ダイジェストだけは検索経路の外に置き、`formatBotContext`が
+毎回そのままプロンプトへ載せます。
+
+### 覚える側（in）
+
+```mermaid
+flowchart TB
+  subgraph SRC["入口"]
+    BSKY["Bluesky 返信"]
+    NAGI["Nagi 返信・肯定<br/>（こっそり含む）"]
+    YT["YouTube 配信コメント"]
+    BIO["biorhythm の活動履歴"]
+    RES["リサーチworker<br/>（自前SearXNG）"]
+  end
+
+  BSKY --> DOC
+  NAGI -->|"visibility=public / kossori"| DOC
+  YT -->|"author_id は youtube: 付き"| DOC
+  BIO --> DOC
+  RES -->|"source_type=web_research"| DOC
+
+  DOC[("bot_memory_documents<br/>visibility / salience / embedding")]
+
+  subgraph WK["非同期worker"]
+    EMB["embedding worker"]
+    IMP["印象語 + 印象度 worker"]
+    DIG["日次ダイジェスト worker"]
+  end
+
+  DOC --> EMB
+  EMB -->|"1024次元ベクトル"| DOC
+  DOC --> IMP
+  IMP -->|"salience 0-100<br/>可視範囲を問わず付与"| DOC
+  IMP -->|"印象語は public のみ<br/>（トランザクション内で判定）"| IMPT[("bot_memory_impressions")]
+  DOC -->|"public のみ"| DIG
+  DIG --> DAILY[("bot_memory_daily_digests")]
+
+  IMPT --> PUB["daily plan・定期ポスト<br/>bot-tan.com ダッシュボード"]
+```
+
+こっそりも**覚えます**。ただし公開側へ出る経路（印象語→定期ポスト・ダッシュボード、
+日次ダイジェスト）にはすべて`visibility='public'`の関門があります。印象語の書き分けは
+呼び出し側ではなく`saveBotMemoryImpressions`のトランザクション内で行うので、将来の
+呼び出し側から回避できません。
+
+### 思い出す側（out）
+
+```mermaid
+flowchart TB
+  POST["ユーザの投稿"] --> KOS{"こっそりスレッド？<br/>正は nagi.posts.kossori"}
+  KOS -->|"はい: kossoriSubjectKey = 本人"| CTX["buildMemoryContext"]
+  KOS -->|"いいえ: 指定しない"| CTX
+
+  CTX --> VIS["visibilityCondition<br/>既定は public のみ<br/>本人のこっそりだけを加算"]
+
+  VIS --> LEG1["本人レグ<br/>authorId = 相手"]
+  VIS --> LEG2["全体レグ<br/>本人を除く"]
+  VIS --> LEG3["web_research レグ"]
+
+  LEG1 --> RRF["重み付きRRF<br/>本人レグ x2"]
+  LEG2 --> RRF
+
+  LEG1 --> NOTABLE{"salience 70以上<br/>かつ semantic 一致？"}
+  NOTABLE -->|"はい"| OUT4
+  NOTABLE -->|"いいえ"| NONE["渡さない<br/>（節ごとプロンプトに出ない）"]
+
+  LEG1 --> OUT2["own<br/>本人の記憶だけ"]
+  RRF --> RELATED["related<br/>係数で畳んだ順位表"]
+  RELATED --> API["統合API /memory/context<br/>帰属を問わない用途"]
+  LEG2 --> FRIEND["劣化時ガード<br/>semanticRank 必須"] --> OUT3["friend<br/>「〜さんがこう言ってたよ」"]
+  LEG3 --> OUT5["research"]
+
+  DAILY[("bot_memory_daily_digests")] -.->|"検索を通さない"| BOTCTX["formatBotContext"]
+  HIST[("biorhythm_history")] -.-> BOTCTX
+  BOTCTX --> OUT1["この数日の出来事<br/>直近24時間の行動"]
+
+  SYS["SYSTEM_INSTRUCTION"] --> PROMPT
+  OUT1 --> PROMPT["生成プロンプト"]
+  OUT2 --> PROMPT
+  OUT3 --> PROMPT
+  OUT4["notable<br/>「この前の話」最大1件"] --> PROMPT
+  OUT5 --> PROMPT
+  PROMPT --> REPLY["返信"]
+  REPLY --> USAGE[("bot_memory_usages")]
+```
+
+**「この前の話」に触れるかどうかをプロンプトの条件分岐で決めていません。**
+肯定リプライには既に「過去のポストに直接言及するな」という明示的な禁止があるため、
+そこへ「感情が動いているときだけ触れて」を足すとルールが矛盾します。代わりに
+`selectNotableMemory`が条件を満たすときだけ1件返し、返さない日はプロンプトに節ごと
+出ません。供給量で制御しているので、水増しの余地がありません。
+
+**`own`と`related`は別物です。** 図のとおり`own`は本人レグそのもので、`related`は
+本人レグを係数で重み付けして全体レグと畳んだ順位表です。返信の`posts[1..]`は「その人自身の
+過去投稿」として扱われるスロットなので、そこへ`related`を入れると他人の発言を本人が
+言ったことにしてしまいます。返信経路は`own`、帰属を問わない用途（配信の話題出しなど）は
+`related`を使います。
+
 ### エンベディングとRAGの違い
 
 エンベディングは、文章を意味の近さを比較できる数値ベクトルへ変換する技術です。それだけでは「検索して生成へ渡す」仕組み全体にはなりません。
