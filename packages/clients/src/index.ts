@@ -20,6 +20,8 @@ export {
   isPastLocal22,
   localDateStr,
   localHourToUtc,
+  sampleDiaryTimeline,
+  selectDiaryInteractionTexts,
 } from './diaryUtils.js';
 export { MemoryService, initializeDatabases } from '@bsky-affirmative-bot/database';
 export {

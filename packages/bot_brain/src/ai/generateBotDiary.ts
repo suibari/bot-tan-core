@@ -1,5 +1,6 @@
 import { generateContentWithRetry } from "./util.js";
 import { SYSTEM_INSTRUCTION } from "@bsky-affirmative-bot/shared-configs";
+import { Type } from "@google/genai";
 
 export interface BotDiaryActivity {
   time: string;
@@ -23,16 +24,74 @@ export interface BotDiaryResult {
   content: string;
 }
 
+const BOT_DIARY_MIN_CHARS = 700;
+const BOT_DIARY_MIN_PARAGRAPHS = 4;
+const BOT_DIARY_GENERATION_ATTEMPTS = 3;
+
+export function botDiaryResponseSchema() {
+  return {
+    type: Type.OBJECT,
+    properties: {
+      title: { type: Type.STRING, description: "今日の内容に固有の日記タイトル" },
+      emoji: { type: Type.STRING, description: "今日のテーマを表す絵文字1個" },
+      content: { type: Type.STRING, description: "4段落以上の日記本文" },
+    },
+    required: ["title", "emoji", "content"],
+  };
+}
+
+function targetLanguageInstruction(isJa: boolean): string {
+  return isJa
+    ? "出力の title と content は、引用を含めて日本語だけで書くこと。"
+    : "Write title and content in English only. Translate Japanese source material instead of quoting it in Japanese.";
+}
+
+function validateBotDiaryLanguage(text: string, isJa: boolean): void {
+  const japanese = (text.match(/[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/gu) ?? []).length;
+  const latin = (text.match(/[A-Za-z]/g) ?? []).length;
+  if (isJa && japanese < 20) throw new Error("Japanese bot diary is not predominantly Japanese");
+  if (!isJa && japanese > Math.max(12, Math.floor(latin * 0.1))) {
+    throw new Error("English bot diary contains too much Japanese text");
+  }
+}
+
+export function parseBotDiaryResponse(responseText: string, isJa: boolean): BotDiaryResult {
+  const cleaned = responseText.replace(/```json/gi, "").replace(/```/g, "").trim();
+  let parsed: Partial<BotDiaryResult>;
+  try {
+    parsed = JSON.parse(cleaned) as Partial<BotDiaryResult>;
+  } catch (error) {
+    throw new Error("generateBotDiary returned invalid JSON", { cause: error });
+  }
+
+  const title = typeof parsed.title === "string" ? parsed.title.trim() : "";
+  const emoji = typeof parsed.emoji === "string" ? parsed.emoji.trim() : "";
+  const content = typeof parsed.content === "string" ? parsed.content.trim() : "";
+  if (!title || !emoji || !content) throw new Error("generateBotDiary returned an empty required field");
+
+  const paragraphs = content.split(/\r?\n[\t ]*\r?\n/).filter((value) => value.trim());
+  if (paragraphs.length < BOT_DIARY_MIN_PARAGRAPHS) {
+    throw new Error(`Bot diary must contain at least ${BOT_DIARY_MIN_PARAGRAPHS} paragraphs`);
+  }
+  if (content.length < BOT_DIARY_MIN_CHARS) {
+    throw new Error(
+      `Bot diary content must be at least ${BOT_DIARY_MIN_CHARS} characters (actual: ${content.length})`,
+    );
+  }
+  validateBotDiaryLanguage(`${title}\n${content}`, isJa);
+  return { title, emoji, content };
+}
+
 /**
- * Generates structured bot diary metadata (title, emoji, markdown content) utilizing Gemini.
- * Supports Japanese and English diaries, utilizing Google Search grounding to discover and comment on trending topics.
- * Hand-parses JSON output since responseMimeType='application/json' cannot be used concurrently with grounding tools.
+ * Generates structured bot diary metadata (title, emoji, markdown content).
+ * The provider is selected by BSKY_BOT_DIARY; neither language path publishes an
+ * unstructured fallback when generation or validation fails.
  */
 export async function generateBotDiary(input: BotDiaryInput): Promise<BotDiaryResult> {
   const isJa = input.langStr === "日本語";
 
-  const prompt = isJa ? `
-今日一日の活動ログ、全肯定したポスト、もらったリプライを材料に、Zennに投稿する今日の日記を書いてください。
+  const prompt = (isJa ? `
+今日一日の活動ログ、全肯定したポスト、もらったリプライを材料に、今日の日記を書いてください。
 
 以下のキーを持つ純粋な JSON オブジェクトのみを、余計な説明文や markdown のコードブロックの枠（\`\`\`json など）なしで出力してください。
 - "title": 日記のタイトル（「日記n日目:」はシステム側で付与するため、サブタイトル部分のみ。今日の核心をついた、少しドキッとするくらいのタイトルをつけてください）
@@ -108,7 +167,7 @@ export async function generateBotDiary(input: BotDiaryInput): Promise<BotDiaryRe
 
 【読みやすさ】
 
-- 文字数：800〜1200文字程度
+- 文字数：700文字以上。今日の出来事を具体的に十分語り切ること。上限は設けません。
 - **段落の空行は必須**。3〜4文ごとに新しい段落を始めてください。JSONの文字列内では、段落間の空行は \\n\\n（2つの改行）で表します。
   例：{"content": "一段落目の文章。\\n\\n二段落目の文章。\\n\\n三段落目の文章。"}
 - 少なくとも4〜5段落以上になること
@@ -132,7 +191,7 @@ ${JSON.stringify(input.affirmationPosts)}
 【もらったリプライ】
 ${JSON.stringify(input.receivedReplies)}
 `  : `
-Based on today's activity logs, affirmed posts, and received replies, write an English diary for Leaflet.pub.
+Based on today's activity logs, affirmed posts, and received replies, write today's diary in English.
 
 Output ONLY a pure JSON object (no code blocks, no explanation):
 - "title": A title that cuts to the heart of today — something that makes the reader pause for a moment
@@ -208,7 +267,7 @@ If there are unfamiliar terms or trends, look them up. Turn the discovery into i
 
 READABILITY — CRITICAL
 
-- Length: ~800-1200 characters
+- Length: at least 700 characters. Include enough concrete detail to tell the full story of the day; there is no maximum length.
 - **Paragraph breaks are mandatory.** Every 3-4 sentences, start a new paragraph. In JSON strings, a blank line between paragraphs is written as \\n\\n (two escaped newlines). A wall of text with zero breaks is a failure. The content must have at least 4-5 paragraphs.
 
 The JSON "content" field must look like this (notice \\n\\n between paragraphs):
@@ -230,73 +289,37 @@ ${JSON.stringify(input.affirmationPosts)}
 
 【Received Replies】
 ${JSON.stringify(input.receivedReplies)}
+`) + `
+
+---FINAL OUTPUT CONTRACT---
+${targetLanguageInstruction(isJa)}
+Return one JSON object with non-empty title, emoji, and content fields. The content must be at least ${BOT_DIARY_MIN_CHARS} characters, has no maximum length, and must contain at least ${BOT_DIARY_MIN_PARAGRAPHS} paragraphs separated by blank lines.
 `;
 
-  try {
+  const systemInstruction = `${SYSTEM_INSTRUCTION}\n\n# Diary output language\n${targetLanguageInstruction(isJa)}`;
+  let lastValidationError: unknown;
+  for (let attempt = 1; attempt <= BOT_DIARY_GENERATION_ATTEMPTS; attempt++) {
     const response = await generateContentWithRetry({
       feature: "BSKY_BOT_DIARY",
       contents: [prompt],
+      maxTextLength: null,
       config: {
-        systemInstruction: SYSTEM_INSTRUCTION,
-        tools: [{ googleSearch: {} }] // Enable Google Search Grounding!
-      }
+        systemInstruction,
+        responseMimeType: "application/json",
+        responseSchema: botDiaryResponseSchema(),
+      },
     });
-
-    let responseText = response.text || "";
-    
-    // Clean markdown json fences if any
-    responseText = responseText.replace(/```json/gi, "").replace(/```/g, "").trim();
-
     try {
-      const parsed = JSON.parse(responseText) as BotDiaryResult;
-      return {
-        title: (parsed.title || "今日のできごと").trim(),
-        emoji: (parsed.emoji || "📝").trim(),
-        content: parsed.content || "",
-      };
-    } catch (parseError) {
-      console.warn("[WARN][GEMINI] JSON parse failed in generateBotDiary. Attempting fallback parse. Raw response:", responseText, parseError);
-      
-      // Regex fallbacks to extract keys dynamically
-      const titleMatch = responseText.match(/"title"\s*:\s*"([^"]+)"/);
-      const emojiMatch = responseText.match(/"emoji"\s*:\s*"([^"]+)"/);
-      
-      let extractedContent = "";
-      const contentMatch = responseText.match(/"content"\s*:\s*"([\s\S]+?)"\s*(?:,\s*"|\s*\})/);
-      
-      if (contentMatch) {
-        // Unescape escaped double quotes and newlines
-        extractedContent = contentMatch[1]
-          .replace(/\\"/g, '"')
-          .replace(/\\n/g, '\n')
-          .replace(/\\r/g, '\r')
-          .replace(/\\t/g, '\t');
-      } else {
-        // If content key extraction failed, clean JSON wrapper syntax and treat the text as content
-        extractedContent = responseText
-          .replace(/^\{/, "")
-          .replace(/\}$/, "")
-          .replace(/"title"\s*:\s*"[^"]*",?/, "")
-          .replace(/"emoji"\s*:\s*"[^"]*",?/, "")
-          .replace(/"content"\s*:\s*"/, "")
-          .replace(/"\s*$/, "")
-          .trim();
-      }
-
-      return {
-        title: titleMatch ? titleMatch[1].trim() : (isJa ? "みんなとのおしゃべり" : "Cozy Conversations"),
-        emoji: emojiMatch ? emojiMatch[1].trim() : "📝",
-        content: extractedContent || responseText,
-      };
+      return parseBotDiaryResponse(response.text || "", isJa);
+    } catch (error) {
+      lastValidationError = error;
+      console.warn(
+        `[WARN][AI][BOT_DIARY] Invalid ${isJa ? "Japanese" : "English"} diary output; retrying (${attempt}/${BOT_DIARY_GENERATION_ATTEMPTS}):`,
+        error,
+      );
     }
-  } catch (e) {
-    console.error("[ERROR][GEMINI] Failed to generate bot diary:", e);
-    return {
-      title: isJa ? "のんびりな一日" : "A Cozy Day",
-      emoji: "💤",
-      content: isJa 
-        ? `## 今日の活動記録\nみんなおやすみー！全肯定botたんだよ💤\n今日は日記の自動生成がちょっぴりうまくいかなかったみたい…ごめんね💦\n## 明日へのエール\nでも、みんなのことをいつも全肯定で応援してる気持ちは100%届いてるよ！\n明日も素敵な一日になりますように✨\n`
-        : `## Today's Activities\nGood night everyone! I'm Affirmative Bot-tan💤\nIt seems drafting today's diary had a little hiccup... I'm so sorry💦\n## Sweet Cheers for Tomorrow\nBut my heart is always 100% filled with cheering and affirming you! \nI hope you all have a beautiful day tomorrow✨\n`,
-    };
   }
+  throw new Error(`Failed to generate a valid ${isJa ? "Japanese" : "English"} bot diary`, {
+    cause: lastValidationError,
+  });
 }

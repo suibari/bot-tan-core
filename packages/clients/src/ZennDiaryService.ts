@@ -20,7 +20,7 @@ export class ZennDiaryService {
     const path = `articles/${slug}.md`;
 
     console.log(`[INFO][DIARY] Gathering logs since ${sinceDate.toISOString()} for ${dateStr}...`);
-    console.log(`[INFO][DIARY] Generating markdown with Gemini for Diary Day ${diaryCount}...`);
+    console.log(`[INFO][DIARY] Generating diary for Diary Day ${diaryCount}...`);
 
     const diaryResult = await generateBotDiary({
       dateStr,

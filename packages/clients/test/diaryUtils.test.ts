@@ -6,6 +6,8 @@ import {
   isPastLocal22,
   localDateStr,
   localHourToUtc,
+  sampleDiaryTimeline,
+  selectDiaryInteractionTexts,
 } from '../src/diaryUtils.js';
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -82,4 +84,27 @@ test('ローカル日付は YYYY-MM-DD でタイムゾーンごとに求まる',
   assert.equal(localDateStr('Asia/Tokyo', utc(22, 0)), '2026-08-16');
   // UTC 01:00 は America/New_York では前日の 21:00
   assert.equal(localDateStr('America/New_York', utc(1, 0)), '2026-08-14');
+});
+
+test('長い日記材料は一日の先頭・中盤・末尾を残して均等に縮める', () => {
+  const values = Array.from({ length: 101 }, (_, index) => index);
+  const sampled = sampleDiaryTimeline(values, 5);
+  assert.deepEqual(sampled, [0, 25, 50, 75, 100]);
+});
+
+test('日記の投稿材料は重複・空白・極端に長い本文を正規化して上限内にする', () => {
+  const selected = selectDiaryInteractionTexts([
+    '  朝の散歩が気持ちよかった  ',
+    '朝の散歩が気持ちよかった',
+    '',
+    undefined,
+    'x'.repeat(40),
+    '昼の読書',
+    '夜のゲーム',
+  ], 4, 20);
+
+  assert.equal(selected.length, 4);
+  assert.equal(selected[0], '朝の散歩が気持ちよかった');
+  assert.equal(selected[1], 'xxxxxxxxxxxxxxxxxxx…');
+  assert.equal(selected[3], '夜のゲーム');
 });

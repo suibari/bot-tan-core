@@ -158,7 +158,7 @@ export class LeafletDiaryService {
     const { dateStr, sinceDate, activityLogs, affirmationPosts, receivedReplies } = await fetchDiaryData(locale);
 
     console.log(`[INFO][LEAFLET] Gathering logs since ${sinceDate.toISOString()} for ${dateStr} (${langLabel})...`);
-    console.log(`[INFO][LEAFLET] Generating ${langLabel} markdown with Gemini for Diary Day ${diaryCount}...`);
+    console.log(`[INFO][LEAFLET] Generating ${langLabel} diary for Diary Day ${diaryCount}...`);
 
     const diaryResult = await generateBotDiary({
       dateStr,
