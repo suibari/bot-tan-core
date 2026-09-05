@@ -28,7 +28,11 @@ import {
   updateSeen,
 } from "../queries/notifications.js";
 import { getDiaries } from "../queries/diaries.js";
-import { getPositiveNews, searchNews } from "../queries/positiveNews.js";
+import {
+  getPositiveNews,
+  getRecommendedNews,
+  searchNews,
+} from "../queries/positiveNews.js";
 import {
   invalidateInstallation,
   invalidateOwnSubscription,
@@ -73,6 +77,13 @@ import {
   getCards,
 } from "../queries/cards.js";
 import { getCommunityAffirmations } from "../queries/communityAffirmations.js";
+import {
+  getAffirmationFeed,
+  loadPersonalizationContext,
+} from "../queries/personalizedFeed.js";
+
+/** 全肯定ニュースの動的枠の件数。一覧の頭に置くので、多いと時系列が押し下げられる。 */
+const NEWS_RECOMMENDATION_LIMIT = 3;
 import { putCommunityAffirmationDismissals } from "../queries/communityAffirmationDismissals.js";
 import {
   deleteDraft,
@@ -382,14 +393,24 @@ for (const [nsid, affirmation] of [
 ] as const)
   xrpc.get(`/${nsid}`, optionalServiceAuth(nsid), async (req, res, next) => {
     try {
-      const data = await getTimeline({
-        limit: limit(req.query.limit),
-        cursor: String(req.query.cursor ?? "") || undefined,
-        viewerDid: req.viewerDid,
-        affirmation,
-        // 会話グループ化はメイン共有TLのみ。全肯定TLは Phase 2 まで従来表示。
-        group: !affirmation,
-      });
+      const pageLimit = limit(req.query.limit);
+      const cursor = String(req.query.cursor ?? "") || undefined;
+      // 全肯定TLだけ、時系列の固定枠に興味ベクトル由来の動的枠を差し込む。
+      // 興味ベクトルが無ければ getTimeline をそのまま呼んだのと同じ結果になる。
+      const data = affirmation
+        ? await getAffirmationFeed({
+            limit: pageLimit,
+            cursor,
+            viewerDid: req.viewerDid,
+          })
+        : await getTimeline({
+            limit: pageLimit,
+            cursor,
+            viewerDid: req.viewerDid,
+            affirmation,
+            // 会話グループ化はメイン共有TLのみ。全肯定TLは Phase 2 まで従来表示。
+            group: !affirmation,
+          });
       res
         .set(
           "Cache-Control",
@@ -753,19 +774,32 @@ xrpc.get(
       const lang = String(req.query.lang ?? "ja");
       if (lang !== "ja" && lang !== "en")
         throw new ApiError(400, "invalid_request", "lang must be ja or en");
+      const cursor = String(req.query.cursor ?? "") || undefined;
+      const page = await getPositiveNews({
+        limit: Math.min(20, limit(req.query.limit)),
+        cursor,
+        lang,
+        viewerDid: req.viewerDid,
+      });
+      // 動的枠は1ページ目だけ。items は時系列のまま（未読判定が items[0] に依存している）。
+      const context = cursor
+        ? null
+        : await loadPersonalizationContext(req.viewerDid);
+      const recommended = context
+        ? await getRecommendedNews({
+            viewerDid: req.viewerDid!,
+            lang,
+            limit: NEWS_RECOMMENDATION_LIMIT,
+            excludeUris: page.items.map((item) => item.uri),
+            mutes: context.mutes,
+          })
+        : [];
       res
         .set(
           "Cache-Control",
           req.viewerDid ? "private, no-store" : "public, max-age=60",
         )
-        .json(
-          await getPositiveNews({
-            limit: Math.min(20, limit(req.query.limit)),
-            cursor: String(req.query.cursor ?? "") || undefined,
-            lang,
-            viewerDid: req.viewerDid,
-          }),
-        );
+        .json(recommended.length ? { ...page, recommended } : page);
     } catch (e) {
       next(e);
     }

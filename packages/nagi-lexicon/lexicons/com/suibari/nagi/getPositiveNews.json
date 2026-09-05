@@ -19,6 +19,7 @@
           "required": ["items", "hasMore"],
           "properties": {
             "items": { "type": "array", "items": { "type": "unknown" } },
+            "recommended": { "type": "array", "items": { "type": "unknown" } },
             "cursor": { "type": "string" },
             "hasMore": { "type": "boolean" }
           }

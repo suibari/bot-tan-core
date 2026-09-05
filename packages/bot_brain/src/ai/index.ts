@@ -31,3 +31,4 @@ export * from './replyGuard.js';
 export * from './generationClient.js';
 export * from './grounding.js';
 export * from './routedGeneration.js';
+export * from './actorThemes.js';

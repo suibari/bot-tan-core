@@ -743,6 +743,114 @@ export function restoreSearchResultOrder<T extends { uri: string }>(
     return item ? [item] : [];
   });
 }
+/**
+ * getTimeline の可視性・絞り込み条件。**カーソル条件と並び順は含まない。**
+ *
+ * 全肯定フィードの「動的枠」（personalizedFeed.ts）が、時系列側とまったく同じ条件で
+ * 候補を引くために切り出してある。こっそり・ミュート・成人向け・bot返信除外のどれか1つでも
+ * ズレると、隠れているべき投稿が動的枠から漏れる。**条件をコピーして2箇所に持たないこと。**
+ */
+export function timelineVisibilityFilters(
+  opts: TimelineFilterOptions,
+  ctx: {
+    mutes: MuteSet;
+    muteActors: boolean;
+    muteChannels: boolean;
+    isAdult: boolean;
+    homeActors?: string[];
+  },
+): any[] {
+  const filters: any[] = [isNull(nagiPosts.deletedAt)];
+  if (opts.actorDid) {
+    if (opts.group)
+      filters.push(profileThreadMatch(opts.actorDid, opts.filter));
+    else filters.push(eq(nagiPosts.did, opts.actorDid));
+  }
+  if (opts.homeDid) {
+    filters.push(...homeTimelineVisibility(opts.homeDid, ctx.homeActors!));
+  }
+  if (opts.channelUri) filters.push(eq(nagiPosts.channelUri, opts.channelUri));
+  if (opts.tag)
+    filters.push(sql`${nagiPosts.tags} @> ARRAY[${opts.tag}]::text[]`);
+  if (opts.affirmation)
+    filters.push(
+      sql`${nagiPostScores.score} >= ${config.affirmationThreshold}`,
+    );
+  if (!opts.group || !opts.actorDid) {
+    if (opts.filter === "posts") filters.push(isNull(nagiPosts.replyParentUri));
+    if (opts.filter === "replies")
+      filters.push(isNotNull(nagiPosts.replyParentUri));
+    if (opts.filter === "media")
+      filters.push(
+        sql`jsonb_array_length(coalesce(${nagiPosts.embedImages}, '[]'::jsonb)) > 0`,
+      );
+  }
+  // ミュート（投稿者・スレッドルート著者・所属CH）。条件の組み立ては検索と共通。
+  filters.push(
+    ...muteVisibility(ctx.mutes, {
+      actors: ctx.muteActors,
+      channels: ctx.muteChannels,
+    }),
+  );
+  // group/共有TLでは bot返信を代表候補から外し、会話バブルとして元投稿にまとめる。
+  // group でないプロフィール返信タブでは bot本人の返信も検索対象なので残す。
+  if (opts.group || !opts.actorDid)
+    filters.push(
+      or(ne(nagiPosts.did, config.botDid), isNull(nagiPosts.replyParentUri)),
+    );
+  // こっそりは返信ごとではなくスレッドルートが所有する。
+  // ルート未解決時に非共有へ倒すのは、壊れた参照によって
+  // 本来こっそりだった返信を共有TLへ露出させないため。
+  if (!opts.actorDid && !opts.channelUri && !opts.homeDid) {
+    const viewerMatch = opts.viewerDid
+      ? sql`${nagiPosts.did} = ${opts.viewerDid}`
+      : sql`false`;
+    const threadRootViewerMatch = opts.viewerDid
+      ? sql`thread_root.did = ${opts.viewerDid}`
+      : sql`false`;
+    filters.push(sql`
+      case
+        when ${nagiPosts.replyRootUri} is null
+          then (not ${nagiPosts.kossori} or ${viewerMatch})
+        else coalesce((
+          select (not thread_root.kossori or ${threadRootViewerMatch})
+          from nagi.posts as thread_root
+          where thread_root.uri = ${nagiPosts.replyRootUri}
+            and thread_root.deleted_at is null
+        ), false)
+      end
+    `);
+    // 将来チャンネル投稿をグローバル/全肯定TLへ流さない方針に変える場合は、
+    // ここに filters.push(isNull(nagiPosts.channelUri)); を1行足すだけでよい。
+  } else if (!opts.homeDid) {
+    filters.push(kossoriVisibility(opts.viewerDid));
+  }
+  // 会話グループ化: 同スレッドに自分より後の共有可視投稿(=非削除・非bot返信)が無い投稿=代表
+  // だけを残す。これで1スレッド1回・最新活動順になる。cursor/orderBy はそのまま代表に効く。
+  // kossori判定は上の case 式が担うので、ここでは重複して書かない。
+  // ミュート著者の投稿は代表になれないので sib からも除く（1つ前へフォールバックさせる）。
+  if (opts.group)
+    filters.push(
+      latestThreadActivity(ctx.mutes, ctx.muteActors, ctx.homeActors),
+    );
+  // 未成年には成人向け・判定待ちを SQL 段階で落とす。hydrate 側でも落とすが、
+  // ページングの件数がずれないようにここで先に外す。
+  filters.push(...adultContentVisibility(ctx.isAdult));
+  return filters;
+}
+
+/** timelineVisibilityFilters が見る範囲だけを切り出した getTimeline の引数。 */
+export type TimelineFilterOptions = {
+  viewerDid?: string;
+  affirmation?: boolean;
+  actorDid?: string;
+  channelUri?: string;
+  tag?: string;
+  filter?: "posts" | "replies" | "media";
+  group?: boolean;
+  homeDid?: string;
+};
+
 export async function getTimeline(opts: {
   limit: number;
   cursor?: string;
@@ -790,7 +898,13 @@ export async function getTimeline(opts: {
     channels: muteChannels ? mutes.channels : [],
   };
   const point = decodeCursor(opts.cursor);
-  const filters: any[] = [isNull(nagiPosts.deletedAt)];
+  const filters = timelineVisibilityFilters(opts, {
+    mutes,
+    muteActors,
+    muteChannels,
+    isAdult: await viewerIsAdult(opts.viewerDid),
+    homeActors,
+  });
   if (point)
     filters.push(
       or(
@@ -798,76 +912,6 @@ export async function getTimeline(opts: {
         and(eq(nagiPosts.indexedAt, point[0]), lt(nagiPosts.uri, point[1])),
       ),
     );
-  if (opts.actorDid) {
-    if (opts.group)
-      filters.push(profileThreadMatch(opts.actorDid, opts.filter));
-    else filters.push(eq(nagiPosts.did, opts.actorDid));
-  }
-  if (opts.homeDid) {
-    filters.push(...homeTimelineVisibility(opts.homeDid, homeActors!));
-  }
-  if (opts.channelUri) filters.push(eq(nagiPosts.channelUri, opts.channelUri));
-  if (opts.tag)
-    filters.push(sql`${nagiPosts.tags} @> ARRAY[${opts.tag}]::text[]`);
-  if (opts.affirmation)
-    filters.push(
-      sql`${nagiPostScores.score} >= ${config.affirmationThreshold}`,
-    );
-  if (!opts.group || !opts.actorDid) {
-    if (opts.filter === "posts") filters.push(isNull(nagiPosts.replyParentUri));
-    if (opts.filter === "replies")
-      filters.push(isNotNull(nagiPosts.replyParentUri));
-    if (opts.filter === "media")
-      filters.push(
-        sql`jsonb_array_length(coalesce(${nagiPosts.embedImages}, '[]'::jsonb)) > 0`,
-      );
-  }
-  // ミュート（投稿者・スレッドルート著者・所属CH）。条件の組み立ては検索と共通。
-  filters.push(
-    ...muteVisibility(mutes, { actors: muteActors, channels: muteChannels }),
-  );
-  // group/共有TLでは bot返信を代表候補から外し、会話バブルとして元投稿にまとめる。
-  // group でないプロフィール返信タブでは bot本人の返信も検索対象なので残す。
-  if (opts.group || !opts.actorDid)
-    filters.push(
-      or(ne(nagiPosts.did, config.botDid), isNull(nagiPosts.replyParentUri)),
-    );
-  // こっそりは返信ごとではなくスレッドルートが所有する。
-  // ルート未解決時に非共有へ倒すのは、壊れた参照によって
-  // 本来こっそりだった返信を共有TLへ露出させないため。
-	if (!opts.actorDid && !opts.channelUri && !opts.homeDid) {
-		const viewerMatch = opts.viewerDid
-			? sql`${nagiPosts.did} = ${opts.viewerDid}`
-			: sql`false`;
-		const threadRootViewerMatch = opts.viewerDid
-			? sql`thread_root.did = ${opts.viewerDid}`
-			: sql`false`;
-		filters.push(sql`
-      case
-        when ${nagiPosts.replyRootUri} is null
-          then (not ${nagiPosts.kossori} or ${viewerMatch})
-        else coalesce((
-          select (not thread_root.kossori or ${threadRootViewerMatch})
-          from nagi.posts as thread_root
-          where thread_root.uri = ${nagiPosts.replyRootUri}
-            and thread_root.deleted_at is null
-        ), false)
-      end
-    `);
-		// 将来チャンネル投稿をグローバル/全肯定TLへ流さない方針に変える場合は、
-		// ここに filters.push(isNull(nagiPosts.channelUri)); を1行足すだけでよい。
-	} else if (!opts.homeDid) {
-		filters.push(kossoriVisibility(opts.viewerDid));
-	}
-  // 会話グループ化: 同スレッドに自分より後の共有可視投稿(=非削除・非bot返信)が無い投稿=代表
-  // だけを残す。これで1スレッド1回・最新活動順になる。cursor/orderBy はそのまま代表に効く。
-  // kossori判定は上の case 式が担うので、ここでは重複して書かない。
-  // ミュート著者の投稿は代表になれないので sib からも除く（1つ前へフォールバックさせる）。
-  if (opts.group)
-    filters.push(latestThreadActivity(mutes, muteActors, homeActors));
-  // 未成年には成人向け・判定待ちを SQL 段階で落とす。hydrate 側でも落とすが、
-  // ページングの件数がずれないようにここで先に外す。
-  filters.push(...adultContentVisibility(await viewerIsAdult(opts.viewerDid)));
   const rows = await db
     .select(postSelection)
     .from(nagiPosts)

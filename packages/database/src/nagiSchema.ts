@@ -365,6 +365,42 @@ export const nagiNewsScreening = nagiSchema.table("news_screening", {
     .defaultNow()
     .notNull(),
 });
+/**
+ * 取り込んだが今回のスロットでは掲載しなかったニュース候補の在庫。
+ *
+ * これまでは NewsData から取った記事のうち、粗選別を通っても MAX_PER_SLOT の枠から
+ * あふれたぶんは**その場で捨てていた**（news_screening は判定結果しか持たず、タイトルも
+ * URL も残らない）。クレジットを払って取得済みの記事を毎回捨てて次のスロットで取り直す形に
+ * なっていて、掲載の母数が上限（日20件）に遠く届かない原因になっていた。
+ *
+ * ここに積んでおくと、次のスロットは NewsData を叩く前に在庫から審査へ回せる。
+ * **在庫は「粗選別を通った未掲載の記事」だけ**。gate が落とした記事（政治・事故・暗い等）は
+ * 入れない。ここを緩めると全肯定ニュースの前提が崩れる。
+ */
+export const nagiNewsCandidates = nagiSchema.table(
+  "news_candidates",
+  {
+    articleId: text("article_id").primaryKey(),
+    normalizedUrl: text("normalized_url"),
+    url: text("url").notNull(),
+    titleJa: text("title_ja").notNull(),
+    description: text("description"),
+    sourceName: text("source_name"),
+    sourceUrl: text("source_url"),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    /** 在庫の賞味期限。過ぎたら掃除する（古いニュースを今さら出さない）。 */
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    /** 掲載に成功したら埋める。以後は在庫から出さない。 */
+    promotedNewsUri: text("promoted_news_uri"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    index("nagi_news_candidates_ready_idx").on(t.promotedNewsUri, t.expiresAt),
+    index("nagi_news_candidates_url_idx").on(t.normalizedUrl),
+  ],
+);
 /** 6時間枠の排他と日次上限集計に使う更新実行記録。 */
 export const nagiNewsUpdateRuns = nagiSchema.table("news_update_runs", {
   slot: timestamp("slot", { withTimezone: true }).primaryKey(),
@@ -727,6 +763,52 @@ export const nagiActorAnalyses = nagiSchema.table("actor_analyses", {
     .defaultNow()
     .notNull(),
 });
+/**
+ * 「おすすめの理由：〜」に出すテーマ。重心は 1024 次元のベクトルなので言葉を持たない。
+ *
+ * 出典は2つ:
+ * - `theme`   … 本人の投稿からローカルLLMが抽出した話題（nagi_bot_server の NagiThemeWorker）
+ * - `hashtag` … 本人が実際に付けたハッシュタグ。明示的に自分で選んだテーマなので併存させる
+ *
+ * **ここに埋め込みは持たせない。** 裸の語のベクトルは記事のベクトルと尺度が合わず
+ * （実測で 0.91〜1.06 に潰れ、順位もほぼ乱数）、距離で突合すると平然と嘘の理由が出る。
+ * 記事との突合はローカルLLMが nagi.news_reasons へ書き出す。
+ */
+export const nagiActorInterestKeywords = nagiSchema.table(
+  "actor_interest_keywords",
+  {
+    did: text("did").notNull(),
+    keyword: text("keyword").notNull(),
+    /** "theme" | "hashtag" */
+    source: text("source").notNull(),
+    /** hashtag のとき、その語を付けた本人の投稿数。theme では null。 */
+    postCount: integer("post_count"),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.did, t.keyword] })],
+);
+/**
+ * 「この人のテーマのうち、この記事はどれに当たるか」のローカルLLM判定結果。
+ *
+ * リクエスト経路でLLMを呼ぶと直列キューが詰まるので、ワーカーが先に計算して置いておく
+ * （モデレーションと同じ「保存してから判定」の形）。`keyword` が NULL なら
+ * 「どのテーマにも当たらない」＝理由を出さない、という判定済みの記録。
+ */
+export const nagiNewsReasons = nagiSchema.table(
+  "news_reasons",
+  {
+    did: text("did").notNull(),
+    newsUri: text("news_uri").notNull(),
+    /** 当たったテーマ。NULL は「当たらないと判定済み」。 */
+    keyword: text("keyword"),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.did, t.newsUri] })],
+);
 /**
  * 自動分析のリースキュー（nagiBotReplyJobs と同型）。エンキューは AppView ingest が担い、
  * 処理は nagi_bot_server の NagiAnalysisWorker が担う。id は冪等キー

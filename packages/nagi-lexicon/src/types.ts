@@ -139,6 +139,17 @@ export type NewsView = {
   submittedBy?: ActorView;
   unavailable?: boolean;
 };
+/**
+ * 全肯定ニュースの「動的枠」。時系列の items とは別枠で返し、items[0] が最新であることを
+ * 崩さない（クライアントの未読判定が items[0] に依存している）。
+ */
+export type RecommendedNewsView = NewsView & {
+  /** 「おすすめの理由：〜」に出す単語。近い単語が無ければ省略する。 */
+  reason?: { keyword: string };
+};
+export type NewsPageOutput = Page<NewsView> & {
+  recommended?: RecommendedNewsView[];
+};
 export type NewsSubmissionPreview = {
   articleId: string;
   url: string;
@@ -370,6 +381,11 @@ export type FeedItem = PostView & {
   botReplyState?: BotReplyState;
   /** group モード時のみ。会話ブロックとして描画するためのデータ。 */
   conversation?: ConversationView;
+  /**
+   * 全肯定フィードの「動的枠」。時系列ではなく興味ベクトルの近さで差し込まれた投稿。
+   * UI のラベル用で、時系列枠には付かない。
+   */
+  recommended?: true;
 };
 export type Page<T> = {
   items: T[];

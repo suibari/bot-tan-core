@@ -11,6 +11,11 @@ export type OllamaChatOptions = {
   temperature?: number;
   /** 既定 30 秒。ローカルとはいえ長文生成は詰まりうる。 */
   timeoutMs?: number;
+  /**
+   * 構造化出力の JSON Schema。渡すと Ollama が形の合った JSON だけを返す。
+   * 分類や抽出のように後段がパースする用途では必ず使うこと（自由文だと前置きが混ざる）。
+   */
+  format?: unknown;
 };
 
 /** OLLAMA_BASE_URL / OLLAMA_MODEL の両方が揃っているときだけローカル推論を使う。 */
@@ -48,6 +53,7 @@ export async function ollamaChat(
         messages,
         stream: false,
         think: false,
+        ...(options.format ? { format: options.format } : {}),
         options: {
           // num_ctx は送らない。サーバの OLLAMA_CONTEXT_LENGTH が唯一の源。
           temperature: options.temperature ?? 0,

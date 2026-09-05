@@ -5,7 +5,11 @@ import {
   nagiNewsApprovals,
   nagiProfiles,
 } from "@bsky-affirmative-bot/database";
-import type { NewsView, Page } from "@bsky-affirmative-bot/nagi-lexicon";
+import type {
+  NewsView,
+  Page,
+  RecommendedNewsView,
+} from "@bsky-affirmative-bot/nagi-lexicon";
 import { and, desc, eq, inArray, isNotNull, isNull, lt, notInArray, or, sql } from "drizzle-orm";
 import { config } from "../config.js";
 import { decodeCursor, encodeCursor, getBotActor } from "./timeline.js";
@@ -19,7 +23,9 @@ import {
   semanticConditions,
   type SearchMode,
 } from "./hybridSearch.js";
-import { loadMutes } from "./mutes.js";
+import { loadMutes, type MuteSet } from "./mutes.js";
+import { loadNewsReasons, nearestOwnPost } from "./personalizedFeed.js";
+import { embeddingProfile } from "@bsky-affirmative-bot/database";
 
 export type NewsLang = "ja" | "en";
 
@@ -402,4 +408,77 @@ export async function getNewsQuoteViews(
       });
   }
   return out;
+}
+
+/**
+ * 全肯定ニュースの「動的枠」。ログインユーザーの興味ベクトルに近い承認済みニュースを返す。
+ *
+ * **items には混ぜない。** クライアントの未読判定が `items[0]` = 最新であることに
+ * 依存しているため（news/unread.svelte.ts）、推薦は別フィールドで返して一覧の時系列を保つ。
+ *
+ * 一覧と違って14日制限は掛けない（searchNews と同じ扱い）。少し前の記事でも、
+ * その人に近いなら拾い直す枠なので。
+ */
+export async function getRecommendedNews(opts: {
+  viewerDid: string;
+  lang: NewsLang;
+  limit: number;
+  /** 一覧の1ページ目に既に載っている URI。 */
+  excludeUris: string[];
+  mutes: MuteSet;
+}): Promise<RecommendedNewsView[]> {
+  if (opts.limit <= 0) return [];
+  // 重心ではなく「自分の直近の投稿のいずれかとの最短距離」で採点する。
+  // 平均を取ると全員に同じ記事が配られることを本番実測で確認している（nearestOwnPost 参照）。
+  const dist = sql<number>`${nearestOwnPost(opts.viewerDid, nagiNews.embedding)}`;
+  const rows = await db
+    .select({
+      news: nagiNews,
+      approval: nagiNewsApprovals,
+      actor: nagiActors,
+      profile: nagiProfiles,
+      semDistance: dist,
+    })
+    .from(nagiNews)
+    .innerJoin(nagiNewsApprovals, eq(nagiNewsApprovals.newsUri, nagiNews.uri))
+    .leftJoin(nagiActors, eq(nagiActors.did, nagiNews.did))
+    .leftJoin(nagiProfiles, eq(nagiProfiles.did, nagiNews.did))
+    .where(
+      and(
+        isNull(nagiNews.deletedAt),
+        eq(nagiNewsApprovals.status, "approved"),
+        eq(nagiNewsApprovals.newsCid, nagiNews.cid),
+        hasTrustedSnapshot,
+        or(
+          eq(nagiNews.did, config.botDid),
+          isNull(nagiActors.did),
+          eq(nagiActors.status, "active"),
+        ),
+        isNotNull(nagiNews.embedding),
+        sql`${dist} < ${embeddingProfile().semDistMax}`,
+        ...(opts.mutes.actors.length
+          ? [notInArray(nagiNews.did, opts.mutes.actors)]
+          : []),
+        ...(opts.excludeUris.length
+          ? [notInArray(nagiNews.uri, opts.excludeUris)]
+          : []),
+      ),
+    )
+    .orderBy(sql`${dist} asc`, sql`${nagiNews.uri} desc`)
+    .limit(opts.limit);
+  // 裾を引きずるほど精度が落ちるので、検索と同じ相対しきい値で切る。
+  const page = relativeCut(rows, (row) => Number(row.semDistance));
+  if (!page.length) return [];
+  const uris = page.map((row) => row.news.uri);
+  const [reactions, reasons] = await Promise.all([
+    getReactionViews(uris, opts.viewerDid),
+    loadNewsReasons(opts.viewerDid, uris),
+  ]);
+  return page.map((row) => {
+    const keyword = reasons.get(row.news.uri);
+    return {
+      ...view(row, opts.lang, reactions.get(row.news.uri) ?? []),
+      ...(keyword ? { reason: { keyword } } : {}),
+    };
+  });
 }
