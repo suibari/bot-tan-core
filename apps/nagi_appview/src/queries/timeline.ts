@@ -773,9 +773,10 @@ export function timelineVisibilityFilters(
   if (opts.tag)
     filters.push(sql`${nagiPosts.tags} @> ARRAY[${opts.tag}]::text[]`);
   if (opts.affirmation) {
-    filters.push(
-      sql`${nagiPostScores.score} >= ${config.affirmationThreshold}`,
-    );
+    // スコアの閾値では絞らない。「その日いちばんスコアの高い1件」を選ぶ方式にしたので、
+    // 閾値で母数を削ると、閾値に届かない日はその人の投稿が丸ごと消えるだけになる。
+    // 候補は「botたんがスコアを付けた投稿」＝肯定された投稿。
+    filters.push(isNotNull(nagiPostScores.score));
     // 1人1日1投稿。多投稿の人がTLを占有せず、その日の代表作だけが並ぶ。
     filters.push(dailyBestPerAuthor(opts.viewerDid, ctx.isAdult));
   }
@@ -968,7 +969,10 @@ export async function getTimeline(opts: {
  * その日のその人の投稿が丸ごと消える**（穴があく）ため:
  * - こっそりはスレッドルートが所有するので、本体と同じ case 式で判定する
  * - 未成年ビューアに隠す投稿も代表になれない
- * - スコア未満・削除済み・botの返信はそもそも全肯定TLに出ないので争わせない
+ * - 削除済み・botの返信はそもそも全肯定TLに出ないので争わせない
+ *
+ * スコアの閾値は見ない（本体でも見ていない）。post_scores との join があるので、
+ * 候補は自動的に「botたんがスコアを付けた投稿」に限られる。
  *
  * ミュートは考慮しない。著者ごと消えるので、その人の投稿は1件も出ず穴にならない。
  */
@@ -990,7 +994,6 @@ export function dailyBestPerAuthor(viewerDid: string | undefined, isAdult: boole
           join nagi.post_scores as best_score on best_score.post_uri = best.uri
          where best.did = ${nagiPosts.did}
            and best.deleted_at is null
-           and best_score.score >= ${config.affirmationThreshold}
            and (best.did <> ${config.botDid} or best.reply_parent_uri is null)
            and (best.indexed_at at time zone 'Asia/Tokyo')::date
              = (${nagiPosts.indexedAt} at time zone 'Asia/Tokyo')::date

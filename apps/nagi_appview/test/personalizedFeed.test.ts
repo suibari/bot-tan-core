@@ -73,9 +73,12 @@ test("adults are not filtered by the adult conditions", () => {
   assert.equal(text.includes('"nagi"."posts"."moderation_version" is not null'), false);
 });
 
-test("the affirmation feed requires the score threshold", () => {
+test("the affirmation feed takes scored posts without a threshold", () => {
+  // 閾値で絞ると、閾値に届かない日はその人の投稿が丸ごと消えるだけになる。
+  // 候補は「botたんがスコアを付けた投稿」で、その中から日ごとの最高を選ぶ。
   const { text } = render(affirmationFilters({ viewerDid: "did:plc:self" }));
-  assert.ok(text.includes('"nagi"."post_scores"."score" >='), text);
+  assert.ok(text.includes('"nagi"."post_scores"."score" is not null'), text);
+  assert.equal(text.includes('"nagi"."post_scores"."score" >='), false);
 });
 
 test("bot replies never appear in the affirmation feed", () => {
@@ -97,8 +100,8 @@ test("the daily-best pick only competes against posts the viewer can see", () =>
   assert.ok(text.includes("coalesce("), text);
   // 未成年ビューアには成人向け・判定待ちを代表にさせない。
   assert.ok(text.includes("best.moderation_version is not null"), text);
-  // スコア未満・削除済み・botの返信は争いに参加しない。
-  assert.ok(text.includes("best_score.score >="), text);
+  // 削除済み・botの返信は争いに参加しない。閾値は本体と同じく見ない。
+  assert.equal(text.includes("best_score.score >="), false);
   assert.ok(text.includes("best.deleted_at is null"), text);
   assert.ok(text.includes("best.reply_parent_uri is null"), text);
   assert.ok(params.includes("did:plc:self"));
