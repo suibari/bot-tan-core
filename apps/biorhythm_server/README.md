@@ -172,7 +172,7 @@ botたんの記憶は3つの層でできています。層ごとに「どうや�
 flowchart TB
   subgraph SRC["入口"]
     BSKY["Bluesky 返信"]
-    NAGI["Nagi 返信・肯定<br/>（こっそり含む）"]
+    NAGI["Nagi 返信<br/>（こっそり含む）"]
     YT["YouTube 配信コメント"]
     BIO["biorhythm の活動履歴"]
     RES["リサーチworker<br/>（自前SearXNG）"]
