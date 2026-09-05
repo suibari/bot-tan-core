@@ -251,6 +251,37 @@ export function resolveTextLimit(maxTextLength: number | null | undefined): numb
 }
 
 /**
+ * ```json フェンスだけを剥がす。
+ *
+ * responseSchema を渡していてもローカルモデルはフェンスを被せてくることがある。
+ * それだけが理由の失敗を捨てないための最小限の前処理で、
+ * 「JSONでない応答」を救おうとはしない（救うと壊れた本文が本番へ出る）。
+ */
+export function stripJsonFences(text: string): string {
+  return (text ?? '').replace(/```json/gi, '').replace(/```/g, '').trim();
+}
+
+export type LanguageMixVerdict = 'ok' | 'not-japanese' | 'too-much-japanese';
+
+/**
+ * 日本語欄・英語欄に、想定と違う言語が入っていないか。
+ *
+ * `responseSchema` を渡してもモデルが従うとは限らない。実際 2026-09-05 の
+ * おやすみポストは textJa に英語と日本語を両方詰めたものが入って公開された。
+ * 構造が正しく見えても中身が入れ違っている事故は、文字種を数えないと気付けない。
+ *
+ * 判定は「どちらの文字種が優勢か」であって翻訳の正しさではない。固有名詞や
+ * 絵文字で少量混ざるのは正常なので、英語側は仮名・漢字がラテン文字の1割を
+ * 超えたときだけ落とす。
+ */
+export function checkPredominantLanguage(text: string, isJa: boolean): LanguageMixVerdict {
+  const japanese = (text.match(/[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/gu) ?? []).length;
+  const latin = (text.match(/[A-Za-z]/g) ?? []).length;
+  if (isJa) return japanese < 20 ? 'not-japanese' : 'ok';
+  return japanese > Math.max(12, Math.floor(latin * 0.1)) ? 'too-much-japanese' : 'ok';
+}
+
+/**
  * POST_TEXT_LIMITを超える場合はリトライするgenerateContentのラッパー
  * userinfo が渡された場合、プロンプトの末尾に共通コンテキスト（日時・天気・bot状態）を自動付与する
  *

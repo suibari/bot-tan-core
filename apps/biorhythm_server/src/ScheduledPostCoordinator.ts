@@ -243,42 +243,47 @@ export async function postGoodNight(currentMood: string, botContext?: BotContext
         })))
       : undefined;
 
-    const generated = await generateGoodNight({
-      topFollower: candidate.profile,
-      topPost: candidate.text,
-      topPostNetwork: candidate.network,
-      currentMood,
-      followerMilestone,
-      giftCandidates,
-      botContext,
-    });
-
-    if (generated.textJa) {
-      const texts = buildGoodNightPostTexts({
-        textJa: generated.textJa,
-        textEn: generated.textEn,
-        sourcePost: { network: candidate.network, uri: candidate.uri },
+    // 日英の片方でも欠けたら投稿しない。textEn が空のまま通すと Nagi 側へ英訳が
+    // seed されず、日英が分かれないまま公開されてしまう（2026-09-05 の事故）。
+    // postWhimsical と同じく、3回とも駄目ならその日のおやすみポストは出さない。
+    const generated = await retry(async () => {
+      const result = await generateGoodNight({
+        topFollower: candidate.profile,
+        topPost: candidate.text,
+        topPostNetwork: candidate.network,
+        currentMood,
+        followerMilestone,
+        giftCandidates,
+        botContext,
       });
-      const results = await publish({
-        kind: "good-night",
-        contentByTarget: {
-          bsky: { text: texts.bsky },
-          nagi: {
-            text: texts.nagiJa,
-            langs: ["ja"],
-            ...(texts.nagiEn
-              ? { translations: [{ lang: "en", text: texts.nagiEn }] }
-              : {}),
-          },
-        },
-        sourcePost: { network: candidate.network, uri: candidate.uri, cid: candidate.cid },
-      });
-      if (results.bsky) await MemoryService.setWhimsicalPostRoots([results.bsky.uri]);
-
-      if (giftCandidates?.length && Object.keys(results).length > 0) {
-        const selected = giftCandidates[generated.selectedGiftIndex ?? 0] ?? giftCandidates[0];
-        await MemoryService.updateGiftStatus(selected.id, "introduced");
+      if (!result.textJa || !result.textEn) {
+        throw new Error("Good-night post generation returned incomplete text");
       }
+      return result;
+    }, { retries: 3 });
+
+    const texts = buildGoodNightPostTexts({
+      textJa: generated.textJa,
+      textEn: generated.textEn,
+      sourcePost: { network: candidate.network, uri: candidate.uri },
+    });
+    const results = await publish({
+      kind: "good-night",
+      contentByTarget: {
+        bsky: { text: texts.bsky },
+        nagi: {
+          text: texts.nagiJa,
+          langs: ["ja"],
+          translations: [{ lang: "en", text: texts.nagiEn }],
+        },
+      },
+      sourcePost: { network: candidate.network, uri: candidate.uri, cid: candidate.cid },
+    });
+    if (results.bsky) await MemoryService.setWhimsicalPostRoots([results.bsky.uri]);
+
+    if (giftCandidates?.length && Object.keys(results).length > 0) {
+      const selected = giftCandidates[generated.selectedGiftIndex ?? 0] ?? giftCandidates[0];
+      await MemoryService.updateGiftStatus(selected.id, "introduced");
     }
   } finally {
     if (currentFollowers > 0) await MemoryService.setBotState("last_follower_count", currentFollowers);

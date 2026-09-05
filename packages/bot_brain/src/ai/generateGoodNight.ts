@@ -3,7 +3,13 @@ type ProfileView = AppBskyActorDefs.ProfileView;
 import { Type } from "@google/genai";
 import { SYSTEM_INSTRUCTION, TONE_RULES_JA } from "@bsky-affirmative-bot/shared-configs";
 import type { BotContext } from "@bsky-affirmative-bot/shared-configs";
-import { formatBotContext, generateContentWithRetry, normalizeUrlSpacing } from "./util.js";
+import {
+  checkPredominantLanguage,
+  formatBotContext,
+  generateContentWithRetry,
+  normalizeUrlSpacing,
+  stripJsonFences,
+} from "./util.js";
 
 export interface GoodNightInfo {
   topFollower?: ProfileView,
@@ -52,21 +58,55 @@ export async function generateGoodNight(param: GoodNightInfo): Promise<GoodNight
     }
   });
 
-  const responseText = response.text || "";
-  const cleanText = (text: string) =>
-    normalizeUrlSpacing((text || "").replace(/\[.*?\]/gs, '').trim());
+  return parseGoodNightResponse(response.text || "");
+}
 
+/**
+ * 生成結果を検査して初めて GoodNightResult にする。
+ *
+ * ここでフォールバックを持ってはいけない。以前は JSON.parse 失敗時に生の応答を
+ * まるごと textJa に詰めて返しており、2026-09-05 のおやすみポストは
+ * 「英語本文 + "textJa" + 日本語本文」が1本の投稿として Bluesky と Nagi へ公開された。
+ * textEn が空になるので Nagi 側の英訳 seed も落ち、日英が分かれなくなる。
+ * 壊れた生成は投げて、呼び出し側の retry と「その日は出さない」に委ねる。
+ */
+export function parseGoodNightResponse(responseText: string): GoodNightResult {
+  const cleanText = (text: unknown) =>
+    typeof text === "string" ? normalizeUrlSpacing(text.replace(/\[.*?\]/gs, '').trim()) : "";
+
+  let parsed: { textJa?: unknown; textEn?: unknown; selectedGiftIndex?: unknown };
   try {
-    const parsed = JSON.parse(responseText) as { textJa: string; textEn: string; selectedGiftIndex?: number };
-    return {
-      textJa: cleanText(parsed.textJa),
-      textEn: cleanText(parsed.textEn),
-      selectedGiftIndex: parsed.selectedGiftIndex,
-    };
+    parsed = JSON.parse(stripJsonFences(responseText));
   } catch (e) {
-    console.error("[ERROR][GEMINI] Failed to parse generateGoodNight response JSON:", responseText, e);
-    return { textJa: cleanText(responseText), textEn: "" };
+    throw new Error("generateGoodNight returned invalid JSON", { cause: e });
   }
+
+  const textJa = cleanText(parsed.textJa);
+  const textEn = cleanText(parsed.textEn);
+  if (!textJa || !textEn) throw new Error("generateGoodNight returned an empty required field");
+
+  // フィールド名が本文へ漏れた形。おやすみのあいさつに textJa / textEn と書く理由は
+  // 無いので、文字種の判定より先に、この形だけを名指しで弾く。日英を1つの欄へ
+  // 詰めた生成はこのラベルを区切りに使うことが多く、文字種では優勢な方に隠れて通る。
+  if (/\btext(Ja|En)\b/.test(textJa) || /\btext(Ja|En)\b/.test(textEn)) {
+    throw new Error("generateGoodNight leaked a field name into the post text");
+  }
+
+  // 構造が正しくても中身が入れ違っていることがある。両欄の文字種を数えて弾く。
+  if (checkPredominantLanguage(textJa, true) !== "ok") {
+    throw new Error("generateGoodNight textJa is not predominantly Japanese");
+  }
+  if (checkPredominantLanguage(textEn, false) !== "ok") {
+    throw new Error("generateGoodNight textEn contains too much Japanese text");
+  }
+
+  return {
+    textJa,
+    textEn,
+    ...(typeof parsed.selectedGiftIndex === "number"
+      ? { selectedGiftIndex: parsed.selectedGiftIndex }
+      : {}),
+  };
 }
 
 export const buildGoodNightPrompt = (param: GoodNightInfo) => {
@@ -107,6 +147,7 @@ export const buildGoodNightPrompt = (param: GoodNightInfo) => {
     milestoneInstruction +
     `あいさつのルール:` +
     `* 同じ内容について、日本語メッセージをtextJa、その自然な英語訳をtextEnに出力してください。` +
+    `* **textJaには日本語だけ、textEnには英語だけを書いてください。** 本文に「textJa」「textEn」のようなフィールド名やラベル、前置きを含めてはいけません。1つのフィールドに日英を両方入れることも禁止です。` +
     `* あなたが全肯定されたポスト紹介については、どこに心を動かされたか、フォロワーに説明してください。` +
     sharingInstruction +
     `* ポストを紹介する際はフォロワーを楽しませることを考えてください。**正義感にもとづいて特定个人、団体への攻撃を扇動したりしてはなりません。**` +

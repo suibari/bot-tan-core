@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildGoodNightPrompt } from "../src/ai/generateGoodNight.js";
+import { buildGoodNightPrompt, parseGoodNightResponse } from "../src/ai/generateGoodNight.js";
 
 const base = {
   currentMood: "のんびりしていた",
@@ -46,5 +46,54 @@ test("botContext があれば今日の記憶を、無ければ何も足さない
   assert.doesNotMatch(
     buildGoodNightPrompt({ ...base, topPostNetwork: "bsky" }),
     /botたんの記憶/,
+  );
+});
+
+test("片方の言語に両方を詰めないようプロンプトで明示する", () => {
+  const prompt = buildGoodNightPrompt({ ...base, topPostNetwork: "bsky" });
+
+  assert.match(prompt, /textJaには日本語だけ、textEnには英語だけ/);
+  assert.match(prompt, /フィールド名やラベル、前置きを含めてはいけません/);
+});
+
+const ja = "みんな、おやすみなさい！今日もいい一日だったよ。ゆっくり休んでね！✨";
+const en = "Good night, everyone! Today was a lovely day. Sleep well! ✨";
+
+test("正しい構造化JSONはそのまま日英に分かれる", () => {
+  const result = parseGoodNightResponse(JSON.stringify({ textJa: ja, textEn: en, selectedGiftIndex: 1 }));
+
+  assert.equal(result.textJa, ja);
+  assert.equal(result.textEn, en);
+  assert.equal(result.selectedGiftIndex, 1);
+});
+
+test("```json フェンス付きでも読める", () => {
+  const result = parseGoodNightResponse("```json\n" + JSON.stringify({ textJa: ja, textEn: en }) + "\n```");
+
+  assert.equal(result.textJa, ja);
+  assert.equal(result.textEn, en);
+  assert.equal(result.selectedGiftIndex, undefined);
+});
+
+test("壊れた生成は投稿させず投げる", () => {
+  // 2026-09-05 の現物。ラベル付きプレーンテキストがそのまま1本の投稿として公開された。
+  assert.throws(() => parseGoodNightResponse(`${en}\n\ntextJa\n${ja}`), /invalid JSON/);
+  assert.throws(
+    () => parseGoodNightResponse(JSON.stringify({ textJa: ja, textEn: "" })),
+    /empty required field/,
+  );
+  // 構造は正しいが中身が入れ違っている場合。
+  assert.throws(
+    () => parseGoodNightResponse(JSON.stringify({ textJa: en, textEn: en })),
+    /textJa is not predominantly Japanese/,
+  );
+  assert.throws(
+    () => parseGoodNightResponse(JSON.stringify({ textJa: ja, textEn: ja })),
+    /textEn contains too much Japanese/,
+  );
+  // JSON としては正しいが、ラベルごと1つの欄へ日英を詰めた形。
+  assert.throws(
+    () => parseGoodNightResponse(JSON.stringify({ textJa: `${en}\n\ntextJa\n${ja}`, textEn: en })),
+    /leaked a field name/,
   );
 });

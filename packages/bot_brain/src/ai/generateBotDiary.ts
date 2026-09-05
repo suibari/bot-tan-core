@@ -1,4 +1,4 @@
-import { generateContentWithRetry } from "./util.js";
+import { checkPredominantLanguage, generateContentWithRetry, stripJsonFences } from "./util.js";
 import { SYSTEM_INSTRUCTION } from "@bsky-affirmative-bot/shared-configs";
 import { Type } from "@google/genai";
 
@@ -47,16 +47,15 @@ function targetLanguageInstruction(isJa: boolean): string {
 }
 
 function validateBotDiaryLanguage(text: string, isJa: boolean): void {
-  const japanese = (text.match(/[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/gu) ?? []).length;
-  const latin = (text.match(/[A-Za-z]/g) ?? []).length;
-  if (isJa && japanese < 20) throw new Error("Japanese bot diary is not predominantly Japanese");
-  if (!isJa && japanese > Math.max(12, Math.floor(latin * 0.1))) {
+  const verdict = checkPredominantLanguage(text, isJa);
+  if (verdict === "not-japanese") throw new Error("Japanese bot diary is not predominantly Japanese");
+  if (verdict === "too-much-japanese") {
     throw new Error("English bot diary contains too much Japanese text");
   }
 }
 
 export function parseBotDiaryResponse(responseText: string, isJa: boolean): BotDiaryResult {
-  const cleaned = responseText.replace(/```json/gi, "").replace(/```/g, "").trim();
+  const cleaned = stripJsonFences(responseText);
   let parsed: Partial<BotDiaryResult>;
   try {
     parsed = JSON.parse(cleaned) as Partial<BotDiaryResult>;
