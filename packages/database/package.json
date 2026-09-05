@@ -13,7 +13,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "test": "tsx --test test/*.test.ts",
+    "test": "tsx --test --test-concurrency=1 test/*.test.ts",
     "drizzle:prepare": "node ./scripts/prepareDrizzlePush.mjs",
     "drizzle:push": "pnpm drizzle:prepare && pnpm drizzle-kit push --config=./drizzle.config.cjs"
   },

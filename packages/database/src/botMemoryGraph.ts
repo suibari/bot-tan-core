@@ -27,11 +27,27 @@ import { db } from "./db.js";
 
 /** 何日ぶんの会話を対象にするか。 */
 export const BOT_MEMORY_GRAPH_MAX_WINDOW_DAYS = 365;
+export { MAX_NODE_LIMIT as BOT_MEMORY_GRAPH_MAX_NODES };
 const DEFAULT_WINDOW_DAYS = 365;
 
-/** 描画にもペイロードにも耐える上限。 */
-const DEFAULT_NODE_LIMIT = 120;
-const MAX_NODE_LIMIT = 200;
+/**
+ * 何ノードまで返すか。
+ *
+ * 実測（開発機 / pgvector 0.8.6 / 1200ラベル・4669文書の合成データ）:
+ *
+ *   ノード数   クエリ    ペイロード   描画(1400x950)
+ *      120     135ms       59KB          60fps
+ *      500     245ms      267KB          60fps
+ *     1000    1242ms      558KB        約52fps
+ *     1200    1792ms      678KB
+ *
+ * 超線形なのは類似エッジの総当たり（O(n^2) × 1024次元）だけで、ノード集計も共起も
+ * ほぼ定数時間。**ただしこれは開発機の数字で、本番は Raspberry Pi**。既定を1000に
+ * せず500に置いてあるのはそのため。上げる前に本番で測ること（`?nodes=` で試せる）。
+ * 60秒キャッシュなので、1リクエストが数秒かかる設定にすると DB を踏み続ける。
+ */
+const DEFAULT_NODE_LIMIT = 500;
+const MAX_NODE_LIMIT = 1200;
 
 /**
  * **プライバシー上の必須ガードで、チューニングノブではない。**
@@ -51,7 +67,7 @@ const MIN_OCCURRENCES = 2;
 const MAX_LABEL_LENGTH = 40;
 const UNSAFE_LABEL_PATTERN = /[@＠]|did:|https?:\/\/|\.[a-z]{2,}\//i;
 
-const COOCCURRENCE_EDGE_LIMIT = 600;
+const COOCCURRENCE_EDGE_LIMIT = 8000;
 
 /**
  * 類似エッジのしきい値。
@@ -67,7 +83,7 @@ const COOCCURRENCE_EDGE_LIMIT = 600;
  */
 const SIMILARITY_THRESHOLD = 0.75;
 const SIMILARITY_TOP_K = 4;
-const SIMILARITY_EDGE_LIMIT = 400;
+const SIMILARITY_EDGE_LIMIT = 6000;
 
 /** 重心を取るときに1ラベルあたり読む文書数の上限。 */
 const CENTROID_DOCS_PER_LABEL = 30;
@@ -112,6 +128,10 @@ export type BotMemoryGraphEdge =
 export interface BotMemoryGraph {
   generatedAt: string;
   windowDays: number;
+  /** 実際に返した件数の上限。 */
+  nodeLimit: number;
+  /** 公開できるラベルの総数。nodes.length との差が「入りきらなかった分」。 */
+  totalLabels: number;
   /** 埋め込み重心が取れず、共起エッジだけになったときは false。 */
   similarityAvailable: boolean;
   nodes: BotMemoryGraphNode[];
@@ -145,6 +165,16 @@ export interface BotMemoryGraphSimilarityRow {
   source: string;
   target: string;
   similarity: number;
+}
+
+/** 上限を掛ける前の、公開してよいラベルの数。 */
+export function countPublishableGraphLabels(
+  rows: BotMemoryGraphNodeRow[],
+  minOccurrences = MIN_OCCURRENCES,
+): number {
+  return rows.filter(
+    (row) => row.occurrences >= minOccurrences && isPublishableGraphLabel(row.label),
+  ).length;
 }
 
 /** ラベル自体が発言の断片になっていないか。 */
@@ -222,7 +252,8 @@ export function selectBotMemoryGraphNodes(
 }
 
 function edgeKey(source: string, target: string): string {
-  return source < target ? `${source} ${target}` : `${target} ${source}`;
+  // ラベルには空白が入りうる（"Blue Archive"）ので、区切りに使えない。
+  return source < target ? `${source}\u0000${target}` : `${target}\u0000${source}`;
 }
 
 /**
@@ -272,14 +303,19 @@ export function mergeBotMemoryGraphEdges(
   return edges;
 }
 
-const sourceTypeList = sql.join(
-  IMPRESSION_SOURCE_TYPES.map((sourceType) => sql`${sourceType}`),
-  sql`, `,
-);
+/*
+ * Both of these go over as a single array parameter rather than an inlined
+ * list. A thousand-element `in (...)` is a thousand bind parameters and a
+ * linear scan per row; `= any($1::text[])` is one parameter the planner can
+ * hash.
+ */
+const sourceTypes = [...IMPRESSION_SOURCE_TYPES];
 
-function keyList(keys: string[]) {
-  return sql.join(keys.map((key) => sql`${key}`), sql`, `);
-}
+/**
+ * Drizzle は素の配列を `in (...)` 用のリストへ展開する（`(a, b, c)` になり
+ * `record` として渡る）。`sql.param` で「これは1つの値」だと明示すると、
+ * postgres.js が text[] として送る。
+ */
 
 /**
  * 公開してよい印象語だけを集めた土台。ノード・共起・重心の3クエリが共有する。
@@ -303,7 +339,7 @@ function eligibleCte(windowDays: number) {
           on s.document_id = d.id and s.content_hash = d.content_hash
        where d.deleted_at is null
          and d.visibility = 'public'
-         and d.source_type in (${sourceTypeList})
+         and d.source_type = any(${sql.param(sourceTypes)}::text[])
          and d.occurred_at >= now() - (${windowDays}::int * interval '1 day')
     )
   `;
@@ -354,7 +390,7 @@ async function fetchPronunciations(
     select surface, spoken_form
       from affirmative_bot.bot_memory_pronunciations
      where status = 'active'
-       and lower(surface) in (${keyList(keys)})
+       and lower(surface) = any(${sql.param(keys)}::text[])
   `);
   return rows.map((row) => ({ surface: row.surface, spokenForm: row.spoken_form }));
 }
@@ -365,17 +401,28 @@ async function fetchCooccurrenceEdges(
 ): Promise<BotMemoryGraphCooccurrenceRow[]> {
   if (keys.length < 2) return [];
   const rows = await db.execute<{ source: string; target: string; weight: number }>(sql`
-    with ${eligibleCte(windowDays)}
+    with ${eligibleCte(windowDays)},
+    picked as (
+      select document_id, key from eligible where key = any(${sql.param(keys)}::text[])
+    ),
+    /*
+     * **文書ごとにラベルを畳んでからペアを開く。** eligible どうしを直に自己結合
+     * すると、組み合わせ空間が「全行 × 全行」になる。CTE の行数見積もりは 1 に
+     * なるので planner は nested loop を選び、実測でノード1000件のとき3,390万行を
+     * 結合条件で捨てて 4.6 秒かかっていた。畳めば空間は「1文書に付いたラベル数の
+     * 2乗」に閉じる（実際は数個）。同じ結果で 20ms。
+     */
+    by_document as (
+      select document_id, array_agg(distinct key) as keys from picked group by document_id
+    )
     select a.key as source,
            b.key as target,
-           count(distinct a.document_id)::int as weight
-      from eligible a
-      join eligible b
-        on b.document_id = a.document_id
-       -- 対称な重複と自己ループをここで殺す
-       and a.key < b.key
-     where a.key in (${keyList(keys)})
-       and b.key in (${keyList(keys)})
+           count(*)::int as weight
+      from by_document g,
+           lateral unnest(g.keys) with ordinality as a(key, i),
+           lateral unnest(g.keys) with ordinality as b(key, j)
+     -- 対称な重複と自己ループをここで殺す
+     where a.i < b.j and a.key < b.key
      group by a.key, b.key
      order by weight desc, source, target
      limit ${COOCCURRENCE_EDGE_LIMIT}
@@ -443,7 +490,7 @@ function centroidSourceCtes(windowDays: number, keys: string[]) {
                  ) as rn
             from eligible e
             join affirmative_bot.bot_memory_documents d on d.id = e.document_id
-           where e.key in (${keyList(keys)})
+           where e.key = any(${sql.param(keys)}::text[])
              and d.embedding is not null
              and d.embedding_model = (select model from dominant_model)
         ) ranked
@@ -540,13 +587,14 @@ export async function getBotMemoryGraph(
   );
   const now = options.now ?? new Date();
 
+  const nodeLimit = Math.max(
+    1,
+    Math.min(MAX_NODE_LIMIT, Math.floor(options.nodeLimit ?? DEFAULT_NODE_LIMIT)),
+  );
   const nodeRows = await fetchNodeRows(windowDays);
   // 先にノードを確定させてから、そのキーだけでエッジを引く。エッジ側の
   // 探索範囲がノード数で頭打ちになるので、母集団が増えても費用が跳ねない。
-  const provisional = selectBotMemoryGraphNodes(nodeRows, [], {
-    limit: options.nodeLimit,
-    now,
-  });
+  const provisional = selectBotMemoryGraphNodes(nodeRows, [], { limit: nodeLimit, now });
   const keys = provisional.map((node) => node.id);
 
   const [pronunciations, cooccurrence, similarity] = await Promise.all([
@@ -561,14 +609,14 @@ export async function getBotMemoryGraph(
     fetchSimilarityEdges(windowDays, keys),
   ]);
 
-  const nodes = selectBotMemoryGraphNodes(nodeRows, pronunciations, {
-    limit: options.nodeLimit,
-    now,
-  });
+  const nodes = selectBotMemoryGraphNodes(nodeRows, pronunciations, { limit: nodeLimit, now });
 
   return {
     generatedAt: now.toISOString(),
     windowDays,
+    nodeLimit,
+    // 上限で切る前に、公開に耐えるラベルが何件あったか。
+    totalLabels: countPublishableGraphLabels(nodeRows),
     similarityAvailable: similarity !== null,
     nodes,
     edges: mergeBotMemoryGraphEdges(cooccurrence, similarity ?? [], keys),

@@ -1,5 +1,6 @@
 import { MemoryService } from "@bsky-affirmative-bot/clients";
 import {
+  BOT_MEMORY_GRAPH_MAX_NODES,
   BOT_MEMORY_GRAPH_MAX_WINDOW_DAYS,
   getBotMemoryGraph,
 } from "@bsky-affirmative-bot/database";
@@ -24,13 +25,6 @@ const MAX_HISTORY_DAYS = 365;
 const MAX_TIMELINE_DAYS_BACK = 7;
 const CACHE_TTL_MS = 60_000;
 
-/**
- * 記憶グラフだけ長めに寝かせる。
- *
- * 上限を決めているのは計算コストではなく、**deleted_at で消した記憶が公開ページに
- * 残り続ける時間**のほう。10分はそこから決めた値で、コストを理由に伸ばさないこと。
- */
-const MEMORY_GRAPH_CACHE_TTL_MS = 600_000;
 
 /** タイムラインに打つイベント。件数が多すぎるもの（全肯定・いいね・返信）は除く。 */
 const TIMELINE_EVENT_TYPES = [
@@ -55,13 +49,9 @@ interface CacheEntry {
 
 const cache = new Map<string, CacheEntry>();
 
-async function cached<T>(
-  key: string,
-  load: () => Promise<T>,
-  ttlMs: number = CACHE_TTL_MS,
-): Promise<T> {
+async function cached<T>(key: string, load: () => Promise<T>): Promise<T> {
   const hit = cache.get(key);
-  if (hit && Date.now() - hit.at < ttlMs) return hit.value as Promise<T>;
+  if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.value as Promise<T>;
   const pending = load();
   cache.set(key, { at: Date.now(), value: pending });
   // 失敗を TTL のあいだ配り続けない。次のアクセスで引き直す。
@@ -195,22 +185,34 @@ publicApi.get("/timeline", async (req, res) => {
  * botたんの記憶のネットワークグラフ。bot-tan.com の /memory が読む。
  *
  * **出るのは印象語のラベルと集計値だけ**で、会話の本文・URI・author_id は含まれない
- * （getBotMemoryGraph の冒頭コメントを参照）。days 以外のパラメータを受け付けないのは、
- * 重いクエリの形を手で組み立てられないようにするため。
+ * （getBotMemoryGraph の冒頭コメントを参照）。受け付けるのは days と nodes だけで、
+ * どちらも上限でクランプする。重いクエリの形を手で組み立てられないようにするため。
+ *
+ * 他のルートと同じ60秒キャッシュ。実測でノード400件なら250ms 程度なので、これ以上
+ * 寝かせる理由がない。**キャッシュは「deleted_at で消した記憶が公開ページに残る
+ * 時間」でもある**ので、伸ばすときはコストではなくそちらで判断すること。
  */
 publicApi.get("/memory-graph", async (req, res) => {
-  const requested = Number(req.query.days ?? BOT_MEMORY_GRAPH_MAX_WINDOW_DAYS);
-  if (!Number.isFinite(requested) || requested <= 0) {
+  const requestedDays = Number(req.query.days ?? BOT_MEMORY_GRAPH_MAX_WINDOW_DAYS);
+  if (!Number.isFinite(requestedDays) || requestedDays <= 0) {
     res.status(400).json({ error: "days must be a positive number" });
     return;
   }
-  const days = Math.min(Math.floor(requested), BOT_MEMORY_GRAPH_MAX_WINDOW_DAYS);
+  const days = Math.min(Math.floor(requestedDays), BOT_MEMORY_GRAPH_MAX_WINDOW_DAYS);
+
+  const requestedNodes = req.query.nodes === undefined ? undefined : Number(req.query.nodes);
+  if (requestedNodes !== undefined && (!Number.isFinite(requestedNodes) || requestedNodes <= 0)) {
+    res.status(400).json({ error: "nodes must be a positive number" });
+    return;
+  }
+  const nodes = requestedNodes === undefined
+    ? undefined
+    : Math.min(Math.floor(requestedNodes), BOT_MEMORY_GRAPH_MAX_NODES);
 
   try {
     const payload = await cached(
-      `memory-graph:${days}`,
-      () => getBotMemoryGraph({ windowDays: days }),
-      MEMORY_GRAPH_CACHE_TTL_MS,
+      `memory-graph:${days}:${nodes ?? "default"}`,
+      () => getBotMemoryGraph({ windowDays: days, nodeLimit: nodes }),
     );
     res.json(payload);
   } catch (error) {

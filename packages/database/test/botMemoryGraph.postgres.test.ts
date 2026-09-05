@@ -6,6 +6,11 @@ const databaseUrl = process.env.BOT_MEMORY_TEST_DATABASE_URL;
 
 /**
  * db.ts は import 時に DATABASE_URL を読むので、テストより先に差し替える。
+ *
+ * なお **postgres テストは直列に走らせること**（package.json の test は
+ * `--test-concurrency=1`）。node:test は既定でファイルを並列実行するが、
+ * このファイルと botMemory.postgres.test.ts は同じ1つのDBを truncate し合うので、
+ * 並列だと互いの fixture を消して落ちる。
  * 接続は**ファイル全体で1つ**にして after で閉じる。テストごとに client.end() を
  * 呼ぶと、2件目以降が閉じた接続を掴む（モジュールキャッシュは共有される）。
  */
