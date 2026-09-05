@@ -1,4 +1,8 @@
 import { MemoryService } from "@bsky-affirmative-bot/clients";
+import {
+  BOT_MEMORY_GRAPH_MAX_WINDOW_DAYS,
+  getBotMemoryGraph,
+} from "@bsky-affirmative-bot/database";
 import express from "express";
 import { buildHealthSnapshot } from "./healthMonitor.js";
 import { isJstDateString, jstDateString, jstDayRange } from "./jstDate.js";
@@ -20,6 +24,14 @@ const MAX_HISTORY_DAYS = 365;
 const MAX_TIMELINE_DAYS_BACK = 7;
 const CACHE_TTL_MS = 60_000;
 
+/**
+ * 記憶グラフだけ長めに寝かせる。
+ *
+ * 上限を決めているのは計算コストではなく、**deleted_at で消した記憶が公開ページに
+ * 残り続ける時間**のほう。10分はそこから決めた値で、コストを理由に伸ばさないこと。
+ */
+const MEMORY_GRAPH_CACHE_TTL_MS = 600_000;
+
 /** タイムラインに打つイベント。件数が多すぎるもの（全肯定・いいね・返信）は除く。 */
 const TIMELINE_EVENT_TYPES = [
   "fortune",
@@ -31,19 +43,32 @@ const TIMELINE_EVENT_TYPES = [
   "recap",
 ];
 
-interface CacheEntry<T> {
+interface CacheEntry {
   at: number;
-  value: T;
+  /**
+   * 値ではなく **Promise** を持つ。冷えているところへ同時にアクセスが来ると、
+   * 値キャッシュでは全員が load() を走らせてしまう。/health なら誤差だが、
+   * /memory-graph は1回が重いので、ここで束ねる。
+   */
+  value: Promise<unknown>;
 }
 
-const cache = new Map<string, CacheEntry<unknown>>();
+const cache = new Map<string, CacheEntry>();
 
-async function cached<T>(key: string, load: () => Promise<T>): Promise<T> {
+async function cached<T>(
+  key: string,
+  load: () => Promise<T>,
+  ttlMs: number = CACHE_TTL_MS,
+): Promise<T> {
   const hit = cache.get(key);
-  if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.value as T;
-  const value = await load();
-  cache.set(key, { at: Date.now(), value });
-  return value;
+  if (hit && Date.now() - hit.at < ttlMs) return hit.value as Promise<T>;
+  const pending = load();
+  cache.set(key, { at: Date.now(), value: pending });
+  // 失敗を TTL のあいだ配り続けない。次のアクセスで引き直す。
+  pending.catch(() => {
+    if (cache.get(key)?.value === pending) cache.delete(key);
+  });
+  return pending;
 }
 
 export interface TimelineSegment {
@@ -163,5 +188,33 @@ publicApi.get("/timeline", async (req, res) => {
   } catch (error) {
     console.error("[ERROR][BIO][API] /timeline failed:", error);
     res.status(500).json({ error: "failed to load timeline" });
+  }
+});
+
+/**
+ * botたんの記憶のネットワークグラフ。bot-tan.com の /memory が読む。
+ *
+ * **出るのは印象語のラベルと集計値だけ**で、会話の本文・URI・author_id は含まれない
+ * （getBotMemoryGraph の冒頭コメントを参照）。days 以外のパラメータを受け付けないのは、
+ * 重いクエリの形を手で組み立てられないようにするため。
+ */
+publicApi.get("/memory-graph", async (req, res) => {
+  const requested = Number(req.query.days ?? BOT_MEMORY_GRAPH_MAX_WINDOW_DAYS);
+  if (!Number.isFinite(requested) || requested <= 0) {
+    res.status(400).json({ error: "days must be a positive number" });
+    return;
+  }
+  const days = Math.min(Math.floor(requested), BOT_MEMORY_GRAPH_MAX_WINDOW_DAYS);
+
+  try {
+    const payload = await cached(
+      `memory-graph:${days}`,
+      () => getBotMemoryGraph({ windowDays: days }),
+      MEMORY_GRAPH_CACHE_TTL_MS,
+    );
+    res.json(payload);
+  } catch (error) {
+    console.error("[ERROR][BIO][API] /memory-graph failed:", error);
+    res.status(500).json({ error: "failed to build memory graph" });
   }
 });

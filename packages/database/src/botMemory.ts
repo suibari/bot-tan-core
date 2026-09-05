@@ -515,7 +515,13 @@ export async function saveBotMemoryEmbedding(
   return updated.length > 0;
 }
 
-const IMPRESSION_SOURCE_TYPES: BotMemorySourceType[] = [
+/**
+ * 印象語を抽出する = 公開の記憶グラフに出しうる種別。
+ *
+ * biorhythm（botたん自身の記録）と web_research（外から仕入れた知識）は「誰かとの
+ * 会話の記憶」ではないので含めない。botMemoryGraph も同じ集合を使う。
+ */
+export const IMPRESSION_SOURCE_TYPES: BotMemorySourceType[] = [
   "bsky_affirmed_post",
   "bsky_received_reply",
   "nagi_affirmed_post",
