@@ -92,7 +92,7 @@ pnpm --filter nagi-appview dev
 fixture投入は冪等で、開発専用のユーザー、投稿、会話、チャンネル、ポジティブニュース、リアクション、日記、閲覧者用の非公開データを少量作成・更新します。誤投入防止のため、`NODE_ENV=development`、ループバックのDBホスト、DB名が正確に `nagi_dev` の三条件を満たす場合だけ実行できます。再実行してもfixture以外のローカル行は削除しません。ホスト側ポートは `NAGI_DEV_DB_PORT` で変更でき、その場合は `DATABASE_URL` も合わせて変更します。
 
 ```sh
-ollama pull hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S
+ollama pull hf.co/unsloth/gemma-4-12B-it-qat-GGUF:UD-Q4_K_XL
 ollama pull snowflake-arctic-embed2
 ```
 

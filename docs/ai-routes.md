@@ -9,7 +9,7 @@
 AI_TEXT_PROVIDER=ollama
 AI_GROUNDING_PROVIDER=searxng
 OLLAMA_BASE_URL=http://127.0.0.1:11434/v1
-OLLAMA_MODEL=hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S
+OLLAMA_MODEL=hf.co/unsloth/gemma-4-12B-it-qat-GGUF:UD-Q4_K_XL
 SEARXNG_BASE_URL=http://127.0.0.1:8080
 ```
 
@@ -246,7 +246,7 @@ Nagi のリプライは**失敗するたびに段を上げる再試行ラダー*
 | `gemini-lite` | `MODEL_GEMINI_LITE` | `gemini-2.5-flash-lite` |
 | `gemini-flash` | `MODEL_GEMINI_FLASH` | `gemini-2.5-flash` |
 | `gemini-image` | `MODEL_GEMINI_IMAGE` | `gemini-2.5-flash-image-preview` |
-| `ollama-chat` | `OLLAMA_MODEL` | `hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S` |
+| `ollama-chat` | `OLLAMA_MODEL` | `hf.co/unsloth/gemma-4-12B-it-qat-GGUF:UD-Q4_K_XL` |
 | `ollama-embed` | `OLLAMA_EMBED_MODEL` | `snowflake-arctic-embed2` |
 | `ollama-translate` | `OLLAMA_TRANSLATION_MODEL` | → `OLLAMA_MODEL` → 指定Gemma 4 |
 | `ollama-bot-translate` | `OLLAMA_BOT_TRANSLATION_MODEL` | → `OLLAMA_MODEL` → 指定Gemma 4 |

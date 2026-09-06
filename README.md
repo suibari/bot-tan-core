@@ -92,7 +92,7 @@ pnpm --filter nagi-appview dev
 The seed is idempotent and refreshes a small set of development-only actors, posts, a conversation, a channel, positive news, a reaction, a diary, and private viewer data. As a safety boundary it runs only with `NODE_ENV=development`, a loopback database host, and the exact database name `nagi_dev`. Re-running it does not clear unrelated local rows. Change the host port with `NAGI_DEV_DB_PORT` and update `DATABASE_URL` to match.
 
 ```sh
-ollama pull hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S
+ollama pull hf.co/unsloth/gemma-4-12B-it-qat-GGUF:UD-Q4_K_XL
 ollama pull snowflake-arctic-embed2
 ```
 

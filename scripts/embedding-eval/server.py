@@ -17,7 +17,7 @@ Ollama から取れないものだけをここに載せる:
     EMBED_EVAL_DEVICE   cuda | cpu | auto (既定: auto)
     EMBED_EVAL_FP16     1 なら半精度 (既定: cuda のとき 1)
 
-VRAM の注意: 同じ機で Ollama の gemma-4-26B (12GB) が動いている。ruri-310m +
+VRAM の注意: 同じ機で Ollama の gemma-4-12B QAT (7.4GB) が動いている。ruri-310m +
 bge-m3 + reranker で fp16 約 3GB 積む。余裕がなければ EMBED_EVAL_DEVICE=cpu に
 落とすこと。数千件のコーパスなら CPU でも数分で終わる。
 """

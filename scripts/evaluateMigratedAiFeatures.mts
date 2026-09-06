@@ -36,7 +36,7 @@ import {
 const JAPANESE = { code: "ja", name: "Japanese" } as any;
 const ENGLISH = { code: "en", name: "English" } as any;
 
-const MODEL = "hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S";
+const MODEL = "hf.co/unsloth/gemma-4-12B-it-qat-GGUF:UD-Q4_K_XL";
 const run = process.argv.includes("--run");
 const outputDir = path.resolve("docs/evaluations/ai-migration");
 

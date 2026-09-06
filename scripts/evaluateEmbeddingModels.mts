@@ -105,7 +105,7 @@ const SIDECAR_URL = (
 const JUDGE_MODEL =
   process.env.EMBED_EVAL_JUDGE_MODEL ??
   process.env.OLLAMA_MODEL ??
-  "hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S";
+  "hf.co/unsloth/gemma-4-12B-it-qat-GGUF:UD-Q4_K_XL";
 
 // ---------------------------------------------------------------------------
 // 課金経路のゲート（evaluateLocalModels.mts と同じ方式）

@@ -32,8 +32,22 @@ export type ModelAliasName =
 
 export type AiTextProvider = "ollama" | "gemini";
 
+/**
+ * ローカル生成の既定モデル。
+ *
+ * **同じ Ollama を bot-tan-youtuber（ARDY）と共用している。あちらの LOCAL_LLM_MODEL と
+ * 必ず揃えること。** ずらすと 2 つの runner が立ち、16GB の VRAM に収まらないまま
+ * モデルが交互に読み直される（2026-09-02 の実測で load_tensors が1時間に114回）。
+ *
+ * 2026-09-05 に 26B-A4B の IQ3_S からここへ移した。26B は MoE でアクティブ 4B、
+ * さらに 3bit まで削っていたため、口調は保てても投稿の主体と時制を取り違えていた
+ * （「子供がつけた名前」を本人の手柄にする／「終わらせたら」を「クリアおめでとう」）。
+ * 読み取り評価 12ケース×10回では誤読が 4/120 → 2/120 に半減し、VRAM も
+ * 11.82GB → 7.44GB へ減った。生成速度は 140 → 83 tok/s と落ちる。
+ * 測り直すときは `pnpm reading:evaluate`（scripts/fixtures/readingComprehensionCases.json）。
+ */
 export const DEFAULT_OLLAMA_TEXT_MODEL =
-  "hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S";
+  "hf.co/unsloth/gemma-4-12B-it-qat-GGUF:UD-Q4_K_XL";
 
 /** `OLLAMA_TEXT_CONTEXT_LENGTH` 未設定時の既定。サーバの OLLAMA_CONTEXT_LENGTH と同値。 */
 export const DEFAULT_OLLAMA_TEXT_CONTEXT_LENGTH = 32_768;

@@ -25,10 +25,12 @@ EMBED_EVAL_DEVICE=cpu OMP_NUM_THREADS=12 \
   .venv/bin/uvicorn server:app --host 127.0.0.1 --port 7997
 ```
 
-**この機では CPU で回す。** GPU は 16GB のうち Ollama の gemma-4-26B が 11.8GB を
-占めており、空きは 2GB 強しかない。ruri-310m + bge-m3 + reranker で fp16 約 3GB
-必要なので載らない。無理に載せると gemma が追い出され、同居している全アプリの生成が
-崩れる（AGENTS.md「Ollama の num_ctx」で起きたのと同じ壊れ方）。
+**この機では CPU で回す。** GPU 16GB のうち Ollama の gemma-4-12B QAT が 7.4GB を
+占め、さらに ARDY と Unity が乗る。ruri-310m + bge-m3 + reranker で fp16 約 3GB
+必要で、同時に載せると余裕がほとんど残らない。追い出しが起きると同居している全アプリの
+生成が崩れる（AGENTS.md「Ollama の num_ctx」で起きたのと同じ壊れ方）。
+（2026-09-05 まではモデルが 26B IQ3_S で 11.8GB を占めており、空きは 2GB 強しか
+無かった。12B へ移って余裕は増えたが、CPU で回す方針は変えていない。）
 
 GPU で回したいときは、先に Ollama を止めて VRAM を空け、CUDA 版 torch を入れ直すこと。
 
