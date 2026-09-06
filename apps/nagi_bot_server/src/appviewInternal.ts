@@ -1,4 +1,5 @@
 import type { EmojiView, NagiPost } from "@bsky-affirmative-bot/nagi-lexicon";
+import { loopbackUrlFromPort } from "@bsky-affirmative-bot/shared-configs";
 
 /**
  * AppView のサービス間通信用エンドポイントを叩くヘルパ。
@@ -10,8 +11,8 @@ import type { EmojiView, NagiPost } from "@bsky-affirmative-bot/nagi-lexicon";
  * なので、失敗しても例外を投げずに警告だけ出す。リトライは呼び出し元の本処理を
  * やり直すことになり、Gemini を無駄に叩き直すほうが害が大きい。
  */
-const NAGI_APPVIEW_INTERNAL_URL =
-  process.env.NAGI_APPVIEW_INTERNAL_URL || "http://127.0.0.1:3004";
+export const getNagiAppviewInternalUrl = () =>
+  loopbackUrlFromPort("NAGI_APPVIEW_INTERNAL_PORT", 3004);
 
 async function postInternal(
   path: string,
@@ -19,7 +20,7 @@ async function postInternal(
   logLabel: string,
 ): Promise<boolean> {
   try {
-    const response = await fetch(`${NAGI_APPVIEW_INTERNAL_URL}${path}`, {
+    const response = await fetch(`${getNagiAppviewInternalUrl()}${path}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
@@ -43,7 +44,7 @@ async function postInternal(
  * どこにも残らないため、呼び出し元にリトライさせる必要がある。
  */
 async function postInternalJson<T>(path: string, body: unknown): Promise<T> {
-  const response = await fetch(`${NAGI_APPVIEW_INTERNAL_URL}${path}`, {
+  const response = await fetch(`${getNagiAppviewInternalUrl()}${path}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),

@@ -8,6 +8,7 @@ export { getCurrentEventSet } from "./functions.js";
 export * from "./aiRoutes.js";
 export * from "./aiRetryLadder.js";
 export * from "./ollamaBudget.js";
+export * from "./loopbackUrl.js";
 
 export const NICKNAMES_BOT = [
   "全肯定botたん",

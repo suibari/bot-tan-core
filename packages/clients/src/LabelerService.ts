@@ -1,10 +1,11 @@
 import axios from "axios";
 import dotenv from "dotenv";
+import { loopbackUrlFromPort } from "@bsky-affirmative-bot/shared-configs";
 
 dotenv.config();
 
 const getLabelerPublicUrl = () => process.env.LABELER_PUBLIC_URL || process.env.LABELER_SERVER_URL || "http://127.0.0.1:3400";
-const getLabelerInternalUrl = () => process.env.LABELER_INTERNAL_URL || "http://127.0.0.1:3401";
+export const getLabelerInternalUrl = () => loopbackUrlFromPort("LABELER_INTERNAL_PORT", 3401);
 export const botLabelerManager = {
   /**
    * Upsert a label definition dynamically by calling the internal API (port 3401).
