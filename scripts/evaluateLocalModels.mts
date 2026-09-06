@@ -37,6 +37,7 @@ import path from "node:path";
 import {
   SYSTEM_INSTRUCTION,
   AFFIRMATIVE_REPLY_RUNAWAY_LIMIT,
+  ollamaDefaultTemperature,
   ollamaTextContextLength,
 } from "../packages/shared-configs/src/index.js";
 import { NAGI_LANGUAGES } from "../packages/nagi-lexicon/src/constants.js";
@@ -90,12 +91,21 @@ const geminiBudgetLeft = () => GEMINI_CALL_CAP - geminiCalls;
 // ---------------------------------------------------------------------------
 const argv = process.argv.slice(2);
 const hasFlag = (name: string) => argv.includes(name);
+/**
+ * `--name=value` を読む。**後に書いたものが勝つ。**
+ *
+ * find（＝先勝ち）だと、package.json の script に既定値を書いてある引数を
+ * `pnpm reading:evaluate -- --out=別の場所` で上書きできない。実際それで
+ * 出力先の指定が黙って無視され、採点済みの review.md を上書きする事故が起きた。
+ * 黙って無視されるのが最悪なので、CLI の通例どおり後勝ちにする。
+ */
 const argValue = (name: string) =>
-  argv.find((a) => a.startsWith(`${name}=`))?.slice(name.length + 1);
+  argv.filter((a) => a.startsWith(`${name}=`)).at(-1)?.slice(name.length + 1);
 
 const run = hasFlag("--run");
 const only = argValue("--only"); // reply | translation
 const armFilter = argValue("--arms")?.split(",").filter(Boolean);
+const caseFilter = argValue("--case-ids")?.split(",").filter(Boolean);
 const resume = hasFlag("--resume");
 const withGemini = hasFlag("--with-gemini");
 const replyReps = Number.parseInt(argValue("--reps") ?? "3", 10);
@@ -202,8 +212,16 @@ function adhocArms(): { reply: Arm[]; translation: Arm[] } {
   return { reply, translation };
 }
 
-/** リプライ生成の温度。本番の Gemini 既定（=1.0）に合わせる。分類用の 0 とは別物 */
-const REPLY_TEMPERATURE = 1.0;
+/**
+ * リプライ生成の温度。**本番に追随させる。**
+ *
+ * 以前はここが 1.0 固定だった（Gemini 既定に合わせていた頃の名残）。本番は
+ * `generateOllamaContent` が `ollamaDefaultTemperature()`（既定 0.6）を載せるように
+ * なったので、固定値のままだと本番と違う温度で測ることになる。行為者・時制の
+ * 読み取りは温度で目に見えて変わるため、ここがズレると比較そのものが無意味になる。
+ * `OLLAMA_TEMPERATURE` を変えたら評価も自動的に追随する。
+ */
+const REPLY_TEMPERATURE = ollamaDefaultTemperature();
 /**
  * 本番プロンプトは system+user で約6,200トークン。
  *
@@ -487,6 +505,22 @@ type ReplyCase = {
     noEventEcho?: string[];
     requiredName?: string;
     forbiddenNames?: string[];
+    /**
+     * 読み取りの検査。量子化を下げたときに最初に壊れるのがここなので、
+     * 量子化アームの比較では tone より先にこの数字を見ること。
+     *
+     * - actor "other": 行為者が投稿者本人ではない。本人の手柄にしたら誤り。
+     * - status "pending": まだ終わっていない。完了として祝ったら誤り。
+     * どちらも、正しく読めた証拠（correctEvidence）が1つも出なければ warn にする。
+     */
+    reading?: {
+      actor?: "self" | "other";
+      status?: "done" | "pending";
+      /** 誤読したときにだけ出る言い回し。1つでも出たら hard。 */
+      wrongEvidence?: string[];
+      /** 正しく読めていれば出るはずの語。1つも無ければ warn。 */
+      correctEvidence?: string[];
+    };
   };
 };
 
@@ -555,6 +589,41 @@ const translationTemperature = (item: TranslationCase) => (item.promptKind === "
 // ---------------------------------------------------------------------------
 // 評価
 // ---------------------------------------------------------------------------
+/**
+ * 行為者と時制の読み取り検査。
+ *
+ * 誤りは「本人の手柄にした」「未完了を祝った」の2種類しか見ない。判定は正規表現なので
+ * 誤検知も取りこぼしも出るが、**アーム間で同じ物差しを当てる**ことが目的なので、
+ * 絶対値ではなくアーム同士の差を読むこと。
+ *
+ * wrongEvidence は「誤読したときにしか出ない言い回し」をケースごとに手で書く。
+ * 汎用の禁止語リストにしないのは、同じ投稿の中に本当に完了した別件があれば
+ * 祝うのが正しく、語だけでは切り分けられないため。
+ */
+function checkReading(
+  comment: string,
+  reading: NonNullable<ReplyCase["expect"]>["reading"],
+): Violation[] {
+  if (!reading) return [];
+  const found: Violation[] = [];
+  for (const pattern of reading.wrongEvidence ?? []) {
+    if (new RegExp(pattern).test(comment)) {
+      const code = reading.status === "pending" ? "tense-error" : "actor-error";
+      found.push({ code, detail: `誤読の証拠「${pattern}」`, severity: "hard" });
+      break;
+    }
+  }
+  const evidence = reading.correctEvidence ?? [];
+  if (evidence.length && !evidence.some((pattern) => new RegExp(pattern).test(comment))) {
+    found.push({
+      code: reading.status === "pending" ? "tense-unclear" : "actor-unclear",
+      detail: "正しく読めた証拠が出ない（曖昧に流した可能性）",
+      severity: "warn",
+    });
+  }
+  return found;
+}
+
 function evaluateReply(
   item: ReplyCase,
   result: CallResult,
@@ -663,6 +732,7 @@ function evaluateReply(
       violations.push({ code: "name-drift", detail: `禁止の呼び方「${bad}」`, severity: "hard" });
     }
   }
+  violations.push(...checkReading(comment, expect.reading));
   return { comment, score, violations };
 }
 
@@ -1078,6 +1148,18 @@ async function main(): Promise<void> {
     reply: ReplyCase[];
     translation: TranslationCase[];
   };
+
+  // --case-ids= でケースを絞る（前方一致。`tense-,hearsay-` のように族ごと指定できる）。
+  // 特定の失敗モードだけ反復数を上げて確度を稼ぎたいときに使う。全ケースを回すと
+  // 反復数を上げたぶんだけ人手採点の量が増えてしまう。
+  if (caseFilter?.length) {
+    const match = (id: string) => caseFilter.some((prefix) => id.startsWith(prefix));
+    cases.reply = cases.reply.filter((c) => match(c.id));
+    cases.translation = cases.translation.filter((c) => match(c.id));
+    if (!cases.reply.length && !cases.translation.length) {
+      throw new Error(`--case-ids=${caseFilter.join(",")} に一致するケースが無い`);
+    }
+  }
 
   const adhoc = adhocArms();
   const replyArms = [...DEFAULT_REPLY_ARMS, ...adhoc.reply].filter(

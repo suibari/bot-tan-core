@@ -32,6 +32,36 @@ export const OLLAMA_BUDGET_SAFETY_MARGIN = 128;
  */
 export const OLLAMA_IMAGE_TOKEN_COST = 320;
 
+/**
+ * テキスト生成の既定 temperature。
+ *
+ * ここを持つ理由は「暗黙にしない」こと。以前は `config.temperature` が指定された
+ * ときだけ載せていたので、リプライ生成だけが Modelfile 側の既定（gemma 系は 0.8〜1.0）
+ * で走っていた。いちばん事実の読み取りが要る経路が、いちばん揺れる設定になっていた。
+ *
+ * 0 にはしない。ペルソナの言い回しが毎回同じになって会話として死ぬ。事実の安定と
+ * 口調の自然さの折り合いがこの値で、環境変数で動かせるようにしてある（本番で試した
+ * 結果をコード変更なしで反映できるように）。
+ */
+export const OLLAMA_DEFAULT_TEMPERATURE = 0.6;
+
+/**
+ * 既定 temperature の実効値。**env は遅延で読む**（モジュール読み込み順に依存させない）。
+ * 不正値は既定へ落とす。0 は有効な指定なので `??` ではなく数値検査で判定すること。
+ */
+export function ollamaDefaultTemperature(): number {
+  const raw = process.env.OLLAMA_TEMPERATURE?.trim();
+  if (!raw) return OLLAMA_DEFAULT_TEMPERATURE;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0 || value > 2) {
+    console.warn(
+      `[WARN][OLLAMA] OLLAMA_TEMPERATURE="${raw}" は不正なので既定の ${OLLAMA_DEFAULT_TEMPERATURE} を使う`,
+    );
+    return OLLAMA_DEFAULT_TEMPERATURE;
+  }
+  return value;
+}
+
 /** チャットテンプレートのロールタグ等、メッセージ1件ごとの固定費。 */
 const PER_MESSAGE_OVERHEAD_TOKENS = 8;
 

@@ -13,6 +13,7 @@ import {
   seasonalWorksQueries,
 } from "../src/ai/grounding.js";
 import {
+  OLLAMA_DEFAULT_TEMPERATURE,
   estimateMessagesTokens,
   ollamaPromptBudget,
   ollamaTextContextLength,
@@ -426,4 +427,103 @@ test("SYSTEM_INSTRUCTION・巨大履歴・grounding8000字が同時に来ても�
   );
   assert.equal(body.messages[0].role, "system");
   assert.match(body.messages.at(-1).content, /それ、私です/);
+});
+
+/**
+ * 以前は temperature が指定されたときだけ載せていたので、いちばん事実の読み取りが
+ * 要るリプライ生成が Modelfile 側の既定（gemma 系は 0.8〜1.0）で走っていた。
+ * 「暗黙にしない」ことをここで固定する。
+ */
+test("temperatureは未指定でも既定値を載せる", async () => {
+  const { body } = await captureOllamaRequest({
+    model: "local-test",
+    contents: "hello",
+    config: {},
+  });
+
+  assert.equal(typeof body.options.temperature, "number");
+  assert.equal(body.options.temperature, OLLAMA_DEFAULT_TEMPERATURE);
+  // num_ctx は送らない（AGENTS.md「Ollama の num_ctx」）。既定値の追加で壊していないこと。
+  assert.equal("num_ctx" in body.options, false);
+});
+
+test("呼び出し側の明示指定が既定より優先される", async () => {
+  const { body } = await captureOllamaRequest({
+    model: "local-test",
+    contents: "hello",
+    config: { temperature: 0 },
+  });
+
+  assert.equal(body.options.temperature, 0);
+});
+
+test("OLLAMA_TEMPERATURE で既定を動かせる", async () => {
+  const saved = process.env.OLLAMA_TEMPERATURE;
+  process.env.OLLAMA_TEMPERATURE = "0.35";
+  try {
+    const { body } = await captureOllamaRequest({
+      model: "local-test",
+      contents: "hello",
+      config: {},
+    });
+    assert.equal(body.options.temperature, 0.35);
+  } finally {
+    if (saved === undefined) delete process.env.OLLAMA_TEMPERATURE;
+    else process.env.OLLAMA_TEMPERATURE = saved;
+  }
+});
+
+/**
+ * 調査ブロックと botContext がユーザ投稿の**後ろ**へ積まれると、今回の投稿が
+ * プロンプトの奥へ沈んで主体・時制の取り違えが起きる。anchor: "first" は
+ * それを指示側（contents[0]）へ寄せるためのもの。
+ */
+test("groundingのanchor:firstは調査ブロックを指示側へ置く", async () => {
+  const prepared = await prepareOllamaGrounding(
+    "BSKY_AFFIRMATIVE_REPLY",
+    {
+      model: "local-test",
+      contents: ["指示ブロック", "## ユーザ投稿\n今回のポスト"],
+      config: { tools: [{ googleSearch: {} }] },
+    },
+    {},
+    { researchMemory: "調べてあった事実", anchor: "first" },
+  );
+
+  assert.match(prepared.contents[0], /^指示ブロック/);
+  assert.match(prepared.contents[0], /<grounding_research>/);
+  assert.equal(prepared.contents[1], "## ユーザ投稿\n今回のポスト");
+});
+
+test("anchor未指定なら従来どおり末尾へ積む", async () => {
+  const prepared = await prepareOllamaGrounding(
+    "BSKY_AFFIRMATIVE_REPLY",
+    {
+      model: "local-test",
+      contents: ["指示ブロック", "## ユーザ投稿\n今回のポスト"],
+      config: { tools: [{ googleSearch: {} }] },
+    },
+    {},
+    { researchMemory: "調べてあった事実" },
+  );
+
+  assert.equal(prepared.contents[0], "指示ブロック");
+  assert.match(prepared.contents[1], /<grounding_research>/);
+});
+
+/** 根拠が何も無いときの「知らないと言え」も同じ側へ行くこと。 */
+test("調査結果が無いときの注意書きもanchorに従う", async () => {
+  const prepared = await prepareOllamaGrounding(
+    "BSKY_AFFIRMATIVE_REPLY",
+    {
+      model: "local-test",
+      contents: ["指示ブロック", "## ユーザ投稿\n今回のポスト"],
+      config: { tools: [{ googleSearch: {} }] },
+    },
+    {},
+    { anchor: "first" },
+  );
+
+  assert.match(prepared.contents[0], /知ったかぶり/);
+  assert.equal(prepared.contents[1], "## ユーザ投稿\n今回のポスト");
 });

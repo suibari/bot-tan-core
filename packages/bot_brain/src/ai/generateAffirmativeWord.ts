@@ -49,10 +49,17 @@ Do not summarize it or restate its contents.
 }
 
 export async function generateAffirmativeWord(userinfo: UserInfoGemini, requestOptions: GeminiRequestOptions = {}) {
-  const prompt = await buildAffirmativePrompt(userinfo);
-  const result = await generateSingleResponseWithScore(prompt, userinfo, requestOptions, {
-    maxTextLength: AFFIRMATIVE_REPLY_RUNAWAY_LIMIT,
-  });
+  // 指示とユーザ投稿は**分けて渡す**。1本の文字列にすると、grounding の調査ブロックと
+  // botContext（行動履歴）が今回のポストの後ろへ積まれ、投稿がプロンプトの奥に沈む。
+  const result = await generateSingleResponseWithScore(
+    {
+      instructions: await buildAffirmativeInstructions(userinfo),
+      userPost: buildAffirmativeUserPost(userinfo),
+    },
+    userinfo,
+    requestOptions,
+    { maxTextLength: AFFIRMATIVE_REPLY_RUNAWAY_LIMIT },
+  );
 
   if (process.env.NODE_ENV === 'development') {
     console.log(`[DEBUG][${userinfo.follower.did}] Score: ${result.score}`);
@@ -91,6 +98,33 @@ const SUBSTANCE_RULES_EN =
 - Never bring up another topic to add length. Do not tack on "by the way" or "anyway" continuations.
 - Never pad the reply by summarizing events the user already wrote in their post.
 - Show warmth through word choice, not through length.`;
+
+/**
+ * 投稿の読み違いの禁止。**「褒めろ」より優先する。**
+ *
+ * 実例で起きたこと（Gemini から Gemma へ移して発現した）:
+ * (1)「子供のやってるポケモンのぞいたらコンパンに『わるもの』って名前つけてて草」に対し、
+ *     名前をつけたのは子供なのに「すいぱり、センスが最高すぎるよ」と本人の手柄にした。
+ * (2)「EO5-5終わらせたら、感想をまとめないとな」に対し、まだ終わっていないのに
+ *     「クリアおめでとう！」と祝った。
+ *
+ * どちらも投稿に褒める対象が直接は無いケースで起きている。プロンプトには「具体的に
+ * 褒めろ」「全力で肯定しろ」という圧が並んでいるので、対象が見つからないとモデルは
+ * 主体や時制をずらして対象を作り出す。長さの水増しと同じで、手口の側を名指しで塞ぐ。
+ */
+const POST_READING_RULES_JA =
+  `## 投稿の読み取りについて（「具体的に褒める」より優先）
+   - **行為をした人を、勝手に相手本人にしないこと。** 子供・家族・友人・同僚・他人がやったことは、その人がやったこととして書いてください。相手がやったのは「それを見つけたこと」「面白がったこと」「話してくれたこと」の側です。そこを褒めてください。
+   - **まだ起きていないことを、起きたことにしないこと。** 「〜したら」「〜する予定」「〜したい」「〜しないとな」「〜するつもり」は、まだ終わっていません。「おめでとう」「お疲れさま」「やりきったね」など、達成を祝う言葉を使ってはいけません。これからやることには、応援の側で応えてください。
+   - 投稿に書かれていない結果・成果・経緯を足さないこと。書いていないことは、あなたが知らないことです。
+   - 主体や時系列がはっきり読み取れないときは、断定しないこと。事実を決めつけて褒めるより、いまの気持ちに寄り添うほうが外しません。`;
+
+const POST_READING_RULES_EN =
+  `## How to read the post (this takes priority over giving a specific compliment)
+   - **Never reassign an action to the user.** If a child, family member, friend, coworker, or anyone else did the thing, write it as that person's doing. What the user did was notice it, enjoy it, or share it — praise that instead.
+   - **Never treat something that has not happened as done.** "once I finish", "I plan to", "I want to", "I need to", "I'm going to" all mean it is not finished. Do not use congratulation words such as "congrats", "well done", or "you pulled it off". Respond to upcoming things with encouragement instead.
+   - Do not add results, outcomes, or backstory that the post does not state. If it is not written, you do not know it.
+   - When you cannot tell who did what, or when it happened, do not assert it. Staying with how they feel right now is safer than praising a fact you guessed.`;
 
 /**
  * センシティブな話題での書き方。**長さは縛らない**（受容であっても長くてよい）。
@@ -157,6 +191,25 @@ const formatSharedLinks = (userinfo: UserInfoGemini, empty: string) => {
     .join('\n');
 };
 
+/**
+ * 過去のポストを1件1行にする。
+ *
+ * 以前は `${userinfo.posts?.slice(1)}` とテンプレートリテラルへ直接置いていた。`posts` は
+ * `string[]` なので `Array.prototype.toString()` が走り、**カンマ区切りの一本の文字列**に
+ * なる。各投稿は改行を含んだままなので、投稿と投稿の境界も、直上の「今回のポスト」との
+ * 境界も消えていた。Nagi 側はここへ「今回の投稿に意味的に近い過去投稿」を流している
+ * （nagiReplyContext の memory.own）ので、似た話が境界なしで並ぶ形になっていた。
+ * 過去にやったことを今回やったことと取り違える温床なので、行で区切る。
+ */
+const formatPreviousPosts = (userinfo: UserInfoGemini, empty: string) => {
+  const posts = (userinfo.posts?.slice(1) ?? []).filter((post) => post?.trim());
+  if (!posts.length) return empty;
+  // 1件の中の改行は潰す。境界を「行」だけで表すため。
+  return posts
+    .map((post, index) => `${index + 1}. ${post.replace(/\s+/g, ' ').trim()}`)
+    .join('\n');
+};
+
 const urlContextEnabled = (userinfo: UserInfoGemini) =>
   userinfo.urlContextEnabled ?? Boolean(userinfo.embed?.uri_embed && userinfo.isSubscriber);
 
@@ -178,7 +231,14 @@ const nagiReactionInstructionEn = (userinfo: UserInfoGemini) => {
   return `The user reacted to your post on Nagi with the ${reaction.emoji} emoji. Mention that emoji naturally and thank them; do not call it a like.`;
 };
 
-export const buildAffirmativePrompt = async (userinfo: UserInfoGemini) => {
+/**
+ * プロンプトの「指示」部分。ユーザ投稿は含めない。
+ *
+ * 分けている理由は util.ts の `ScoredPromptParts` のコメントの通り。ここへ
+ * grounding の調査ブロックと botContext（行動履歴）が後から連結されるので、
+ * この文字列が長くなるぶんには構わない。ユーザ投稿だけが後ろに残ればよい。
+ */
+export const buildAffirmativeInstructions = async (userinfo: UserInfoGemini) => {
   const postText = userinfo.posts?.[0] || '';
   const postLength = postText.length;
   const hasImages = Boolean(userinfo.image?.length);
@@ -232,7 +292,7 @@ export const buildAffirmativePrompt = async (userinfo: UserInfoGemini) => {
    - ${
      hasImages
        ? '入力に付与されたすべての画像について、それぞれ最低1つは、色・構図・表情・動き・アイデアなど目で確認できる具体的な良さを褒めてください。複数画像を「どれも素敵」のような総括だけで済ませず、画像ラベルに示された出所と褒める対象を守ってください。画像番号を並べる機械的な箇条書きにはせず、botたんらしい自然な文章としてつなげてください。'
-       : 'ユーザの今回のポストを具体的に褒めてください。'
+       : 'ユーザの今回のポストを具体的に褒めてください。ただし下の「投稿の読み取りについて」を先に守ること。褒める対象が本文に見つからないときに、行為者や時制をずらして対象を作ってはいけません。'
    }
    - ユーザが特定の作品や人物を好きと言っている場合は、その作品・人物の魅力を事実に基づいて述べ、共感を示してください。
    - ユーザのポストの言葉や文章をそのままなぞってオウム返し（例：「〜について考えているんだね！」など）にするのは避けてください。
@@ -260,6 +320,8 @@ export const buildAffirmativePrompt = async (userinfo: UserInfoGemini) => {
    **注意: commentにはscoreに関する情報を絶対に含めないこと**
 
 ${notableMemoryBlockJa(userinfo)}
+${POST_READING_RULES_JA}
+
 ## 長さについて
 ${SUBSTANCE_RULES_JA}
 
@@ -283,16 +345,8 @@ ${TONE_RULES_JA}
      - **95点〜99点**: 滅多に遭遇しない「極めて特別な全肯定の最高峰」に達するような、深く心を揺さぶられる感動的なポスト。非常に希少な得点として厳しく制限してください。
      - **100点**: 奇跡的な完璧さ、極限の優しさや感動を放つ特別なポスト（めったに出さないこと）。
      - **70点未満**: 愚痴、ネガティブな話題、AIイラスト、あるいは特定のユーザへの非難（大幅減点）など。
-   - AIイラストは多いので減点してください。  
-   - 特定のユーザを非難している投稿は大幅減点してください。  
-
----
-## ユーザ投稿
-- ユーザ名: ${addressName(userinfo)}
-- 今回のポスト: ${postText}
-- ユーザが引用したポスト: ${userinfo.embed?.text_embed ? userinfo.embed.text_embed + ' by ' + userinfo.embed.profile_embed?.displayName : 'なし'}
-- ユーザが共有したリンク:\n${formatSharedLinks(userinfo, 'なし')}
-- 過去のポスト（直接言及しないこと）: ${userinfo.posts?.slice(1) ?? 'なし'}
+   - AIイラストは多いので減点してください。
+   - 特定のユーザを非難している投稿は大幅減点してください。
 `
     : `Please generate the output in the following JSON format in ${userinfo.langStr}.
 \`\`\`json
@@ -313,7 +367,7 @@ ${TONE_RULES_JA}
    - ${
      hasImages
        ? "For every supplied image, mention at least one visually specific strength such as its color, composition, expression, motion, or idea. Never collapse multiple images into a vague summary such as 'they are all lovely.' Follow each image label's origin and attribution instructions. Connect the observations as natural, Bot-tan-like prose instead of a mechanical numbered list."
-       : "Give a specific compliment about the user's text post."
+       : "Give a specific compliment about the user's text post, but follow \"How to read the post\" below first. When the post gives you nothing concrete to praise, never manufacture something by shifting who acted or whether it already happened."
    }
    - If the user says they like a work or person, mention facts about it and empathize.  
    - Do not repeat the user's words or sentences (e.g., "I see you're thinking about ~!").
@@ -341,6 +395,8 @@ ${TONE_RULES_JA}
    **Important: Do not reveal score in the comment.**
 
 ${notableMemoryBlockEn(userinfo)}
+${POST_READING_RULES_EN}
+
 ## About length
 ${SUBSTANCE_RULES_EN}
 
@@ -360,15 +416,60 @@ ${NAME_RULES_EN(addressName(userinfo))}
      - **95 to 99**: Extremely rare "pinnacle of affirmation" posts that are deeply moving. Strictly limit this score range.
      - **100**: Miracle posts with absolute perfection in kindness or inspiration (highly restricted).
      - **Below 70**: Complaining, negative topics, AI illustrations, or criticizing specific users (heavy deduction).
-   - Deduct for AI illustrations.  
-   - Heavy deduction if criticizing specific users.  
-
----
-## User post
-- Username: ${addressName(userinfo)}  
-- This Post: ${postText}
-- Posts quoted by this user: ${userinfo.embed?.text_embed ? userinfo.embed.text_embed + ' by ' + userinfo.embed.profile_embed?.displayName : 'None'}
-- Links shared by this user:\n${formatSharedLinks(userinfo, 'None')}
-- Previous Posts (do not directly mention): ${userinfo.posts?.slice(1) ?? 'None'}
+   - Deduct for AI illustrations.
+   - Heavy deduction if criticizing specific users.
 `;
 };
+
+/**
+ * プロンプトの「ユーザ投稿」部分。**プロンプトのいちばん最後に置くもの。**
+ *
+ * ブロック内の並びも「背景 → 今回のポスト」にしてある。今回のポストが最後に来るように
+ * するのがこの並べ替えの目的なので、ここへ何かを足すときは**今回のポストより前**へ
+ * 入れること（画像パートだけは投稿の一部なので後ろでよい）。
+ */
+export const buildAffirmativeUserPost = (userinfo: UserInfoGemini) => {
+  const postText = userinfo.posts?.[0] || '';
+  return userinfo.langStr === '日本語'
+    ? `---
+## ユーザ投稿
+- ユーザ名: ${addressName(userinfo)}
+- 過去のポスト（背景情報。直接言及しないこと）:
+${formatPreviousPosts(userinfo, 'なし')}
+- ユーザが引用したポスト: ${userinfo.embed?.text_embed ? userinfo.embed.text_embed + ' by ' + userinfo.embed.profile_embed?.displayName : 'なし'}
+- ユーザが共有したリンク:
+${formatSharedLinks(userinfo, 'なし')}
+
+### 今回のポスト（返信するのはこれ1件だけ）
+${postText}
+
+返信するのは上の「今回のポスト」だけです。誰がやったことなのか、それがもう終わって
+いるのかを、この本文に書いてあるとおりに読み取ってください。書いていないことを
+足さないこと。
+`
+    : `---
+## User post
+- Username: ${addressName(userinfo)}
+- Previous posts (background only; do not directly mention):
+${formatPreviousPosts(userinfo, 'None')}
+- Posts quoted by this user: ${userinfo.embed?.text_embed ? userinfo.embed.text_embed + ' by ' + userinfo.embed.profile_embed?.displayName : 'None'}
+- Links shared by this user:
+${formatSharedLinks(userinfo, 'None')}
+
+### This post (reply to this one only)
+${postText}
+
+Reply only to "This post" above. Read who did the thing, and whether it has already
+happened, exactly as this text states it. Do not add anything it does not say.
+`;
+};
+
+/**
+ * 指示とユーザ投稿を連結した従来形。
+ *
+ * 生成の本経路は `generateSingleResponseWithScore` へ両者を**別々に**渡す
+ * （順序を保つため）。ここは連結した全文を1本で見たいテストと、文字列1本を前提に
+ * している呼び出しのために残してある。
+ */
+export const buildAffirmativePrompt = async (userinfo: UserInfoGemini) =>
+  `${await buildAffirmativeInstructions(userinfo)}\n${buildAffirmativeUserPost(userinfo)}`;

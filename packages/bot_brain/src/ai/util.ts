@@ -9,7 +9,11 @@ import {
   reportGenerationHealthFailureAsync,
   reportGenerationHeartbeatAsync,
 } from './aiCallStats.js';
-import { groundingPolicyForFeature, prepareOllamaGrounding } from './grounding.js';
+import {
+  groundingPolicyForFeature,
+  prepareOllamaGrounding,
+  type GroundingAnchor,
+} from './grounding.js';
 import {
   UNKNOWN_TERMS_INSTRUCTION,
   collectsUnknownTerms,
@@ -290,15 +294,19 @@ export function checkPredominantLanguage(text: string, isJa: boolean): LanguageM
  * 正当に長い応答を縮まらないまま3回焼いて最後のものを返すだけになる。
  */
 export async function generateContentWithRetry(
-  params: any & { feature?: AiFeatureKey; maxTextLength?: number | null },
+  params: any & {
+    feature?: AiFeatureKey;
+    maxTextLength?: number | null;
+    groundingAnchor?: GroundingAnchor;
+  },
   retryCount = 3,
   userinfo?: UserInfoGemini,
   requestOptions: GeminiRequestOptions = {},
 ): Promise<any> {
   // 呼び出し側は model ではなく feature（機能キー）を名乗る。実モデルと serviceTier は
   // レジストリが決める。feature は Gemini API のペイロードに混ぜてはいけないので必ず剥がす。
-  // maxTextLength も同様に API へ渡してはいけない内部向けの指定。
-  const { feature, maxTextLength, ...rest } = params;
+  // maxTextLength と groundingAnchor も同様に API へ渡してはいけない内部向けの指定。
+  const { feature, maxTextLength, groundingAnchor, ...rest } = params;
   const textLimit = resolveTextLimit(maxTextLength);
   const routed = feature ? resolveAiRoute(feature) : undefined;
   const provider = routed?.provider ?? 'gemini';
@@ -331,6 +339,7 @@ export async function generateContentWithRetry(
     params = await prepareOllamaGrounding(feature, params, {}, {
       researchMemory: userinfo?.researchMemory,
       urls: collectsUnknownTerms(feature) ? sharedLinkUrls(userinfo) : [],
+      ...(groundingAnchor ? { anchor: groundingAnchor } : {}),
     });
   }
 
@@ -498,6 +507,17 @@ export function extractJSON(text: string): any {
 }
 
 /**
+ * プロンプトを「指示」と「ユーザ投稿」に分けて渡すための形。
+ *
+ * 分ける理由は順序。`prepareOllamaGrounding` の調査ブロックと `formatBotContext` の
+ * bot 状況（行動履歴で最悪4000字）は、1本の文字列で渡すと**必ずその末尾**に積まれる。
+ * つまり今回のユーザ投稿の後ろに数千字が続く形になり、ローカルの量子化モデルはそこで
+ * 主体や時制を取り違える（実例: 子供がやったことを本人の手柄にする、「終わらせたら」
+ * という未完了を「クリアおめでとう」と祝う）。素材は指示側へ、投稿は末尾へ置く。
+ */
+export type ScoredPromptParts = { instructions: string; userPost: string };
+
+/**
  * 必要に応じて画像を付与して、botたんスコア付きのシングルレスポンスを得る
  *
  * `options.maxTextLength` は暴走検知のしきい値。未指定なら投稿用の既定（POST_TEXT_LIMIT）。
@@ -506,12 +526,16 @@ export function extractJSON(text: string): any {
  * comment の実効長は指定値よりいくらか短くなる。
  */
 export async function generateSingleResponseWithScore(
-  prompt: string,
+  prompt: string | ScoredPromptParts,
   userinfo?: UserInfoGemini,
   requestOptions: GeminiRequestOptions = {},
   options: { maxTextLength?: number | null } = {},
 ) {
-  const contents: PartListUnion = [prompt];
+  // contents[0] は必ず「指示」。grounding は groundingAnchor: 'first' でここへ、
+  // botContext は generateContentWithRetry が contents[0] へ連結する。結果として
+  // ユーザ投稿と画像がプロンプトのいちばん後ろに残る。
+  const contents: PartListUnion =
+    typeof prompt === 'string' ? [prompt] : [prompt.instructions, prompt.userPost];
   // responseSchema は Google Search との併用ができず外していたが、Gemini を撤去して
   // Ollama の format を使えるようになった。comment / score の形は従来どおり
   // プロンプトが決めるので縛らず、unknownTerms だけを追加で申告させる。
@@ -551,6 +575,9 @@ export async function generateSingleResponseWithScore(
         // model / serviceTier は generateContentWithRetry がレジストリと requestOptions から決める
         feature: 'BSKY_AFFIRMATIVE_REPLY' satisfies AiFeatureKey,
         ...(options.maxTextLength !== undefined ? { maxTextLength: options.maxTextLength } : {}),
+        // 指示とユーザ投稿を分けて渡したときだけ、調査ブロックを指示側へ寄せる。
+        // 文字列1本で来た呼び出し（従来形）は、置き場所が末尾しか無いので既定のまま。
+        ...(typeof prompt === 'string' ? {} : { groundingAnchor: 'first' as const }),
         contents,
         config: {
           systemInstruction: `${SYSTEM_INSTRUCTION}\n${UNKNOWN_TERMS_INSTRUCTION}`,

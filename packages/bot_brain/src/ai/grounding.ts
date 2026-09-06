@@ -23,6 +23,12 @@ export type GroundingContext = {
   researchMemory?: string | null;
   /** 利用者が投稿に貼ったリンク。**同期で読む。** */
   urls?: string[];
+  /**
+   * 調査結果・注意書きを contents のどちら側へ置くか。既定は末尾（`last`）。
+   * contents を「指示ブロック」「ユーザ投稿」に分けている呼び出し側は `first` を渡す
+   * こと。末尾に積むと今回の投稿がプロンプトの奥へ押し込まれる。
+   */
+  anchor?: GroundingAnchor;
 };
 
 /**
@@ -57,17 +63,26 @@ const UNAVAILABLE_RESEARCH_NOTE =
   "External research was unavailable. Avoid unverified current facts and do not invent details.";
 
 /**
- * 指示だけを本文へ足す。**`<grounding_research>` で包まない。**
+ * 追記先。
  *
- * 包んではいけない理由が2つある。
- * 1. 中身は調査結果ではなく指示なので、直後の「この調査結果を事実の参考にせよ」と
- *    意味が噛み合わない。
- * 2. `fitOllamaMessages` は予算超過時に `<grounding_research>` ブロックを最初に
- *    半減→削除する。包むと、会話が伸びたときに「知らないと言え」が真っ先に消える。
- *    deferred は全リプライが通る経路なのでこれは致命的。
+ * - `last`（既定）: 末尾側の user 要素。会話モードのように contents が履歴で、
+ *   いちばん新しい発言の直後に置きたい場合。
+ * - `first`: 先頭側の user 要素。contents が「指示ブロック」「ユーザ投稿」の順に
+ *   分かれていて、**ユーザ投稿より前**へ置きたい場合に使う。
+ *
+ * `first` が要る理由: 調査結果や注意書きを末尾に積むと、いちばん読ませたい今回の
+ * ユーザ投稿が数千字ぶん奥へ押し込まれる。ローカルの量子化モデルはそこで主体や
+ * 時制を取り違える。素材（調査結果・bot の状況）は指示の側へ、投稿は末尾へ置く。
  */
-function appendNote(params: any, note: string): any {
-  const block = `\n\n${note}`;
+export type GroundingAnchor = "first" | "last";
+
+/**
+ * contents のどこか1か所へテキストブロックを足す。
+ *
+ * 走査は anchor の向きに進み、最初に見つかった「文字列 or user の parts」へ置く。
+ * `role` を持たない要素（画像パートなど）は素通りする — それ自体は入れ物ではない。
+ */
+function appendBlock(params: any, block: string, anchor: GroundingAnchor): any {
   const contents = params.contents;
   if (typeof contents === "string") return { ...params, contents: contents + block };
   if (!Array.isArray(contents)) return params;
@@ -75,7 +90,11 @@ function appendNote(params: any, note: string): any {
     if (!item || typeof item !== "object") return item;
     return { ...item, ...(Array.isArray(item.parts) ? { parts: [...item.parts] } : {}) };
   });
-  for (let index = cloned.length - 1; index >= 0; index--) {
+  const order =
+    anchor === "first"
+      ? cloned.map((_: unknown, index: number) => index)
+      : cloned.map((_: unknown, index: number) => cloned.length - 1 - index);
+  for (const index of order) {
     const item = cloned[index];
     if (typeof item === "string") {
       cloned[index] = item + block;
@@ -89,6 +108,20 @@ function appendNote(params: any, note: string): any {
   }
   cloned.push({ role: "user", parts: [{ text: block }] });
   return { ...params, contents: cloned };
+}
+
+/**
+ * 指示だけを本文へ足す。**`<grounding_research>` で包まない。**
+ *
+ * 包んではいけない理由が2つある。
+ * 1. 中身は調査結果ではなく指示なので、直後の「この調査結果を事実の参考にせよ」と
+ *    意味が噛み合わない。
+ * 2. `fitOllamaMessages` は予算超過時に `<grounding_research>` ブロックを最初に
+ *    半減→削除する。包むと、会話が伸びたときに「知らないと言え」が真っ先に消える。
+ *    deferred は全リプライが通る経路なのでこれは致命的。
+ */
+function appendNote(params: any, note: string, anchor: GroundingAnchor = "last"): any {
+  return appendBlock(params, `\n\n${note}`, anchor);
 }
 
 /**
@@ -665,29 +698,14 @@ must appear verbatim in the research above. Your own knowledge is out of date an
 used to name anything. If the research does not support enough items, return fewer items rather
 than filling the gap from memory.`;
 
-function appendResearch(params: any, research: string, strict = false): any {
+function appendResearch(
+  params: any,
+  research: string,
+  strict = false,
+  anchor: GroundingAnchor = "last",
+): any {
   const block = `\n\n<grounding_research>\n${research}\n</grounding_research>\nUse this research only as factual reference. The final answer must follow the original system instruction and persona. Do not mention this research block.${strict ? RESEARCH_ONLY_NOTE : ""}`;
-  const contents = params.contents;
-  if (typeof contents === "string") return { ...params, contents: contents + block };
-  if (!Array.isArray(contents)) return params;
-  const cloned = contents.map((item: any) => {
-    if (!item || typeof item !== "object") return item;
-    return { ...item, ...(Array.isArray(item.parts) ? { parts: [...item.parts] } : {}) };
-  });
-  for (let index = cloned.length - 1; index >= 0; index--) {
-    const item = cloned[index];
-    if (typeof item === "string") {
-      cloned[index] = item + block;
-      return { ...params, contents: cloned };
-    }
-    if (item?.role && item.role !== "user") continue;
-    if (Array.isArray(item?.parts)) {
-      item.parts.push({ text: block });
-      return { ...params, contents: cloned };
-    }
-  }
-  cloned.push({ role: "user", parts: [{ text: block }] });
-  return { ...params, contents: cloned };
+  return appendBlock(params, block, anchor);
 }
 
 /**
@@ -708,6 +726,7 @@ export async function prepareOllamaGrounding(
 ): Promise<any> {
   const stripped = stripGroundingTools(params);
   const policy = groundingPolicyForFeature(feature);
+  const anchor = context.anchor ?? "last";
   if (policy === "off" || !hasGroundingTools(params)) return stripped;
 
   if (policy === "deferred") {
@@ -737,13 +756,14 @@ export async function prepareOllamaGrounding(
 
     // 何も根拠が無ければ「知らないことは知らないと言う」だけを渡す。
     return blocks.length
-      ? appendResearch(stripped, blocks.join("\n\n"), true)
-      : appendNote(stripped, DEFERRED_RESEARCH_NOTE);
+      ? appendResearch(stripped, blocks.join("\n\n"), true, anchor)
+      : appendNote(stripped, DEFERRED_RESEARCH_NOTE, anchor);
   }
 
   // AI_GROUNDING_PROVIDER=off でも、実在確認が要る機能には「調べられなかった」ことを
   // 必ず伝える。黙って素通りさせると、今期作品や気分ソングで存在しない作品名を平気で作る。
-  if (!isAiGroundingEnabled()) return appendNote(stripped, UNAVAILABLE_RESEARCH_NOTE);
+  if (!isAiGroundingEnabled())
+    return appendNote(stripped, UNAVAILABLE_RESEARCH_NOTE, anchor);
 
   const subject = latestUserText(params.contents);
   if (!subject) return stripped;
@@ -764,13 +784,13 @@ export async function prepareOllamaGrounding(
       `[INFO][AI_GROUNDING] feature=${feature ?? "unknown"} queries=${queries.length} urls=${plan.urls.length}`,
     );
     // required / preferred は実在確認が目的なので、固有名詞の出所を調査結果に限定する。
-    return appendResearch(stripped, research, true);
+    return appendResearch(stripped, research, true, anchor);
   } catch (error) {
     if (policy === "required") throw error;
     console.warn(
       `[WARN][AI_GROUNDING] feature=${feature ?? "unknown"} unavailable; continuing without external facts`,
       error,
     );
-    return appendNote(stripped, UNAVAILABLE_RESEARCH_NOTE);
+    return appendNote(stripped, UNAVAILABLE_RESEARCH_NOTE, anchor);
   }
 }

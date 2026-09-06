@@ -1,0 +1,424 @@
+{
+  "reply": [
+    {
+      "id": "actor-pokemon",
+      "kind": "affirmative",
+      "langStr": "日本語",
+      "displayName": "すいばり",
+      "preferredName": null,
+      "concern": "実際に事故が起きたケース。名前をつけたのは子供なのに本人の手柄にした",
+      "post": "子供のやってるポケモンのぞいたらコンパンに「わるもの」って名前つけてて草\nたしかに敵側仮面ライダーみたいなカラーリングだけどw\nネーミングセンスが全体的におもしろい",
+      "pastPosts": [
+        "ポケモンの話題でもりあがった"
+      ],
+      "expect": {
+        "reading": {
+          "actor": "other",
+          "wrongEvidence": [
+            "すいばり(さん|ちゃん)?の(ネーミング|命名|名づけ|名付け)",
+            "すいばり(さん|ちゃん)?が(その)?名前を(つけ|付け)"
+          ],
+          "correctEvidence": [
+            "子供|お子さん|息子|娘|子ども"
+          ]
+        }
+      }
+    },
+    {
+      "id": "actor-kid-drawing",
+      "kind": "affirmative",
+      "langStr": "日本語",
+      "displayName": "すいばり",
+      "preferredName": null,
+      "concern": "描いたのは子供",
+      "post": "子供が描いた恐竜の絵、色使いが自由すぎて最高だった。緑の恐竜に紫の水玉ってどういう発想なんだろう",
+      "expect": {
+        "reading": {
+          "actor": "other",
+          "wrongEvidence": [
+            "すいばり(さん|ちゃん)?の(絵|画力|色使い)",
+            "すいばり(さん|ちゃん)?が描(い|け)"
+          ],
+          "correctEvidence": [
+            "子供|お子さん|息子|娘|子ども"
+          ]
+        }
+      }
+    },
+    {
+      "id": "actor-spouse-curry",
+      "kind": "affirmative",
+      "langStr": "日本語",
+      "displayName": "すいばり",
+      "preferredName": null,
+      "concern": "作ったのは旦那",
+      "post": "旦那が急にカレー作ってくれた。スパイスから調合するとか気合入りすぎでしょ",
+      "expect": {
+        "reading": {
+          "actor": "other",
+          "wrongEvidence": [
+            "すいばり(さん|ちゃん)?が(作っ|料理し|調合)",
+            "すいばり(さん|ちゃん)?の(料理|カレー)の腕"
+          ],
+          "correctEvidence": [
+            "旦那|夫|パートナー|作ってもら"
+          ]
+        }
+      }
+    },
+    {
+      "id": "actor-colleague",
+      "kind": "affirmative",
+      "langStr": "日本語",
+      "displayName": "すいばり",
+      "preferredName": null,
+      "concern": "成果を出したのは同僚",
+      "post": "同僚が半年かけてたリファクタ、ついに本番に入った。あの物量をよく一人でやりきったと思う",
+      "expect": {
+        "reading": {
+          "actor": "other",
+          "wrongEvidence": [
+            "すいばり(さん|ちゃん)?が(やりきっ|やり遂げ|半年)",
+            "すいばり(さん|ちゃん)?の(リファクタ|成果)"
+          ],
+          "correctEvidence": [
+            "同僚|その方|チーム|仲間"
+          ]
+        }
+      }
+    },
+    {
+      "id": "actor-cat",
+      "kind": "affirmative",
+      "langStr": "日本語",
+      "displayName": "すいばり",
+      "preferredName": null,
+      "concern": "やらかしたのは猫",
+      "post": "猫がキーボードの上を歩いて、書きかけの原稿が全部ひらがなになってた",
+      "expect": {
+        "reading": {
+          "actor": "other",
+          "wrongEvidence": [
+            "すいばり(さん|ちゃん)?が(歩い|踏ん)"
+          ],
+          "correctEvidence": [
+            "猫|ねこ|ニャン|愛猫"
+          ]
+        }
+      }
+    },
+    {
+      "id": "actor-friend-award",
+      "kind": "affirmative",
+      "langStr": "日本語",
+      "displayName": "すいばり",
+      "preferredName": null,
+      "concern": "受賞したのは友達",
+      "post": "友達がコンテストで入賞したらしい。ずっと描き続けてたの知ってるから、自分のことみたいに嬉しい",
+      "expect": {
+        "reading": {
+          "actor": "other",
+          "wrongEvidence": [
+            "すいばり(さん|ちゃん)?の(入賞|受賞)",
+            "すいばり(さん|ちゃん)?が(入賞|受賞)",
+            "入賞おめでとう"
+          ],
+          "correctEvidence": [
+            "友達|お友達|ご友人"
+          ]
+        }
+      }
+    },
+    {
+      "id": "actor-mother-garden",
+      "kind": "affirmative",
+      "langStr": "日本語",
+      "displayName": "すいばり",
+      "preferredName": null,
+      "concern": "育てたのは母",
+      "post": "実家帰ったら母が育ててる朝顔がすごいことになってた。壁一面",
+      "expect": {
+        "reading": {
+          "actor": "other",
+          "wrongEvidence": [
+            "すいばり(さん|ちゃん)?が育て",
+            "すいばり(さん|ちゃん)?の(園芸|朝顔)の腕"
+          ],
+          "correctEvidence": [
+            "お母|母(さん|様)?が|ご実家"
+          ]
+        }
+      }
+    },
+    {
+      "id": "actor-brother-cleared",
+      "kind": "affirmative",
+      "langStr": "日本語",
+      "displayName": "すいばり",
+      "preferredName": null,
+      "concern": "クリアしたのは弟",
+      "post": "弟がようやくラスボス倒したって騒いでる。3ヶ月かかってた",
+      "expect": {
+        "reading": {
+          "actor": "other",
+          "wrongEvidence": [
+            "すいばり(さん|ちゃん)?が(倒し|クリアし)",
+            "すいばり(さん|ちゃん)?の(3|三)ヶ月"
+          ],
+          "correctEvidence": [
+            "弟|兄弟|ご家族"
+          ]
+        }
+      }
+    },
+    {
+      "id": "tense-eo55",
+      "kind": "affirmative",
+      "langStr": "日本語",
+      "displayName": "すいばり",
+      "preferredName": null,
+      "concern": "実際に事故が起きたケース。まだ終わっていないのにクリアを祝った",
+      "post": "EO5-5終わらせたら、途中だったワルプルギスの廻天の感想と考察noteをまとめないとな。BLEACHの時間までに感想を書き終えて、明日考察をまとめられるようにしたい。",
+      "pastPosts": [
+        "今日は艦これのイベント走ってた",
+        "まどマギ劇場版みてきた"
+      ],
+      "expect": {
+        "reading": {
+          "status": "pending",
+          "wrongEvidence": [
+            "(EO5-5|それ)を?(終わらせ|やり遂げ|やりきっ|やり切っ|クリアし|終え|攻略し)た(?!ら)"
+          ],
+          "correctEvidence": [
+            "これから|向かって|予定|楽しみ|応援|がんば|進めて"
+          ]
+        }
+      }
+    },
+    {
+      "id": "tense-trip-plan",
+      "kind": "affirmative",
+      "langStr": "日本語",
+      "displayName": "すいばり",
+      "preferredName": null,
+      "concern": "来週の予定",
+      "post": "来週やっと有休とれたから、ずっと行きたかった離島に行く。フェリーの時間だけ調べておかないと",
+      "expect": {
+        "reading": {
+          "status": "pending",
+          "wrongEvidence": [
+            "(離島|旅|旅行).{0,10}(行ってきた(?!ら)|行けた(ん|ね)|楽しめた(ん|ね)|満喫した(ん|ね))"
+          ],
+          "correctEvidence": [
+            "これから|楽しみ|いってらっしゃい|行けるといい|予定"
+          ]
+        }
+      }
+    },
+    {
+      "id": "tense-exam",
+      "kind": "affirmative",
+      "langStr": "日本語",
+      "displayName": "すいばり",
+      "preferredName": null,
+      "concern": "明日が本番",
+      "post": "明日いよいよ資格試験の本番。ここまでやったんだから、あとは寝るだけ",
+      "expect": {
+        "reading": {
+          "status": "pending",
+          "wrongEvidence": [
+            "(合格|受かっ)(おめ|たん|てす)",
+            "(試験|本番).{0,6}(終わって|終わったん|おつかれ|お疲れさまで)"
+          ],
+          "correctEvidence": [
+            "明日|これから|応援|いってらっしゃい|うまくいく"
+          ]
+        }
+      }
+    },
+    {
+      "id": "tense-want-read",
+      "kind": "affirmative",
+      "langStr": "日本語",
+      "displayName": "すいばり",
+      "preferredName": null,
+      "concern": "まだ読んでいない",
+      "post": "積んだままの分厚い歴史小説、今年こそ読みたいんだよな",
+      "expect": {
+        "reading": {
+          "status": "pending",
+          "wrongEvidence": [
+            "(読み終え|読破し|完読し)た(?!ら)(ん|ね|なんて)",
+            "もう読んだ"
+          ],
+          "correctEvidence": [
+            "これから|楽しみ|積ん|読めるといい|きっと"
+          ]
+        }
+      }
+    },
+    {
+      "id": "tense-must-clean",
+      "kind": "affirmative",
+      "langStr": "日本語",
+      "displayName": "すいばり",
+      "preferredName": null,
+      "concern": "まだやっていない",
+      "post": "そろそろ本気で部屋片付けないとな。床が見えなくなってきた",
+      "expect": {
+        "reading": {
+          "status": "pending",
+          "wrongEvidence": [
+            "(片付け|片づけ)た(?!ら)(ん|ね|なんて)",
+            "きれいになった(ん|ね)",
+            "すっきりしたね"
+          ],
+          "correctEvidence": [
+            "これから|がんば|応援|少しずつ|えらい"
+          ]
+        }
+      }
+    },
+    {
+      "id": "tense-submit-tomorrow",
+      "kind": "affirmative",
+      "langStr": "日本語",
+      "displayName": "すいばり",
+      "preferredName": null,
+      "concern": "提出はこれから",
+      "post": "明日の朝いちで企画書出すつもり。今夜のうちに図だけ差し替えておく",
+      "expect": {
+        "reading": {
+          "status": "pending",
+          "wrongEvidence": [
+            "(提出|企画書).{0,8}(できた(ん|ね)|出せた(ん|ね)|終わったん)",
+            "出し終えた(?!ら)"
+          ],
+          "correctEvidence": [
+            "明日|これから|応援|うまくいく|がんば"
+          ]
+        }
+      }
+    },
+    {
+      "id": "hearsay-movie",
+      "kind": "affirmative",
+      "langStr": "日本語",
+      "displayName": "すいばり",
+      "preferredName": null,
+      "concern": "本人はまだ観ていない",
+      "post": "友達が「あの映画、後半で完全に化ける」って言ってた。気になるな",
+      "expect": {
+        "reading": {
+          "actor": "other",
+          "wrongEvidence": [
+            "(観|見)た(?!ら)(んだ|ね|なんて)",
+            "(感動|号泣)した(?!ら)(ん|ね)"
+          ],
+          "correctEvidence": [
+            "友達|お友達|まだ|これから|気になる"
+          ]
+        }
+      }
+    },
+    {
+      "id": "hearsay-recommend",
+      "kind": "affirmative",
+      "langStr": "日本語",
+      "displayName": "すいばり",
+      "preferredName": null,
+      "concern": "勧められただけで未読",
+      "post": "同僚におすすめされた小説、まだ読めてないけど楽しみにしてる",
+      "expect": {
+        "reading": {
+          "status": "pending",
+          "wrongEvidence": [
+            "(読み終え|読破し)た(?!ら)(ん|ね)",
+            "読んだ(?!ら)(んだ|ね|なんて)",
+            "もう読んだ"
+          ],
+          "correctEvidence": [
+            "まだ|これから|楽しみ|同僚"
+          ]
+        }
+      }
+    },
+    {
+      "id": "hearsay-news",
+      "kind": "affirmative",
+      "langStr": "日本語",
+      "displayName": "すいばり",
+      "preferredName": null,
+      "concern": "人から聞いた話",
+      "post": "近所に新しいパン屋できたらしい。母が言ってた。まだ行けてない",
+      "expect": {
+        "reading": {
+          "status": "pending",
+          "wrongEvidence": [
+            "(行ってきた(?!ら)(ん|ね)|食べた(?!ら)(ん|ね)|おいしかった(ん|ね)|買ってきた(ん|ね))"
+          ],
+          "correctEvidence": [
+            "まだ|これから|楽しみ|お母|母"
+          ]
+        }
+      }
+    },
+    {
+      "id": "negation-gym",
+      "kind": "affirmative",
+      "langStr": "日本語",
+      "displayName": "すいばり",
+      "preferredName": null,
+      "concern": "結局行けなかった",
+      "post": "今日こそジム行こうと思ってたのに、気づいたら夜だった…",
+      "expect": {
+        "reading": {
+          "status": "pending",
+          "wrongEvidence": [
+            "(ジム|運動|トレーニング).{0,10}(行けた(?!ら)(ん|ね)|行った(?!ら)(ん|ね)|できた(?!ら)(ん|ね))"
+          ],
+          "correctEvidence": []
+        }
+      }
+    },
+    {
+      "id": "negation-hanabi",
+      "kind": "affirmative",
+      "langStr": "日本語",
+      "displayName": "すいばり",
+      "preferredName": null,
+      "concern": "行かなかった",
+      "post": "花火大会、人混みしんどくて結局行かなかった。家で音だけ聞いてた",
+      "expect": {
+        "reading": {
+          "status": "pending",
+          "wrongEvidence": [
+            "(花火|大会).{0,12}(見られた(?!ら)(ん|ね)|見れた(ん|ね)|楽しめた(?!ら)(ん|ね)|きれいだった(ん|ね)|行ってきた(ん|ね))"
+          ],
+          "correctEvidence": [
+            "家|音|無理しない|しんどい|そういう"
+          ]
+        }
+      }
+    },
+    {
+      "id": "counterfactual-camera",
+      "kind": "affirmative",
+      "langStr": "日本語",
+      "displayName": "すいばり",
+      "preferredName": null,
+      "concern": "持って行っていない",
+      "post": "紅葉がすごくきれいだった。カメラ持ってけばよかったなあ",
+      "expect": {
+        "reading": {
+          "actor": "self",
+          "wrongEvidence": [
+            "(写真|カメラ).{0,10}(撮れた(?!ら)(ん|ね)|撮った(?!ら)(ん|ね))"
+          ],
+          "correctEvidence": []
+        }
+      }
+    }
+  ],
+  "translation": []
+}

@@ -83,6 +83,13 @@ options: { num_predict: numPredict, temperature }
 プロンプトが num_ctx を埋めた瞬間に生成余地が数トークンになる。エラーにはならず、
 リプライが空文字や表示名だけになって投稿される。
 
+`temperature` も**必ず送る**。以前は呼び出し側が指定したときだけ載せていたので、
+リプライ生成だけが Modelfile 側の既定（gemma 系は 0.8〜1.0）で走っていた。いちばん
+事実の読み取りが要る経路が、いちばん揺れる設定になっていたということ。既定値は
+`ollamaDefaultTemperature()`（`ollamaBudget.ts`、既定 0.6 / env `OLLAMA_TEMPERATURE`）が
+持ち、`generateOllamaContent` が未指定なら載せる。0 にはしないこと — ペルソナの
+言い回しが毎回同じになる。
+
 ### ollamaTextContextLength() の役割
 
 この関数は**送る値ではなく、プロンプト予算の計算がサーバ既定をミラーするためのもの**。
@@ -96,9 +103,31 @@ VRAM が足りなくなったら、**まず systemd の `OLLAMA_CONTEXT_LENGTH` 
 ズレは `biorhythm_server` の健康監視が `/api/ps` の `context_length` と突き合わせて
 `[WARN][OLLAMA_CTX]` を出す。
 
+## プロンプトの並び順
+
+**ユーザの投稿はプロンプトのいちばん後ろに置く。**
+
+`prepareOllamaGrounding` の `<grounding_research>` と `formatBotContext` の bot 状況
+（直近24時間の行動履歴で最悪4000字）は、どちらも contents の末尾へ積まれる。プロンプトを
+1本の文字列で組み立てると、今回のユーザ投稿の**後ろ**に数千字が続く形になる。26B の
+量子化モデルはそこで主体や時制を取り違える。
+
+2026-09-05 の実例:
+
+- 「**子供のやってる**ポケモンのぞいたら…名前つけてて草」→「**すいぱり**、センスが最高すぎるよ」（行為者のすり替え）
+- 「EO5-5**終わらせたら**、感想をまとめないとな」→「**クリアおめでとう**！」（未完了を完了として祝った）
+
+そのため肯定リプライは contents を `[指示ブロック, ユーザ投稿, 画像…]` に分け、
+`groundingAnchor: 'first'` で調査ブロックを指示側へ寄せている（`ScoredPromptParts`）。
+プロンプトへ材料を足すときは**指示側**へ入れること。ユーザ投稿より後ろに置いてよいのは
+画像パートだけ（画像は投稿の一部）。
+
+実際に何がどの順で送られたかは `AI_PROMPT_DUMP_DIR` を設定すると JSON で確認できる。
+
 ### レビューとテスト
 
 - Ollama を叩くコードを追加・変更したら、`options` に `num_ctx` が無いことを確認する。
+- `options` に `temperature` が載ることも確認する（`num_ctx` と違い、こちらは必須）。
 - 評価スクリプト（`scripts/evaluateLocalModels.mts` など）も対象。ここが本番と違う
   num_ctx を送ると、評価を回すだけでリロード地獄を起こす。
 - リクエスト本体を組み立てるコードにはテストを添え、`num_ctx` を含めないことを検証する。

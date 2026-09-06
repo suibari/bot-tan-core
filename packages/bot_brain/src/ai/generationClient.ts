@@ -2,12 +2,14 @@ import {
   OLLAMA_DEFAULT_OUTPUT_TOKENS,
   OLLAMA_MIN_OUTPUT_TOKENS,
   estimateMessagesTokens,
+  ollamaDefaultTemperature,
   ollamaPromptBudget,
   ollamaTextContextLength,
   type AiProvider,
 } from "@bsky-affirmative-bot/shared-configs";
 import { gemini } from "./googleClient.js";
 import { reportAiCallAsync } from "./aiCallStats.js";
+import { dumpPromptAsync } from "./promptDump.js";
 
 type Message = {
   role: "system" | "user" | "assistant";
@@ -311,6 +313,29 @@ export async function generateOllamaContent(params: any): Promise<any> {
     budget: ollamaPromptBudget({ numCtx, outputTokens: numPredict }),
   });
 
+  const options = {
+    // num_ctx は送らない。サーバの OLLAMA_CONTEXT_LENGTH が唯一の源。
+    // numCtx は上の fitOllamaMessages（プロンプト予算）にだけ使う。
+    num_predict: numPredict,
+    // 呼び出し側が指定しなければ既定を載せる。**省いてはいけない**。
+    // 省くと Modelfile 側の既定（gemma 系は 0.8〜1.0）で走り、いちばん事実の
+    // 読み取りが要るリプライ生成がいちばん揺れる設定になる。
+    temperature:
+      typeof config.temperature === "number"
+        ? config.temperature
+        : ollamaDefaultTemperature(),
+    ...(typeof config.topP === "number" ? { top_p: config.topP } : {}),
+    ...(typeof config.topK === "number" ? { top_k: config.topK } : {}),
+    ...(Array.isArray(config.stopSequences) ? { stop: config.stopSequences } : {}),
+  };
+
+  dumpPromptAsync("ollama", params.model, {
+    messages,
+    options,
+    ...(schema ? { format: schema } : {}),
+    trim,
+  });
+
   const response = await fetch(`${ollamaBaseUrl()}/api/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -320,15 +345,7 @@ export async function generateOllamaContent(params: any): Promise<any> {
       stream: false,
       think: false,
       ...(schema ? { format: schema } : {}),
-      options: {
-        // num_ctx は送らない。サーバの OLLAMA_CONTEXT_LENGTH が唯一の源。
-        // numCtx は上の fitOllamaMessages（プロンプト予算）にだけ使う。
-        num_predict: numPredict,
-        ...(typeof config.temperature === "number" ? { temperature: config.temperature } : {}),
-        ...(typeof config.topP === "number" ? { top_p: config.topP } : {}),
-        ...(typeof config.topK === "number" ? { top_k: config.topK } : {}),
-        ...(Array.isArray(config.stopSequences) ? { stop: config.stopSequences } : {}),
-      },
+      options,
     }),
     signal: AbortSignal.timeout(
       Number(process.env.OLLAMA_TEXT_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS,
@@ -409,6 +426,15 @@ export async function generateContentForProvider(
   params: any,
 ): Promise<any> {
   try {
+    // Ollama 側は変換とトリムを終えた最終ペイロードを generateOllamaContent が吐く。
+    // ここで吐けるのは変換前なので、Gemini のときだけにする（二重に出さない）。
+    if (provider !== "ollama") {
+      dumpPromptAsync(provider, params.model, {
+        systemInstruction: params.config?.systemInstruction,
+        contents: params.contents,
+        tools: params.config?.tools,
+      });
+    }
     const response =
       provider === "ollama"
         ? await generateOllamaContent(params)
