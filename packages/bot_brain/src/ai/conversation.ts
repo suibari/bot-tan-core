@@ -16,6 +16,7 @@ import type { GeminiRequestOptions } from './util.js';
 import { toServiceTier } from './aiRoute.js';
 import { generateContentForProvider } from './generationClient.js';
 import { prepareOllamaGrounding } from './grounding.js';
+import { prepareModelImages, tileLabel } from './imagePreprocess.js';
 import {
   UNKNOWN_TERMS_INSTRUCTION,
   replyWithUnknownTermsSchema,
@@ -61,16 +62,25 @@ export async function conversation(
   // AI_TEXT_PROVIDER=gemini へ切り戻した瞬間に会話が 400 になる。
   const message: PartListUnion = [{ text: prompt }];
   if (userinfo.image) {
-    for (const img of userinfo.image) {
+    for (const [offset, img] of userinfo.image.entries()) {
       const response = await safeFetch(img.image_url);
       const imageArrayBuffer = await response.arrayBuffer();
-      const base64ImageData = Buffer.from(imageArrayBuffer).toString('base64');
-      message.push({
-        inlineData: {
-          mimeType: img.mimeType,
-          data: base64ImageData,
-        },
-      });
+      const index = offset + 1;
+      const prepared = await prepareModelImages(Buffer.from(imageArrayBuffer), img.mimeType);
+      for (const [tileOffset, item] of prepared.entries()) {
+        // タイルは「別の画像」ではないので、必ずラベルを添える。
+        if (item.kind === 'tile') {
+          message.push({
+            text: `\n\n${tileLabel(`${index}-${tileOffset}`, index, item, userinfo.langStr)}`,
+          });
+        }
+        message.push({
+          inlineData: {
+            mimeType: item.mimeType,
+            data: item.data,
+          },
+        });
+      }
     }
   }
   // 会話は同期パスで検索しない代わりに、生成と同じ1回のリクエストで「知らなかった語」を

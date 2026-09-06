@@ -5,6 +5,7 @@ import {
   type ImageRef,
 } from "@bsky-affirmative-bot/shared-configs";
 import { generateContentWithRetry } from "./util.js";
+import { prepareModelImages, tileLabel } from "./imagePreprocess.js";
 
 export const COMMUNITY_AFFIRMATION_PROMPT_VERSION =
   "nagi-community-affirmation-v8";
@@ -38,20 +39,28 @@ async function imageParts(images: readonly ImageRef[]): Promise<Part[]> {
       throw new Error(
         `Failed to fetch ${image.origin ?? "direct"} image ${offset + 1}: HTTP ${response.status}`,
       );
-    parts.push(
-      {
-        text:
-          image.origin === "quote"
-            ? `Quoted-post image ${offset + 1}. Do not attribute its authorship to the current poster.`
-            : `Image ${offset + 1} directly attached to the current post.`,
-      },
-      {
-        inlineData: {
-          mimeType: image.mimeType,
-          data: Buffer.from(await response.arrayBuffer()).toString("base64"),
-        },
-      },
+    const index = offset + 1;
+    // 先頭の改行は必須。これが無いと直前のプロンプト行と癒着して
+    // `…リンクカードの題名・説明:\n(なし)Image 1 directly attached…` になる。
+    const wholeLabel =
+      image.origin === "quote"
+        ? `\n\nQuoted-post image ${index}. Do not attribute its authorship to the current poster.`
+        : `\n\nImage ${index} directly attached to the current post.`;
+    const prepared = await prepareModelImages(
+      Buffer.from(await response.arrayBuffer()),
+      image.mimeType,
     );
+    for (const [tileOffset, item] of prepared.entries()) {
+      parts.push(
+        {
+          text:
+            item.kind === "whole"
+              ? wholeLabel
+              : `\n\n${tileLabel(`${index}-${tileOffset}`, index, item)}`,
+        },
+        { inlineData: { mimeType: item.mimeType, data: item.data } },
+      );
+    }
   }
   return parts;
 }

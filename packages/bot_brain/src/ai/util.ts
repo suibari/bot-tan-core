@@ -3,6 +3,7 @@ import { SYSTEM_INSTRUCTION, POST_TEXT_LIMIT, safeFetch, resolveAiRoute, formatJ
 import type { AiFeatureKey } from '@bsky-affirmative-bot/shared-configs';
 import { UserInfoGemini, GeminiScore, BotContext, LanguageName } from '@bsky-affirmative-bot/shared-configs';
 import { buildAffirmativeImageParts } from './affirmativeImages.js';
+import { prepareModelImages } from './imagePreprocess.js';
 import { toServiceTier } from './aiRoute.js';
 import { generateContentForProvider } from './generationClient.js';
 import {
@@ -427,13 +428,14 @@ export async function generateSingleResponse(
           continue;
         }
         const imageArrayBuffer = await response.arrayBuffer();
-        const base64ImageData = Buffer.from(imageArrayBuffer).toString('base64');
-        contents.push({
-          inlineData: {
-            mimeType: img.mimeType,
-            data: base64ImageData,
-          },
-        });
+        for (const item of await prepareModelImages(Buffer.from(imageArrayBuffer), img.mimeType)) {
+          contents.push({
+            inlineData: {
+              mimeType: item.mimeType,
+              data: item.data,
+            },
+          });
+        }
       } catch (e) {
         console.warn(`[WARN] Error fetching image: ${img.image_url}`, e);
         continue;

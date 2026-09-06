@@ -1,4 +1,5 @@
 import type { Part } from "@google/genai";
+import { prepareModelImages, tileLabel } from "./imagePreprocess.js";
 import {
   safeFetch,
   type ImageOrigin,
@@ -21,6 +22,8 @@ export type AffirmativeImageStats = {
   attempted: number;
   succeeded: number;
   skipped: number;
+  /** 拡大タイルとして追加で送った枚数（全体像は含めない）。 */
+  tiles: number;
   byOrigin: Record<ImageOrigin, OriginStats>;
 };
 
@@ -35,6 +38,7 @@ const emptyStats = (): AffirmativeImageStats => ({
   attempted: 0,
   succeeded: 0,
   skipped: 0,
+  tiles: 0,
   byOrigin: Object.fromEntries(
     ORIGINS.map((origin) => [
       origin,
@@ -98,15 +102,23 @@ export async function buildAffirmativeImageParts(
         throw new Error(`HTTP ${response.status}`);
       }
       const imageArrayBuffer = await response.arrayBuffer();
-      parts.push(
-        { text: affirmativeImageLabel(index, origin, langStr) },
-        {
-          inlineData: {
-            mimeType: image.mimeType,
-            data: Buffer.from(imageArrayBuffer).toString("base64"),
-          },
-        },
+      // 全体像はそのままの番号、拡大タイルは続き番号で追加する。順序が
+      // そのままモデルの見る順序になるので、必ず「全体 → そのタイル」で積む。
+      const prepared = await prepareModelImages(
+        Buffer.from(imageArrayBuffer),
+        image.mimeType,
       );
+      for (const [tileOffset, item] of prepared.entries()) {
+        const label =
+          item.kind === "whole"
+            ? affirmativeImageLabel(index, origin, langStr)
+            : tileLabel(`${index}-${tileOffset}`, index, item, langStr);
+        parts.push(
+          { text: label },
+          { inlineData: { mimeType: item.mimeType, data: item.data } },
+        );
+        if (item.kind === "tile") stats.tiles++;
+      }
       stats.succeeded++;
       stats.byOrigin[origin].succeeded++;
     } catch (cause) {

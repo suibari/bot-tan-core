@@ -116,14 +116,14 @@ const POST_READING_RULES_JA =
   `## 投稿の読み取りについて（「具体的に褒める」より優先）
    - **行為をした人を、勝手に相手本人にしないこと。** 子供・家族・友人・同僚・他人がやったことは、その人がやったこととして書いてください。相手がやったのは「それを見つけたこと」「面白がったこと」「話してくれたこと」の側です。そこを褒めてください。
    - **まだ起きていないことを、起きたことにしないこと。** 「〜したら」「〜する予定」「〜したい」「〜しないとな」「〜するつもり」は、まだ終わっていません。「おめでとう」「お疲れさま」「やりきったね」など、達成を祝う言葉を使ってはいけません。これからやることには、応援の側で応えてください。
-   - 投稿に書かれていない結果・成果・経緯を足さないこと。書いていないことは、あなたが知らないことです。
+   - 投稿に書かれていない結果・成果・経緯を足さないこと。書いていないことは、あなたが知らないことです。ただし、ユーザ自身が共有したリンク先の内容（<grounding_research>）と画像に写っているものは、この「知らないこと」には当たりません。
    - 主体や時系列がはっきり読み取れないときは、断定しないこと。事実を決めつけて褒めるより、いまの気持ちに寄り添うほうが外しません。`;
 
 const POST_READING_RULES_EN =
   `## How to read the post (this takes priority over giving a specific compliment)
    - **Never reassign an action to the user.** If a child, family member, friend, coworker, or anyone else did the thing, write it as that person's doing. What the user did was notice it, enjoy it, or share it — praise that instead.
    - **Never treat something that has not happened as done.** "once I finish", "I plan to", "I want to", "I need to", "I'm going to" all mean it is not finished. Do not use congratulation words such as "congrats", "well done", or "you pulled it off". Respond to upcoming things with encouragement instead.
-   - Do not add results, outcomes, or backstory that the post does not state. If it is not written, you do not know it.
+   - Do not add results, outcomes, or backstory that the post does not state. If it is not written, you do not know it. What a link the user shared says (<grounding_research>) and what is visible in the attached images do not count as things you do not know.
    - When you cannot tell who did what, or when it happened, do not assert it. Staying with how they feel right now is safer than praising a fact you guessed.`;
 
 /**
@@ -246,8 +246,14 @@ export const buildAffirmativeInstructions = async (userinfo: UserInfoGemini) => 
   let styleJa = '';
   let styleEn = '';
   if (hasImages) {
-    styleJa = '画像1枚につき1文〜2文で、すべての画像の良さを自然な文章で伝えてください。';
-    styleEn = 'Give one or two sentences per image, naturally conveying what is good about every image.';
+    // 以前はここが「画像1枚につき1文〜2文」だった。ローカルモデルは実効896px相当でしか
+    // 画像を見ておらず（imagePreprocess.ts の実測）、そこへ文量上限まで重なると
+    // 「どれも素敵」で終わる。長さの判断はモデルに委ね、代わりに下の画像指示で
+    // 「画面のどこを見たか」を必ず言わせる。暴走は AFFIRMATIVE_REPLY_RUNAWAY_LIMIT が弾く。
+    styleJa =
+      'すべての画像に触れてください。長さはあなたが決めてかまいませんが、下の「長さについて」を必ず守ること。';
+    styleEn =
+      'Touch on every image. You decide the length, but you must follow the rules under "About length" below.';
   } else if (postLength === 0) {
     // 画像のみなど
     styleJa = '300文字以内の一般的な長さで返答してください。';
@@ -291,7 +297,7 @@ export const buildAffirmativeInstructions = async (userinfo: UserInfoGemini) => 
    - **注意: JSONのパースエラーを防ぐため、commentの値（文字列）の中では二重引用符（"）を絶対に使用しないでください。代わりに、一重引用符（'）や「」などの記号を使用してください。**
    - ${
      hasImages
-       ? '入力に付与されたすべての画像について、それぞれ最低1つは、色・構図・表情・動き・アイデアなど目で確認できる具体的な良さを褒めてください。複数画像を「どれも素敵」のような総括だけで済ませず、画像ラベルに示された出所と褒める対象を守ってください。画像番号を並べる機械的な箇条書きにはせず、botたんらしい自然な文章としてつなげてください。'
+       ? '入力に付与されたすべての画像について、それぞれ最低1つは、色・構図・表情・動き・アイデアなど目で確認できる具体的な良さを褒めてください。そのとき、画面のどの部分を見て言っているのかが伝わる語（描かれているもの、身につけているもの、背景、書かれている文字など）を必ず1つは挙げてください。複数画像を「どれも素敵」のような総括だけで済ませず、画像ラベルに示された出所と褒める対象を守ってください。「画像N-M」というラベルの画像は別の被写体ではなく画像Nの一部を拡大したものなので、そこで読み取れた細部は画像Nの話として書いてください。画像番号を並べる機械的な箇条書きにはせず、botたんらしい自然な文章としてつなげてください。**「画像1」「画像1-1」のようなラベル名や番号は、commentの中で絶対に書かないでください**（実測で「画像1-1で見える」と本文に漏れました）。見えないものを推測で補ってはいけません。'
        : 'ユーザの今回のポストを具体的に褒めてください。ただし下の「投稿の読み取りについて」を先に守ること。褒める対象が本文に見つからないときに、行為者や時制をずらして対象を作ってはいけません。'
    }
    - ユーザが特定の作品や人物を好きと言っている場合は、その作品・人物の魅力を事実に基づいて述べ、共感を示してください。
@@ -315,7 +321,7 @@ export const buildAffirmativeInstructions = async (userinfo: UserInfoGemini) => 
          : ''
      }
     - ${userinfo.embed?.text_embed ? 'ユーザが引用しているポストとの共通点を踏まえて今回のポストを褒めてください。ポスト内容はそのまま記載しないでください。引用元が「全肯定botたん」に関するポストの場合、言及してくれたことへの感謝も伝えてください。' : ''}
-    - ${urlContextEnabled(userinfo) && sharedLinks(userinfo).length ? 'ユーザが共有しているすべてのリンク先について、URLコンテキスト機能を使用して実際のページ内容を確認してください。取得できないリンクは、下記のカードタイトルと説明を参考にしてください。リンクの具体的なテーマや内容に触れ、ユーザの感性や興味を具体的に褒めてください。' : ''}
+    - ${urlContextEnabled(userinfo) && sharedLinks(userinfo).length ? 'ユーザが共有しているリンクについては、この指示ブロックの中の<grounding_research>にページから読み取った内容が入っています（無い場合は下記のカードタイトルと説明を使ってください）。**そこに書かれている具体的な事実や固有名詞を最低1つ、自分の言葉で返信に織り込んでください。** これは下の「投稿に書かれていない結果・成果・経緯を足さないこと」の例外です（ユーザ自身が共有したページの内容なので、あなたが知ってよいことです）。ただし解説にはせず、そこに触れたうえでユーザの感性や興味を褒めること。調査ブロックそのものやURLには言及しないこと。' : ''}
 
    **注意: commentにはscoreに関する情報を絶対に含めないこと**
 
@@ -366,7 +372,7 @@ ${TONE_RULES_JA}
    - **CRITICAL: You MUST write the "comment" value entirely in ${userinfo.langStr}. DO NOT use Japanese.**
    - ${
      hasImages
-       ? "For every supplied image, mention at least one visually specific strength such as its color, composition, expression, motion, or idea. Never collapse multiple images into a vague summary such as 'they are all lovely.' Follow each image label's origin and attribution instructions. Connect the observations as natural, Bot-tan-like prose instead of a mechanical numbered list."
+       ? "For every supplied image, mention at least one visually specific strength such as its color, composition, expression, motion, or idea. Always name something that shows which part of the picture you looked at — an object drawn, something worn, the background, or text written in it. Never collapse multiple images into a vague summary such as 'they are all lovely.' Follow each image label's origin and attribution instructions. An image labelled 'Image N-M' is not a separate subject but a close-up of image N, so write what you read there as part of image N. Connect the observations as natural, Bot-tan-like prose instead of a mechanical numbered list. **Never write a label or number such as 'image 1' or 'image 1-1' in the comment itself.** Never fill in what you cannot actually see."
        : "Give a specific compliment about the user's text post, but follow \"How to read the post\" below first. When the post gives you nothing concrete to praise, never manufacture something by shifting who acted or whether it already happened."
    }
    - If the user says they like a work or person, mention facts about it and empathize.  
@@ -390,7 +396,7 @@ ${TONE_RULES_JA}
          : ''
      }
     - ${userinfo.embed?.text_embed ? "The user is quoting a post, so please use that post's content to praise this post." : ''}
-    - ${urlContextEnabled(userinfo) && sharedLinks(userinfo).length ? "Use URL Context to inspect every shared link. If a link cannot be retrieved, use its card title and description below as fallback context. Specifically praise the user's interest or perspective by referring to the links' themes or content." : ''}
+    - ${urlContextEnabled(userinfo) && sharedLinks(userinfo).length ? "For links the user shared, the <grounding_research> block inside these instructions holds what was read from the page (if it is absent, fall back to the card title and description below). **Weave at least one concrete fact or proper noun from it into your reply, in your own words.** This is an exception to 'do not add results or backstory the post does not state' below — the user shared that page themselves, so its content is something you may know. Do not turn it into an explanation; touch on it and then praise the user's interest or perspective. Do not mention the research block itself or the URLs." : ''}
 
    **Important: Do not reveal score in the comment.**
 

@@ -117,7 +117,12 @@ test("短文への50文字制約は従来どおり残す", async () => {
   assert.doesNotMatch(prompt, /長さはあなたが決めてください/);
 });
 
-test("画像ありでも「必要な文量を使い」で青天井にしない", async () => {
+/**
+ * 画像ありの文量。以前はここに「画像1枚につき1文〜2文」という上限があったが、
+ * ローカルモデルは実効896px相当でしか画像を見ておらず、そこへ文量上限が重なると
+ * 「どれも素敵」で終わっていた。上限は外し、水増しの側（SUBSTANCE_RULES）で縛る。
+ */
+test("画像ありでは文量上限を課さないが、水増しは禁じたままにする", async () => {
   const prompt = await buildAffirmativePrompt(
     userinfo("旅行の写真だよ", "日本語", [
       { image_url: "https://example.com/1.png", mimeType: "image/png" },
@@ -125,8 +130,11 @@ test("画像ありでも「必要な文量を使い」で青天井にしない",
   );
 
   assert.doesNotMatch(prompt, /必要な文量を使い/);
-  assert.match(prompt, /画像1枚につき1文〜2文/);
+  assert.doesNotMatch(prompt, /画像1枚につき1文〜2文/);
+  assert.match(prompt, /すべての画像に触れてください/);
   assert.match(prompt, /字数を埋めるために書いてはいけません/);
+  // 具体性の要求（どの部分を見たか）が消えていないこと。
+  assert.match(prompt, /画面のどの部分を見て言っているのか/);
 });
 
 /**
