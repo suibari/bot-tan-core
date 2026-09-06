@@ -162,7 +162,6 @@ export type AiRouteName =
   | "35-lite-standard"
   | "36-flash-flex"
   | "36-flash-standard"
-  | "image-auto"
   | "ollama-chat"
   | "ollama-embed"
   | "ollama-translate"
@@ -181,7 +180,6 @@ export const AI_ROUTES = {
   "35-lite-standard": { provider: "gemini", alias: "gemini-35-lite", tier: "standard" },
   "36-flash-flex": { provider: "gemini", alias: "gemini-36-flash", tier: "flex" },
   "36-flash-standard": { provider: "gemini", alias: "gemini-36-flash", tier: "standard" },
-  "image-auto": { provider: "gemini", alias: "gemini-image", tier: "auto" },
   // Ollama はローカル実行なので ServiceTier の概念がない
   "ollama-chat": { provider: "ollama", alias: "ollama-chat", tier: "auto" },
   "ollama-embed": { provider: "ollama", alias: "ollama-embed", tier: "auto" },
@@ -232,7 +230,11 @@ export const AI_FEATURES = {
   BSKY_RECAP: "lite-flex", // 1年のまとめ
   BSKY_ROOM_WELCOME: "lite-flex", // お部屋招待のお出迎えメッセージ
   BSKY_MY_MOOD_SONG: "lite-flex", // 今日の気分ソング（※現在は呼び出し元なし）
-  BSKY_IMAGE: "image-auto", // 画像生成（※現在は呼び出し元なし）
+  // 画像生成用: 日本語の情景文 → booru タグ。**必ずローカルで回す。**
+  // 拡散モデルの CLIP は日本語をほぼ読まないので変換層が要るが、これは抽出作業で
+  // Gemini を使う理由が無く、しかも1日1回しか走らない。
+  // 画像そのもののルーティングは AI_IMAGE_FEATURES 側（この表はテキスト専用）。
+  BSKY_IMAGE_PROMPT: "ollama-chat",
 
   // ══════ biorhythm_server（定期ポスト生成） ═════════════════════════
   // 今期の話題作リスト（grounding）。日次予定表を作るときだけ呼び、さらに7日キャッシュするので実質週1回。
@@ -401,13 +403,12 @@ function resolveUncached(feature: AiFeatureKey): ResolvedAiRoute {
   let spec: AiRouteSpec = AI_ROUTES[route] ?? AI_ROUTES[FALLBACK_ROUTE];
 
   // Gemini のテキスト生成ルートを、呼び出し側を変えずに Ollama へ一括移行する。
-  // 画像生成だけはモデル能力とAPI契約が異なるので Gemini ルートを保つ（呼び出し元は無い）。
   // grounding は SearXNG 自前化で、embedding は ollama-embed で置き換え済み。
-  if (
-    spec.provider === "gemini" &&
-    spec.alias !== "gemini-image" &&
-    aiTextProvider() === "ollama"
-  ) {
+  //
+  // 以前はここに `spec.alias !== "gemini-image"` という例外があった。画像生成だけは
+  // モデル能力と API 契約が違うので巻き込めなかったため。画像は下の第2レジストリへ
+  // 移したので、この表にはもうテキストしか無く、例外は要らなくなった。
+  if (spec.provider === "gemini" && aiTextProvider() === "ollama") {
     spec = AI_ROUTES["ollama-chat"];
   }
 
@@ -463,10 +464,11 @@ export function aiServiceTier(feature: AiFeatureKey): "flex" | "standard" | unde
   return resolveAiRoute(feature).serviceTier;
 }
 
-/** テスト用。process.env を書き換えたあとに呼ぶ。 */
+/** テスト用。process.env を書き換えたあとに呼ぶ。画像側のキャッシュもここで消す。 */
 export function resetAiRouteCache(): void {
   cache = undefined;
   contextLengthCache = undefined;
+  imageRouteCache.clear();
 }
 
 /**
@@ -500,4 +502,115 @@ export function logAiRouteTable(options: { prefixes?: string[] } = {}): void {
       invalid.map((row) => row.feature).join(", "),
     );
   }
+}
+
+// ---------------------------------------------------------------------------
+// 画像生成のルーティング（テキストとは別レジストリ）
+//
+// テキスト側の AI_ROUTES / AI_FEATURES に混ぜていない。混ぜると壊れるものが3つある。
+//   1. generateContentForProvider() は provider を "ollama" かそれ以外かで二分岐する。
+//      画像の provider を足しても黙って Gemini 側へ落ちる。
+//   2. AI_ROUTE_NAMES は AI_ROUTE_<機能キー> env の検証テーブル。画像ルート名を混ぜると、
+//      テキスト機能に画像ルートを指定しても検証を通ってしまう。
+//   3. resolveUncached() の gemini→ollama 一括差し替えは「表にテキストしか無い」ことに
+//      依存している。以前は alias !== "gemini-image" という例外でそれを保っていた。
+//
+// 3層の形（別名 → ルート → 機能）は真似る。モデル名が書いてある場所を1箇所に
+// 閉じ込めるという原則は画像でも同じだから。
+// ---------------------------------------------------------------------------
+
+export type AiImageProvider = "local" | "gemini";
+
+export type AiImageRouteName = "image-local" | "image-gemini";
+
+type AiImageRouteSpec = { provider: AiImageProvider; alias: ModelAliasName | null };
+
+export const AI_IMAGE_ROUTES = {
+  // ローカルは実モデル名をサイドカー側が持つ（チェックポイントと LoRA のファイル名）。
+  // ここに書くと2箇所を人手で合わせることになるので alias は持たせない。
+  "image-local": { provider: "local", alias: null },
+  "image-gemini": { provider: "gemini", alias: "gemini-image" },
+} as const satisfies Record<AiImageRouteName, AiImageRouteSpec>;
+
+export const AI_IMAGE_ROUTE_NAMES = Object.keys(AI_IMAGE_ROUTES) as AiImageRouteName[];
+
+export const AI_IMAGE_FEATURES = {
+  // botたんが「その日の印象的な出来事」を1日1枚描く。おやすみポストに添える。
+  BSKY_IMAGE: "image-local",
+} as const satisfies Record<string, AiImageRouteName>;
+
+export type AiImageFeatureKey = keyof typeof AI_IMAGE_FEATURES;
+
+export function isAiImageRouteName(value: string): value is AiImageRouteName {
+  return (AI_IMAGE_ROUTE_NAMES as string[]).includes(value);
+}
+
+export type ResolvedAiImageRoute = {
+  feature: AiImageFeatureKey;
+  route: AiImageRouteName;
+  provider: AiImageProvider;
+  /** provider === "gemini" のときだけ入る。ローカルはサイドカーがモデルを持つ。 */
+  model?: string;
+  source: "default" | "env" | "env-invalid";
+};
+
+const imageRouteCache = new Map<AiImageFeatureKey, ResolvedAiImageRoute>();
+
+/**
+ * 機能キー → 実際に使う画像ルート。
+ *
+ * **Gemini へ自動フォールバックしない。** 2025-09 に費用の問題で止めた経路
+ * （ea19880 / ccf265d）で、落ちたときに黙って課金経路へ戻ると、絵は出続けるので
+ * 気付けない。切り戻すときは AI_ROUTE_BSKY_IMAGE=image-gemini を明示すること。
+ *
+ * テキスト側と同じく module scope で env を読まない。dotenv.config() は ESM では
+ * 全 import 評価の「後」に走るので、トップレベルで読むと .env の上書きが黙って無視される。
+ */
+export function resolveAiImageRoute(feature: AiImageFeatureKey): ResolvedAiImageRoute {
+  const cached = imageRouteCache.get(feature);
+  if (cached) return cached;
+
+  const fallback = AI_IMAGE_FEATURES[feature];
+  const override = process.env[`AI_ROUTE_${feature}`]?.trim();
+  let route: AiImageRouteName = fallback;
+  let source: ResolvedAiImageRoute["source"] = "default";
+  if (override) {
+    if (isAiImageRouteName(override)) {
+      route = override;
+      source = "env";
+    } else {
+      source = "env-invalid";
+      console.warn(
+        `[WARN][AI_ROUTE] AI_ROUTE_${feature}="${override}" は画像ルートとして無効。${fallback} を使う。`,
+      );
+    }
+  }
+
+  const spec = AI_IMAGE_ROUTES[route];
+  const alias = spec.alias ? MODEL_ALIAS_SPECS[spec.alias] : undefined;
+  const resolved: ResolvedAiImageRoute = {
+    feature,
+    route,
+    provider: spec.provider,
+    ...(alias ? { model: process.env[alias.env]?.trim() || alias.fallback() } : {}),
+    source,
+  };
+  imageRouteCache.set(feature, resolved);
+  return resolved;
+}
+
+/** 起動ログ用。テキスト側の logAiRouteTable と同じ位置で呼ぶ。 */
+export function logAiImageRouteTable(): void {
+  const rows = (Object.keys(AI_IMAGE_FEATURES) as AiImageFeatureKey[]).map((key) => {
+    const resolved = resolveAiImageRoute(key);
+    return {
+      feature: key,
+      route: resolved.route,
+      provider: resolved.provider,
+      model: resolved.model ?? "(sidecar)",
+      source: resolved.source,
+    };
+  });
+  console.log("[INFO][AI_ROUTE] resolved image routing table");
+  console.table(rows);
 }

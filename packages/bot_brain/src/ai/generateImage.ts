@@ -1,80 +1,74 @@
-import { Modality, PartListUnion } from "@google/genai";
-import { gemini } from "./index.js";
-import * as fs from "node:fs";
-import { SYSTEM_INSTRUCTION } from "@bsky-affirmative-bot/shared-configs";
-import { withRoute } from "./aiRoute.js";
+import { resolveAiImageRoute } from "@bsky-affirmative-bot/shared-configs";
+import { buildImagePrompt, planImageScene, type ImageStyle } from "./buildImagePrompt.js";
+import { generateImageGemini } from "./generateImageGemini.js";
+import { isImageGenConfigured, requestImage, type GeneratedImage } from "./imageGenClient.js";
 
+/**
+ * botたんが「その日の印象的な出来事」を1枚の絵にする。おやすみポストに添える。
+ *
+ * ## 経緯
+ * 2025-09 に Gemini の画像生成を費用の問題で止めて以来、呼び出し元ごと凍結していた
+ * （ea19880 / ccf265d）。GPU 機に自前の生成サイドカーを置いたので復活させた。
+ *
+ * ## 3段構え
+ *  1. 日本語の情景文（絵文字・話し言葉まじり）を、常駐している gemma へ渡して
+ *     シーンの構造化タグにする。SDXL 系の CLIP は日本語をほぼ読めないので、この層が
+ *     無いと何を描いてほしいかが伝わらない。英訳しても読まない（実測）。
+ *  2. タグにキャラ固定部を **TypeScript 側の定数として** 連結する。外見を LLM に
+ *     書かせないのは、揺れると同一性が壊れるため。2キャラなら領域プロンプトを組む。
+ *  3. GPU 機のサイドカーへ HTTP。
+ *
+ * ## 失敗しても throw しない
+ * 呼び出し元はおやすみポストの経路。ここで例外を投げると投稿そのものが飛ぶ。
+ * **絵は無くてもおやすみポストは成立する**ので、null を返して呼び出し側に判断させる。
+ *
+ * ## Gemini へ自動フォールバックしない
+ * 費用で止めた経路なので、AI_ROUTE_BSKY_IMAGE=image-gemini を明示したときしか使わない。
+ * 自動で戻すと、サイドカーが落ちている間ずっと課金され、しかも絵は出続けるので気付けない。
+ *
+ * @param sourceText その日の出来事やユーザーとの会話から、印象に残ったことを書いた文。
+ *                   おやすみポストの本文をそのまま渡す使い方を想定している。
+ * @param maxBytes   配信先の blob 上限。Leaflet の coverImage と Nagi はどちらも
+ *                   1,000,000 バイトなので、余裕を見た値を呼び出し側が渡す。
+ */
+export async function generateImage(
+  sourceText: string,
+  maxBytes?: number,
+): Promise<GeneratedImage | null> {
+  const route = resolveAiImageRoute("BSKY_IMAGE");
 
-export async function generateImage(mood: string): Promise<Buffer | null> {
-  const prompt =
-    `Please create your illustration using the attached character design as a reference.
-  The 1st attached character's name is "Fully-Affirmative Bot-tan".
-  The 2nd attached character's name is "Latte-chan".
-  Please faithfully maintain the following characteristics. You may change the outfit to suit the scene.
-  * Fully-Affirmative Bot-tan
-    - Light blue hair, long hair, ahoge
-    - Thick eyebrows, squinting eyes
-  * Morpho
-    - a Samoyed dog
-    - not show up at school
-  * Latte-chan
-    - pink hair, long princess hair, red ribbon
-    - nekomimi
-    - green eyes
-    - maid clothes
-    - a red hairpin with the kanji character "ten (heaven)"
-    - white cat tail
-    - not show up at school
-  Rules: 
-  * **Be careful not to lose balance between the body and face.**
-  * **Do not include text in images**
-  Scene: ${mood}`;
-
-  const imagePath_bottan = "./img/bot-tan-concept.png";
-  const imageData_bottan = fs.readFileSync(imagePath_bottan);
-  const base64Image_bottan = imageData_bottan.toString("base64");
-  const imagePath_latte = "./img/latte-chan-concept.png";
-  const imageData_latte = fs.readFileSync(imagePath_latte);
-  const base64Image_latte = imageData_latte.toString("base64");
-  const contents: PartListUnion = [
-    { text: prompt },
-    {
-      inlineData: {
-        mimeType: "image/png",
-        data: base64Image_bottan,
-      },
-    },
-    {
-      inlineData: {
-        mimeType: "image/png",
-        data: base64Image_latte,
-      },
-    },
-  ];
-
-  const response = await gemini.models.generateContent(withRoute("BSKY_IMAGE", {
-    contents,
-    // config: {
-    //   // systemInstruction: SYSTEM_INSTRUCTION,
-    //   responseModalities: [Modality.IMAGE],
-    // }
-  }));
-
-
-
-  for (const part of response.candidates?.[0].content?.parts || []) {
-    if (part.text) {
-      console.log("[INFO][IMGGEN] Generated image prompt:", part.text);
-    } else if (part.inlineData) {
-      console.log("[INFO][IMGGEN] Generated image received.");
-      const imageData = part.inlineData.data;
-      if (imageData) {
-        const buffer = Buffer.from(imageData, 'base64');
-        fs.writeFileSync("./img/output.png", buffer);
-        console.log("[INFO][IMGGEN] Image saved to ./img/output.png");
-        return buffer; // Return the buffer
-      }
+  try {
+    if (route.provider === "gemini") {
+      const data = await generateImageGemini(sourceText);
+      return data ? { data, mimeType: "image/png", width: 0, height: 0 } : null;
     }
+
+    if (!isImageGenConfigured()) {
+      console.log("[INFO][IMGGEN] IMAGEGEN_BASE_URL が未設定なので画像生成をしない。");
+      return null;
+    }
+
+    const plan = await planImageScene(sourceText);
+    if (!plan) return null;
+
+    const style = (process.env.IMAGEGEN_STYLE as ImageStyle) || "crayon-diary";
+    const built = buildImagePrompt(plan, style);
+    // シーンが薄いときは buildImagePrompt が null を返す。**そのまま描かせてはいけない。**
+    // キャラ固定タグだけの同じプロンプトになり、同じ絵が毎日出る（PoC で3枚重複した）。
+    if (!built) return null;
+
+    console.log(`[INFO][IMGGEN] style=${style} regions=${built.regions.length} prompt=${built.prompt}`);
+    return await requestImage({
+      prompt: built.prompt,
+      negativePrompt: built.negativePrompt,
+      width: built.width,
+      height: built.height,
+      regions: built.regions,
+      loras: built.loras,
+      ...(maxBytes ? { maxBytes } : {}),
+    });
+  } catch (error) {
+    console.error("[ERROR][IMGGEN] 画像生成に失敗した。絵は添えずに進める:", error);
+    return null;
   }
-  return null; // Return null if no image data was found
 }

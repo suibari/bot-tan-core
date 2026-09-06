@@ -9,6 +9,10 @@ import {
   isAiGroundingEnabled,
   resetAiRouteCache,
   resolveAiRoute,
+  AI_IMAGE_FEATURES,
+  AI_IMAGE_ROUTES,
+  isAiImageRouteName,
+  resolveAiImageRoute,
   type AiFeatureKey,
 } from "../src/config/aiRoutes.js";
 
@@ -78,7 +82,9 @@ const EXPECTED: Record<AiFeatureKey, [model: string, tier: "flex" | "standard" |
   BSKY_RECAP: [LITE, "flex"],
   BSKY_ROOM_WELCOME: [LITE, "flex"],
   BSKY_MY_MOOD_SONG: [LITE, "flex"],
-  BSKY_IMAGE: ["gemini-2.5-flash-image-preview", undefined],
+  // 画像そのもののルーティングは AI_IMAGE_FEATURES 側（この表はテキスト専用）。
+  // ここに残るのは、日本語の情景文を booru タグへ直す変換だけ。必ずローカルで回す。
+  BSKY_IMAGE_PROMPT: [DEFAULT_OLLAMA_TEXT_MODEL, undefined],
   // biorhythm_server（定期ポスト）
   // 今期の話題作リスト。grounding 付きだが7日キャッシュするので実質週1回。
   BIORHYTHM_SEASONAL_WORKS: [FLASH, "flex"],
@@ -141,10 +147,6 @@ test("既定では全テキスト生成を指定のOllamaモデルへ集約す�
   withCleanEnv(() => {
     for (const feature of AI_FEATURE_KEYS) {
       const resolved = resolveAiRoute(feature);
-      if (feature === "BSKY_IMAGE") {
-        assert.equal(resolved.provider, "gemini");
-        continue;
-      }
       if (feature === "OLLAMA_EMBED") {
         assert.equal(resolved.model, "snowflake-arctic-embed2");
         continue;
@@ -319,5 +321,54 @@ test("AI_GROUNDING_PROVIDER は searxng か off だけを受け付ける", () =>
     } finally {
       console.warn = originalWarn;
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 画像生成のレジストリ（テキストとは別表）
+// ---------------------------------------------------------------------------
+
+test("画像ルートはテキスト表に混ざっていない", () => {
+  withCleanEnv(() => {
+    // 混ぜると3つ壊れる（generateContentForProvider の二分岐 / AI_ROUTE_* の検証テーブル /
+    // gemini→ollama 一括差し替え）。表が分かれていること自体を固定しておく。
+    assert.ok(!("BSKY_IMAGE" in AI_FEATURES), "BSKY_IMAGE はテキスト表に居てはいけない");
+    for (const name of Object.keys(AI_IMAGE_ROUTES)) {
+      assert.ok(!(name in AI_ROUTES), `${name} はテキストのルート表に居てはいけない`);
+    }
+  });
+});
+
+test("画像生成の既定はローカル。Gemini へは自動で戻らない", () => {
+  withCleanEnv(() => {
+    const resolved = resolveAiImageRoute("BSKY_IMAGE");
+    assert.equal(resolved.route, "image-local");
+    assert.equal(resolved.provider, "local");
+    assert.equal(resolved.source, "default");
+    // ローカルは実モデル名をサイドカーが持つので、ここには載らない。
+    assert.equal(resolved.model, undefined);
+  });
+});
+
+test("AI_ROUTE_BSKY_IMAGE=image-gemini を明示したときだけ Gemini へ戻る", () => {
+  withCleanEnv(() => {
+    process.env.AI_ROUTE_BSKY_IMAGE = "image-gemini";
+    resetAiRouteCache();
+    const resolved = resolveAiImageRoute("BSKY_IMAGE");
+    assert.equal(resolved.provider, "gemini");
+    assert.equal(resolved.source, "env");
+    assert.equal(resolved.model, "gemini-2.5-flash-image-preview");
+  });
+});
+
+test("画像ルート名が不正なら既定へ落ちる", () => {
+  withCleanEnv(() => {
+    // テキストのルート名を書いても通してはいけない。
+    process.env.AI_ROUTE_BSKY_IMAGE = "lite-flex";
+    resetAiRouteCache();
+    assert.equal(isAiImageRouteName("lite-flex"), false);
+    const resolved = resolveAiImageRoute("BSKY_IMAGE");
+    assert.equal(resolved.route, AI_IMAGE_FEATURES.BSKY_IMAGE);
+    assert.equal(resolved.source, "env-invalid");
   });
 });

@@ -9,6 +9,7 @@ import {
   standardSiteDocumentUrl,
 } from './LeafletStandardSite.js';
 import { trackedPutRecord } from './RepoWritePointService.js';
+import type { ScheduledPostImage } from './ScheduledPostService.js';
 // Types derived from @atcute/leaflet (pub.leaflet lexicon)
 type LeafletFacet = {
   index: { byteStart: number; byteEnd: number };
@@ -126,8 +127,21 @@ function markdownToBlocks(md: string): LeafletLinearBlock[] {
   return blocks;
 }
 
+/** pub.leaflet の coverImage / blocks.image が受け付ける blob の上限（lexicon 定義）。 */
+export const LEAFLET_BLOB_MAX_BYTES = 1_000_000;
+
 export class LeafletDiaryService {
-  static async generateAndPostDiary(agent: AtpAgent, diaryCount: number, lang: 'en' | 'ja' = 'en'): Promise<string | undefined> {
+  /**
+   * @param coverImage botたんがその日に描いた絵。日記のヘッダーとして載せる。
+   *   pub.leaflet の coverImage は **1,000,000 バイト上限**の blob で、超えると
+   *   PDS 側で弾かれる。呼び出し元（画像生成サイドカー）にその上限を渡して収めさせている。
+   */
+  static async generateAndPostDiary(
+    agent: AtpAgent,
+    diaryCount: number,
+    lang: 'en' | 'ja' = 'en',
+    coverImage?: ScheduledPostImage,
+  ): Promise<string | undefined> {
     const leafletUser = process.env.LEAFLET_USERNAME;
     const botDid = agent.session?.did;
 
@@ -188,6 +202,29 @@ export class LeafletDiaryService {
         blocks: markdownToBlocks(markdownContent),
       },
     ];
+    // ヘッダー画像。上げられなければ画像なしで日記自体は出す。
+    // 日記は1日1本しか機会が無く、絵の都合で本文を落とすほうが損。
+    let cover: unknown;
+    if (coverImage) {
+      try {
+        const data = Buffer.from(coverImage.dataBase64, 'base64');
+        if (data.byteLength > LEAFLET_BLOB_MAX_BYTES) {
+          throw new Error(`cover image is ${data.byteLength}B (max ${LEAFLET_BLOB_MAX_BYTES}B)`);
+        }
+        const { blob } = (await agent.uploadBlob(data, { encoding: coverImage.mimeType })).data;
+        // uploadBlob が返すのは BlobRef クラス（ref は CID、$type は toJSON でしか付かない）
+        // なので、レコードに載せる JSON 形へ明示的に変換する。
+        cover = {
+          $type: 'blob',
+          ref: { $link: blob.ref.toString() },
+          mimeType: blob.mimeType,
+          size: blob.size,
+        };
+      } catch (error) {
+        console.warn('[WARN][LEAFLET] Failed to attach cover image:', error);
+      }
+    }
+
     const record = buildStandardSiteDocument({
       rkey,
       site: publication.uri,
@@ -195,6 +232,7 @@ export class LeafletDiaryService {
       description: diaryResult.title,
       publishedAt: new Date().toISOString(),
       pages,
+      ...(cover ? { coverImage: cover } : {}),
     });
 
     console.log(`[INFO][LEAFLET] Publishing ${STANDARD_SITE_DOCUMENT} record to PDS with rkey: ${rkey}...`);

@@ -13,6 +13,8 @@ export * from './generateUserDiaryResilient.js';
 export * from './generateFortuneResult.js';
 export * from './generateGoodNight.js';
 export * from './generateImage.js';
+export * from './imageGenClient.js';
+export * from './buildImagePrompt.js';
 export * from './generateMyMoodSong.js';
 export * from './generateOmikuji.js';
 export * from './generateQuestion.js';

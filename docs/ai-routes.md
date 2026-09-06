@@ -117,7 +117,10 @@ AI_ROUTE_BSKY_CONVERSATION=flash-standard
 ```
 
 有効なルート名: `lite-flex` `lite-standard` `lite-auto` `flash-flex` `flash-standard` `flash-auto`
-`image-auto` `ollama-chat` `ollama-embed` `ollama-translate` `ollama-bot-translate`
+`ollama-chat` `ollama-embed` `ollama-translate` `ollama-bot-translate`
+
+画像生成は**別レジストリ**なのでここには入らない（後述「画像生成のルーティング」）。
+`AI_ROUTE_BSKY_IMAGE` に上のテキスト用ルート名を書いても通らない。
 
 未知の値を入れた場合は **warn を出して既定にフォールバックする**（bot は落ちない）。起動ログの `source` 列が `env-invalid` になる。
 
@@ -181,7 +184,7 @@ Ollama既定とGemini切り戻しの両方を全機能ぶんピン留めして�
 | `BSKY_RECAP` | `lite-flex` | 1年のまとめ |
 | `BSKY_ROOM_WELCOME` | `lite-flex` | お部屋招待のお出迎え |
 | `BSKY_MY_MOOD_SONG` | `lite-flex` | 今日の気分ソング（**現在は呼び出し元なし**） |
-| `BSKY_IMAGE` | `image-auto` | 画像生成（**現在は呼び出し元なし**） |
+| `BSKY_IMAGE_PROMPT` | `ollama-chat` | 画像生成用に日本語の情景文を booru タグへ直す（必ずローカル） |
 
 肯定返信（`generateAffirmativeWord`）と会話（`conversation`）の実装は Nagi からも呼ばれるが、
 **Nagi は必ず `requestOptions` で model/serviceTier を明示上書きする**（再試行ラダー）ので、
@@ -245,7 +248,7 @@ Nagi のリプライは**失敗するたびに段を上げる再試行ラダー*
 |---|---|---|
 | `gemini-lite` | `MODEL_GEMINI_LITE` | `gemini-2.5-flash-lite` |
 | `gemini-flash` | `MODEL_GEMINI_FLASH` | `gemini-2.5-flash` |
-| `gemini-image` | `MODEL_GEMINI_IMAGE` | `gemini-2.5-flash-image-preview` |
+| `gemini-image` | `MODEL_GEMINI_IMAGE` | `gemini-2.5-flash-image-preview` |（画像レジストリ専用）
 | `ollama-chat` | `OLLAMA_MODEL` | `hf.co/unsloth/gemma-4-12B-it-qat-GGUF:UD-Q4_K_XL` |
 | `ollama-embed` | `OLLAMA_EMBED_MODEL` | `snowflake-arctic-embed2` |
 | `ollama-translate` | `OLLAMA_TRANSLATION_MODEL` | → `OLLAMA_MODEL` → 指定Gemma 4 |
@@ -305,3 +308,53 @@ model: aiModel("NAGI_ANALYSIS"),
 **レジストリは module scope で `process.env` を読まない。** 各アプリの `dotenv.config()` はモジュール本体で走る＝ESM では全 import 評価の**後**なので、トップレベルで env を読むと `.env` の上書きが黙って無視される。解決は `resolveAiRoute()` の初回呼び出し時に行い、メモ化している。テストで env を書き換えたら `resetAiRouteCache()` を呼ぶこと。
 
 同じ理由で、`positiveNewsModel` は `const` ではなく関数になっている。
+
+
+---
+
+## 画像生成のルーティング
+
+**テキストとは別のレジストリ**（`AI_IMAGE_ROUTES` / `AI_IMAGE_FEATURES`）を使う。
+同じ表に混ぜていないのは、混ぜると壊れるものが3つあるため。
+
+1. `generateContentForProvider()` は provider を「`ollama` かそれ以外か」で二分岐している。
+   画像の provider を足しても黙って Gemini 側へ落ちる
+2. `AI_ROUTE_NAMES` は `AI_ROUTE_<機能キー>` env の検証テーブル。画像ルート名を混ぜると、
+   テキスト機能に画像ルートを指定しても検証を通ってしまう
+3. `resolveUncached()` の gemini→ollama 一括差し替えは「表にテキストしか無い」ことに依存している
+
+| ルート名 | provider | モデルの持ち主 |
+| --- | --- | --- |
+| `image-local` | `local` | GPU 機のサイドカー（チェックポイントと LoRA のファイル名を持つ） |
+| `image-gemini` | `gemini` | `MODEL_GEMINI_IMAGE` |
+
+| 機能キー | 既定 | 用途 |
+| --- | --- | --- |
+| `BSKY_IMAGE` | `image-local` | botたんがその日の印象的な出来事を1日1枚描く（おやすみポストに添える） |
+
+### Gemini へ自動フォールバックしない
+
+2025-09 に費用の問題で止めた経路（`ea19880` / `ccf265d`）なので、
+サイドカーが落ちても**自動では Gemini に戻らない**。戻すときは明示する。
+
+```
+AI_ROUTE_BSKY_IMAGE=image-gemini
+```
+
+自動で戻すと、サイドカーが落ちている間ずっと課金され、**しかも絵は出続けるので気付けない**。
+落ちたときは絵を出さないほうがマシ、という判断。
+
+### 生成された絵の行き先
+
+| 行き先 | 添付するか | どこで |
+| --- | --- | --- |
+| Bluesky の投稿 | **しない** | — |
+| Nagi のおやすみポスト | する | `apps/nagi_bot_server/src/ScheduledPostFeature.ts` |
+| Leaflet の日記のヘッダー | する（`coverImage`） | `packages/clients/src/LeafletDiaryService.ts` |
+
+`bsky_bot_server` も `image` を受け取るが、**Bluesky の投稿には載せない**。
+Leaflet の日記が Bluesky 側のおやすみポストの副作用として発行されているため、
+その日記のヘッダー画像として使うためだけに渡している。
+
+`pub.leaflet` の `coverImage` は **1,000,000 バイト上限**の blob。
+サイドカーに上限を渡して、品質を落としながら収めさせている（実測 229KB 程度）。

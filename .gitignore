@@ -15,3 +15,6 @@ service-account.json
 .cache/
 # 評価サイドカーの Python 仮想環境
 scripts/embedding-eval/.venv/
+
+# probe スクリプトの出力（pnpm imagegen:probe が書く生成画像）
+out/
