@@ -250,7 +250,25 @@ export function fitOllamaMessages(
   return { messages: fitted, trim };
 }
 
-/** Google Type enum (`OBJECT`) を Ollama が受けるJSON Schema (`object`) に直す。 */
+// @google/genai は proto の int64 に合わせて一部の JSON Schema 数値制約を文字列で持つ。
+// Ollama/llama.cpp は標準 JSON Schema として number を要求するため、プロバイダ境界で戻す。
+const JSON_SCHEMA_NUMBER_KEYS = new Set([
+  "multipleOf",
+  "maximum",
+  "exclusiveMaximum",
+  "minimum",
+  "exclusiveMinimum",
+  "maxLength",
+  "minLength",
+  "maxItems",
+  "minItems",
+  "maxContains",
+  "minContains",
+  "maxProperties",
+  "minProperties",
+]);
+
+/** Google形式の Schema を Ollama が受ける標準 JSON Schema に直す。 */
 export function normalizeJsonSchema(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(normalizeJsonSchema);
   if (!value || typeof value !== "object") return value;
@@ -259,6 +277,9 @@ export function normalizeJsonSchema(value: unknown): unknown {
     if (key === "propertyOrdering") continue;
     if (key === "type" && typeof item === "string") {
       output[key] = item.toLowerCase();
+    } else if (JSON_SCHEMA_NUMBER_KEYS.has(key) && typeof item === "string") {
+      const numeric = Number(item);
+      output[key] = item.trim() !== "" && Number.isFinite(numeric) ? numeric : item;
     } else {
       output[key] = normalizeJsonSchema(item);
     }

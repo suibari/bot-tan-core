@@ -79,12 +79,30 @@ test("Google Type enumをOllama用JSON Schemaへ正規化する", () => {
   assert.deepEqual(
     normalizeJsonSchema({
       type: "OBJECT",
-      properties: { values: { type: "ARRAY", items: { type: "STRING" } } },
+      properties: {
+        values: {
+          type: "ARRAY",
+          items: { type: "STRING" },
+          minItems: "3",
+          maxItems: "3",
+          default: "3",
+          description: "3件ちょうど",
+        },
+      },
       propertyOrdering: ["values"],
     }),
     {
       type: "object",
-      properties: { values: { type: "array", items: { type: "string" } } },
+      properties: {
+        values: {
+          type: "array",
+          items: { type: "string" },
+          minItems: 3,
+          maxItems: 3,
+          default: "3",
+          description: "3件ちょうど",
+        },
+      },
     },
   );
 });
