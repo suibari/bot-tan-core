@@ -1,11 +1,13 @@
 import {
   MemoryService,
   ScheduledPostService,
+  type ScheduledPostImage,
   type ScheduledPostPublishRequest,
   type ScheduledPostResult,
 } from "@bsky-affirmative-bot/clients";
 import {
   generateGoodNight,
+  generateImage,
   generateQuestion,
   MyMoodSongGenerator,
   searchYoutubeLink,
@@ -26,6 +28,35 @@ import {
   buildBotMemoryTopicQuery,
   retrieveBotMemoryTopics,
 } from "./botMemoryTopics.js";
+
+/**
+ * 配信先の blob 上限に対する余裕を見た値。
+ * pub.leaflet の coverImage は 1,000,000 バイト上限で、Nagi も同じ桁。
+ * ぴったりを狙うと符号化の誤差で弾かれるので少し下げる。
+ */
+const IMAGE_MAX_BYTES = 950_000;
+
+/**
+ * その日のおやすみポストに添える絵を1枚作る。
+ *
+ * 入力はおやすみポストの本文。**その日の出来事とユーザーとの会話から印象に残ったことを
+ * botたん自身がまとめた文**なので、「今日の印象的な場面を描く」という用途にそのまま合う。
+ * わざわざ別の要約を作らせると、本文と絵が食い違う原因になる。
+ *
+ * 失敗しても null が返るだけで、おやすみポストは絵なしで出る。
+ */
+async function buildGoodNightImage(sourceText: string): Promise<ScheduledPostImage | undefined> {
+  const generated = await generateImage(sourceText, IMAGE_MAX_BYTES);
+  if (!generated) return undefined;
+  return {
+    dataBase64: generated.data.toString("base64"),
+    mimeType: generated.mimeType,
+    width: generated.width,
+    height: generated.height,
+    // 読み上げ環境向け。絵の出どころが本文なので、本文の冒頭を添えるのが一番正確。
+    alt: `全肯定botたんが今日のできごとを描いた絵。${sourceText.slice(0, 100)}`,
+  };
+}
 
 const whimsicalPostGenerator = new WhimsicalPostGenerator();
 const moodSongGenerator = new MyMoodSongGenerator();
@@ -267,14 +298,23 @@ export async function postGoodNight(currentMood: string, botContext?: BotContext
       textEn: generated.textEn,
       sourcePost: { network: candidate.network, uri: candidate.uri },
     });
+
+    // 絵は1日1枚ここだけで作る。本文が確定してから作るので、絵と文がずれない。
+    const image = await buildGoodNightImage(generated.textJa);
+
     const results = await publish({
       kind: "good-night",
       contentByTarget: {
-        bsky: { text: texts.bsky },
+        // **Bluesky の投稿には絵を出さない。** ここで image を渡しているのは、
+        // Leaflet の日記が Bluesky 側のおやすみポストの副作用として発行されており、
+        // その日記のヘッダー画像に使うため。bsky_bot_server は image を
+        // postContinuous へ渡さない（ScheduledPostFeature.ts のコメント参照）。
+        bsky: { text: texts.bsky, ...(image ? { image } : {}) },
         nagi: {
           text: texts.nagiJa,
           langs: ["ja"],
           translations: [{ lang: "en", text: texts.nagiEn }],
+          ...(image ? { image } : {}),
         },
       },
       sourcePost: { network: candidate.network, uri: candidate.uri, cid: candidate.cid },

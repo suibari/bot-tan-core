@@ -23,13 +23,31 @@ export interface ScheduledPostRequest {
   text: string;
   langs?: string[];
   translations?: ScheduledPostTranslation[];
+  image?: ScheduledPostImage;
   sourcePost?: ScheduledPostSource;
+}
+
+/**
+ * 投稿に添える画像。**ターゲットごとに付けるかどうかを変えられる**のが要点で、
+ * botたんの1日1枚の絵は Nagi と Leaflet には出すが Bluesky には出さない、という
+ * 使い分けをここで表現している。
+ *
+ * データは base64。1日1回・1MB弱なので JSON に載せて構わない。
+ */
+export interface ScheduledPostImage {
+  /** base64。mimeType のとおりに符号化済み。 */
+  dataBase64: string;
+  mimeType: string;
+  width: number;
+  height: number;
+  alt: string;
 }
 
 export interface ScheduledPostContent {
   text: string;
   langs?: string[];
   translations?: ScheduledPostTranslation[];
+  image?: ScheduledPostImage;
 }
 
 export interface ScheduledPostPublishRequest {
