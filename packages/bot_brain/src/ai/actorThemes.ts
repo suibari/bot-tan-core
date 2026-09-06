@@ -24,6 +24,15 @@ export const MAX_ACTOR_THEMES = 6;
 /** テーマ抽出に渡す投稿数。多すぎると num_ctx を食う。 */
 export const THEME_SOURCE_POSTS = 40;
 /**
+ * 抽出を試みるのに最低限必要な素材の本数。これを下回ったら LLM を呼ばずに諦める。
+ *
+ * ワーカー側の対象者抽出もこの数で絞ること。数え方が食い違うと「対象になるが
+ * 構造的に必ず0件」の人が生まれ、空振りを永久に繰り返す（本番で実際に起きた）。
+ */
+export const MIN_THEME_SOURCE_POSTS = 5;
+/** 素材として数えない短文の長さ。あいさつ・スタンプ的な投稿を落とす。 */
+export const MIN_THEME_SOURCE_TEXT_LENGTH = 4;
+/**
  * 1回の突合で見る記事数。
  *
  * 一致した記事だけを掲載する方針なので、ここが狭いとセクションが常に空になる。
@@ -63,9 +72,9 @@ JSONだけを返してください。`;
 export async function extractActorThemes(posts: string[]): Promise<string[]> {
   const sample = posts
     .map((text) => text.replace(/\s+/g, " ").trim())
-    .filter((text) => text.length >= 4)
+    .filter((text) => text.length >= MIN_THEME_SOURCE_TEXT_LENGTH)
     .slice(0, THEME_SOURCE_POSTS);
-  if (sample.length < 5) return [];
+  if (sample.length < MIN_THEME_SOURCE_POSTS) return [];
   const raw = await ollamaChat(
     "OLLAMA_ACTOR_THEMES",
     [

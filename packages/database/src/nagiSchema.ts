@@ -87,6 +87,17 @@ export const nagiActors = nagiSchema.table("actors", {
   resolvedAt: timestamp("resolved_at", { withTimezone: true })
     .defaultNow()
     .notNull(),
+  /**
+   * テーマ抽出を最後に「試した」時刻。NagiThemeWorker のスケジューリング専用。
+   *
+   * 結果が空でも入れる。「書けた行があるか」で実行済みを判定すると、テーマが
+   * 1つも取れない人が候補に残り続けて10秒ごとに回り続ける。
+   */
+  themesCheckedAt: timestamp("themes_checked_at", { withTimezone: true }),
+  /** ニュース突合を最後に「試した」時刻。同上。テーマを取り直したら null に戻す。 */
+  newsReasonsCheckedAt: timestamp("news_reasons_checked_at", {
+    withTimezone: true,
+  }),
 });
 export const nagiPosts = nagiSchema.table(
   "posts",
