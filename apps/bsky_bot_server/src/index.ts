@@ -18,7 +18,6 @@ dotenv.config({ path: '../../.env' });
 logAiRouteTable({ prefixes: ['COMMON_', 'BSKY_', 'OLLAMA_'] });
 
 const app = express();
-app.use(express.json());
 app.use("/", router);
 
 const PORT = Number(process.env.BSKY_BOT_SERVER_PORT || 3001);

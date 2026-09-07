@@ -22,7 +22,10 @@ import { startNagiCommunityAffirmationWorker } from "./NagiCommunityAffirmationW
 import { startNagiThemeWorker } from "./NagiThemeWorker.js";
 import { enqueueAnalysis, runNagiAnalysis } from "./NagiAnalysisFeature.js";
 import express from "express";
-import type { ScheduledPostRequest } from "@bsky-affirmative-bot/clients";
+import {
+  SCHEDULED_POST_BODY_LIMIT_BYTES,
+  type ScheduledPostRequest,
+} from "@bsky-affirmative-bot/clients";
 import { publishScheduledPost } from "./ScheduledPostFeature.js";
 import {
   processNagiDiary,
@@ -103,32 +106,37 @@ async function start() {
   });
 
   const app = express();
-  app.use(express.json());
-  app.post("/posts/scheduled", async (req, res) => {
-    try {
-      const request = req.body as ScheduledPostRequest;
-      if (!(["morning", "whimsical", "good-night"] as const).includes(request?.kind) || typeof request.text !== "string" || !request.text.trim()) {
-        res.status(400).json({ error: "kind and text are required" });
-        return;
+  app.post(
+    "/posts/scheduled",
+    express.json({ limit: SCHEDULED_POST_BODY_LIMIT_BYTES }),
+    async (req, res) => {
+      try {
+        const request = req.body as ScheduledPostRequest;
+        if (!(["morning", "whimsical", "good-night"] as const).includes(request?.kind) || typeof request.text !== "string" || !request.text.trim()) {
+          res.status(400).json({ error: "kind and text are required" });
+          return;
+        }
+        // 対訳は付いていれば使う程度のものなので、壊れた要素は落として投稿自体は通す。
+        const translations = Array.isArray(request.translations)
+          ? request.translations.filter(
+              (entry): entry is { lang: string; text: string } =>
+                typeof entry?.lang === "string" &&
+                typeof entry?.text === "string" &&
+                entry.text.trim().length > 0,
+            )
+          : [];
+        res.status(200).json(await publishScheduledPost({
+          ...request,
+          ...(translations.length ? { translations } : {}),
+        }));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        res.status(500).json({ error: message });
       }
-      // 対訳は付いていれば使う程度のものなので、壊れた要素は落として投稿自体は通す。
-      const translations = Array.isArray(request.translations)
-        ? request.translations.filter(
-            (entry): entry is { lang: string; text: string } =>
-              typeof entry?.lang === "string" &&
-              typeof entry?.text === "string" &&
-              entry.text.trim().length > 0,
-          )
-        : [];
-      res.status(200).json(await publishScheduledPost({
-        ...request,
-        ...(translations.length ? { translations } : {}),
-      }));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      res.status(500).json({ error: message });
-    }
-  });
+    },
+  );
+  // 画像を受け取る予約投稿以外は、Express 既定の小さい上限を維持する。
+  app.use(express.json());
   app.post("/news", async (req, res) => {
     try {
       const value = req.body;

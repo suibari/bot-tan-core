@@ -65,6 +65,35 @@ const BSKY_BOT_SERVER_URL = process.env.BSKY_BOT_SERVER_URL || "http://localhost
 const NAGI_BOT_SERVER_URL = process.env.NAGI_BOT_SERVER_URL || "http://localhost:3003";
 const MAX_TRANSPORT_ATTEMPTS = 3;
 
+/**
+ * 950 KB の画像を base64 化した予約投稿を受け取れる上限。
+ *
+ * Express の既定値は 100 KB なので、画像生成に成功したおやすみ投稿だけが
+ * ハンドラー到達前に 413 になる。画像本体は最大約 1.27 MB になるため、本文・対訳・
+ * alt の余裕を含めて 1.5 MB とする。サービス間エンドポイントは loopback 限定。
+ */
+export const SCHEDULED_POST_BODY_LIMIT_BYTES = 1_500_000;
+
+export function scheduledPostErrorDetails(error: unknown) {
+  if (!axios.isAxiosError(error)) {
+    return { message: error instanceof Error ? error.message : String(error) };
+  }
+
+  const responseData = error.response?.data;
+  return {
+    message: error.message,
+    code: error.code,
+    status: error.response?.status,
+    statusText: error.response?.statusText,
+    response:
+      typeof responseData === "string"
+        ? responseData.slice(0, 200)
+        : responseData && typeof responseData === "object"
+          ? responseData
+          : undefined,
+  };
+}
+
 function configuredTargets(): ScheduledPostNetwork[] {
   const targets = (process.env.SCHEDULED_POST_TARGETS || "bsky")
     .split(",")
@@ -106,7 +135,10 @@ export class ScheduledPostService {
       if (result.status === "fulfilled") {
         results[target] = { uri: result.value.uri, cid: result.value.cid };
       } else {
-        console.error(`[ERROR][SCHEDULED_POST] ${target} delivery failed:`, result.reason);
+        console.error(
+          `[ERROR][SCHEDULED_POST] ${target} delivery failed:`,
+          scheduledPostErrorDetails(result.reason),
+        );
       }
     });
 
