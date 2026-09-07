@@ -24,6 +24,9 @@ test("キャラの外見タグはコード側が必ず連結する", () => {
   assert.match(built.prompt, /ahoge/);
   assert.match(built.prompt, /mint green sweater/);
   assert.match(built.prompt, /butterfly hair ornament/);
+  // 設定画の「サイドバング」。無いと横髪の情報を持たない絵が出る。
+  assert.match(built.prompt, /sidelocks/);
+  assert.match(built.prompt, /hair between eyes/);
 });
 
 test("雲の髪飾りは入れない（背景に雲が湧く）", () => {
@@ -80,6 +83,48 @@ test("ラテちゃんが居るときは領域を割り、横長にする", () =>
   assert.doesNotMatch(built.regions[1].prompt, /light blue hair/);
   // 境界は少し重ねる（feather で継ぎ目をなだらかにする前提）。
   assert.ok(built.regions[0].x1 > built.regions[1].x0);
+});
+
+test("ことみちゃんが居るときも領域を割り、外見が混ざらない", () => {
+  const built = buildImagePrompt(plan({ companions: ["kotomi-chan"] }), "crayon-diary");
+  assert.ok(built);
+  assert.equal(built.regions.length, 2);
+  assert.match(built.prompt, /2girls/);
+  assert.equal(built.width, 1216);
+  assert.equal(built.height, 832);
+
+  assert.doesNotMatch(built.prompt, /orange hair/);
+  assert.doesNotMatch(built.prompt, /light blue hair/);
+  assert.match(built.regions[0].prompt, /light blue hair/);
+  assert.doesNotMatch(built.regions[0].prompt, /orange hair/);
+  assert.match(built.regions[1].prompt, /orange hair/);
+  assert.doesNotMatch(built.regions[1].prompt, /light blue hair/);
+});
+
+test("女の子は2人で止める（3人目は捨てる）", () => {
+  // 予定表は3人同伴の日を作るが、1216x832 を3分割するとキャラが崩れる。
+  const built = buildImagePrompt(
+    plan({ companions: ["latte-chan", "kotomi-chan"] }),
+    "crayon-diary",
+  );
+  assert.ok(built);
+  assert.equal(built.regions.length, 2);
+  assert.match(built.prompt, /2girls/);
+  // 先に挙がったラテちゃんが残り、ことみちゃんは落ちる。
+  assert.match(built.regions[1].prompt, /cat ears/);
+  assert.doesNotMatch(built.regions[0].prompt + built.regions[1].prompt, /orange hair/);
+});
+
+test("モルフォとことみちゃんが同時でも、モルフォは領域を割らない", () => {
+  const built = buildImagePrompt(
+    plan({ companions: ["morpho", "kotomi-chan"] }),
+    "crayon-diary",
+  );
+  assert.ok(built);
+  assert.equal(built.regions.length, 2);
+  assert.match(built.prompt, /2girls/);
+  // 犬は 1girl と競合しないので、領域ではなく全体プロンプトに乗る。
+  assert.match(built.prompt, /samoyed/);
 });
 
 test("モルフォは領域を割らない（1girl と競合しないので混線しない）", () => {

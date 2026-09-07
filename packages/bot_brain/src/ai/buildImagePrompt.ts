@@ -7,6 +7,11 @@ import { ollamaChat } from "../ollamaChat.js";
  * LLM に出させるのは **シーンだけ**（姿勢・表情・行為・場所・時間帯・小物・同伴者）。
  * キャラクターの外見はこのファイルの定数で、コード側が必ず前後に連結する。
  *
+ * 材料になるのはおやすみポストの本文と、その日の行動履歴
+ * （`ScheduledPostCoordinator.ts` の `buildGoodNightImage` が組み立てる）。本文だけを渡すと
+ * 「これから就寝します」という枠が主題に見えて、毎日「夜・寝室・目を閉じた botたん」が
+ * 出てくる。`SCENE_SYSTEM` 側でも枠が主題でないことを明示している。
+ *
  * 理由は2つ。
  *  * 外見を毎回 LLM に書かせると語が揺れ、揺れがそのままキャラ崩れになる
  *  * 拡散モデルは1文の中で「どの属性がどのキャラのものか」を束縛できない。
@@ -38,7 +43,13 @@ type Character = { core: string; outfit: string; accessory: string };
  * 入れると 1girl が二重になる。
  */
 const BOT_TAN: Character = {
-  core: "light blue hair, very long hair, ahoge, thick eyebrows, jitome, half-closed eyes, blue eyes",
+  // `sidelocks` と `hair between eyes` は設定画の「サイドバング」。顔の左右を長い横髪が
+  // 縁取り、前髪の一部が目の間へ落ちる形で、これが無いと横髪の情報を持たない絵が出る。
+  // 設定画の「レイヤーカット」は入れない。`wolf cut` は新しめのタグで Animagine XL 4.0
+  // での効きが未検証、外すと髪型ごと崩れる。上の2つで足りるかを先に見る。
+  core:
+    "light blue hair, very long hair, sidelocks, hair between eyes, ahoge, " +
+    "thick eyebrows, jitome, half-closed eyes, blue eyes",
   outfit:
     "school uniform, mint green sweater, long sleeves, white collared shirt, blue neck ribbon, blue pleated skirt, white socks, brown loafers",
   accessory: "butterfly hair ornament",
@@ -51,12 +62,44 @@ const LATTE_CHAN: Character = {
   accessory: "red ribbon, red hair ornament",
 };
 
+/**
+ * 設定画（bot-tan-com の src/assets/characters/kotomi.png）から起こしたタグ。
+ *
+ * 衣装は設定画の私服＝アイドル衣装で固定する。ラテちゃんがシーンによらずメイド服なのと
+ * 同じ「署名的な1着」の作法で、制服にすると botたんとの差が髪色だけになり、領域を割っても
+ * 2人の見分けが弱くなる。
+ *
+ * **メンダコのヒレ耳とタコ目は入れない。** `tentacle` 系のタグは booru 空間で意味が汚れて
+ * いて狙うと事故る（`head fins` も安定しない）。横長の瞳孔も `rectangular pupils` の効きが
+ * 薄い。必要になったら `slit pupils` を同一シードで比較してから足すこと。
+ * 赤いメンダコのぬいぐるみはシーン依存の小物なので、固定の accessory には置かない。
+ */
+const KOTOMI_CHAN: Character = {
+  core: "orange hair, short hair, ahoge, green eyes, freckles",
+  outfit:
+    "pink shirt, puffy short sleeves, frilled sleeves, black skirt, frilled skirt, black footwear",
+  accessory: "red bow, corset",
+};
+
 /** サモエド犬。1girl と競合しないのでキャラ混線を起こさない（領域も割らない）。 */
 const MORPHO_TAGS = "samoyed, white dog, dog";
 
-const CHARACTERS = { "bot-tan": BOT_TAN, "latte-chan": LATTE_CHAN } as const;
+const CHARACTERS = {
+  "bot-tan": BOT_TAN,
+  "latte-chan": LATTE_CHAN,
+  "kotomi-chan": KOTOMI_CHAN,
+} as const;
 
-export type ImageCompanion = "morpho" | "latte-chan";
+export type ImageCompanion = "morpho" | "latte-chan" | "kotomi-chan";
+
+/** 領域を割る必要がある同伴者（＝女の子）。モルフォは犬なので入らない。 */
+const GIRL_COMPANIONS = ["latte-chan", "kotomi-chan"] as const;
+
+/** LLM が返した companions を検証するための集合。SCENE_SCHEMA の enum と揃えること。 */
+const COMPANION_NAMES: ReadonlySet<string> = new Set<ImageCompanion>([
+  "morpho",
+  ...GIRL_COMPANIONS,
+]);
 
 // ---------------------------------------------------------------------------
 // 画風
@@ -154,7 +197,10 @@ const SCENE_SCHEMA = {
     action: { type: "array", items: { type: "string" } },
     setting: { type: "array", items: { type: "string" } },
     objects: { type: "array", items: { type: "string" } },
-    companions: { type: "array", items: { type: "string", enum: ["morpho", "latte-chan"] } },
+    companions: {
+      type: "array",
+      items: { type: "string", enum: ["morpho", "latte-chan", "kotomi-chan"] },
+    },
     framing: { type: "string", enum: ["upper-body", "full-body"] },
     outdoor: { type: "boolean" },
   },
@@ -172,11 +218,13 @@ Rules:
 * action: what she is doing. e.g. watching television, holding cup, running, reading book
 * setting: place, time of day, weather. e.g. indoors, bedroom, night, on floor, outdoors, park, sunset, rain
 * objects: props visible in the scene. e.g. television, mug, bento, notebook, umbrella
-* companions: "morpho" only if a white Samoyed dog is present, "latte-chan" only if the pink-haired cat-eared maid friend is present. Empty otherwise.
+* companions: "morpho" only if a white Samoyed dog is present, "latte-chan" only if the pink-haired cat-eared maid friend is present, "kotomi-chan" only if the orange-haired short-haired classmate is present. Empty otherwise.
 * framing: "full-body" if the whole body and the place matter, "upper-body" for a close moment.
 * outdoor: true only if the scene is outside.
 * Prefer 2-5 tags per field. Use an empty array if nothing applies.
 * Posture tags matter most: if she is on the floor, say so.
+* The text is a bedtime greeting written at the end of the day. The greeting itself is NOT the subject. Draw a moment from the day it recalls.
+* Use bedroom, night, sleeping or closed eyes only when the recalled moment itself happened there. Going to bed is not a moment.
 * Pick the single most vivid moment. Do not try to describe the whole day.`;
 
 const FORBIDDEN = new Set(["text", "watermark", "signature", "username"]);
@@ -221,8 +269,8 @@ export async function planImageScene(sourceText: string): Promise<ImageScenePlan
     action: list(value.action),
     setting: list(value.setting),
     objects: list(value.objects),
-    companions: list(value.companions).filter(
-      (name): name is ImageCompanion => name === "morpho" || name === "latte-chan",
+    companions: list(value.companions).filter((name): name is ImageCompanion =>
+      COMPANION_NAMES.has(name),
     ),
     framing: value.framing === "upper-body" ? "upper-body" : "full-body",
     outdoor: value.outdoor === true,
@@ -262,12 +310,22 @@ function sceneTags(plan: ImageScenePlan): string {
 const MIN_SCENE_TAGS = 4;
 
 /**
+ * 1枚に描く女の子の上限。
+ *
+ * 予定表（dailyPlan.ts）は「ことみちゃん・ラテちゃん・モルフォ」の3人同伴の日を作るが、
+ * 1場面に女の子3人が写る必然性は低い。左右2分割の領域を3分割すると 1216x832 では1人ぶんの
+ * 幅が足りずキャラが崩れ、UNet の呼び出しも増えて生成時間が伸びる。
+ */
+const MAX_GIRLS = 2;
+
+/**
  * シーン計画を実際のプロンプトにする。
  *
- * 2キャラ（botたん + ラテちゃん）のときは **領域プロンプト** を組む。1本のプロンプトに
- * 2キャラを詰めると属性が混ざり、ラテちゃんの猫耳とメイド服が botたんにも生える。
- * BREAK でチャンクを分けても、属性を減らしても、重み付けしても解消しなかった。
- * 別プロンプトで予測させて空間で混ぜる方式で初めて分離できた（2シード×2画風で確認）。
+ * 2キャラ（botたん + ラテちゃん or ことみちゃん）のときは **領域プロンプト** を組む。
+ * 1本のプロンプトに2キャラを詰めると属性が混ざり、ラテちゃんの猫耳とメイド服が
+ * botたんにも生える。BREAK でチャンクを分けても、属性を減らしても、重み付けしても
+ * 解消しなかった。別プロンプトで予測させて空間で混ぜる方式で初めて分離できた
+ * （2シード×2画風で確認）。
  *
  * 2キャラは横長にする。縦長のまま左右に並べると窮屈になる。
  */
@@ -279,9 +337,24 @@ export function buildImagePrompt(plan: ImageScenePlan, style: ImageStyle): Built
   }
 
   const spec = STYLES[style];
-  const withLatte = plan.companions.includes("latte-chan");
-  const girls: Array<keyof typeof CHARACTERS> = withLatte ? ["bot-tan", "latte-chan"] : ["bot-tan"];
-  const count = girls.length === 1 ? "1girl, solo" : "2girls";
+
+  // 同伴の女の子は botたんと合わせて MAX_GIRLS 人まで。溢れたぶんは捨てる。
+  // 順序は LLM が返したまま（先に挙げたほうがその場面で目立っていたはず）。
+  const requestedGirls = plan.companions.filter((name): name is (typeof GIRL_COMPANIONS)[number] =>
+    (GIRL_COMPANIONS as readonly string[]).includes(name),
+  );
+  const companionGirls = requestedGirls.slice(0, MAX_GIRLS - 1);
+  if (companionGirls.length < requestedGirls.length) {
+    console.warn(
+      `[WARN][IMGGEN] 女の子は${MAX_GIRLS}人までなので同伴者を絞った:`,
+      requestedGirls.join(", "),
+      "->",
+      companionGirls.join(", "),
+    );
+  }
+
+  const girls: Array<keyof typeof CHARACTERS> = ["bot-tan", ...companionGirls];
+  const count = girls.length === 1 ? "1girl, solo" : `${girls.length}girls`;
 
   const tail = [
     "safe",
@@ -296,9 +369,12 @@ export function buildImagePrompt(plan: ImageScenePlan, style: ImageStyle): Built
   const head = [...(spec.leading ? [spec.leading] : []), count];
   const morpho = plan.companions.includes("morpho") ? [MORPHO_TAGS] : [];
 
+  // 領域を割るときは全体プロンプトへ外見タグを入れない（入れると領域の意味が消える）。
+  const splitRegions = girls.length > 1;
+
   const prompt = [
     ...head,
-    ...(withLatte ? [] : [BOT_TAN.core, BOT_TAN.outfit, BOT_TAN.accessory]),
+    ...(splitRegions ? [] : [BOT_TAN.core, BOT_TAN.outfit, BOT_TAN.accessory]),
     ...morpho,
     ...tail,
   ]
@@ -306,7 +382,7 @@ export function buildImagePrompt(plan: ImageScenePlan, style: ImageStyle): Built
     .join(", ");
 
   const regions: ImageRegion[] = [];
-  if (withLatte) {
+  if (splitRegions) {
     const spans: Array<[number, number]> = [
       [0.0, 0.55],
       [0.45, 1.0],
@@ -323,11 +399,18 @@ export function buildImagePrompt(plan: ImageScenePlan, style: ImageStyle): Built
     negativePrompt: spec.negative,
     regions,
     // Animagine XL 4.0 のモデルカード記載の推奨解像度。
-    width: withLatte ? 1216 : 832,
-    height: withLatte ? 832 : 1216,
+    width: splitRegions ? 1216 : 832,
+    height: splitRegions ? 832 : 1216,
     loras: spec.loras ?? [],
   };
 }
 
 /** テストとデバッグ用。実プロンプトを組み立てずにタグだけ見たいとき。 */
-export const IMAGE_PROMPT_INTERNALS = { BOT_TAN, LATTE_CHAN, MORPHO_TAGS, STYLES, SCENERY_TAGS };
+export const IMAGE_PROMPT_INTERNALS = {
+  BOT_TAN,
+  LATTE_CHAN,
+  KOTOMI_CHAN,
+  MORPHO_TAGS,
+  STYLES,
+  SCENERY_TAGS,
+};

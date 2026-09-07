@@ -14,7 +14,11 @@ import {
   WhimsicalPostGenerator,
 } from "@bsky-affirmative-bot/bot-brain";
 import retry from "async-retry";
-import type { BotContext } from "@bsky-affirmative-bot/shared-configs";
+import {
+  botDayRange,
+  isInBotDayRange,
+  type BotContext,
+} from "@bsky-affirmative-bot/shared-configs";
 import { recordBotMemoryUsages } from "@bsky-affirmative-bot/database";
 import {
   getDailyTopPostCandidate,
@@ -37,16 +41,55 @@ import {
 const IMAGE_MAX_BYTES = 950_000;
 
 /**
+ * 画像の材料に添える「今日あったこと」。
+ *
+ * **おやすみポストの本文だけでは絵が毎日「夜・寝室・目を閉じた botたん」になる。**
+ * postGoodNight は Sleep ステータスへ遷移した瞬間に発火するので `currentMood` は必ず
+ * 就寝中の描写になり、本文プロンプトの冒頭も「あなたはこれから就寝します」。本文が
+ * 寝室に寄るのは構造上の必然で、その本文だけを渡せば絵もそこへ引っ張られる。
+ *
+ * ここで足すのは **記録済みの事実だけ**（`BotContext.recentActivities`）で、要約のための
+ * LLM 呼び出しはしない。別の要約を作らせると本文と絵が食い違う、という元の判断は保つ。
+ *
+ * bot日（4時始まり）で絞るのは、深夜0〜3時のおやすみポストで「昨日の夜」を拾わないため。
+ */
+export function todayActivityLines(botContext: BotContext | undefined, now: Date): string {
+  const range = botDayRange(now);
+  const activities = (botContext?.recentActivities ?? [])
+    .filter((item) => {
+      const at = new Date(item.at);
+      return !Number.isNaN(at.getTime()) && isInBotDayRange(at, range);
+    })
+    // 連続する同一行動は潰す。同じ行動が並ぶと、そこが「今日いちばんの場面」に見える。
+    .filter((item, index, items) => index === 0 || items[index - 1].activity !== item.activity);
+  if (activities.length === 0) return "";
+
+  const lines = activities.map((item) => {
+    const at = new Date(item.at);
+    const jst = new Date(at.getTime() + 9 * 60 * 60 * 1000);
+    const time = `${String(jst.getUTCHours()).padStart(2, "0")}:${String(jst.getUTCMinutes()).padStart(2, "0")}`;
+    return `- ${time} ${item.activity}`;
+  });
+  return `\n\n### 今日あったこと（記録された事実・古い順）\n${lines.join("\n")}\n`;
+}
+
+/**
  * その日のおやすみポストに添える絵を1枚作る。
  *
- * 入力はおやすみポストの本文。**その日の出来事とユーザーとの会話から印象に残ったことを
- * botたん自身がまとめた文**なので、「今日の印象的な場面を描く」という用途にそのまま合う。
- * わざわざ別の要約を作らせると、本文と絵が食い違う原因になる。
+ * 入力はおやすみポストの本文＋今日の行動履歴。本文は**その日の出来事とユーザーとの会話から
+ * 印象に残ったことを botたん自身がまとめた文**なので絵の主題として妥当だが、本文だけだと
+ * 就寝の枠に引っ張られる（`todayActivityLines` のコメント参照）。
  *
  * 失敗しても null が返るだけで、おやすみポストは絵なしで出る。
  */
-async function buildGoodNightImage(sourceText: string): Promise<ScheduledPostImage | undefined> {
-  const generated = await generateImage(sourceText, IMAGE_MAX_BYTES);
+async function buildGoodNightImage(
+  sourceText: string,
+  botContext?: BotContext,
+): Promise<ScheduledPostImage | undefined> {
+  const generated = await generateImage(
+    `${sourceText}${todayActivityLines(botContext, new Date())}`,
+    IMAGE_MAX_BYTES,
+  );
   if (!generated) return undefined;
   return {
     dataBase64: generated.data.toString("base64"),
@@ -300,7 +343,7 @@ export async function postGoodNight(currentMood: string, botContext?: BotContext
     });
 
     // 絵は1日1枚ここだけで作る。本文が確定してから作るので、絵と文がずれない。
-    const image = await buildGoodNightImage(generated.textJa);
+    const image = await buildGoodNightImage(generated.textJa, botContext);
 
     const results = await publish({
       kind: "good-night",

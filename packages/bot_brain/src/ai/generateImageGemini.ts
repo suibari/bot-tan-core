@@ -12,6 +12,11 @@ import { gemini } from "./googleClient.js";
  *
  * ローカル版と違い、参照画像そのものをモデルに見せてキャラの同一性を担保している。
  * SDXL に同じことはできないので、ローカル側は固定タグと LoRA で代替している。
+ *
+ * **実際に切り戻す日には、ことみちゃんの追加が要る。** ローカル側（buildImagePrompt.ts）は
+ * 既にことみを同伴者として描けるが、この経路はまだ botたん・ラテちゃん・モルフォだけ。
+ * 参照画像添付方式なので、`bot-tan-com/src/assets/characters/kotomi.png` を `img/` へ
+ * 複製したうえで、下の characteristics とファイル添付の両方へ足すこと。
  */
 export async function generateImageGemini(mood: string): Promise<Buffer | null> {
   const prompt =
