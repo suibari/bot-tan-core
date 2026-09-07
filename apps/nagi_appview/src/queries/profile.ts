@@ -1,6 +1,7 @@
 import {
   db,
   nagiActorAnalyses,
+  nagiActorInterestKeywords,
   nagiActors,
   nagiAgeAssurance,
   nagiEmojis,
@@ -40,6 +41,13 @@ import {
 import { getApprovedNewsViews, type NewsLang } from "./positiveNews.js";
 import { emojiView } from "../services/emoji.js";
 import { isBirthdayToday } from "../services/ageAssurance.js";
+
+export function profileInterestKeywords(
+  rows: readonly { keyword: string }[],
+): string[] {
+  return rows.map(({ keyword }) => keyword);
+}
+
 export async function getActorProfile(
   did: string,
   lang: "ja" | "en" = "ja",
@@ -52,6 +60,7 @@ export async function getActorProfile(
     superPositiveLevel,
     currentTitle,
     [analysis],
+    interestKeywords,
     [ageAssurance],
   ] = await Promise.all([
     db.select().from(nagiActors).where(eq(nagiActors.did, did)),
@@ -77,6 +86,10 @@ export async function getActorProfile(
       })
       .from(nagiActorAnalyses)
       .where(eq(nagiActorAnalyses.did, did)),
+    db
+      .select({ keyword: nagiActorInterestKeywords.keyword })
+      .from(nagiActorInterestKeywords)
+      .where(eq(nagiActorInterestKeywords.did, did)),
     db
       .select({ birthDate: nagiAgeAssurance.birthDate })
       .from(nagiAgeAssurance)
@@ -119,6 +132,7 @@ export async function getActorProfile(
     comment,
     tagline,
     tags,
+    interestKeywords: profileInterestKeywords(interestKeywords),
     cardUpdatedAt: analysis?.updatedAt?.toISOString(),
   };
 }

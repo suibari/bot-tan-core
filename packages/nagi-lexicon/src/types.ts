@@ -429,6 +429,8 @@ export type ProfileDetail = ActorView & {
   tagline?: string;
   /** 名刺カードに載せる、ユーザーを表すハッシュタグ3つ（`#` は含まない）。 */
   tags?: string[];
+  /** プロフィールUIに表示する興味テーマの候補。表示側で3件をランダム選出する。 */
+  interestKeywords?: string[];
   /** 名刺の更新日（= 分析の更新日時）。 */
   cardUpdatedAt?: string;
 };
