@@ -18,10 +18,12 @@ import { config } from "../config.js";
 import {
   emojiAssetUrl,
   evaluateModerationInput,
+  exhaustedInputEvaluation,
   moderationEnabled,
   moderationSubject,
   MODERATION_RULE_VERSION,
   type ModerationDecision,
+  type ModerationEvaluation,
   type ModerationInput,
 } from "../services/moderation/index.js";
 import {
@@ -29,7 +31,15 @@ import {
   recordModerationFailure,
   recordModerationSuccess,
 } from "../services/moderation/notify.js";
-import { TransientModerationError } from "../services/moderation/openai.js";
+import {
+  TransientModerationError,
+  TransientModerationInputError,
+} from "../services/moderation/openai.js";
+import {
+  ModerationRetryLedger,
+  MODERATION_MAX_RETRIES,
+  moderationRetryKey,
+} from "./moderationRetry.js";
 
 /**
  * モデレーション判定を取り込みと非同期に走らせるワーカー。
@@ -40,6 +50,11 @@ import { TransientModerationError } from "../services/moderation/openai.js";
  *
  * embeddingWorker と同じく専用のジョブ表は持たない。NULL 列のスキャンにすることで
  * 「新規」「既存バックフィル」「編集で NULL に戻された行」がすべて同じ経路に乗る。
+ *
+ * その代償として、判定できない行は放っておくと永久に上位へ居座る（fetchBatch は
+ * indexed_at DESC の上位 BATCH_SIZE 件しか見ない）。そこで「この1件の入力が取れない」
+ * 失敗だけは retries 台帳で回数と間隔を管理し、予算を使い切ったら reject-invalid で
+ * 決着させる。台帳はメモリのみ（moderationRetry.ts）。
  */
 
 const BATCH_SIZE = 8;
@@ -70,6 +85,12 @@ export function moderationBackoffMs(
 
 let running = false;
 let wakeUp: (() => void) | undefined;
+
+/**
+ * 入力取得に失敗した item の再試行台帳。メモリに置く理由は moderationRetry.ts を参照。
+ * 再起動で忘れた場合は予算が振り出しに戻るだけで、判定そのものは正しく走る。
+ */
+const retries = new ModerationRetryLedger();
 
 /** cid を持たない行の冪等キー。内容が変われば変わり、内容そのものは復元できない。 */
 const contentKey = (...parts: Array<string | null | undefined>): string =>
@@ -393,8 +414,16 @@ function logDecision(
   else console.warn(line);
 }
 
-/** 判定を1件処理する。再試行したい失敗だけを投げ返す。 */
-async function judge(item: Pending): Promise<void> {
+/**
+ * 判定を1件処理する。再試行したい失敗だけを投げ返す。
+ *
+ * exhausted が渡された場合は OpenAI を呼ばず、再試行を使い切った理由付きの
+ * reject-invalid を通常の経路（decisions への記録 → Discord 通知 → 投影の削除）へ流す。
+ */
+async function judge(
+  item: Pending,
+  exhausted?: { error: Error; failures: number },
+): Promise<void> {
   const startedAt = Date.now();
   // 同じ内容を評価済みなら OpenAI を呼ばない。reconcile・再取り込み・
   // ワーカー再起動で同じ行を何度も課金対象にしないため。
@@ -413,18 +442,25 @@ async function judge(item: Pending): Promise<void> {
   let labels: string[];
   let category = "";
   let score = 0;
+  let reasons: string[] = [];
 
+  // 再試行を使い切った item は、キャッシュの有無に関わらず今回の結果を確定させる。
   const reusedDecision =
-    cached?.cid === item.cid && cached.ruleVersion === MODERATION_RULE_VERSION;
+    !exhausted &&
+    cached?.cid === item.cid &&
+    cached.ruleVersion === MODERATION_RULE_VERSION;
   if (reusedDecision) {
     decision = cached!.decision as ModerationDecision;
     labels = cached!.labels;
   } else {
-    const evaluation = await evaluateModerationInput(item.input);
+    const evaluation: ModerationEvaluation = exhausted
+      ? exhaustedInputEvaluation(exhausted.error, exhausted.failures)
+      : await evaluateModerationInput(item.input);
     decision = evaluation.decision;
     labels = evaluation.labels;
     category = evaluation.highestCategory;
     score = evaluation.maxScore;
+    reasons = evaluation.reasons;
 
     await db
       .insert(nagiModerationDecisions)
@@ -462,6 +498,9 @@ async function judge(item: Pending): Promise<void> {
       score,
       ruleVersion: MODERATION_RULE_VERSION,
       update: !!cached,
+      texts: item.input.texts,
+      imageUrls: item.input.imageUrls,
+      reasons,
     });
   }
 
@@ -477,15 +516,80 @@ async function judge(item: Pending): Promise<void> {
   );
 }
 
-type TickResult = { processed: number; failure?: unknown };
+type ItemOutcome = "processed" | "deferred";
+
+/**
+ * item を1件処理する。
+ *
+ * この item の入力だけが取れなかった場合は "deferred" を返し、間隔をあけて
+ * 拾い直す。サービス障害（429・5xx・タイムアウト・DB）は投げ返して、
+ * 従来どおりバッチの打ち切りと全体バックオフを起こさせる。この2つを混ぜると
+ * 取得できない画像1件でモデレーション全体が止まる。
+ */
+async function processItem(
+  item: Pending,
+  sourceName: string,
+): Promise<ItemOutcome> {
+  const key = moderationRetryKey(item.uri, item.cid);
+  try {
+    await judge(item);
+    retries.clear(key);
+    return "processed";
+  } catch (error) {
+    // 429・5xx・タイムアウト。moderation_version は NULL のまま残るので
+    // 次周回で拾い直される。取り込み側は一切影響を受けない。
+    if (!(error instanceof TransientModerationInputError)) throw error;
+
+    const state = retries.record(key);
+    if (!state.exhausted) {
+      const waitS = Math.max(
+        0,
+        Math.round((state.nextAttemptAt - Date.now()) / 1000),
+      );
+      console.warn(
+        `[moderationWorker] ${sourceName} ${item.uri}: input unavailable, retry ${state.failures}/${MODERATION_MAX_RETRIES} in ${waitS}s: ${error.message}`,
+      );
+      return "deferred";
+    }
+    // 予算切れ。ここで初めて reject-invalid を確定させる。judge は OpenAI を
+    // 呼ばないので、ここから投げ返るのは DB 側の異常だけ。
+    console.warn(
+      `[moderationWorker] ${sourceName} ${item.uri}: giving up after ${state.failures} input failures`,
+    );
+    await judge(item, { error, failures: state.failures });
+    return "processed";
+  }
+}
+
+type TickResult = {
+  processed: number;
+  /** 再試行待ちで今回触らなかった件数。ログ用で、待ち時間の計算には使わない。 */
+  deferred: number;
+  failure?: unknown;
+  /** 待機中の item のうち最も早い再試行時刻。 */
+  nextRetryAt?: number;
+};
 
 /** 1バッチ処理して、処理できた件数と（あれば）最初の失敗を返す。 */
 async function tick(): Promise<TickResult> {
+  const now = Date.now();
+  retries.prune(now);
+  let deferredTotal = 0;
+
   for (const source of sources) {
     const pending = await source.fetchBatch(BATCH_SIZE);
     if (!pending.length) continue;
 
-    const queue = [...pending];
+    // 再試行待ちの item は今回触らない。ここで外さないと、取得できない画像1件が
+    // indexed_at DESC の上位に居座り、以降の source（profiles 等）を永久に飢えさせる。
+    const ready = pending.filter((item) =>
+      retries.ready(moderationRetryKey(item.uri, item.cid), now),
+    );
+    deferredTotal += pending.length - ready.length;
+    // このバッチが全部待機中なら、この source は「今は何も無い」扱いで次へ進む。
+    if (!ready.length) continue;
+
+    const queue = [...ready];
     let processed = 0;
     let failure: unknown;
     const worker = async () => {
@@ -493,11 +597,10 @@ async function tick(): Promise<TickResult> {
         const item = queue.shift();
         if (!item) return;
         try {
-          await judge(item);
-          processed++;
+          if ((await processItem(item, source.name)) === "processed")
+            processed++;
+          else deferredTotal++;
         } catch (error) {
-          // 429・5xx・タイムアウト。moderation_version は NULL のまま残るので
-          // 次周回で拾い直される。取り込み側は一切影響を受けない。
           failure ??= error;
           console.error(
             `[ERROR][moderationWorker] ${source.name} ${item.uri}:`,
@@ -515,9 +618,18 @@ async function tick(): Promise<TickResult> {
     );
 
     if (processed > 0 && !failure) await recordModerationSuccess();
-    return { processed, failure };
+    return {
+      processed,
+      deferred: deferredTotal,
+      failure,
+      nextRetryAt: retries.earliestDeferredAt(),
+    };
   }
-  return { processed: 0 };
+  return {
+    processed: 0,
+    deferred: deferredTotal,
+    nextRetryAt: retries.earliestDeferredAt(),
+  };
 }
 
 /** 取り込み直後に判定を始めさせる。ポーリング間隔を待たないための合図。 */
@@ -539,8 +651,10 @@ export function startModerationWorker(): void {
     let delay = IDLE_INTERVAL_MS;
     let backingOff = false;
     try {
-      const { processed, failure } = await tick();
+      const { processed, deferred, failure, nextRetryAt } = await tick();
       if (failure) {
+        // ここに来るのはサービス障害だけ。item 単位の取得失敗は processItem が
+        // 吸収するので、障害アラートにも全体バックオフにも到達しない。
         const failures = await recordModerationFailure(failure);
         const retryAfterMs =
           failure instanceof TransientModerationError
@@ -551,8 +665,21 @@ export function startModerationWorker(): void {
         console.warn(
           `[moderationWorker] backing off ${Math.round(delay / 1000)}s (consecutive failures: ${failures})`,
         );
+      } else if (processed > 0) {
+        delay = BUSY_INTERVAL_MS;
+      } else if (nextRetryAt !== undefined) {
+        // 処理できたものが無く、待機中の item だけが残っている。空振りの
+        // ポーリングを繰り返さないよう次の再試行時刻まで寝る。backingOff は
+        // 立てないので、新規投稿の合図では従来どおり即座に起きる。
+        delay = Math.min(
+          Math.max(nextRetryAt - Date.now(), IDLE_INTERVAL_MS),
+          MAX_BACKOFF_MS,
+        );
+        console.log(
+          `[moderationWorker] ${deferred} item(s) waiting for retry; next in ${Math.round(delay / 1000)}s`,
+        );
       } else {
-        delay = processed > 0 ? BUSY_INTERVAL_MS : IDLE_INTERVAL_MS;
+        delay = IDLE_INTERVAL_MS;
       }
     } catch (error) {
       // DB エラーなど tick 自体の想定外。判定の失敗と同じ扱いで下がる。

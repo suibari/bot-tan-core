@@ -16,6 +16,8 @@ export * from "./subject.js";
 export {
   PermanentModerationInputError,
   TransientModerationError,
+  TransientModerationInputError,
+  isTransientInputFailure,
   type ModerationInput,
 } from "./openai.js";
 
@@ -55,6 +57,27 @@ export async function evaluateModerationInput(
     }
     throw error;
   }
+}
+
+/**
+ * 入力取得の再試行予算を使い切ったときの判定結果。
+ *
+ * 恒久的な入力不正と同じ reject-invalid だが、運用者が「取りに行けなかった」と
+ * 「そもそも壊れていた」を Discord で見分けられるよう理由を分けている。
+ */
+export function exhaustedInputEvaluation(
+  error: Error,
+  failures: number,
+): ModerationEvaluation {
+  return {
+    decision: "reject-invalid",
+    labels: [],
+    reasons: [
+      `[INVALID] 入力を取得できず ${failures} 回再試行しましたが復旧しませんでした: ${error.message}`,
+    ],
+    maxScore: 0,
+    highestCategory: "invalid-input",
+  };
 }
 
 export { MODERATION_RULE_VERSION };

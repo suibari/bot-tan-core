@@ -3,6 +3,7 @@ import {
   nagiActors,
   nagiBotReplyJobs,
   nagiChannels,
+  nagiModerationDecisions,
   nagiPostScores,
   nagiPosts,
   nagiProfiles,
@@ -217,6 +218,28 @@ export async function hydratePostViews(
     getSuperPositiveLevels(dids),
     getCurrentTitles(dids),
   ]);
+  const deletedUris = rows
+    .filter(({ post }) => Boolean(post.deletedAt))
+    .map(({ post }) => post.uri);
+  const rejectionReasons = new Map<
+    string,
+    "moderation-policy" | "processing-failed"
+  >();
+  if (deletedUris.length) {
+    const decisions = await db
+      .select({
+        uri: nagiModerationDecisions.uri,
+        decision: nagiModerationDecisions.decision,
+      })
+      .from(nagiModerationDecisions)
+      .where(inArray(nagiModerationDecisions.uri, deletedUris));
+    for (const row of decisions) {
+      if (row.decision === "reject-policy")
+        rejectionReasons.set(row.uri, "moderation-policy");
+      else if (row.decision === "reject-invalid")
+        rejectionReasons.set(row.uri, "processing-failed");
+    }
+  }
   const rootUris = [
     ...new Set(
       rows.flatMap(({ post }) =>
@@ -389,6 +412,9 @@ export async function hydratePostViews(
           }
         : undefined,
       deleted: deleted || undefined,
+      ...(deleted && rejectionReasons.has(post.uri)
+        ? { unavailableReason: rejectionReasons.get(post.uri)! }
+        : {}),
     };
   });
   if (quoteDepth >= 3) return views;

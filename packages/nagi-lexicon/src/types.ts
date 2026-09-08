@@ -353,6 +353,8 @@ export type PostView = {
   /** 投稿後に編集された（AppView が cid 変化を観測した）か。UI の「編集済み」バッジ用。 */
   edited?: boolean;
   deleted?: boolean;
+  /** 投稿者による削除と AppView の保存拒否を表示側で区別する。 */
+  unavailableReason?: "moderation-policy" | "processing-failed";
 };
 export type BotReplyState = "pending" | "processing" | "posted" | "failed";
 /**

@@ -10,21 +10,110 @@ import type { ModerationDecision } from "./rules.js";
  */
 
 const TIMEOUT_MS = 10_000;
+const IMAGE_TIMEOUT_MS = 10_000;
+const MAX_IMAGE_BYTES = 2_100_000;
 /** OpenAI 障害の連投を防ぐ。復旧するまでアラートは1回だけ。 */
 const FAILURE_ALERT_THRESHOLD = 5;
 
 let consecutiveFailures = 0;
 let outageAlerted = false;
 
-async function post(content: string): Promise<void> {
+type DiscordEmbed = {
+  title?: string;
+  description?: string;
+  color?: number;
+  fields?: Array<{ name: string; value: string; inline?: boolean }>;
+  image?: { url: string };
+};
+
+const truncate = (value: string, max: number): string =>
+  value.length <= max ? value : `${value.slice(0, Math.max(0, max - 1))}…`;
+
+const extension = (contentType: string): string => {
+  if (contentType.includes("png")) return "png";
+  if (contentType.includes("webp")) return "webp";
+  if (contentType.includes("gif")) return "gif";
+  return "jpg";
+};
+
+async function downloadImages(imageUrls: string[]): Promise<{
+  files: Array<{ blob: Blob; filename: string }>;
+  embeds: DiscordEmbed[];
+  failures: string[];
+}> {
+  const results = await Promise.all(
+    imageUrls.slice(0, 8).map(async (url, index) => {
+      const filenameBase = `moderation-${index + 1}`;
+      try {
+        const response = await fetch(url, {
+          signal: AbortSignal.timeout(IMAGE_TIMEOUT_MS),
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const contentType = response.headers.get("content-type") ?? "";
+        if (!contentType.startsWith("image/"))
+          throw new Error(
+            `unexpected content-type ${contentType || "(empty)"}`,
+          );
+        const declared = Number(response.headers.get("content-length") ?? "0");
+        if (declared > MAX_IMAGE_BYTES)
+          throw new Error(`image is too large (${declared} bytes)`);
+        const bytes = await response.arrayBuffer();
+        if (bytes.byteLength > MAX_IMAGE_BYTES)
+          throw new Error(`image is too large (${bytes.byteLength} bytes)`);
+        const filename = `${filenameBase}.${extension(contentType)}`;
+        return {
+          file: { blob: new Blob([bytes], { type: contentType }), filename },
+          embed: { image: { url: `attachment://${filename}` } },
+        };
+      } catch (error) {
+        return {
+          embed: { image: { url } },
+          failure: `image ${index + 1}: ${String(error)}`,
+        };
+      }
+    }),
+  );
+  const files: Array<{ blob: Blob; filename: string }> = [];
+  const embeds: DiscordEmbed[] = [];
+  const failures: string[] = [];
+  for (const result of results) {
+    if (result.file) files.push(result.file);
+    embeds.push(result.embed);
+    if (result.failure) failures.push(result.failure);
+  }
+  return { files, embeds, failures };
+}
+
+async function post(
+  content: string,
+  embeds: DiscordEmbed[] = [],
+  imageUrls: string[] = [],
+): Promise<void> {
   const webhook = config.moderation?.discordWebhookUrl;
   if (!webhook) return;
   try {
+    const downloaded = imageUrls.length
+      ? await downloadImages(imageUrls)
+      : { files: [], embeds: [], failures: [] };
+    const deliveryNotes = downloaded.failures.length
+      ? `\n${downloaded.failures.map((failure) => `⚠️ ${failure}`).join("\n")}`
+      : "";
+    const payload = {
+      content: truncate(`${content}${deliveryNotes}`, 2_000),
+      embeds: [...embeds, ...downloaded.embeds].slice(0, 10),
+      allowed_mentions: { parse: [] },
+    };
+    const form = downloaded.files.length ? new FormData() : undefined;
+    if (form) {
+      form.append("payload_json", JSON.stringify(payload));
+      downloaded.files.forEach((file, index) =>
+        form.append(`files[${index}]`, file.blob, file.filename),
+      );
+    }
     const response = await fetch(webhook, {
       method: "POST",
-      headers: { "content-type": "application/json" },
-      // 本文をそのまま貼らないので mention は起きないが、念のため全面的に無効化する。
-      body: JSON.stringify({ content, allowed_mentions: { parse: [] } }),
+      ...(form ? {} : { headers: { "content-type": "application/json" } }),
+      body: form ?? JSON.stringify(payload),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
     if (!response.ok)
@@ -47,6 +136,9 @@ export type ModerationNotice = {
   ruleVersion: string;
   /** 判定時点で AppView に既存行があったか。create / update の別。 */
   update: boolean;
+  texts: string[];
+  imageUrls: string[];
+  reasons: string[];
 };
 
 const HEADLINE: Record<ModerationDecision, string> = {
@@ -76,7 +168,21 @@ export async function notifyDecision(notice: ModerationNotice): Promise<void> {
     `rule: \`${notice.ruleVersion}\``,
     link,
   ].filter(Boolean);
-  await post(lines.join("\n"));
+  const detail = [
+    notice.texts.length ? notice.texts.join("\n\n") : "（本文なし）",
+    notice.reasons.length ? `\n\n判定詳細:\n${notice.reasons.join("\n")}` : "",
+  ].join("");
+  await post(
+    lines.join("\n"),
+    [
+      {
+        title: "判定対象の本文・メタデータ",
+        description: truncate(detail, 4_096),
+        color: notice.decision === "reject-policy" ? 0xc0392b : 0xf39c12,
+      },
+    ],
+    notice.imageUrls,
+  );
 }
 
 /**
@@ -85,9 +191,7 @@ export async function notifyDecision(notice: ModerationNotice): Promise<void> {
  *
  * 戻り値は現在の連続失敗回数。ワーカーがバックオフの長さを決めるのに使う。
  */
-export async function recordModerationFailure(
-  error: unknown,
-): Promise<number> {
+export async function recordModerationFailure(error: unknown): Promise<number> {
   consecutiveFailures++;
   if (consecutiveFailures < FAILURE_ALERT_THRESHOLD || outageAlerted)
     return consecutiveFailures;

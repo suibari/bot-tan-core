@@ -43,7 +43,10 @@ export async function getThread(
   const post = views.find((v) => v.uri === rootUri);
   if (!post) throw new ApiError(404, "not_found", "Thread not found");
   const replies = views
-    .filter((v) => v.uri !== rootUri && !v.deleted)
+    // URL で直接開かれた保存拒否済みの返信は、理由付きの墓標を見せる。
+    // 通常のスレッド閲覧では、他の削除済み返信は従来どおり出さない。
+    .filter((v) => v.uri !== rootUri && (!v.deleted || v.uri === uri))
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   return { thread: { post, replies, botActor } };
 }
+

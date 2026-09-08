@@ -3,6 +3,8 @@ import test from "node:test";
 import {
   OpenAIModerator,
   PermanentModerationInputError,
+  TransientModerationError,
+  TransientModerationInputError,
 } from "../src/services/moderation/openai.js";
 
 type SentBody = {
@@ -19,7 +21,10 @@ const withMockFetch = async (
 ) => {
   const originalFetch = globalThis.fetch;
   const sent: SentBody[] = [];
-  globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+  globalThis.fetch = (async (
+    _url: string | URL | Request,
+    init?: RequestInit,
+  ) => {
     sent.push(JSON.parse(String(init?.body)) as SentBody);
     const response = responses.shift();
     assert.ok(response, "unexpected moderation request");
@@ -99,11 +104,127 @@ test("propagates a permanent error from an individual image", async () => {
       await assert.rejects(
         new OpenAIModerator("test-key").evaluate({
           texts: ["caption"],
-          imageUrls: ["https://example.com/1.webp", "https://example.com/2.webp"],
+          imageUrls: [
+            "https://example.com/1.webp",
+            "https://example.com/2.webp",
+          ],
         }),
         (error: unknown) =>
-          error instanceof PermanentModerationInputError && error.status === 400,
+          error instanceof PermanentModerationInputError &&
+          error.status === 400,
       );
     },
   );
 });
+
+test("retries when OpenAI temporarily cannot download an image URL", async () => {
+  await withMockFetch(
+    [
+      {
+        status: 400,
+        body: JSON.stringify({
+          error: {
+            code: "image_url_unavailable",
+            message: "Could not download file from URL provided",
+          },
+        }),
+      },
+    ],
+    async () => {
+      await assert.rejects(
+        new OpenAIModerator("test-key").evaluate({
+          texts: ["caption"],
+          imageUrls: ["https://example.com/image.webp"],
+        }),
+        (error: unknown) =>
+          error instanceof TransientModerationInputError &&
+          error.status === 400 &&
+          error.code === "image_url_unavailable",
+      );
+    },
+  );
+});
+
+// 実際に返ってくる error.code は未確証なので、文言だけでも拾えないと修正が発火しない。
+test("classifies a download failure by message even without a known code", async () => {
+  for (const [code, message] of [
+    ["invalid_request_error", "Could not download file from URL provided"],
+    [undefined, "Timeout while downloading https://nagi.example/api/blob/x"],
+    ["invalid_request_error", "Error while downloading the image"],
+  ] as const) {
+    await withMockFetch(
+      [
+        {
+          status: 400,
+          body: JSON.stringify({ error: { ...(code ? { code } : {}), message } }),
+        },
+      ],
+      async () => {
+        await assert.rejects(
+          new OpenAIModerator("test-key").evaluate({
+            texts: [],
+            imageUrls: ["https://example.com/image.webp"],
+          }),
+          (error: unknown) => error instanceof TransientModerationInputError,
+          `expected a transient input error for: ${message}`,
+        );
+      },
+    );
+  }
+});
+
+test("keeps an actually invalid image as a permanent input error", async () => {
+  for (const message of ["Invalid image", "Invalid image format", "Unsupported image type"])
+    await withMockFetch(
+      [
+        {
+          status: 400,
+          body: JSON.stringify({
+            error: { code: "invalid_image_format", message },
+          }),
+        },
+      ],
+      async () => {
+        await assert.rejects(
+          new OpenAIModerator("test-key").evaluate({
+            texts: [],
+            imageUrls: ["https://example.com/image.bin"],
+          }),
+          (error: unknown) =>
+            error instanceof PermanentModerationInputError &&
+            !(error instanceof TransientModerationInputError),
+          `expected a permanent error for: ${message}`,
+        );
+      },
+    );
+});
+
+// 429・5xx は「このアプリの入力の問題」ではなくサービス障害。文言が紛らわしくても
+// 全体バックオフと障害アラートの経路に乗せ続ける必要がある。
+test("keeps service failures out of the per-item retry path", async () => {
+  for (const status of [429, 500, 503])
+    await withMockFetch(
+      [
+        {
+          status,
+          body: JSON.stringify({
+            error: { message: "The service is temporarily unavailable" },
+          }),
+        },
+      ],
+      async () => {
+        await assert.rejects(
+          new OpenAIModerator("test-key").evaluate({
+            texts: ["caption"],
+            imageUrls: [],
+          }),
+          (error: unknown) =>
+            error instanceof TransientModerationError &&
+            !(error instanceof TransientModerationInputError) &&
+            error.status === status,
+          `expected a service-level transient error for HTTP ${status}`,
+        );
+      },
+    );
+});
+
