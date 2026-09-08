@@ -12,8 +12,8 @@ export type ModerationDecision =
   | "reject-policy"
   | "reject-invalid";
 
-/** ルール変更時に上げる。値が変わった行はワーカーが拾い直して再判定する。 */
-export const MODERATION_RULE_VERSION = "nagi-moderation-v2";
+/** ルール変更時に上げる。再処理をキューへ戻した行が同一 CID の旧判定を再利用しないための版。 */
+export const MODERATION_RULE_VERSION = "nagi-moderation-v3";
 
 /** 判定対象外（こっそり投稿など）を表す番兵。ワーカーはこの行を拾わない。 */
 export const MODERATION_SKIPPED = "skipped";

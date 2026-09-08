@@ -22,6 +22,7 @@ export class PermanentModerationInputError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    readonly code?: string,
   ) {
     super(message);
     this.name = "PermanentModerationInputError";
@@ -35,14 +36,83 @@ export class TransientModerationError extends Error {
     readonly status?: number,
     /** サーバが指定してきた待ち時間。呼び出し側のバックオフより優先する。 */
     readonly retryAfterMs?: number,
+    readonly code?: string,
   ) {
     super(message);
     this.name = "TransientModerationError";
   }
 }
 
+/**
+ * 「この1件の入力を OpenAI が取りに行けなかった」失敗。
+ *
+ * サービス障害（429・5xx・タイムアウト）と区別する。ワーカーはこれをバッチ全体の
+ * 失敗として扱わず、その1件だけ間隔をあけて再試行する（moderationRetry.ts）。
+ * TransientModerationError を継承しているので、retryAfterMs を見る既存の分岐は
+ * そのまま効く。
+ */
+export class TransientModerationInputError extends TransientModerationError {
+  constructor(
+    message: string,
+    status?: number,
+    retryAfterMs?: number,
+    code?: string,
+  ) {
+    super(message, status, retryAfterMs, code);
+    this.name = "TransientModerationInputError";
+  }
+}
+
 const isPermanentStatus = (status: number) =>
   status === 400 || status === 413 || status === 422;
+
+/**
+ * URL自体は正しくても、OpenAI から AppView/PDS への取得が一時的に
+ * 失敗すると HTTP 400 で返る。コンテンツの恒久的な不正とは区別する。
+ */
+const TRANSIENT_ERROR_CODES = new Set(["image_url_unavailable"]);
+
+/**
+ * 実際に返ってくる error.code は確証が無いので、文言でも拾う。
+ * 「取りに行けなかった」系だけを対象にし、「画像として不正」は拾わない
+ * （invalid_image_format / "Invalid image" はここに一致しないこと）。
+ */
+const TRANSIENT_MESSAGE_PATTERN =
+  /could ?n[o']?t (?:down)?load|could not fetch|failed to (?:down)?load|failed to fetch|error while downloading|timed? ?out|temporarily|unavailable/i;
+
+const parseError = (
+  body: string,
+): { code?: string; message?: string } => {
+  try {
+    const parsed = JSON.parse(body) as {
+      error?: { code?: unknown; message?: unknown };
+    };
+    return {
+      code:
+        typeof parsed.error?.code === "string" ? parsed.error.code : undefined,
+      message:
+        typeof parsed.error?.message === "string"
+          ? parsed.error.message
+          : undefined,
+    };
+  } catch {
+    return {};
+  }
+};
+
+/**
+ * 入力取得の一時失敗か。code 一致か、文言一致で判定する。
+ *
+ * 誤って恒久エラーをこちらへ倒しても、ワーカー側の再試行上限で最終的に
+ * reject-invalid へ落ちるだけなので安全side。逆（一時失敗を恒久扱い）は
+ * 無害な投稿を消してしまうので、迷ったらこちらへ倒す。
+ */
+export const isTransientInputFailure = (
+  code: string | undefined,
+  message: string | undefined,
+): boolean =>
+  (!!code && TRANSIENT_ERROR_CODES.has(code)) ||
+  (!!message && TRANSIENT_MESSAGE_PATTERN.test(message));
 
 /** Retry-After の上限。壊れた値や極端に長い指定でワーカーを止めないため。 */
 const MAX_RETRY_AFTER_MS = 15 * 60_000;
@@ -104,15 +174,29 @@ export class OpenAIModerator {
 
     if (!response.ok) {
       const body = await response.text().catch(() => "");
-      if (isPermanentStatus(response.status))
+      const { code, message } = parseError(body);
+      const retryAfterMs = parseRetryAfter(response.headers.get("retry-after"));
+      // 文言での判定は 4xx のときだけ。429・5xx は本文に "unavailable" 等が
+      // 入っていてもサービス障害であり、従来どおり全体バックオフを動かす。
+      if (isPermanentStatus(response.status)) {
+        if (isTransientInputFailure(code, message))
+          throw new TransientModerationInputError(
+            `moderation could not fetch an input (${code ?? "no code"}): ${body.slice(0, 500)}`,
+            response.status,
+            retryAfterMs,
+            code,
+          );
         throw new PermanentModerationInputError(
           response.status,
           `moderation rejected the input with HTTP ${response.status}: ${body.slice(0, 500)}`,
+          code,
         );
+      }
       throw new TransientModerationError(
         `moderation failed with HTTP ${response.status}: ${body.slice(0, 500)}`,
         response.status,
-        parseRetryAfter(response.headers.get("retry-after")),
+        retryAfterMs,
+        code,
       );
     }
 

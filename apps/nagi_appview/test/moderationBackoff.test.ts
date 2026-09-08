@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+
+// moderationWorker は config.ts を引き込むので、実行前に必須の環境変数を埋めておく。
+// 埋めないと .env の空値でも落ち、バックオフの回帰が黙って走らなくなる。
+process.env.NAGI_APPVIEW_DID ||= "did:web:appview.test";
+process.env.NAGI_BOT_DID ||= "did:plc:bot";
 import { parseRetryAfter } from "../src/services/moderation/openai.js";
 import {
   MODERATION_LEGACY,

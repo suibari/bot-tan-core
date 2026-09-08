@@ -48,6 +48,38 @@ test("the worker leaves the pending marker alone when the failure is retryable",
 });
 
 /**
+ * 取得できない画像1件でモデレーション全体が止まらないこと。
+ *
+ * fetchBatch は indexed_at DESC の上位 BATCH_SIZE 件しか見ないので、判定できない行を
+ * 放置すると毎周回そこに居座る。さらに tick() は最初に pending があった source で
+ * return するため、posts が詰まると profiles 以降が永久に走らなくなる。
+ */
+test("a single unfetchable input cannot stall the whole worker", () => {
+  // item 単位の失敗はバッチを打ち切らず、障害カウンタにも到達しない。
+  assert.match(
+    worker,
+    /if \(!\(error instanceof TransientModerationInputError\)\) throw error;/,
+  );
+  // 再試行待ちの行はバッチから外し、全部待機中なら次の source へ進む。
+  assert.match(worker, /retries\.ready\(moderationRetryKey\(/);
+  assert.match(worker, /if \(!ready\.length\) continue;/);
+  // 予算を使い切ったら通常の判定経路で reject-invalid を確定させる。
+  assert.match(worker, /await judge\(item, \{ error, failures: state\.failures \}\)/);
+});
+
+/**
+ * 逆に、サービス障害（429・5xx）は従来どおり全体バックオフへ乗せ続ける。
+ * ここを item 単位の再試行へ倒すと、レート制限中に投げ続けて事態を悪化させる。
+ */
+test("service failures still drive the global backoff", () => {
+  assert.match(worker, /recordModerationFailure\(failure\)/);
+  assert.match(
+    worker,
+    /failure instanceof TransientModerationError\n\s*\? failure\.retryAfterMs/,
+  );
+});
+
+/**
  * allow を無音にすると「安全と判定された」のか「ワーカーが動いていない」のか
  * 運用者が区別できない。判定1件につき必ず1行出すことを固定する。
  */
