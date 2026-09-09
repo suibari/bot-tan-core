@@ -52,16 +52,17 @@ export const botBiothythmManager = {
   addFollower: async () => {
     await axios.post(`${getBiorhythmServerUrl()}/energy`, { amount: 50, type: "follow" }, authConfig());
   },
-  getContext: async (): Promise<{ mood: string; mood_en: string; energy: number }> => {
+  getContext: async (): Promise<{ mood: string; mood_en: string; energy: number; weather: string }> => {
     try {
       const res = await axios.get(`${getBiorhythmServerUrl()}/status`, authConfig());
       return {
         mood: res.data.mood || "",
         mood_en: res.data.mood_en || "",
         energy: res.data.energy || 0,
+        weather: res.data.weather || "",
       };
     } catch (e) {
-      return { mood: "", mood_en: "", energy: 0 };
+      return { mood: "", mood_en: "", energy: 0, weather: "" };
     }
   },
 };

@@ -4,7 +4,7 @@ import { agent } from "./agent.js";
 import { features } from "../features/index.js";
 import { MemoryService, botBiothythmManager } from "@bsky-affirmative-bot/clients";
 import { followerMap, updateFollowers } from "./followerManagement.js";
-import { getLangStr, splitUri, isIgnoreTarget, hasNGWord, isIgnorePost, isReplyOrMentionToMe, hasBroadcastDomainLink, hasAffiliateDomainLink, hasAnyLink, getLatestPostOf, isReplyInThirdPartyThread, isNagiCrosspost } from "./util.js";
+import { getLangStr, splitUri, isIgnoreTarget, hasNGWord, isIgnorePost, isReplyOrMentionToMe, hasAffiliateDomainLink, hasAnyLink, getLatestPostOf, isReplyInThirdPartyThread, isNagiCrosspost } from "./util.js";
 import { follow } from "./follow.js";
 import { replyGreets } from "./replyGreets.js";
 import retry from 'async-retry';
@@ -287,11 +287,8 @@ async function isBotUser(did: string): Promise<boolean> {
 }
 
 async function isAutoPost(did: string, record: AppBskyFeedPost.Record | any, agent: AtpAgent): Promise<boolean> {
-  // 2. 配信ドメインリンクありの投稿 → 無視
-  if (hasBroadcastDomainLink(record)) {
-    console.log(`[INFO][${did}] AutoPost detected: post contains broadcast domain link`);
-    return true;
-  }
+  // 配信ドメインだけを理由にした除外は停止中。返信生成がローカルLLMになり、
+  // YouTube 等のリンクを含む通常の投稿まで弾く必要が薄くなったため。
 
   // 3. アフィドメインリンクありの投稿 → 無視
   if (hasAffiliateDomainLink(record)) {
