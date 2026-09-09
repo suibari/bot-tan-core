@@ -17,6 +17,7 @@ import { toServiceTier } from './aiRoute.js';
 import { generateContentForProvider } from './generationClient.js';
 import { prepareOllamaGrounding } from './grounding.js';
 import { prepareModelImages, tileLabel } from './imagePreprocess.js';
+import { unavailableImageInstruction } from './affirmativeImages.js';
 import {
   UNKNOWN_TERMS_INSTRUCTION,
   replyWithUnknownTermsSchema,
@@ -63,23 +64,29 @@ export async function conversation(
   const message: PartListUnion = [{ text: prompt }];
   if (userinfo.image) {
     for (const [offset, img] of userinfo.image.entries()) {
-      const response = await safeFetch(img.image_url);
-      const imageArrayBuffer = await response.arrayBuffer();
       const index = offset + 1;
-      const prepared = await prepareModelImages(Buffer.from(imageArrayBuffer), img.mimeType);
-      for (const [tileOffset, item] of prepared.entries()) {
-        // タイルは「別の画像」ではないので、必ずラベルを添える。
-        if (item.kind === 'tile') {
+      try {
+        const response = await safeFetch(img.image_url);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const imageArrayBuffer = await response.arrayBuffer();
+        const prepared = await prepareModelImages(Buffer.from(imageArrayBuffer), img.mimeType);
+        for (const [tileOffset, item] of prepared.entries()) {
+          // タイルは「別の画像」ではないので、必ずラベルを添える。
+          if (item.kind === 'tile') {
+            message.push({
+              text: `\n\n${tileLabel(`${index}-${tileOffset}`, index, item, userinfo.langStr)}`,
+            });
+          }
           message.push({
-            text: `\n\n${tileLabel(`${index}-${tileOffset}`, index, item, userinfo.langStr)}`,
+            inlineData: {
+              mimeType: item.mimeType,
+              data: item.data,
+            },
           });
         }
-        message.push({
-          inlineData: {
-            mimeType: item.mimeType,
-            data: item.data,
-          },
-        });
+      } catch (error) {
+        message.push({ text: unavailableImageInstruction(index, userinfo.langStr) });
+        console.warn(`[WARN][AI_IMAGE] Conversation image ${index} is unavailable`, error);
       }
     }
   }

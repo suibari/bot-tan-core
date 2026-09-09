@@ -45,26 +45,16 @@ const weatherCodeMap: Record<number, string> = {
     99: '雷雨',
 };
 
-let _weatherCache: { value: string; time: number } | null = null;
-const WEATHER_CACHE_TTL = 10 * 60 * 1000;
+const WEATHER_REQUEST_TIMEOUT_MS = 5_000;
 
 export async function getYokohamaWeather(): Promise<string> {
-    if (_weatherCache && Date.now() - _weatherCache.time < WEATHER_CACHE_TTL) {
-        return _weatherCache.value;
-    }
-    try {
-        const response = await axios.get<OpenMeteoResponse>(
-            'https://api.open-meteo.com/v1/forecast?latitude=35.4437&longitude=139.638&current_weather=true&timezone=Asia%2FTokyo',
-            {
-                httpsAgent: new https.Agent({ family: 4 }), // IPv4でないとアクセスできない
-            }
-        );
-        const code = response.data.current_weather.weathercode;
-        const result = weatherCodeMap[code] || '不明';
-        _weatherCache = { value: result, time: Date.now() };
-        return result;
-    } catch (error) {
-        console.error('[ERROR] Failed to fetch weather:', error);
-        return '不明';
-    }
+    const response = await axios.get<OpenMeteoResponse>(
+        'https://api.open-meteo.com/v1/forecast?latitude=35.4437&longitude=139.638&current_weather=true&timezone=Asia%2FTokyo',
+        {
+            httpsAgent: new https.Agent({ family: 4 }), // IPv4でないとアクセスできない
+            timeout: WEATHER_REQUEST_TIMEOUT_MS,
+        }
+    );
+    const code = response.data.current_weather.weathercode;
+    return weatherCodeMap[code] || '不明';
 }

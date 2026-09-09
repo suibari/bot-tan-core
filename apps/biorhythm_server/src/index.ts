@@ -187,6 +187,8 @@ server.listen(Number(PORT), HOST, async () => {
     startBotMemoryDigestWorker();
 
     await manager.init();
+    const { scheduleWeatherSync } = await import("./weatherSync.js");
+    await scheduleWeatherSync(manager);
     // 各プロセスのハートビートを読み、ローカル LLM と Nagi ingest を自前で叩く。
     startHealthMonitor();
     const { scheduleRoomInteractionSync } = await import("./roomInteractionSync.js");

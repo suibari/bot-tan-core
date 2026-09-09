@@ -8,6 +8,7 @@ import type {
 import {
   affirmativeImageLabel,
   buildAffirmativeImageParts,
+  unavailableImageInstruction,
 } from "../src/ai/affirmativeImages.js";
 import { buildAffirmativePrompt } from "../src/ai/generateAffirmativeWord.js";
 
@@ -116,9 +117,11 @@ test("画像の出所ごとに作者帰属の指示を変える", () => {
   }
 });
 
-test("直接添付画像の取得失敗は返信再試行のため例外にする", async () => {
-  await assert.rejects(
-    buildAffirmativeImageParts(
+test("直接添付画像の取得失敗は推測せず見られなかった旨を伝える", async () => {
+  const originalWarn = console.warn;
+  console.warn = () => {};
+  try {
+    const { parts, stats } = await buildAffirmativeImageParts(
       [
         {
           image_url: "https://example.com/direct.png",
@@ -128,9 +131,13 @@ test("直接添付画像の取得失敗は返信再試行のため例外にす�
       ],
       "日本語",
       async () => new Response(null, { status: 503 }),
-    ),
-    /directly attached image 1/,
-  );
+    );
+    assert.equal(parts.length, 1);
+    assert.match(parts[0].text ?? "", /画像を見られなかったこと/);
+    assert.deepEqual([stats.succeeded, stats.skipped], [0, 1]);
+  } finally {
+    console.warn = originalWarn;
+  }
 });
 
 test("補助画像の取得失敗はスキップして残りを処理する", async () => {
@@ -157,8 +164,9 @@ test("補助画像の取得失敗はスキップして残りを処理する", as
           : okFetch(),
     );
 
-    assert.equal(parts.length, 2);
-    assert.match(parts[0].text ?? "", /画像2/);
+    assert.equal(parts.length, 3);
+    assert.match(parts[0].text ?? "", /画像を見られなかったこと/);
+    assert.match(parts[1].text ?? "", /画像2/);
     assert.deepEqual(
       [stats.attempted, stats.succeeded, stats.skipped],
       [2, 1, 1],
@@ -166,6 +174,12 @@ test("補助画像の取得失敗はスキップして残りを処理する", as
   } finally {
     console.warn = originalWarn;
   }
+});
+
+test("英語の取得失敗指示でも内容の推測を禁じ、失敗を伝えさせる", () => {
+  const instruction = unavailableImageInstruction(2, "English");
+  assert.match(instruction, /Do not guess/);
+  assert.match(instruction, /could not view the image/);
 });
 
 test("origin未指定画像は直接添付として扱う", async () => {

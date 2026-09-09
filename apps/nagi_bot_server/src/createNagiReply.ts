@@ -1,7 +1,6 @@
 import {
   conversation,
   generateAffirmativeWord,
-  getYokohamaWeather,
   judgeNameIntent,
   createPredefinedReply,
   assertUsableReply,
@@ -41,7 +40,6 @@ import type { NagiAiRouteDetails } from "./nagiReplyRetry.js";
 
 configureBotContext({
   surface: "nagi",
-  getWeather: getYokohamaWeather,
   getStatus: () => botBiothythmManager.getContext(),
   getRecentActivities: async () => {
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000);

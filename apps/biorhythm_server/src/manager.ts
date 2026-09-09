@@ -38,7 +38,6 @@ import {
   toRoomEventsForPrompt,
   type RoomEventForPrompt,
 } from "./roomEventPrompt.js";
-import { getYokohamaWeather } from "@bsky-affirmative-bot/bot-brain";
 import { Type } from "@google/genai";
 
 import { Status } from "@bsky-affirmative-bot/shared-configs";
@@ -68,6 +67,7 @@ interface BotStat {
   energy: number;
   mood: string;
   mood_en: string;
+  weather: string;
   status: string;
   dailyStats: DailyStatsForWebSocket; // 型をDailyStatsForWebSocketに変更
   totalStats: Stats; // 追加: totalStatsプロパティ
@@ -95,6 +95,7 @@ export class BiorhythmManager extends EventEmitter {
   private timePrev: string = '';
   private moodPrev: string = "";
   private moodPrevEn: string = "";
+  private weather: string = "";
   private nextStepTime: string = "";
   private _generatedImage: Buffer | null = null;
   private currentFollowers = 0;
@@ -287,6 +288,11 @@ export class BiorhythmManager extends EventEmitter {
   get getEnergy(): number { return this.energy / 100; }
   get getMood(): string { return this.moodPrev; }
   get getMoodEn(): string { return this.moodPrevEn; }
+  get getWeather(): string { return this.weather; }
+
+  setWeather(weather: string): void {
+    this.weather = weather;
+  }
 
   get generatedImage(): Buffer | null {
     return this._generatedImage;
@@ -388,6 +394,7 @@ export class BiorhythmManager extends EventEmitter {
       energy: this.getEnergy,
       mood: this.getMood,
       mood_en: this.getMoodEn,
+      weather: this.getWeather,
       status: this.status,
       dailyStats: {
         ...dailyStats,
@@ -448,8 +455,8 @@ export class BiorhythmManager extends EventEmitter {
       this.status = nextStatus;
     }
 
-    // 天候取得
-    const weather = await getYokohamaWeather();
+    // 天候は定期更新したキャッシュだけを使う。外部API障害でこのループを止めない。
+    const weather = this.getWeather;
 
     // RPDチェック: 超過時は全処理スキップし、丸1日後に再実行
     if (!(await MemoryService.checkRPD())) {
