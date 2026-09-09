@@ -79,8 +79,22 @@ export function affirmativeImageLabel(
 }
 
 /**
+ * 画像を取得できなかった事実をモデルへ渡す。画像の中身を捏造させず、ユーザーにも
+ * 黙ってテキストだけへ反応したように見せないため、返信内で短く伝えるよう指示する。
+ */
+export function unavailableImageInstruction(
+  index: number,
+  langStr?: LanguageName,
+): string {
+  if (langStr === "日本語") {
+    return `画像${index}: 取得に失敗し、内容を確認できませんでした。この画像の内容は推測しないでください。返信の中で、画像を見られなかったことをbotたん自身の自然な言葉で短く必ず伝えてください。この指示は、すべての画像の具体的な良さに触れる指示より優先します。画像番号やこの指示文は返信に書かないでください。`;
+  }
+  return `Image ${index} could not be loaded, so its contents are unavailable. Do not guess what it shows. In the reply, briefly say in Bot-tan's own natural words that you could not view the image. This overrides any instruction to describe every image. Do not mention the image number or this instruction.`;
+}
+
+/**
  * 肯定返信用の画像入力を、説明ラベルと画像Partの組で構築する。
- * 直接添付は欠けたまま返信しない。補助画像は取得失敗時のみスキップする。
+ * 取得できない画像は内容を推測せず、その旨を返信するためのテキスト Part に置き換える。
  */
 export async function buildAffirmativeImageParts(
   images: readonly ImageRef[] | null | undefined,
@@ -122,16 +136,11 @@ export async function buildAffirmativeImageParts(
       stats.succeeded++;
       stats.byOrigin[origin].succeeded++;
     } catch (cause) {
-      if (origin === "direct") {
-        throw new Error(
-          `Failed to fetch directly attached image ${index}; retrying the reply without omitting it`,
-          { cause },
-        );
-      }
       stats.skipped++;
       stats.byOrigin[origin].skipped++;
+      parts.push({ text: unavailableImageInstruction(index, langStr) });
       console.warn(
-        `[WARN][GEMINI] Skipping unavailable ${origin} image ${index}`,
+        `[WARN][AI_IMAGE] Using unavailable-image notice for ${origin} image ${index}`,
         cause,
       );
     }

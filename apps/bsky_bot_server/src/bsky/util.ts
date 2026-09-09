@@ -182,17 +182,16 @@ export async function getImageUrl(
 ): Promise<ImageRef[]> {
   let result: ImageRef[] = [];
 
-  // PDSエンドポイントを取得
-  let pdsEndpoint: string;
-  try {
-    pdsEndpoint = await getPds(did);
-    pdsEndpoint = pdsEndpoint.replace(/\/$/, ""); // 末尾のスラッシュを削除
-  } catch (e) {
-    console.warn(`Failed to get PDS for ${did}, falling back to CDN assumption`, e);
-    pdsEndpoint = "https://bsky.social"; // fallback
-  }
-
   if (AppBskyEmbedImages.isMain(embed)) {
+    // 直接添付画像だけが作者の PDS Blob API を必要とする。リンクカードと動画は
+    // Bluesky CDN を使うため、画像なし投稿を含め DID 解決を先回りしてはいけない。
+    let pdsEndpoint: string;
+    try {
+      pdsEndpoint = (await getPds(did)).replace(/\/$/, "");
+    } catch (e) {
+      console.warn(`Failed to get PDS for ${did}, falling back to CDN assumption`, e);
+      pdsEndpoint = "https://bsky.social";
+    }
     result.push(
       ...blobImagesToImageRefs(
         did,

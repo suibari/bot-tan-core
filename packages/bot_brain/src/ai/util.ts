@@ -2,7 +2,7 @@ import { PartListUnion, Type } from '@google/genai';
 import { SYSTEM_INSTRUCTION, POST_TEXT_LIMIT, safeFetch, resolveAiRoute, formatJstActivityTime, energyLabel, OLLAMA_LONG_OUTPUT_TOKENS } from '@bsky-affirmative-bot/shared-configs';
 import type { AiFeatureKey } from '@bsky-affirmative-bot/shared-configs';
 import { UserInfoGemini, GeminiScore, BotContext, LanguageName } from '@bsky-affirmative-bot/shared-configs';
-import { buildAffirmativeImageParts } from './affirmativeImages.js';
+import { buildAffirmativeImageParts, unavailableImageInstruction } from './affirmativeImages.js';
 import { prepareModelImages } from './imagePreprocess.js';
 import { toServiceTier } from './aiRoute.js';
 import { generateContentForProvider } from './generationClient.js';
@@ -420,12 +420,12 @@ export async function generateSingleResponse(
   const contents: PartListUnion = [prompt];
 
   if (userinfo?.image) {
-    for (const img of userinfo.image) {
+    for (const [offset, img] of userinfo.image.entries()) {
+      const index = offset + 1;
       try {
         const response = await safeFetch(img.image_url);
         if (!response.ok) {
-          console.warn(`[WARN] Failed to fetch image: ${img.image_url} (Status: ${response.status})`);
-          continue;
+          throw new Error(`HTTP ${response.status}`);
         }
         const imageArrayBuffer = await response.arrayBuffer();
         for (const item of await prepareModelImages(Buffer.from(imageArrayBuffer), img.mimeType)) {
@@ -438,7 +438,7 @@ export async function generateSingleResponse(
         }
       } catch (e) {
         console.warn(`[WARN] Error fetching image: ${img.image_url}`, e);
-        continue;
+        contents.push({ text: unavailableImageInstruction(index, userinfo.langStr) });
       }
     }
   }

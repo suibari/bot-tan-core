@@ -38,13 +38,17 @@ export async function assertPublicUrl(raw: string, base?: string | URL): Promise
 }
 
 const REDIRECT_LIMIT = 4;
+export const SAFE_FETCH_TIMEOUT_MS = 10_000;
 
 // fetch の差し替え用。リクエスト前に対象 URL（およびリダイレクトの各ホップ）を
 // assertPublicUrl で検証する。
 export async function safeFetch(input: string, init: RequestInit = {}): Promise<Response> {
+  // 呼び出し側が明示した signal は尊重する。未指定時だけ全ホップ共通の期限を設け、
+  // 画像配信元などが応答しないまま bot の返信処理を止め続けることを防ぐ。
+  const signal = init.signal ?? AbortSignal.timeout(SAFE_FETCH_TIMEOUT_MS);
   let url = await assertPublicUrl(input);
   for (let hop = 0; hop <= REDIRECT_LIMIT; hop++) {
-    const response = await fetch(url, { ...init, redirect: "manual" });
+    const response = await fetch(url, { ...init, signal, redirect: "manual" });
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       const location = response.headers.get("location");
       if (!location) return response;
