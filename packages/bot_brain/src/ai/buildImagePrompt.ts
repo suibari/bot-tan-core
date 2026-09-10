@@ -117,6 +117,17 @@ const BASE_NEGATIVE =
  */
 const CHIBI_NEGATIVE = "chibi, deformed, sd character, child, big head";
 
+/**
+ * 寝具を画面から追い出す。**正のタグを落とすだけでは足りない。**
+ * 材料がおやすみポスト本文である以上、`indoors, night` だけでもベッドのある部屋へ寄る。
+ *
+ * `closed eyes` はここへ入れない。botたんの署名である `jitome, half-closed eyes` と
+ * 綱引きになり、目つきごと変わる。閉じた目は正のタグから落とすだけにとどめる
+ * （`SLEEP_PATTERN`）。
+ */
+const SLEEP_NEGATIVE =
+  "sleeping, bed, on bed, pillow, blanket, futon, pajamas, nightgown, zzz";
+
 /** 画材が「小道具として絵の中に描かれる」のを止める。これが無いと床にクレヨンが転がる。 */
 const ART_PROP_NEGATIVE =
   "sketchbook, art tools, crayon, pencil, colored pencil, frame, picture frame, canvas, easel";
@@ -154,7 +165,7 @@ const STYLES: Record<ImageStyle, StyleSpec> = {
     leading: "child's drawing, crayon (medium), traditional media",
     quality: "average score",
     negative:
-      `${BASE_NEGATIVE}, ${CHIBI_NEGATIVE}, ${ART_PROP_NEGATIVE}, ` +
+      `${BASE_NEGATIVE}, ${CHIBI_NEGATIVE}, ${ART_PROP_NEGATIVE}, ${SLEEP_NEGATIVE}, ` +
       "realistic, photorealistic, 3d, anime screencap, digital painting, " +
       "depth of field, bokeh, film grain, glowing, sparkle, " +
       "masterpiece, high score, great score",
@@ -166,7 +177,7 @@ const STYLES: Record<ImageStyle, StyleSpec> = {
   /** 通常のアニメ塗り。切り戻し用に残してある。 */
   anime: {
     quality: "masterpiece, high score, great score, absurdres",
-    negative: `${BASE_NEGATIVE}, low score, bad score, average score, ${CHIBI_NEGATIVE}`,
+    negative: `${BASE_NEGATIVE}, low score, bad score, average score, ${CHIBI_NEGATIVE}, ${SLEEP_NEGATIVE}`,
   },
 };
 
@@ -223,11 +234,30 @@ Rules:
 * outdoor: true only if the scene is outside.
 * Prefer 2-5 tags per field. Use an empty array if nothing applies.
 * Posture tags matter most: if she is on the floor, say so.
-* The text is a bedtime greeting written at the end of the day. The greeting itself is NOT the subject. Draw a moment from the day it recalls.
-* Use bedroom, night, sleeping or closed eyes only when the recalled moment itself happened there. Going to bed is not a moment.
+* The text is a bedtime greeting written at the end of the day. Going to bed, falling asleep and the greeting itself are NEVER the subject. Draw a moment from the day it recalls.
+* When the text tells a dream, draw what happens INSIDE the dream as a real scene: she is awake and doing it, eyes open. Do not draw her sleeping while she dreams it.
+* NEVER output these tags, whatever the text says: sleeping, asleep, sleepy, closed eyes, bed, bedroom, pillow, blanket, futon, pajamas, zzz.
 * Pick the single most vivid moment. Do not try to describe the whole day.`;
 
 const FORBIDDEN = new Set(["text", "watermark", "signature", "username"]);
+
+/**
+ * 就寝そのものへ引き戻すタグ。**指示だけに任せず、ここで必ず落とす。**
+ *
+ * 材料になるのは「これから寝る」という枠で書かれたおやすみポスト本文なので、
+ * `SCENE_SYSTEM` でいくら禁じても寝具や閉じた目が繰り返し出てくる。2026-09-09 の
+ * 本文で planImageScene を3回回したところ、3回とも `closed eyes` + `bedroom` が
+ * 付いた（拾った場面は「机の掃除」だったのに、絵は寝ているところになる）。
+ *
+ * **`night` は落とさない。** 夜そのものは寝ている絵にはならず、落とすと夜の場面
+ * （花火、夜ふかし）まで昼に化ける。落とすのは「画面にベッドと閉じた目が入る」タグだけ。
+ * `bedroom` は booru では画面にベッドが入る意味なので落とす（`indoors` / `room` は残る）。
+ *
+ * 落とした結果タグが薄くなった日は `MIN_SCENE_TAGS` に引っかかって描かない。
+ * 寝ている絵を出すより、その日は絵なしのほうがよい。
+ */
+const SLEEP_PATTERN =
+  /\b(sleep|asleep|slumber|doze|dozing|nap|bed|pillow|blanket|duvet|quilt|futon|pajama|pyjama|nightgown|nightcap|nightwear|sleepwear|zzz|dreaming|closed eyes|eyes closed)/;
 
 /**
  * 日本語の情景文からシーンのタグを起こす。
@@ -254,16 +284,32 @@ export async function planImageScene(sourceText: string): Promise<ImageScenePlan
     console.warn("[WARN][IMGGEN] シーン変換の JSON が壊れていた:", raw.slice(0, 200));
     return null;
   }
-  const value = parsed as Partial<ImageScenePlan>;
+  return normalizeScenePlan(parsed);
+}
+
+/**
+ * LLM が返した JSON をシーン計画にする。**検査はここに集約する。**
+ *
+ * planImageScene から切り出してあるのは、Ollama を起こさずにこの層だけをテストするため。
+ * 落としたタグは黙って消さずに1行残す（どの規則が効いたのかは本番ログでしか分からない）。
+ */
+export function normalizeScenePlan(parsed: unknown): ImageScenePlan {
+  const value = (parsed ?? {}) as Partial<ImageScenePlan>;
+  const dropped: string[] = [];
   const list = (input: unknown): string[] =>
     Array.isArray(input)
       ? input
           .filter((tag): tag is string => typeof tag === "string")
           .map((tag) => tag.trim().toLowerCase())
-          .filter((tag) => tag.length > 0 && !FORBIDDEN.has(tag))
+          .filter((tag) => tag.length > 0)
+          .filter((tag) => {
+            if (!FORBIDDEN.has(tag) && !SLEEP_PATTERN.test(tag)) return true;
+            dropped.push(tag);
+            return false;
+          })
       : [];
 
-  return {
+  const plan: ImageScenePlan = {
     pose: list(value.pose),
     expression: list(value.expression),
     action: list(value.action),
@@ -275,6 +321,10 @@ export async function planImageScene(sourceText: string): Promise<ImageScenePlan
     framing: value.framing === "upper-body" ? "upper-body" : "full-body",
     outdoor: value.outdoor === true,
   };
+  if (dropped.length > 0) {
+    console.warn("[WARN][IMGGEN] 使えないタグを落とした:", dropped.join(", "));
+  }
+  return plan;
 }
 
 // ---------------------------------------------------------------------------

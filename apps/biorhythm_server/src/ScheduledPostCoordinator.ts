@@ -73,6 +73,22 @@ export function todayActivityLines(botContext: BotContext | undefined, now: Date
   return `\n\n### 今日あったこと（記録された事実・古い順）\n${lines.join("\n")}\n`;
 }
 
+/** 絵の材料。おやすみポストの本文＋今日の行動履歴を、どちらも見出し付きで並べる。 */
+export function goodNightImageSource(
+  sourceText: string,
+  botContext: BotContext | undefined,
+  now: Date,
+): string {
+  // 本文にも見出しを付ける。無しで渡すと、材料のうち「今日あったこと」だけが名前の付いた
+  // ブロックになり、本文は地の文＝主題として読まれる。本文の前半は毎日かならず就寝と夢の
+  // 描写なので、そこが主題に見えた時点で絵は寝ているところになる。
+  return (
+    "### おやすみポストの本文（就寝のあいさつ。眠ること自体は主題ではない）\n" +
+    sourceText +
+    todayActivityLines(botContext, now)
+  );
+}
+
 /**
  * その日のおやすみポストに添える絵を1枚作る。
  *
@@ -87,7 +103,7 @@ async function buildGoodNightImage(
   botContext?: BotContext,
 ): Promise<ScheduledPostImage | undefined> {
   const generated = await generateImage(
-    `${sourceText}${todayActivityLines(botContext, new Date())}`,
+    goodNightImageSource(sourceText, botContext, new Date()),
     IMAGE_MAX_BYTES,
   );
   if (!generated) return undefined;

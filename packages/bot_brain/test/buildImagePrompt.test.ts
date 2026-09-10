@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildImagePrompt, type ImageScenePlan } from "../src/ai/buildImagePrompt.js";
+import {
+  buildImagePrompt,
+  normalizeScenePlan,
+  type ImageScenePlan,
+} from "../src/ai/buildImagePrompt.js";
 
 function plan(overrides: Partial<ImageScenePlan> = {}): ImageScenePlan {
   return {
@@ -162,4 +166,63 @@ test("シーンが薄すぎるときは描かない", () => {
     "crayon-diary",
   );
   assert.equal(built, null);
+});
+
+test("就寝そのもののタグは落とす（材料が「これから寝る」本文なので必ず出てくる）", () => {
+  const plan = normalizeScenePlan({
+    pose: ["lying down", "on bed"],
+    expression: ["smile", "closed eyes"],
+    action: ["cleaning", "sleeping"],
+    setting: ["indoors", "bedroom", "night"],
+    objects: ["desk", "pillow", "blanket"],
+    companions: [],
+    framing: "upper-body",
+    outdoor: false,
+  });
+  assert.deepEqual(plan.pose, ["lying down"]);
+  assert.deepEqual(plan.expression, ["smile"]);
+  assert.deepEqual(plan.action, ["cleaning"]);
+  // night は残す。夜そのものは寝ている絵にならず、落とすと夜の場面が昼に化ける。
+  assert.deepEqual(plan.setting, ["indoors", "night"]);
+  assert.deepEqual(plan.objects, ["desk"]);
+});
+
+test("落とした結果タグが薄くなったら描かない（寝ている絵より絵なし）", () => {
+  const plan = normalizeScenePlan({
+    pose: ["lying down"],
+    expression: ["closed eyes"],
+    action: ["sleeping"],
+    setting: ["bedroom", "night"],
+    objects: ["pillow", "blanket"],
+    companions: [],
+    framing: "upper-body",
+    outdoor: false,
+  });
+  assert.equal(buildImagePrompt(plan, "crayon-diary"), null);
+});
+
+test("寝具はネガティブでも追い出す。ただし closed eyes は入れない", () => {
+  for (const style of ["crayon-diary", "anime"] as const) {
+    const built = buildImagePrompt(plan(), style);
+    assert.ok(built);
+    assert.match(built.negativePrompt, /sleeping, bed, on bed, pillow, blanket/);
+    // botたんの署名である jitome, half-closed eyes と綱引きになるので入れない。
+    assert.doesNotMatch(built.negativePrompt, /closed eyes/);
+  }
+});
+
+test("既定タグは通す（過剰にマッチして場面ごと消さない）", () => {
+  const kept = normalizeScenePlan({
+    pose: ["sitting", "kneeling"],
+    expression: ["smile", "blush"],
+    action: ["reading book", "holding cup"],
+    setting: ["outdoors", "park", "sunset", "night"],
+    objects: ["notebook", "mug", "bench"],
+    companions: ["morpho"],
+    framing: "full-body",
+    outdoor: true,
+  });
+  assert.equal(kept.setting.length, 4);
+  assert.equal(kept.objects.length, 3);
+  assert.deepEqual(kept.companions, ["morpho"]);
 });
