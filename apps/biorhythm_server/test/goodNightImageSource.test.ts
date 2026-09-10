@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { BotContext } from "@bsky-affirmative-bot/shared-configs";
-import { todayActivityLines } from "../src/ScheduledPostCoordinator.js";
+import { goodNightImageSource, todayActivityLines } from "../src/ScheduledPostCoordinator.js";
 
 function context(
   activities: { at: string; activity: string }[],
@@ -88,4 +88,18 @@ test("壊れた at は落とす（NaN の時刻を本文へ出さない）", () 
   assert.doesNotMatch(lines, /こわれた記録/);
   assert.doesNotMatch(lines, /NaN/);
   assert.match(lines, /図書室で本を読んだ/);
+});
+
+test("本文にも見出しを付けて渡す（地の文だと就寝の枠が主題に見える）", () => {
+  const now = new Date("2026-09-08T22:30:00+09:00");
+  const source = goodNightImageSource(
+    "みんな、おやすみなさい！わたし、もう眠りにつくね。",
+    context([{ at: "2026-09-08T15:00:00+09:00", activity: "図書室で本を読んだ" }]),
+    now,
+  );
+  assert.match(source, /^### おやすみポストの本文/);
+  assert.match(source, /眠ること自体は主題ではない/);
+  assert.match(source, /みんな、おやすみなさい/);
+  // 行動履歴は本文のうしろ。順序が入れ替わると材料の読まれ方が変わる。
+  assert.ok(source.indexOf("図書室で本を読んだ") > source.indexOf("おやすみなさい"));
 });
