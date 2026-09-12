@@ -48,6 +48,8 @@ export interface NewsScreeningDiagnostics {
   cacheHit: boolean;
   totalResults: number;
   pagesFetched: number;
+  /** この取得で使った関心ジャンルの検索式。無指定取得なら undefined。 */
+  topicQuery?: string;
   /** この呼び出しで実際にNewsDataへ到達した回数（キャッシュヒットは0）。 */
   creditsUsed: number;
   articlesFetched: number;
@@ -93,6 +95,13 @@ export interface GetPositiveNewsOptions {
   excludeArticleIds?: Iterable<string>;
   forceRefresh?: boolean;
   maxPages?: number;
+  /**
+   * 関心ジャンルの検索式（NewsData の q）。渡すと「日本の最新ニュース」ではなく
+   * そのジャンルの中から拾う。**広いジャンル語であること**が前提で、作品名のような
+   * 固有名を入れてはいけない（当たりが宣伝と公式発表に偏り、当たらない日は0件になる）。
+   * 一般化は newsInterestTopics.ts が担当する。
+   */
+  topicQuery?: string;
 }
 
 interface CachedResult<T> {
@@ -232,6 +241,9 @@ export class PositiveNewsService {
       return { candidates: [], diagnostics };
     }
 
+    const topicQuery = options.topicQuery?.trim() || undefined;
+    diagnostics.topicQuery = topicQuery;
+
     const accepted: PositiveNewsCandidate[] = [];
     const seenIds = new Set<string>();
     let page: string | undefined;
@@ -239,7 +251,7 @@ export class PositiveNewsService {
     for (let pageIndex = 0; pageIndex < Math.min(MAX_PAGES, Math.max(0, options.maxPages ?? MAX_PAGES)); pageIndex++) {
       let response: NewsDataResponse;
       try {
-        const fetched = await this.fetchNewsPageCached(apiKey, page, options.forceRefresh === true);
+        const fetched = await this.fetchNewsPageCached(apiKey, page, options.forceRefresh === true, topicQuery);
         response = fetched.response;
         if (!fetched.cacheHit) diagnostics.creditsUsed++;
         diagnostics.cacheHit = diagnostics.pagesFetched === 0 ? fetched.cacheHit : diagnostics.cacheHit && fetched.cacheHit;
@@ -293,29 +305,31 @@ export class PositiveNewsService {
     };
   }
 
-  private pageCacheKey(page?: string) {
-    return `ja|jp|10|politics,crime|top|${page ?? "first"}`;
+  private pageCacheKey(page?: string, topicQuery?: string) {
+    // 検索式をキーに含めないと、ジャンル指定の取得と無指定の取得が同じページを
+    // 共有してしまう（片方の結果がもう片方のクレジット節約に化ける）。
+    return `ja|jp|10|politics,crime|${topicQuery ? `q:${topicQuery}|medium` : "top"}|${page ?? "first"}`;
   }
 
-  private async fetchNewsPageCached(apiKey: string, page?: string, forceRefresh = false) {
-    const key = this.pageCacheKey(page);
+  private async fetchNewsPageCached(apiKey: string, page?: string, forceRefresh = false, topicQuery?: string) {
+    const key = this.pageCacheKey(page, topicQuery);
     const cached = this.pageCache.get(key);
     if (!forceRefresh && cached && cached.expiresAt > this.now()) return { response: cached.result, cacheHit: true };
     const running = this.pageInflight.get(key);
     if (!forceRefresh && running) return { response: await running, cacheHit: true };
-    const promise = this.fetchNewsPage(apiKey, page);
+    const promise = this.fetchNewsPage(apiKey, page, topicQuery);
     this.pageInflight.set(key, promise);
     try {
       const response = await promise;
       this.pageCache.set(key, { result: response, expiresAt: this.now() + CACHE_TTL_MS });
-      this.logger.log(`[INFO][NEWS][USAGE] NewsData credit=1 page=${page ?? "first"}`);
+      this.logger.log(`[INFO][NEWS][USAGE] NewsData credit=1 page=${page ?? "first"} q=${topicQuery ?? "-"}`);
       return { response, cacheHit: false };
     } finally {
       if (this.pageInflight.get(key) === promise) this.pageInflight.delete(key);
     }
   }
 
-  private async fetchNewsPage(apiKey: string, page?: string): Promise<NewsDataResponse> {
+  private async fetchNewsPage(apiKey: string, page?: string, topicQuery?: string): Promise<NewsDataResponse> {
     const query = new URLSearchParams({
       apikey: apiKey,
       language: "ja",
@@ -324,8 +338,12 @@ export class PositiveNewsService {
       removeduplicate: "1",
       excludecategory: "politics,crime",
       excludedomain: "news.google.com",
-      prioritydomain: "top",
+      // ジャンルを絞るときは配信元も絞ると1ページが空になりやすいので medium まで広げる。
+      // 宣伝とプレスリリースは粗選別（promotional）と最終ゲートが落とすので、ここで
+      // 配信元を絞り込む必要はない。無指定取得は従来どおり top のまま。
+      prioritydomain: topicQuery ? "medium" : "top",
     });
+    if (topicQuery) query.set("q", topicQuery);
     if (page) query.set("page", page);
 
     const response = await this.fetchImpl(`${NEWSDATA_ENDPOINT}?${query.toString()}`, {

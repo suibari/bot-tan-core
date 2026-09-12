@@ -1339,3 +1339,34 @@ export const nagiFeedTabs = nagiSchema.table("feed_tabs", {
     .defaultNow()
     .notNull(),
 });
+
+/**
+ * 全肯定ニュースの取得クエリを寄せるための、みんなの関心ジャンル。
+ *
+ * bot_memory の印象語（作品名・固有名詞）をローカルLLMがジャンルへ一般化した結果を置く。
+ * 作品名ではなく「アニメ」のようなジャンルが入る表。取得は広く、選択は細かく、という分担で、
+ * 個々の記事が誰に届くかは news_reasons と埋め込み最近傍が決める。
+ *
+ * 行はワーカーが全入れ替えする（関心は入れ替わるので、古いジャンルを残さない）。
+ * ただし last_used_at は入れ替えても持ち越す。消してしまうと、毎回スコア最上位の
+ * ジャンルだけが選ばれ続けて回らなくなる。
+ */
+export const nagiNewsInterestTopics = nagiSchema.table(
+  "news_interest_topics",
+  {
+    /** bot-brain の NEWS_INTEREST_TOPICS に載っているジャンル名だけが入る。 */
+    topic: text("topic").primaryKey(),
+    /** そのジャンルへ寄せられた印象語の重みの合計。取得の優先順位。 */
+    score: integer("score").default(0).notNull(),
+    /** そのジャンルへ寄せられた印象語の数。運用確認用。 */
+    labelCount: integer("label_count").default(0).notNull(),
+    /** 直近でこのジャンルを取得に使った時刻。NULL は未使用。 */
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    /** 直近の取得で粗選別を通った件数。空振りが続くジャンルを見つけるため。 */
+    lastAcceptedCount: integer("last_accepted_count"),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [index("nagi_news_interest_topics_pick_idx").on(t.lastUsedAt, t.score)],
+);

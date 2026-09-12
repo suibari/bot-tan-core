@@ -20,6 +20,7 @@ import { startNagiAnalysisWorker } from "./NagiAnalysisWorker.js";
 import { startNagiCardCommentWorker } from "./NagiCardCommentWorker.js";
 import { startNagiCommunityAffirmationWorker } from "./NagiCommunityAffirmationWorker.js";
 import { startNagiThemeWorker } from "./NagiThemeWorker.js";
+import { startNewsInterestWorker } from "./NewsInterestWorker.js";
 import { enqueueAnalysis, runNagiAnalysis } from "./NagiAnalysisFeature.js";
 import express from "express";
 import {
@@ -96,6 +97,8 @@ async function start() {
 
   // ニュースフィードの取得・公開とユーザー追加ニュースの審査は、
   // Nagiへの投稿を所有するこのサーバーで完結させる。
+  // 取得クエリを寄せる関心ジャンルは、bot_memory の印象語から日次で作り直す。
+  startNewsInterestWorker();
   schedulePositiveNewsUpdates();
   scheduleUserNewsReviews();
   // 過疎チャンネルへの話題提供（Phase 2）。作成時の盛り上げ投稿は onNagiChannel が担う。

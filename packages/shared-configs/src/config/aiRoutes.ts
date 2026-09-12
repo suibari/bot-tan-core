@@ -285,6 +285,7 @@ export const AI_FEATURES = {
   OLLAMA_NEWS_PRESCREEN: "ollama-chat", // ニュースの事前スクリーニング
   OLLAMA_ACTOR_THEMES: "ollama-chat", // 投稿から関心テーマを抽出（動的枠の理由づけ）
   OLLAMA_NEWS_THEME_MATCH: "ollama-chat", // 関心テーマとニュース見出しの突合
+  OLLAMA_NEWS_INTEREST_TOPICS: "ollama-chat", // 記憶した固有名を広いニュースジャンルへ一般化
   OLLAMA_EMBED: "ollama-embed", // 埋め込み（投稿/ユーザ/チャンネル/ニュース）
   OLLAMA_QUERY_EXPANSION: "ollama-chat", // 検索クエリの別名展開（略称→正式名称）
   OLLAMA_TRANSLATION: "ollama-translate", // 投稿の一般翻訳

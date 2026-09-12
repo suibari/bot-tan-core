@@ -275,3 +275,94 @@ test("Gemma判定リクエストでは必ず思考を切る", async () => {
   assert.equal(body.think, false);
   assert.equal(body.stream, false);
 });
+
+test("関心ジャンルを渡すとqを付け、配信元の絞り込みを広げる", async () => {
+  const urls: string[] = [];
+  const fetchMock = async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url.startsWith("https://newsdata.io")) {
+      urls.push(url);
+      return response({ status: "success", totalResults: 1, results: [article("a1", "アニメの受賞")] });
+    }
+    return response({
+      message: {
+        content: JSON.stringify({ decision: "accept", promotional: false, reasonCode: "positive_result" }),
+      },
+    });
+  };
+  const service = new PositiveNewsService({
+    fetchImpl: fetchMock as typeof fetch,
+    getNewsDataApiKey: () => "test-key",
+    getOllamaBaseUrl: () => "http://ollama.test:11434",
+    logger: silentLogger,
+  });
+
+  const result = await service.getCandidates({ topicQuery: "アニメ OR 声優", maxPages: 1 });
+  assert.equal(result.candidates.length, 1);
+  assert.equal(result.diagnostics.topicQuery, "アニメ OR 声優");
+  const parsed = new URL(urls[0]);
+  assert.equal(parsed.searchParams.get("q"), "アニメ OR 声優");
+  // ジャンルと配信元の両方を絞ると1ページが空になりやすいので medium まで広げる。
+  assert.equal(parsed.searchParams.get("prioritydomain"), "medium");
+  // ネガティブ記事の除外は従来どおり効かせる。
+  assert.equal(parsed.searchParams.get("excludecategory"), "politics,crime");
+});
+
+test("ジャンル指定と無指定はページキャッシュを共有しない", async () => {
+  // 共有すると、片方の取得結果がもう片方のクレジット節約に化けて、
+  // 「ジャンルを指定したのに無指定の記事が返る」ことになる。
+  const queries: Array<string | null> = [];
+  const fetchMock = async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url.startsWith("https://newsdata.io")) {
+      queries.push(new URL(url).searchParams.get("q"));
+      return response({ status: "success", totalResults: 1, results: [article(`a${queries.length}`, "話題")] });
+    }
+    return response({
+      message: {
+        content: JSON.stringify({ decision: "accept", promotional: false, reasonCode: "positive_result" }),
+      },
+    });
+  };
+  const service = new PositiveNewsService({
+    fetchImpl: fetchMock as typeof fetch,
+    getNewsDataApiKey: () => "test-key",
+    getOllamaBaseUrl: () => "http://ollama.test:11434",
+    logger: silentLogger,
+  });
+
+  const topic = await service.getCandidates({ topicQuery: "アニメ", maxPages: 1 });
+  const plain = await service.getCandidates({ maxPages: 1 });
+  assert.deepEqual(queries, ["アニメ", null]);
+  assert.equal(topic.diagnostics.creditsUsed, 1);
+  assert.equal(plain.diagnostics.creditsUsed, 1);
+  assert.equal(plain.diagnostics.cacheHit, false);
+});
+
+test("ジャンル無指定の取得は従来どおりqを付けない", async () => {
+  const urls: string[] = [];
+  const fetchMock = async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url.startsWith("https://newsdata.io")) {
+      urls.push(url);
+      return response({ status: "success", totalResults: 1, results: [article("a1", "話題")] });
+    }
+    return response({
+      message: {
+        content: JSON.stringify({ decision: "accept", promotional: false, reasonCode: "positive_result" }),
+      },
+    });
+  };
+  const service = new PositiveNewsService({
+    fetchImpl: fetchMock as typeof fetch,
+    getNewsDataApiKey: () => "test-key",
+    getOllamaBaseUrl: () => "http://ollama.test:11434",
+    logger: silentLogger,
+  });
+
+  const result = await service.getCandidates({ maxPages: 1, topicQuery: "   " });
+  const parsed = new URL(urls[0]);
+  assert.equal(parsed.searchParams.has("q"), false);
+  assert.equal(parsed.searchParams.get("prioritydomain"), "top");
+  assert.equal(result.diagnostics.topicQuery, undefined);
+});

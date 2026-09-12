@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { db, nagiNews, nagiNewsApprovals, nagiNewsCandidates, nagiNewsScreening, nagiNewsUpdateRuns } from "@bsky-affirmative-bot/database";
-import { getPositiveNewsCandidates, judgePositiveNewsBatch, POSITIVE_NEWS_PROMPT_VERSION, positiveNewsModel } from "@bsky-affirmative-bot/bot-brain";
+import { db, nagiNews, nagiNewsApprovals, nagiNewsCandidates, nagiNewsScreening, nagiNewsUpdateRuns, pickNewsInterestTopic, recordNewsInterestTopicYield } from "@bsky-affirmative-bot/database";
+import { getPositiveNewsCandidates, isNewsInterestGenre, judgePositiveNewsBatch, POSITIVE_NEWS_PROMPT_VERSION, positiveNewsModel } from "@bsky-affirmative-bot/bot-brain";
 import { and, asc, eq, gt, inArray, isNull, lt, notInArray, or, sql } from "drizzle-orm";
 import { publishNews } from "./NagiNewsFeature.js";
 import type { PositiveNewsCandidate } from "@bsky-affirmative-bot/bot-brain";
@@ -17,6 +17,18 @@ const DAILY_CREDIT_LIMIT = 20;
  * 一覧の14日窓より短くして、在庫経由で掲載された記事にも一覧に居る時間を残す。
  */
 const CANDIDATE_TTL_MS = 3 * 24 * 60 * 60 * 1000;
+/**
+ * 1スロットで関心ジャンル指定に使うページ数。
+ *
+ * 1ページに固定する。ジャンル指定は当たり外れが大きい（その日そのジャンルの明るい
+ * 記事が無いことがある）ので、残りは必ず無指定取得へ回して供給を切らさない。
+ */
+const TOPIC_PAGES = 1;
+/**
+ * 同じジャンルを再び取得に使えるようになるまで。1日4スロットなので、上位ジャンルが
+ * 日替わりで回る。
+ */
+const TOPIC_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
 export function newsSlot(now = new Date()): Date {
   return new Date(Math.floor((now.getTime() + JST_OFFSET) / SIX_HOURS) * SIX_HOURS - JST_OFFSET);
@@ -69,6 +81,19 @@ async function stockCandidates(
   if (!rows.length) return;
   // 既に在庫にある記事は expires_at を延ばさない（古い記事が居座らないように）。
   await db.insert(nagiNewsCandidates).values(rows).onConflictDoNothing();
+}
+
+/**
+ * getCandidates の戻り値は TARGET_CANDIDATES で切られているので、粗選別を通った記事の
+ * 全量は diagnostics 側から拾う。1ページ(10件)は必ず最後まで分類されており、
+ * ここで捨てていたぶんがそのまま在庫になる。
+ */
+function acceptedArticles(
+  result: Awaited<ReturnType<typeof getPositiveNewsCandidates>>,
+): PositiveNewsCandidate[] {
+  return result.diagnostics.decisions
+    .filter((d) => d.decision === "accept" && !d.promotional)
+    .map((d) => d.article);
 }
 
 /** 在庫から審査に回せる記事を取り出す。古い順＝拾った順に消化する。 */
@@ -139,15 +164,37 @@ export async function updatePositiveNews(now = new Date()): Promise<number> {
     // 足りないぶんだけ NewsData を叩く。在庫で埋まったならクレジットは1つも使わない。
     const shortfall = slotQuota - stocked.length;
     let fetched: PositiveNewsCandidate[] = [];
+    let usedTopic: string | undefined;
     if (shortfall > 0 && remainingCredits > 0) {
-      const result = await getPositiveNewsCandidates({ excludeArticleIds: excluded, maxPages: Math.min(3, remainingCredits) });
-      creditsUsed = result.diagnostics.creditsUsed;
-      // getCandidates の戻り値は TARGET_CANDIDATES で切られているので、粗選別を通った記事の
-      // 全量は diagnostics 側から拾う。1ページ(10件)は必ず最後まで分類されており、
-      // ここで捨てていたぶんがそのまま在庫になる。
-      const passed = result.diagnostics.decisions
-        .filter((d) => d.decision === "accept" && !d.promotional)
-        .map((d) => d.article);
+      const passed: PositiveNewsCandidate[] = [];
+      // ページ数の上限は従来どおり3。ジャンル指定はその内側で1ページを使うだけで、
+      // クレジットの総量は増やさない。
+      let budget = Math.min(3, remainingCredits);
+
+      // まず関心ジャンル。bot_memory が覚えた固有名を広いジャンルへ一般化したもの
+      // （NewsInterestWorker が作る）。ジャンルが無ければこの節は丸ごと飛び、
+      // 従来どおりの無指定取得だけになる。
+      const picked = budget >= TOPIC_PAGES
+        ? await pickNewsInterestTopic({ now, cooldownMs: TOPIC_COOLDOWN_MS })
+        : undefined;
+      // ジャンル名がそのまま検索語。一覧に無い語（辞書を削ったあとに残った古い行など）は使わない。
+      if (picked && isNewsInterestGenre(picked.topic)) {
+        usedTopic = picked.topic;
+        const result = await getPositiveNewsCandidates({ excludeArticleIds: excluded, maxPages: TOPIC_PAGES, topicQuery: picked.topic });
+        creditsUsed += result.diagnostics.creditsUsed;
+        budget -= result.diagnostics.creditsUsed;
+        const accepted = acceptedArticles(result);
+        passed.push(...accepted);
+        await recordNewsInterestTopicYield(picked.topic, accepted.length);
+      }
+
+      // 残りは無指定取得。ジャンルがその日空振りでも、ニュースの供給は切らさない。
+      if (budget > 0) {
+        const result = await getPositiveNewsCandidates({ excludeArticleIds: excluded, maxPages: budget });
+        creditsUsed += result.diagnostics.creditsUsed;
+        passed.push(...acceptedArticles(result));
+      }
+
       const seen = new Set<string>();
       fetched = fresh(passed).filter((item) =>
         seen.has(item.articleId) ? false : (seen.add(item.articleId), true),
@@ -191,7 +238,7 @@ export async function updatePositiveNews(now = new Date()): Promise<number> {
     await db.update(nagiNewsUpdateRuns).set({ status: "complete", publishedCount: published, newsDataCredits: sql`${nagiNewsUpdateRuns.newsDataCredits} + ${creditsUsed}`, finishedAt: new Date() }).where(eq(nagiNewsUpdateRuns.slot, slot));
     const stockLeft = await db.select({ n: sql<number>`count(*)::int` }).from(nagiNewsCandidates)
       .where(and(isNull(nagiNewsCandidates.promotedNewsUri), gt(nagiNewsCandidates.expiresAt, now)));
-    console.log(`[INFO][NEWS_FEED] slot=${slot.toISOString()} published=${published} fromStock=${stocked.length} credits=${creditsUsed} stockLeft=${stockLeft[0]?.n ?? 0}`);
+    console.log(`[INFO][NEWS_FEED] slot=${slot.toISOString()} published=${published} fromStock=${stocked.length} credits=${creditsUsed} topic=${usedTopic ?? "-"} stockLeft=${stockLeft[0]?.n ?? 0}`);
     return published;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
