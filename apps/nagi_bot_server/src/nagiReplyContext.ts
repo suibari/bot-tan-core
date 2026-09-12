@@ -1,6 +1,7 @@
 import {
   db,
   nagiActors,
+  nagiBotReplyJobs,
   nagiEmojis,
   nagiPosts,
   nagiProfiles,
@@ -15,7 +16,7 @@ import {
 import type { ImageRef } from "@bsky-affirmative-bot/shared-configs";
 import { loadPreferredName } from "@bsky-affirmative-bot/clients";
 import { isAppviewOwnedUri } from "@bsky-affirmative-bot/nagi-lexicon";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, gt, isNotNull, isNull, lt, lte } from "drizzle-orm";
 
 type ContextLink = { uri: string; title?: string; description?: string };
 
@@ -42,6 +43,24 @@ export function receivedNagiReaction(row?: NagiReactionPromptRow) {
       ? { customEmojiName: row.emojiName ?? row.emoji }
       : {}),
   };
+}
+
+/**
+ * 今回の返信より前、かつ前回botたんが返信した後のリアクションだけを対象にする。
+ *
+ * Bluesky の likes は返信生成時に1件だけ読み出して消費される。Nagi の reaction は
+ * 公開レコードなので削除できないため、完了済み返信の時刻を消費境界として同じ挙動にする。
+ */
+export function nagiReactionWindowConditions(
+  currentReplyCreatedAt: Date,
+  previousReplyCreatedAt?: Date,
+) {
+  return [
+    lte(nagiReactions.indexedAt, currentReplyCreatedAt),
+    ...(previousReplyCreatedAt
+      ? [gt(nagiReactions.indexedAt, previousReplyCreatedAt)]
+      : []),
+  ];
 }
 
 export function clipMemoryExcerpt(text: string): string {
@@ -146,6 +165,18 @@ export async function buildNagiReplyContext(job: any) {
   const kossori = isAppviewOwnedUri(job.sourceUri)
     ? await isKossoriSource(job.sourceUri)
     : false;
+  const [previousReply] = await db
+    .select({ createdAt: nagiBotReplyJobs.createdAt })
+    .from(nagiBotReplyJobs)
+    .where(
+      and(
+        eq(nagiBotReplyJobs.authorDid, job.authorDid),
+        isNotNull(nagiBotReplyJobs.replyUri),
+        lt(nagiBotReplyJobs.createdAt, job.createdAt),
+      ),
+    )
+    .orderBy(desc(nagiBotReplyJobs.createdAt))
+    .limit(1);
   const [
     author,
     preferredName,
@@ -191,6 +222,10 @@ export async function buildNagiReplyContext(job: any) {
             eq(nagiReactions.did, job.authorDid),
             eq(nagiPosts.did, botDid),
             isNull(nagiPosts.deletedAt),
+            ...nagiReactionWindowConditions(
+              job.createdAt,
+              previousReply?.createdAt,
+            ),
           ),
         )
         .orderBy(desc(nagiReactions.indexedAt))
