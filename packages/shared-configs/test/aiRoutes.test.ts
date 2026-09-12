@@ -121,6 +121,7 @@ const EXPECTED: Record<AiFeatureKey, [model: string, tier: "flex" | "standard" |
   // 動的枠の理由づけ。テーマ抽出も突合もテキスト生成なので ollama-chat に乗る。
   OLLAMA_ACTOR_THEMES: [DEFAULT_OLLAMA_TEXT_MODEL, undefined],
   OLLAMA_NEWS_THEME_MATCH: [DEFAULT_OLLAMA_TEXT_MODEL, undefined],
+  OLLAMA_NEWS_INTEREST_TOPICS: [DEFAULT_OLLAMA_TEXT_MODEL, undefined],
   OLLAMA_EMBED: ["snowflake-arctic-embed2", undefined],
   // 検索クエリの別名展開。テキスト生成なので ollama-chat と同じモデルへ乗る。
   OLLAMA_QUERY_EXPANSION: [DEFAULT_OLLAMA_TEXT_MODEL, undefined],
