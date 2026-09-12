@@ -301,11 +301,13 @@ model: aiModel("NAGI_ANALYSIS"),
 └─────────┴──────────────────────────┴──────────────────┴─────────────────────────┴────────────┴───────────┘
 ```
 
-`source` は `default`（レジストリの既定）/ `env`（`AI_ROUTE_*` で上書き）/ `env-invalid`（不正値でフォールバック）。
+`source` は `default`（レジストリの既定）/ `env`（`AI_ROUTE_*` で上書き）/ `env-invalid`（不正な環境変数を警告してフォールバック）/ `unknown-feature`（本番で未知の機能キーを警告して `lite-flex` へフォールバック）。
 
 ## 実装上の注意
 
 **レジストリは module scope で `process.env` を読まない。** 各アプリの `dotenv.config()` はモジュール本体で走る＝ESM では全 import 評価の**後**なので、トップレベルで env を読むと `.env` の上書きが黙って無視される。解決は `resolveAiRoute()` の初回呼び出し時に行い、メモ化している。テストで env を書き換えたら `resetAiRouteCache()` を呼ぶこと。
+
+未知の機能キーは呼び出し側のタイプミスを隠さないよう、開発・テスト（`NODE_ENV !== "production"`）では例外にする。本番だけはビルド不整合時の可用性を優先し、警告を出して `lite-flex` へフォールバックする。不正な `AI_ROUTE_*` 環境変数は、どの環境でも警告してその機能の既定ルートへ戻す。
 
 同じ理由で、`positiveNewsModel` は `const` ではなく関数になっている。
 

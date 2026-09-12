@@ -28,6 +28,7 @@ const MODEL_ENV_VARS = [
   "OLLAMA_BOT_TRANSLATION_MODEL",
   "AI_TEXT_PROVIDER",
   "AI_GROUNDING_PROVIDER",
+  "NODE_ENV",
 ];
 
 /** レジストリ関連の env を全部消してから fn を走らせ、必ず元に戻す。 */
@@ -258,11 +259,18 @@ test("不正な AI_ROUTE_* は警告して既定にフォールバックする�
   });
 });
 
-test("未知の機能キーでも throw せずフォールバックする（ビルド不整合の保険）", () => {
-  // アプリの dist だけ新しくレジストリの dist が古い、という状態で起きる。
-  // ここで throw すると generateContentWithRetry ごと落ち、呼び出し元の機能が丸ごと死ぬ
-  // （例: biorhythm の generateStatus が失敗すると nextStepTime が永久に空になる）。
+test("開発・テストでは未知の機能キーを実装バグとして throw する", () => {
   withCleanEnv(() => {
+    assert.throws(
+      () => resolveAiRoute("BSKY_BIORHYTHM_STATUS" as AiFeatureKey), // 改名前の旧キー
+      /未知の機能キー "BSKY_BIORHYTHM_STATUS"/,
+    );
+  });
+});
+
+test("本番では未知の機能キーを警告してフォールバックする（ビルド不整合の保険）", () => {
+  withCleanEnv(() => {
+    process.env.NODE_ENV = "production";
     process.env.AI_TEXT_PROVIDER = "gemini";
     const warnings: unknown[][] = [];
     const originalWarn = console.warn;
