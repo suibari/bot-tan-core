@@ -306,15 +306,13 @@ export type ResolvedAiRoute = {
   model: string;
   /** undefined = serviceTier を送らない（ルートが "auto" のとき） */
   serviceTier?: "flex" | "standard";
-  /** 既定値か env 上書きか、env/機能キーが不正でフォールバックしたか */
+  /** 既定値か env 上書きか、env が不正／本番で未知の機能キーからフォールバックしたか */
   source: "default" | "env" | "env-invalid" | "unknown-feature";
 };
 
 /**
- * 機能キーもルート名も引けなかったときの最終フォールバック。
- * ここに落ちるのは「アプリ側の dist だけ新しくてレジストリの dist が古い」等の
- * ビルド不整合のとき。AI呼び出し全体が TypeError で落ちるより、安いルートで
- * 動き続けて警告を出すほうがマシ（生成が1回失敗するだけで機能が丸ごと死ぬ箇所がある）。
+ * 本番で機能キーやルート定義を引けなかったときの最終フォールバック。
+ * 開発・テストでは未知の機能キーを実装バグとして即座に検出する。
  */
 const FALLBACK_ROUTE: AiRouteName = "lite-flex";
 
@@ -371,13 +369,15 @@ function resolveUncached(feature: AiFeatureKey): ResolvedAiRoute {
   let route: AiRouteName | undefined = AI_FEATURES[feature];
   let source: ResolvedAiRoute["source"] = "default";
 
-  // 型上は起こらないが、ビルド不整合（アプリの dist だけ新しく、レジストリの dist が
-  // 古い等）や JS からの呼び出しで未知のキーが来ることがある。ここで落とすと
-  // generateContentWithRetry ごと throw し、呼び出し元の機能が丸ごと死ぬ。
+  // 型上は起こらないが、JS や型アサーション経由のタイプミス、またはビルド不整合で
+  // 未知のキーが来ることがある。開発・テストでは前者を隠さず、本番だけ可用性を優先する。
   if (!route) {
+    const message = `[AI_ROUTE] 未知の機能キー "${feature}"。AI_FEATURES への登録または呼び出し側を確認してください。`;
+    if (process.env.NODE_ENV !== "production") {
+      throw new Error(message);
+    }
     console.warn(
-      `[WARN][AI_ROUTE] 未知の機能キー "${feature}"。ビルドが古い可能性がある。` +
-        ` フォールバック "${FALLBACK_ROUTE}" で続行する。`,
+      `[WARN]${message} 本番環境のためフォールバック "${FALLBACK_ROUTE}" で続行する。`,
     );
     route = FALLBACK_ROUTE;
     source = "unknown-feature";
