@@ -7,7 +7,7 @@ import { and, eq, gt } from "drizzle-orm";
 const NEWSDATA_ENDPOINT = "https://newsdata.io/api/1/latest";
 const CACHE_TTL_MS = 30 * 60 * 1000;
 const GEMMA_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-const SCREENING_POLICY_VERSION = "positive-news-coarse-v3";
+const SCREENING_POLICY_VERSION = "positive-news-coarse-v4";
 const MAX_PAGES = 3;
 const PAGE_SIZE = 10;
 const TARGET_CANDIDATES = 5;
@@ -125,20 +125,25 @@ const CLASSIFIER_SCHEMA = {
 const CLASSIFIER_SYSTEM_PROMPT = `あなたは「全肯定ニュース」の候補を1件だけ粗選別する担当です。
 
 採用条件:
-- 記事の主眼と、確定した最終的な着地点が明確に前向きである。
-- 発見、誕生、受賞、優勝、完全復旧、完全回復、完治、寛解、目標達成など、前向きな結果がすでに実現している。
+- 読んで前向きになれる、楽しい、面白い、ほっこりする、または役に立つ無害な話題である。
+- 発見、誕生、受賞、優勝、完成、復旧、回復、目標達成など、前向きな成果がある。
 - 自然災害や困難な背景があっても、記事の中心が完全復旧や達成結果なら採用できる。
+- アニメ・マンガ・ゲームなどのイベント開催、新展開、コラボ、新商品、グッズの紹介は、宣伝を兼ねていても、ファンが楽しめる明るい話題なら採用できる。
+- 身近な疑問、文化の変化、制作上の工夫など、結論が勝敗や成果でなくても、興味深く無害な読み物なら採用できる。
 
 不採用条件:
 - 政治、選挙、外交、戦争、紛争、犯罪、事件、事故が記事の中心である。
 - 家畜伝染病・感染症の発生や拡大、防疫措置、殺処分（豚熱、鳥インフルエンザ、口蹄疫など）が記事の中心である。
-- 復旧中、改善傾向、可能性、見込み、募集中、発生中など、結果が未確定である。
 - 病気、闘病、負傷は、完全回復・完治・寛解が明記されていない。
-- 明らかな商品・サービス・店舗・イベントの宣伝や販促が記事の中心である。
-- 媒体名が明確なプレスリリース配信サービスを示している。
-- 暗い状態の報告、単なる予定・解説、または判断が曖昧である。
+- 値引き、割引率、ポイント還元、クーポン、タイムセールなど、安く買えることだけが主題の販売情報である。
+- 商品やサービスを買わせることだけが目的で、楽しさ・面白さ・新しい出来事としての読みどころがない。
+- 暗い状態の報告、人を嘲笑する話題、または内容が乏しく明るい読み物か判断できない。
 
-注意: 「措置・対応・作業の終了/完了」自体は前向きな成果ではありません。人や地域に利益をもたらす復旧・回復・達成がある場合だけ成果とみなしてください。
+注意:
+- promotional は記事に宣伝性があるかを示す診断値です。promotional=true だけを理由に reject にしてはいけません。
+- セール情報を reject にするときは decision=reject, reasonCode=promotion にしてください。
+- 宣伝性があっても明るく楽しい内容を accept にするときは decision=accept, reasonCode=positive_result にしてください。
+- 「措置・対応・作業の終了/完了」自体は前向きな成果ではありません。人や地域に利益をもたらす復旧・回復・達成がある場合だけ成果とみなしてください。
 
 迷う場合は reject にしてください。JSON Schemaどおりにだけ回答してください。`;
 
@@ -289,7 +294,7 @@ export class PositiveNewsService {
         this.logger.log(
           `[INFO][NEWS] article=${decision.article.articleId} source=${decision.article.sourceName ?? "unknown"} decision=${decision.decision} reason=${decision.reasonCode} promotional=${decision.promotional}`,
         );
-        if (decision.decision === "accept" && !decision.promotional) {
+        if (decision.decision === "accept") {
           accepted.push(decision.article);
         }
       }
@@ -339,8 +344,8 @@ export class PositiveNewsService {
       excludecategory: "politics,crime",
       excludedomain: "news.google.com",
       // ジャンルを絞るときは配信元も絞ると1ページが空になりやすいので medium まで広げる。
-      // 宣伝とプレスリリースは粗選別（promotional）と最終ゲートが落とすので、ここで
-      // 配信元を絞り込む必要はない。無指定取得は従来どおり top のまま。
+      // セールだけの記事や暗い話題は粗選別と最終ゲートが落とすので、ここで配信元を
+      // 絞り込む必要はない。無指定取得は従来どおり top のまま。
       prioritydomain: topicQuery ? "medium" : "top",
     });
     if (topicQuery) query.set("q", topicQuery);

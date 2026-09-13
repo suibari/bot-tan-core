@@ -136,6 +136,37 @@ test("Gemmaの不正JSONは不採用にする", async () => {
   assert.equal(result.diagnostics.decisions[0]?.reasonCode, "classifier_error");
 });
 
+test("宣伝性があっても分類器が採用した明るい記事は候補に残す", async () => {
+  const fetchMock = async (input: string | URL | Request) => {
+    if (String(input).startsWith("https://newsdata.io")) {
+      return response({
+        status: "success",
+        totalResults: 1,
+        results: [article("event-1", "アニメの新イベント開催決定")],
+      });
+    }
+    return response({
+      message: {
+        content: JSON.stringify({
+          decision: "accept",
+          promotional: true,
+          reasonCode: "positive_result",
+        }),
+      },
+    });
+  };
+  const service = new PositiveNewsService({
+    fetchImpl: fetchMock as typeof fetch,
+    getNewsDataApiKey: () => "test-key",
+    getOllamaBaseUrl: () => "http://ollama.test:11434",
+    logger: silentLogger,
+  });
+
+  const result = await service.getCandidates({ maxPages: 1 });
+  assert.deepEqual(result.candidates.map((item) => item.articleId), ["event-1"]);
+  assert.equal(result.diagnostics.decisions[0]?.promotional, true);
+});
+
 test("30分キャッシュを使い、利用済み記事を結果から除く", async () => {
   let now = 1_000;
   let newsCalls = 0;

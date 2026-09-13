@@ -20,10 +20,11 @@ const CANDIDATE_TTL_MS = 3 * 24 * 60 * 60 * 1000;
 /**
  * 1スロットで関心ジャンル指定に使うページ数。
  *
- * 1ページに固定する。ジャンル指定は当たり外れが大きい（その日そのジャンルの明るい
- * 記事が無いことがある）ので、残りは必ず無指定取得へ回して供給を切らさない。
+ * 最大2ページまで見る。NewsData の q は本文全体検索で、先頭ページが告知・販促に
+ * 偏ることがあるため、10件だけでは広いジャンルでも候補を取りこぼしやすい。
+ * 1スロットの上限3ページは変えず、残り1ページは無指定取得へ回して供給を切らさない。
  */
-const TOPIC_PAGES = 1;
+const TOPIC_PAGES = 2;
 /**
  * 同じジャンルを再び取得に使えるようになるまで。1日4スロットなので、上位ジャンルが
  * 日替わりで回る。
@@ -85,14 +86,14 @@ async function stockCandidates(
 
 /**
  * getCandidates の戻り値は TARGET_CANDIDATES で切られているので、粗選別を通った記事の
- * 全量は diagnostics 側から拾う。1ページ(10件)は必ず最後まで分類されており、
+ * 全量は diagnostics 側から拾う。取得した各ページは必ず最後まで分類されており、
  * ここで捨てていたぶんがそのまま在庫になる。
  */
 function acceptedArticles(
   result: Awaited<ReturnType<typeof getPositiveNewsCandidates>>,
 ): PositiveNewsCandidate[] {
   return result.diagnostics.decisions
-    .filter((d) => d.decision === "accept" && !d.promotional)
+    .filter((d) => d.decision === "accept")
     .map((d) => d.article);
 }
 
@@ -167,7 +168,7 @@ export async function updatePositiveNews(now = new Date()): Promise<number> {
     let usedTopic: string | undefined;
     if (shortfall > 0 && remainingCredits > 0) {
       const passed: PositiveNewsCandidate[] = [];
-      // ページ数の上限は従来どおり3。ジャンル指定はその内側で1ページを使うだけで、
+      // ページ数の上限は従来どおり3。ジャンル指定はその内側で最大2ページを使い、
       // クレジットの総量は増やさない。
       let budget = Math.min(3, remainingCredits);
 

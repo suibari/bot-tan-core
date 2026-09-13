@@ -4,7 +4,7 @@ import type { PositiveNewsCandidate } from "../api/newsdata/index.js";
 import { withNewsGeminiRetry } from "./newsGeminiRetry.js";
 import { generateContentForFeature } from "./routedGeneration.js";
 
-export const POSITIVE_NEWS_PROMPT_VERSION = "nagi-positive-news-v8";
+export const POSITIVE_NEWS_PROMPT_VERSION = "nagi-positive-news-v9";
 /**
  * ニュース承認を DB に記録するときの model 値。
  * const ではなく関数にしているのは、import 時点（= dotenv.config() より前）の値で
@@ -63,6 +63,8 @@ const GATE_SYSTEM_INSTRUCTION = `あなたはユーザーへ直接表示する�
 - 人や動物のあたたかい話題、地域や暮らしの工夫、学生や個人の研究・挑戦・取り組み。
 - 生活の知恵やちょっと役立つ情報、季節・文化・自然・科学の楽しい話題。
 - 明るく楽しいエンタメ・スポーツ・テレビの話題（感動的な場面や微笑ましい出来事など）。
+- イベント開催、新展開、コラボ、新商品、グッズの紹介。宣伝を兼ねていても、読者が楽しめる明るい話題ならよい。
+- 身近な疑問、文化の変化、制作上の工夫など、興味深く無害な読み物。
 - まだ結果が確定していなくても、前向きで無害な内容ならよい。
 
 次に該当するものだけ publishable=false にしてください（センシティブ・ネガティブな話題）:
@@ -70,7 +72,8 @@ const GATE_SYSTEM_INSTRUCTION = `あなたはユーザーへ直接表示する�
 - 犯罪・事件・容疑・逮捕・トラブル（reasonCode=crime、事件寄りなら incident）。
 - 事故（reasonCode=accident）、災害の発生や被害、感染症の発生・拡大・防疫・殺処分（reasonCode=incident）。
 - 誰かの不幸・死・対立・不安をあおる、読んで明らかに気が重くなる内容（reasonCode=dark）。
-- 宣伝・販促が主眼の商品・サービス・店舗・イベントの記事、プレスリリース配信が主眼のもの（reasonCode=promotion または pr）。ただし企業・団体・商品・イベント名が出ても、宣伝が主眼ではなく前向きな取り組み・成果・出来事の報道が主眼なら publishable=true にする。
+- 値引き、割引率、ポイント還元、クーポン、タイムセールなど、安く買えることだけが主題の販売情報（reasonCode=promotion）。
+- 商品・サービスを買わせることだけが目的で、楽しさ・面白さ・新しい出来事としての読みどころがない広告やプレスリリース（reasonCode=promotion または pr）。宣伝性があっても、イベント、新商品、コラボなどの明るく楽しい内容なら publishable=true にする。
 - 記事の内容自体が曖昧で前向きか判断できないもの（reasonCode=unclear）。
 
 判断に迷ったら、明確にセンシティブ・ネガティブでない限り publishable=true に寄せてください。publishable=true の reasonCode は必ず positive_result にします。
