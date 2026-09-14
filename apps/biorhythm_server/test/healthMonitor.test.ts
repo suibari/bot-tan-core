@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  classifyDiskUsage,
   classifyRepoRelay,
   jetstreamActivityPart,
   servicePart,
@@ -76,4 +77,11 @@ test("PDSとRelayの最新commitが一致しない場合はdown", () => {
     "down",
   );
   assert.equal(classifyRepoRelay(pds, pds, "offline"), "down");
+});
+
+test("ディスク使用率は80%で注意、90%で要対応になる", () => {
+  assert.equal(classifyDiskUsage(79.9), "ok");
+  assert.equal(classifyDiskUsage(80), "stale");
+  assert.equal(classifyDiskUsage(89.9), "stale");
+  assert.equal(classifyDiskUsage(90), "down");
 });

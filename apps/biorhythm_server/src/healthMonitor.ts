@@ -13,6 +13,7 @@ import {
   ollamaNativeUrl,
   ollamaTextContextLength,
 } from "@bsky-affirmative-bot/shared-configs";
+import { statfs } from "node:fs/promises";
 
 /**
  * bot-tan.com のダッシュボードに出す死活監視。
@@ -22,7 +23,14 @@ import {
  */
 
 /** UI 上のタイル。中身は複数のプローブの集約。 */
-export type HealthTile = "jetstream" | "botServer" | "localLlm" | "webSearch";
+export type HealthTile = "jetstream" | "botServer" | "localLlm" | "webSearch" | "storage";
+
+export interface DiskUsage {
+  totalBytes: number;
+  usedBytes: number;
+  availableBytes: number;
+  usedPercent: number;
+}
 
 export interface HealthPart {
   name: string;
@@ -35,6 +43,7 @@ export interface HealthPart {
 export interface HealthTileStatus {
   state: HealthState;
   parts: HealthPart[];
+  disk?: DiskUsage;
 }
 
 export type HealthSnapshot = Record<HealthTile, HealthTileStatus> & {
@@ -43,6 +52,8 @@ export type HealthSnapshot = Record<HealthTile, HealthTileStatus> & {
 
 const PROBE_INTERVAL_MS = 30_000;
 const PROBE_TIMEOUT_MS = 3_000;
+const DISK_WARNING_PERCENT = 80;
+const DISK_CRITICAL_PERCENT = 90;
 
 /**
  * Jetstream は「イベントが流れていること」ではなく接続が維持されていることを
@@ -62,6 +73,46 @@ interface ProbeResult {
 let localLlmProbe: ProbeResult = { state: "unknown" };
 let searxngProbe: ProbeResult = { state: "unknown" };
 let repoRelayProbe: ProbeResult = { state: "unknown" };
+let diskProbe: ProbeResult & { disk?: DiskUsage } = { state: "unknown" };
+
+export function classifyDiskUsage(usedPercent: number): HealthState {
+  if (usedPercent >= DISK_CRITICAL_PERCENT) return "down";
+  if (usedPercent >= DISK_WARNING_PERCENT) return "stale";
+  return "ok";
+}
+
+/**
+ * このプロセスが動いている本番ホストのファイルシステムを測る。
+ * 開発機（.220）から本番機（.200）へ問い合わせるものではなく、.200へデプロイされた
+ * biorhythm_server が自分自身を測る。DB等が別mountなら監視パスだけ差し替えられる。
+ */
+async function probeDiskUsage(): Promise<ProbeResult & { disk?: DiskUsage }> {
+  const path = process.env.BIORHYTHM_DISK_PATH?.trim() || "/";
+  try {
+    const stats = await statfs(path);
+    const totalBytes = stats.blocks * stats.bsize;
+    const rawAvailableBytes = stats.bavail * stats.bsize;
+    if (!Number.isFinite(totalBytes) || totalBytes <= 0 || !Number.isFinite(rawAvailableBytes)) {
+      throw new Error("filesystem returned invalid capacity");
+    }
+    const availableBytes = Math.min(totalBytes, Math.max(0, rawAvailableBytes));
+    const usedBytes = totalBytes - availableBytes;
+    const usedPercent = Math.min(100, Math.max(0, (usedBytes / totalBytes) * 100));
+    const checkedAt = new Date().toISOString();
+    return {
+      state: classifyDiskUsage(usedPercent),
+      lastOkAt: checkedAt,
+      disk: { totalBytes, usedBytes, availableBytes, usedPercent },
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      state: "down",
+      lastOkAt: diskProbe.lastOkAt,
+      lastError: `Disk probe failed: ${message.slice(0, 240)}`,
+    };
+  }
+}
 
 interface LatestCommit {
   cid: string;
@@ -407,7 +458,7 @@ export function upstreamPart(parts: HealthPart[]): HealthPart {
 
 let cached: HealthSnapshot | null = null;
 
-/** 直近のプローブ結果とハートビートから、4タイル分の状態を組み立てる。 */
+/** 直近のプローブ結果とハートビートから、ダッシュボードの状態を組み立てる。 */
 export async function buildHealthSnapshot(): Promise<HealthSnapshot> {
   const heartbeats = await readHeartbeats();
   const get = (service: HealthService) => heartbeats.get(service);
@@ -445,6 +496,10 @@ export async function buildHealthSnapshot(): Promise<HealthSnapshot> {
     ]),
     localLlm: tile([partFromProbe("Ollama", localLlmProbe)]),
     webSearch: tile([partFromProbe("SearXNG", searxngProbe)]),
+    storage: {
+      ...tile([partFromProbe("Disk", diskProbe)]),
+      ...(diskProbe.disk ? { disk: diskProbe.disk } : {}),
+    },
   };
 
   cached = snapshot;
@@ -458,10 +513,11 @@ export function getCachedHealthSnapshot(): HealthSnapshot | null {
 
 export function startHealthMonitor(): () => void {
   const runProbes = async () => {
-    [localLlmProbe, repoRelayProbe, searxngProbe] = await Promise.all([
+    [localLlmProbe, repoRelayProbe, searxngProbe, diskProbe] = await Promise.all([
       probeLocalLlm(),
       probeRepoRelay(),
       probeSearxng(),
+      probeDiskUsage(),
     ]);
     await buildHealthSnapshot();
   };
