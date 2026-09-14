@@ -14,7 +14,7 @@ import {
   type NagiAnalysisResult,
 } from "@bsky-affirmative-bot/bot-brain";
 import { aiModel } from "@bsky-affirmative-bot/shared-configs";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull, ne } from "drizzle-orm";
 import { agent } from "./agent.js";
 import { getConcatAuthorFeed } from "./bsky/getConcatAuthorFeed.js";
 import { getConcatPosts } from "./bsky/getConcatPosts.js";
@@ -78,6 +78,25 @@ export async function enqueueAnalysis(params: {
     });
 }
 
+/**
+ * 分析の材料から外す bot たん自身の DID。
+ *
+ * リアクション/いいねは「本人が反応した他人の投稿」なので、そこに botたんの投稿が
+ * 混ざると、botたんが日記や気まぐれ投稿で書いた趣味（アニメ・ゲーム・音楽）が
+ * そのままユーザーの趣味として名刺に載る。実際に、電子工作もアニメもゲームもしない人の
+ * 名刺が「#技術愛好家 #アニメ好き #戦略ゲーム」になった（2026-09-12）。
+ * プロンプト側の禁止だけに頼らず、材料そのものを落とす。
+ * Nagi の botたんと Bluesky の botたんは別アカウントなので、両方を除く。
+ */
+const botDids = (): string[] => [
+  // 本番では NAGI_BOT_DID と BSKY_DID が同じアカウントなので重複を潰す。
+  ...new Set(
+    [process.env.NAGI_BOT_DID, process.env.BSKY_DID].filter(
+      (did): did is string => !!did,
+    ),
+  ),
+];
+
 /** Bluesky 投稿＋いいねを集める（Nagi 初回登録時）。public appview 読み出しで認可不要。 */
 async function gatherBlueskyInput(did: string): Promise<NagiAnalysisInput> {
   const profile = await agent.getProfile({ actor: did }).catch(() => undefined);
@@ -109,9 +128,10 @@ async function gatherBlueskyInput(did: string): Promise<NagiAnalysisInput> {
     const uris = likeRes.data.records
       .map((record) => (record.value as any)?.subject?.uri)
       .filter((uri): uri is string => typeof uri === "string");
-    liked = (await getConcatPosts(uris)).map(
-      (post) => (post.record as any).text as string,
-    );
+    const excluded = botDids();
+    liked = (await getConcatPosts(uris))
+      .filter((post) => !excluded.includes(post.author.did))
+      .map((post) => (post.record as any).text as string);
   } catch (error) {
     console.warn(
       `[WARN][NAGI][ANALYSIS] Failed to collect Bluesky likes for ${did}:`,
@@ -139,7 +159,13 @@ async function gatherNagiInput(did: string): Promise<NagiAnalysisInput> {
       .select({ text: nagiPosts.text })
       .from(nagiReactions)
       .innerJoin(nagiPosts, eq(nagiPosts.uri, nagiReactions.subjectUri))
-      .where(and(eq(nagiReactions.did, did), isNull(nagiPosts.deletedAt)))
+      .where(
+        and(
+          eq(nagiReactions.did, did),
+          isNull(nagiPosts.deletedAt),
+          ...botDids().map((botDid) => ne(nagiPosts.did, botDid)),
+        ),
+      )
       .orderBy(desc(nagiReactions.indexedAt))
       .limit(100),
   ]);
@@ -157,12 +183,32 @@ export type NagiAnalysisRunResult =
   | { skipped: true; reason: "no posts" }
   | { skipped: false; result: NagiAnalysisResult; updatedAt: string };
 
+/** runNagiAnalysis の任意指定。 */
+export interface NagiAnalysisRunOptions {
+  /**
+   * 本人への通知（Nagi の通知行 + Web Push）を出すか。既定は出す。
+   *
+   * 通知は「名刺ができたよ」という本人向けのお知らせなので、初回生成や100投稿ごとの
+   * 更新では出したい。一方、プロンプトを直したあとに中身だけ静かに差し替える作り直しでは、
+   * 本人に「また更新された」と鳴らす意味が無い。呼び出し側が選べるようにする。
+   */
+  notify?: boolean;
+  /**
+   * 生成だけして DB には一切書かない。通知も出さない。
+   *
+   * プロンプトを直したあと、本番の材料で何が出てくるかを **書き込む前に** 見るための口。
+   * 名刺は本人のプロフィールに出るものなので、出来上がりを確認せずに上書きしたくない。
+   */
+  dryRun?: boolean;
+}
+
 /**
  * 1件の分析ジョブを処理する。投稿を集め、botたんの「ひとこと」と名刺用の短文・タグを
  * ja/en で生成し、nagi.actor_analyses に did 単位で upsert する（最新で上書き）。
  */
 export async function runNagiAnalysis(
   job: AnalysisJobLike,
+  options: NagiAnalysisRunOptions = {},
 ): Promise<NagiAnalysisRunResult> {
   const input =
     job.source === "bluesky"
@@ -180,6 +226,11 @@ export async function runNagiAnalysis(
   const result = await generateNagiAnalysis(input);
   if (!result.analysisJa && !result.analysisEn) {
     throw new Error("generateNagiAnalysis returned empty analysis");
+  }
+
+  if (options.dryRun) {
+    // ここから下（upsert・埋め込みリセット・通知）を全部やらない。
+    return { skipped: false, result, updatedAt: new Date().toISOString() };
   }
 
   const now = new Date();
@@ -226,7 +277,7 @@ export async function runNagiAnalysis(
     .where(eq(nagiProfiles.did, job.did));
 
   const updatedAt = now.toISOString();
-  await notifyAnalysisUpdated(job.did, updatedAt);
+  if (options.notify !== false) await notifyAnalysisUpdated(job.did, updatedAt);
 
   return { skipped: false, result, updatedAt };
 }
