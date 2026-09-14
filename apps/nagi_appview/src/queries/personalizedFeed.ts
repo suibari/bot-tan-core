@@ -74,13 +74,13 @@ export async function hasEnoughProbePosts(viewerDid?: string): Promise<boolean> 
 export { nearestOwnPost };
 
 /**
- * 「おすすめの理由」。ローカルLLMが先に判定して nagi.news_reasons に置いたものを読むだけ。
+ * 「おすすめの理由」。ローカルLLMが先に判定して nagi.news_reasons に置いたジャンルを読むだけ。
  *
  * ここで距離計算も LLM 呼び出しもしない。前者は尺度が合わず嘘の理由が出るため、
  * 後者はリクエスト経路が詰まるため（保存してから判定、というモデレーションと同じ形）。
  * 未判定の記事は理由なしで出す。
  */
-export async function loadNewsReasons(
+export async function loadNewsGenres(
   viewerDid: string,
   /** URI を絞る場合に渡す。null なら「当たったもの全部」。 */
   newsUris: string[] | null,
@@ -89,18 +89,18 @@ export async function loadNewsReasons(
   const rows = await db
     .select({
       newsUri: nagiNewsReasons.newsUri,
-      keyword: nagiNewsReasons.keyword,
+      genre: nagiNewsReasons.genre,
     })
     .from(nagiNewsReasons)
     .where(
       and(
         eq(nagiNewsReasons.did, viewerDid),
-        isNotNull(nagiNewsReasons.keyword),
+        isNotNull(nagiNewsReasons.genre),
         ...(newsUris ? [inArray(nagiNewsReasons.newsUri, newsUris)] : []),
       ),
     );
   return new Map(
-    rows.flatMap((row) => (row.keyword ? [[row.newsUri, row.keyword]] : [])),
+    rows.flatMap((row) => (row.genre ? [[row.newsUri, row.genre]] : [])),
   );
 }
 

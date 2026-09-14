@@ -144,8 +144,8 @@ export type NewsView = {
  * 崩さない（クライアントの未読判定が items[0] に依存している）。
  */
 export type RecommendedNewsView = NewsView & {
-  /** 「おすすめの理由：〜」に出す単語。近い単語が無ければ省略する。 */
-  reason?: { keyword: string };
+  /** 「おすすめの理由：〜」に出す関心ジャンル。 */
+  reason?: { genre: string };
 };
 export type NewsPageOutput = Page<NewsView> & {
   recommended?: RecommendedNewsView[];

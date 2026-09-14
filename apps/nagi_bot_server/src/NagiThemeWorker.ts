@@ -2,9 +2,10 @@
  * 全肯定ニュースの動的枠に付ける「おすすめの理由：〜」を先に計算しておくワーカー。
  *
  * 2段構え:
- *  1. テーマ抽出 … 本人の投稿からローカルLLMが関心テーマを取り出し、
- *     nagi.actor_interest_keywords に source='theme' で入れる
- *  2. 突合       … 興味ベクトルに近い記事を数件だけ選び、テーマのどれに当たるかを
+ *  1. 関心抽出 … 本人の投稿からローカルLLMが具体テーマと広いジャンルを取り出し、
+ *     プロフィール用の nagi.actor_interest_keywords と推薦用の
+ *     nagi.actor_interest_genres に分けて入れる
+ *  2. 突合     … 興味ベクトルに近い記事を数件だけ選び、関心ジャンルのどれに当たるかを
  *     ローカルLLMに判定させて nagi.news_reasons に置く
  *
  * リクエスト経路でLLMを呼ばないための前計算であることが要点。AppView は結果を読むだけ。
@@ -21,13 +22,14 @@
  */
 import {
   db,
+  nagiActorInterestGenres,
   nagiActorInterestKeywords,
   nagiActors,
   nagiNewsReasons,
 } from "@bsky-affirmative-bot/database";
 import {
-  extractActorThemes,
-  matchNewsToThemes,
+  extractActorInterests,
+  matchNewsToGenres,
   MAX_MATCH_ARTICLES,
   MIN_THEME_SOURCE_POSTS,
   MIN_THEME_SOURCE_TEXT_LENGTH,
@@ -62,7 +64,7 @@ const LOG_PREFIX = "[nagi-theme]";
  *
  * 2つの条件が要る。動的枠自体が出ない人（埋め込み投稿が少ない）は対象にしても意味が無く、
  * 素材が足りない人（返信・こっそり・短文ばかり）は呼んでも必ず0件になるため。
- * 後者は refreshThemes / extractActorThemes と同じ数え方にしておくこと。
+ * 後者は refreshThemes / extractActorInterests と同じ数え方にしておくこと。
  */
 async function actorsNeedingThemes(limit: number): Promise<string[]> {
   const rows = await db.execute<{ did: string }>(sql`
@@ -119,17 +121,17 @@ async function refreshThemes(did: string): Promise<number> {
      order by indexed_at desc
      limit ${THEME_SOURCE_POSTS}
   `);
-  const themes = await extractActorThemes(posts.map((row) => row.text));
+  const interests = await extractActorInterests(posts.map((row) => row.text));
   await db.transaction(async (tx) => {
     // 取り直しなので古い行は消す（使わなくなったタグ・変わったテーマを落とす）。
     await tx
       .delete(nagiActorInterestKeywords)
       .where(eq(nagiActorInterestKeywords.did, did));
-    if (themes.length)
+    if (interests.themes.length)
       await tx
         .insert(nagiActorInterestKeywords)
         .values(
-          themes.map((keyword) => ({
+          interests.themes.map((keyword) => ({
             did,
             keyword,
             source: "theme",
@@ -138,6 +140,19 @@ async function refreshThemes(did: string): Promise<number> {
         )
         // ハッシュタグと同じ語を抽出したときは、既にある hashtag 行を残す。
         .onConflictDoNothing();
+    await tx
+      .delete(nagiActorInterestGenres)
+      .where(eq(nagiActorInterestGenres.did, did));
+    if (interests.genres.length)
+      await tx
+        .insert(nagiActorInterestGenres)
+        .values(
+          interests.genres.map((genre) => ({
+            did,
+            genre,
+            updatedAt: new Date(),
+          })),
+        );
     // テーマが変わったら理由は作り直し。古い理由が残ると、もう無い語を出しかねない。
     await tx.delete(nagiNewsReasons).where(eq(nagiNewsReasons.did, did));
     // themes が空でも「試した」印は付ける。付けないと次の tick でまた選ばれる。
@@ -148,10 +163,10 @@ async function refreshThemes(did: string): Promise<number> {
       .where(eq(nagiActors.did, did));
   });
   await refreshHashtagThemes(did);
-  return themes.length;
+  return interests.themes.length + interests.genres.length;
 }
 
-/** 突合が古い／未実施のユーザー。テーマを1つ以上持っている人だけが対象。 */
+/** 突合が古い／未実施のユーザー。関心ジャンルを1つ以上持っている人だけが対象。 */
 async function actorsNeedingReasons(limit: number): Promise<string[]> {
   const rows = await db.execute<{ did: string }>(sql`
     select a.did
@@ -159,7 +174,7 @@ async function actorsNeedingReasons(limit: number): Promise<string[]> {
      where a.status = 'active'
        and (a.news_reasons_checked_at is null
             or a.news_reasons_checked_at < now() - interval '${sql.raw(String(REASON_TTL_HOURS))} hours')
-       and exists (select 1 from nagi.actor_interest_keywords k where k.did = a.did)
+       and exists (select 1 from nagi.actor_interest_genres g where g.did = a.did)
      order by a.news_reasons_checked_at asc nulls first
      limit ${limit}
   `);
@@ -169,16 +184,16 @@ async function actorsNeedingReasons(limit: number): Promise<string[]> {
 /**
  * そのユーザーの興味ベクトルに近い記事を数件選び、テーマとの突合結果を保存する。
  *
- * 候補の選び方は AppView の getRecommendedNews と同じ「重心に近い順」。実際に表示される
+ * 候補の選び方は AppView の getRecommendedNews と同じ「直近投稿のどれかに近い順」。実際に表示される
  * 3件はこの上位に含まれるので、多めに取っておけば取りこぼしはほぼ無い。
  */
 async function computeReasons(did: string): Promise<number> {
-  const keywords = await db
-    .select({ keyword: nagiActorInterestKeywords.keyword })
-    .from(nagiActorInterestKeywords)
-    .where(eq(nagiActorInterestKeywords.did, did));
-  const themes = keywords.map((row) => row.keyword);
-  if (!themes.length) return 0;
+  const genreRows = await db
+    .select({ genre: nagiActorInterestGenres.genre })
+    .from(nagiActorInterestGenres)
+    .where(eq(nagiActorInterestGenres.did, did));
+  const genres = genreRows.map((row) => row.genre);
+  if (!genres.length) return 0;
 
   // AppView の getRecommendedNews と同じ採点（自分の直近投稿との最短距離）で並べる。
   // 実際に表示される3件はこの上位に含まれるので、多めに取れば取りこぼしはほぼ無い。
@@ -199,8 +214,8 @@ async function computeReasons(did: string): Promise<number> {
   `);
   if (!articles.length) return 0;
 
-  const matches = await matchNewsToThemes(
-    themes,
+  const matches = await matchNewsToGenres(
+    genres,
     articles.map((row) => row.title),
   );
   const now = new Date();
@@ -211,14 +226,14 @@ async function computeReasons(did: string): Promise<number> {
       articles.map((row, i) => ({
         did,
         newsUri: row.uri,
-        keyword: matches[i] ?? null,
+        genre: matches[i] ?? null,
         updatedAt: now,
       })),
     )
     .onConflictDoUpdate({
       target: [nagiNewsReasons.did, nagiNewsReasons.newsUri],
       set: {
-        keyword: sql`excluded.keyword`,
+        genre: sql`excluded.genre`,
         updatedAt: sql`excluded.updated_at`,
       },
     });
