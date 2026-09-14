@@ -57,6 +57,8 @@ botフォロー後に、botがあなたのポストにどう反応するかの�
 
 ![bot処理フロー](https://cdn.bsky.app/img/feed_fullsize/plain/did:plc:uixgxpiqf4i63p6rgpu7ytmx/bafkreihxgiteyk25cpv3e7lkdsggntpb3jj6ybha4btq5ykf2fzdyq7j6u@jpeg)
 
+以下の各機能で案内している呼び出しワードは一例です。本botは、ポストがどの機能を呼んでいるかをAIで判定するため、「botたん、今日の運勢みて」のような言い換えでも機能を呼び出せます。1つのポストが複数の機能に当てはまるときは、いちばん求められている機能をAIが1つ選びます。ただし、応援機能のハッシュタグは必須です。
+
 ### 占い機能
 以下の手順を実施することで、本botが占い結果をリプライします。
 占いは1度行うと **8時間** 行えません（リプライ内では「1日1回」と案内されます）。

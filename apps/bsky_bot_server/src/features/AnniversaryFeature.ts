@@ -2,10 +2,10 @@ import { CommitCreateEvent } from "@skyware/jetstream";
 import { AppBskyActorDefs } from "@atproto/api"; type ProfileView = AppBskyActorDefs.ProfileView;
 import { BotFeature, FeatureContext } from "./types.js";
 import { MemoryService, botBiothythmManager, botLabelerManager } from "@bsky-affirmative-bot/clients";
-import { ANNIV_REGISTER_TRIGGER, ANNIV_CONFIRM_TRIGGER, ANNIV_ENABLE_TRIGGER, ANNIV_DISABLE_TRIGGER, NICKNAMES_BOT, BADGE_DEF } from "@bsky-affirmative-bot/shared-configs";
+import { BADGE_DEF } from "@bsky-affirmative-bot/shared-configs";
 import holidays from "@bsky-affirmative-bot/shared-configs/json/holidays.json" with { type: "json" };
 import { handleMode, isPast } from "./utils.js";
-import { getLangStr, isReplyOrMentionToMe, formatYMD } from "../bsky/util.js";
+import { getLangStr, formatYMD } from "../bsky/util.js";
 import { AppBskyFeedPost } from "@atproto/api"; type PostRecord = AppBskyFeedPost.Record;
 import { GeminiResponseResult, Holiday, UserInfoGemini } from "@bsky-affirmative-bot/shared-configs";
 import { checkAndSendRoomInvitation } from "../bsky/roomInvitation.js";
@@ -14,6 +14,7 @@ import { dateForHoliday, parseMonthDay, toMonthDayIso } from "@bsky-affirmative-
 import { generateAnniversary } from "@bsky-affirmative-bot/bot-brain";
 import { generateOmikuji } from "@bsky-affirmative-bot/bot-brain";
 import { getConcatAuthorFeed } from "../bsky/getConcatAuthorFeed.js";
+import type { AnniversaryRequest } from "./featureIntent.js";
 
 type AnniversaryInfo = {
     name: string;
@@ -44,26 +45,15 @@ export class AnniversaryFeature implements BotFeature {
         if (!context.isCommunityMember) return false;
 
         const record = event.commit.record as any;
-        const text = (record.text || "").toLowerCase();
         const langCode = record.langs?.[0] || "en";
 
-        const isCalled = isReplyOrMentionToMe(record) || NICKNAMES_BOT.some(elem => text.includes(elem.toLowerCase()));
-
-        if (isCalled) {
-            if (ANNIV_REGISTER_TRIGGER.some(t => text.includes(t.toLowerCase()))) {
-                if (await isPast(event, "last_anniv_registered_at", 6 * 24 * 60)) {
-                    return true;
-                }
-            }
-            if (ANNIV_CONFIRM_TRIGGER.some(t => text.includes(t.toLowerCase()))) {
-                return true;
-            }
-            if (ANNIV_ENABLE_TRIGGER.some(t => text.includes(t.toLowerCase()))) {
-                return true;
-            }
-            if (ANNIV_DISABLE_TRIGGER.some(t => text.includes(t.toLowerCase()))) {
-                return true;
-            }
+        // botが呼ばれているかは featureIntent.ts 側で判定済み
+        const { intents } = await context.featureIntents();
+        if (intents.has("anniversary_register") && await this.canRegisterAnniversary(event)) {
+            return true;
+        }
+        if (intents.has("anniversary_confirm") || intents.has("anniversary_on") || intents.has("anniversary_off")) {
+            return true;
         }
 
         if (!record.reply) {
@@ -89,23 +79,30 @@ export class AnniversaryFeature implements BotFeature {
             return;
         }
 
+        const { intents, anniversary } = await context.featureIntents();
+
         // Priority 1.5: Enable / Disable
-        if (await this.handleAnniversaryEnable(event, follower)) return;
-        if (await this.handleAnniversaryDisable(event, follower)) return;
+        if (intents.has("anniversary_on") && await this.handleAnniversaryEnable(event)) return;
+        if (intents.has("anniversary_off") && await this.handleAnniversaryDisable(event)) return;
 
         // Priority 2: Register
-        if (await this.handleAnniversaryRegister(event, follower)) return;
+        if (
+            intents.has("anniversary_register") &&
+            await this.canRegisterAnniversary(event) &&
+            await this.handleAnniversaryRegister(event, follower, anniversary)
+        ) return;
 
         // Priority 3: Confirm
-        if (await this.handleAnniversaryConfirm(event, follower)) return;
+        if (intents.has("anniversary_confirm") && await this.handleAnniversaryConfirm(event, follower)) return;
     }
 
-    private async handleAnniversaryEnable(event: CommitCreateEvent<"app.bsky.feed.post">, follower: ProfileView) {
+    private async canRegisterAnniversary(event: CommitCreateEvent<"app.bsky.feed.post">) {
+        return await isPast(event, "last_anniv_registered_at", 6 * 24 * 60);
+    }
+
+    private async handleAnniversaryEnable(event: CommitCreateEvent<"app.bsky.feed.post">) {
         const record = event.commit.record as PostRecord;
         const langStr = getLangStr(record.langs);
-        const text = (record.text || "").toLowerCase();
-
-        if (!ANNIV_ENABLE_TRIGGER.some(t => text.includes(t.toLowerCase()))) return false;
 
         return await handleMode(event, {
             dbColumn: "is_anniv",
@@ -114,12 +111,9 @@ export class AnniversaryFeature implements BotFeature {
         });
     }
 
-    private async handleAnniversaryDisable(event: CommitCreateEvent<"app.bsky.feed.post">, follower: ProfileView) {
+    private async handleAnniversaryDisable(event: CommitCreateEvent<"app.bsky.feed.post">) {
         const record = event.commit.record as PostRecord;
         const langStr = getLangStr(record.langs);
-        const text = (record.text || "").toLowerCase();
-
-        if (!ANNIV_DISABLE_TRIGGER.some(t => text.includes(t.toLowerCase()))) return false;
 
         return await handleMode(event, {
             dbColumn: "is_anniv",
@@ -142,12 +136,12 @@ export class AnniversaryFeature implements BotFeature {
         return todayStr !== lastStr;
     }
 
-    private async handleAnniversaryRegister(event: CommitCreateEvent<"app.bsky.feed.post">, follower: ProfileView) {
+    private async handleAnniversaryRegister(event: CommitCreateEvent<"app.bsky.feed.post">, follower: ProfileView, requested?: AnniversaryRequest) {
         const record = event.commit.record as PostRecord;
         const langStr = getLangStr(record.langs);
 
-        // テキストパース
-        const annivInfo = this.parseAnniversaryCommand(record.text);
+        // LLMが本文から抜き出した名前・日付を優先し、無ければ「記念日登録、名前、MM/DD」をパースする
+        const annivInfo = this.toAnniversaryInfo(requested) ?? this.parseAnniversaryCommand(record.text);
         if (!annivInfo) return false; // パース失敗時はリターン
 
         // 最終登録日更新とリプライ
@@ -374,6 +368,12 @@ export class AnniversaryFeature implements BotFeature {
         until.setDate(until.getDate() + 1);
 
         return { since, until };
+    }
+
+    private toAnniversaryInfo(requested?: AnniversaryRequest): AnniversaryInfo | null {
+        if (!requested) return null;
+        const md = this.toMonthDay(requested.date);
+        return md ? { name: requested.name, date: md } : null;
     }
 
     private parseAnniversaryCommand(input: string): AnniversaryInfo | null {
