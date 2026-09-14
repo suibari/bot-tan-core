@@ -223,6 +223,11 @@ export async function createNagiReply(
     mode: NagiReplyMode;
     beforeGeminiRequest?: () => Promise<void>;
     aiRoute?: NagiAiRouteDetails;
+    /**
+     * 生成せず、この本文で返信する。お絵描きの依頼（nagiDrawing.ts）に使う。
+     * 依頼に AI の返信を返すと「絵は描けないよ」のように、この後に届く絵と食い違うことがある。
+     */
+    presetComment?: string;
   },
 ) {
   const record: any = job.recordJson;
@@ -234,7 +239,9 @@ export async function createNagiReply(
   let generated: { comment: string; score?: number };
   let replyAuthorHandle: string | undefined;
 
-  if (options.mode === "template") {
+  if (options.presetComment !== undefined) {
+    generated = { comment: options.presetComment };
+  } else if (options.mode === "template") {
     const [author, preferredName] = await Promise.all([
       loadNagiReplyAuthor(job.authorDid),
       loadPreferredName(job.authorDid),
@@ -361,6 +368,8 @@ export async function createNagiReply(
 
   return {
     uri: response.uri,
+    // お絵描きの贈り物をこの返信にぶら下げるために使う（こっそりには贈らないので上の経路は持たない）。
+    cid: response.cid,
     // 会話ターンはスコアを持たない = 肯定ポストとして扱わない。
     score:
       generated.score === undefined

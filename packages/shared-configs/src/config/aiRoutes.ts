@@ -235,6 +235,9 @@ export const AI_FEATURES = {
   // Gemini を使う理由が無く、しかも1日1回しか走らない。
   // 画像そのもののルーティングは AI_IMAGE_FEATURES 側（この表はテキスト専用）。
   BSKY_IMAGE_PROMPT: "ollama-chat",
+  // お絵描き機能: botたんに絵を頼んでいるか・何を描くかの判定（Nagi の依頼もこのキー）。
+  // キーワードで足切りした投稿にしか走らず、返信本文も生成しない抽出作業なのでローカルで回す。
+  BSKY_DRAWING_REQUEST: "ollama-chat",
 
   // ══════ biorhythm_server（定期ポスト生成） ═════════════════════════
   // 今期の話題作リスト（grounding）。日次予定表を作るときだけ呼び、さらに7日キャッシュするので実質週1回。
@@ -271,6 +274,10 @@ export const AI_FEATURES = {
   // 呼び名の指定/訂正かどうかの判定。返信生成と並列だが投稿前に完了を待つため、
   // 通常返信と同じく Standard で応答時間を優先する。
   NAGI_NAME_INTENT: "lite-standard",
+  // お絵描きの贈り物: 投稿者の気持ちが大きく動いているかの判定と、贈る絵の場面。
+  // 返信とは別の直列キューで回す（nagiDrawing.ts）。今日まだ描いていない人の
+  // トップレベル投稿にしか走らない。
+  NAGI_DRAWING_GIFT: "ollama-chat",
 
   // ══════ ニュース ═══════════════════════════════════════════════════
   NEWS_POSITIVE_GATE: "lite-flex", // ポジニュース判定（構造化JSON）

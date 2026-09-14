@@ -11,6 +11,7 @@ import {
   index,
   uniqueIndex,
   check,
+  primaryKey,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
@@ -446,5 +447,25 @@ export const bot_memory_research_jobs = affirmativeBotSchema.table(
       "bot_memory_research_jobs_state_check",
       sql`${table.state} in ('pending', 'processing', 'posted', 'failed')`,
     ),
+  ],
+);
+
+/**
+ * botたんのお絵描き（Bluesky の依頼 / Nagi の依頼と贈り物）の日次枠。drawingClaims.ts が読み書きする。
+ * 面（surface: bsky / nagi）ごとに1人1日1枚。day は JST の "YYYY-MM-DD"。
+ */
+export const drawing_claims = affirmativeBotSchema.table(
+  "drawing_claims",
+  {
+    surface: text("surface").notNull(),
+    did: text("did").notNull(),
+    day: text("day").notNull(),
+    source_uri: text("source_uri"),
+    created_at: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.surface, table.did, table.day] }),
+    // サービス枠は「その面のその日の枚数」を数える。
+    index("drawing_claims_surface_day_idx").on(table.surface, table.day),
   ],
 );

@@ -25,6 +25,7 @@ export * from './generateWhimsicalPost.js';
 export * from './generateWhimsicalReply.js';
 export * from './judgeCheerSubject.js';
 export * from './judgeNameIntent.js';
+export * from './judgeDrawing.js';
 export * from './generateBotDiary.js';
 export * from './judgePositiveNewsBatch.js';
 export * from './generateRoomWelcomeMessage.js';

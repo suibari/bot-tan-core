@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   buildImagePrompt,
   normalizeScenePlan,
+  sceneSystemFor,
   type ImageScenePlan,
 } from "../src/ai/buildImagePrompt.js";
 
@@ -225,4 +226,31 @@ test("既定タグは通す（過剰にマッチして場面ごと消さない�
   assert.equal(kept.setting.length, 4);
   assert.equal(kept.objects.length, 3);
   assert.deepEqual(kept.companions, ["morpho"]);
+});
+
+test("お絵描きの材料には就寝の規則を当てず、botたんを必ず絵に入れさせる", () => {
+  const goodNight = sceneSystemFor("good-night");
+  const picture = sceneSystemFor("picture");
+  assert.match(goodNight, /bedtime greeting/);
+  assert.doesNotMatch(picture, /bedtime greeting written at the end of the day/);
+  assert.match(picture, /She always appears in the picture/);
+  // 外見・名前を書かせない規則はどちらにも効く（キャラ崩れと領域割りの破綻を防ぐ）。
+  for (const system of [goodNight, picture]) {
+    assert.match(system, /NEVER describe the character's appearance/);
+  }
+});
+
+test("描いてはいけないタグはどの材料でも落とす", () => {
+  const plan = normalizeScenePlan({
+    pose: ["sitting"],
+    expression: ["smile", "blood on face"],
+    action: ["holding cat"],
+    setting: ["indoors"],
+    objects: ["cat", "underwear", "nsfw"],
+    companions: [],
+    framing: "upper-body",
+    outdoor: false,
+  });
+  assert.deepEqual(plan.expression, ["smile"]);
+  assert.deepEqual(plan.objects, ["cat"]);
 });

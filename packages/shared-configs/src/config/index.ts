@@ -128,6 +128,35 @@ export const RECAP_TRIGGER = [
   "summarize year",
 ];
 
+/**
+ * お絵描き機能の足切り語。**これはトリガーではない。** 依頼かどうかは LLM が決める
+ * （judgeDrawingRequest）。ここは「絵の話をしていない投稿に LLM を回さない」ためだけの粗い網。
+ * 取りこぼすと依頼に気付けないので、誤って拾うぶんには構わない（LLM が落とす）。
+ */
+export const DRAWING_HINTS = [
+  "絵",
+  "描",
+  "えかき",
+  "えがき",
+  "お絵かき",
+  "おえかき",
+  "かいて",
+  "イラスト",
+  "らくがき",
+  "落書き",
+  "draw",
+  "illustrat",
+  "sketch",
+  "paint",
+  "picture",
+];
+
+/** LLM の依頼判定（judgeDrawingRequest）を回す前の足切り。Bluesky と Nagi で共通。 */
+export function hasDrawingHint(text: string): boolean {
+  const lower = text.toLowerCase();
+  return DRAWING_HINTS.some((hint) => lower.includes(hint.toLowerCase()));
+}
+
 export const HNY_WORDS = ["明けましておめでとう", "あけましておめでとう", "あけおめ"];
 export const OHAYO_WORDS = ["おは"];
 export const OYASUMI_WORDS = ["おやす"];

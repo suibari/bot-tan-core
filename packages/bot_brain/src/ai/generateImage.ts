@@ -1,7 +1,20 @@
 import { resolveAiImageRoute } from "@bsky-affirmative-bot/shared-configs";
-import { buildImagePrompt, planImageScene, type ImageStyle } from "./buildImagePrompt.js";
+import {
+  buildImagePrompt,
+  planImageScene,
+  type ImageScenePurpose,
+  type ImageStyle,
+} from "./buildImagePrompt.js";
 import { generateImageGemini } from "./generateImageGemini.js";
 import { isImageGenConfigured, requestImage, type GeneratedImage } from "./imageGenClient.js";
+
+/**
+ * 絵を描ける状態か。お絵描き機能は、描けないときに依頼の判定（LLM）ごと回さないためにこれを見る。
+ * Gemini ルートを明示しているときはサイドカーが無くても描ける。
+ */
+export function isImageGenerationAvailable(): boolean {
+  return resolveAiImageRoute("BSKY_IMAGE").provider === "gemini" || isImageGenConfigured();
+}
 
 /**
  * botたんが「その日の印象的な出来事」を1枚の絵にする。おやすみポストに添える。
@@ -30,10 +43,13 @@ import { isImageGenConfigured, requestImage, type GeneratedImage } from "./image
  *                   おやすみポストの本文をそのまま渡す使い方を想定している。
  * @param maxBytes   配信先の blob 上限。Leaflet の coverImage と Nagi はどちらも
  *                   1,000,000 バイトなので、余裕を見た値を呼び出し側が渡す。
+ * @param options.purpose 材料の種類。既定はおやすみポスト。お絵描き（DrawingFeature /
+ *                   nagiDrawingGift）は "picture" で、材料は「描いてほしい絵」の記述になる。
  */
 export async function generateImage(
   sourceText: string,
   maxBytes?: number,
+  options: { purpose?: ImageScenePurpose } = {},
 ): Promise<GeneratedImage | null> {
   const route = resolveAiImageRoute("BSKY_IMAGE");
 
@@ -48,7 +64,7 @@ export async function generateImage(
       return null;
     }
 
-    const plan = await planImageScene(sourceText);
+    const plan = await planImageScene(sourceText, options.purpose);
     if (!plan) return null;
 
     const style = (process.env.IMAGEGEN_STYLE as ImageStyle) || "crayon-diary";
