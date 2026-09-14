@@ -1,6 +1,6 @@
 /**
- * 「その人がふだん何について書いているか」をローカルLLMで言葉にし、ニュース記事との
- * 突合まで担う。全肯定ニュースの動的枠に付ける「おすすめの理由：〜」の材料。
+ * 「その人がふだん何について書いているか」をローカルLLMで具体テーマと広いジャンルにし、
+ * ジャンルとニュース記事の突合まで担う。全肯定ニュースの動的枠の材料。
  *
  * ## なぜ埋め込みではなくLLMなのか
  *
@@ -9,8 +9,8 @@
  * 0.911〜1.06 に潰れ、順位もほぼ乱数（「車好き」→アイドルMV、「愛猫家」→庭の記事）。
  * クエリ接頭辞を付けても改善しない。語は文書でもクエリでもないため。
  *
- * そこで距離を捨て、LLMに直接「どのテーマに当たるか、当たらなければ none」を判定させる。
- * 尺度の問題が消え、「当たらない」を明示的に選べるのが効く。
+ * そこで距離を捨て、LLMに直接「どの関心ジャンルに当たるか、当たらなければ none」を
+ * 判定させる。具体語を広い固定ジャンルへ一般化するので、題材が同じ記事を拾いやすい。
  *
  * ## 呼び出し位置
  *
@@ -18,9 +18,12 @@
  * AppView はそれを読むだけにする（モデレーションと同じ「保存してから判定」）。
  */
 import { ollamaChat } from "../ollamaChat.js";
+import { NEWS_INTEREST_GENRES } from "./newsInterestTopics.js";
 
 /** 1人あたりのテーマ数の上限。多いと突合プロンプトが膨らみ、粒度も粗くなる。 */
 export const MAX_ACTOR_THEMES = 6;
+/** 推薦候補を広げすぎないため、1人に保存する関心ジャンルも上限を設ける。 */
+export const MAX_ACTOR_GENRES = 6;
 /** テーマ抽出に渡す投稿数。多すぎると num_ctx を食う。 */
 export const THEME_SOURCE_POSTS = 40;
 /**
@@ -49,8 +52,13 @@ const THEME_SCHEMA = {
       items: { type: "string" },
       maxItems: MAX_ACTOR_THEMES,
     },
+    genres: {
+      type: "array",
+      items: { type: "string", enum: NEWS_INTEREST_GENRES },
+      maxItems: MAX_ACTOR_GENRES,
+    },
   },
-  required: ["themes"],
+  required: ["themes", "genres"],
 } as const;
 
 const THEME_SYSTEM_PROMPT = `あなたはSNSの投稿群を読んで、その人がふだん書いている話題を洗い出す担当です。
@@ -66,15 +74,28 @@ const THEME_SYSTEM_PROMPT = `あなたはSNSの投稿群を読んで、その人
 - SNSの機能名やサービス名そのもの（フォロー、リポスト、Bluesky など）。
 - 1度しか出てこない題材。
 
+加えて、同じ投稿群からニュース推薦に使う広い「ジャンル」を、多くて${MAX_ACTOR_GENRES}個選んでください。
+ジャンルは次の一覧の語をそのまま使い、一覧に無い語は作らないでください。具体的な作品名・商品名・人名は、それが属するジャンルへ一般化します。
+
+ジャンル一覧:
+${NEWS_INTEREST_GENRES.join(" / ")}
+
 JSONだけを返してください。`;
 
-/** 投稿本文からテーマを抽出する。Ollama 不通なら例外を投げる（呼び出し側が次回へ回す）。 */
-export async function extractActorThemes(posts: string[]): Promise<string[]> {
+export interface ActorInterests {
+  /** プロフィールにも表示する具体的な話題。 */
+  themes: string[];
+  /** ニュース推薦だけに使う、固定語彙の広いジャンル。 */
+  genres: string[];
+}
+
+/** 投稿本文から具体的なテーマと広いジャンルを同時に抽出する。 */
+export async function extractActorInterests(posts: string[]): Promise<ActorInterests> {
   const sample = posts
     .map((text) => text.replace(/\s+/g, " ").trim())
     .filter((text) => text.length >= MIN_THEME_SOURCE_TEXT_LENGTH)
     .slice(0, THEME_SOURCE_POSTS);
-  if (sample.length < MIN_THEME_SOURCE_POSTS) return [];
+  if (sample.length < MIN_THEME_SOURCE_POSTS) return { themes: [], genres: [] };
   const raw = await ollamaChat(
     "OLLAMA_ACTOR_THEMES",
     [
@@ -87,7 +108,21 @@ export async function extractActorThemes(posts: string[]): Promise<string[]> {
     // num_predict は必ず送る（省くと生成枠が残りコンテキスト任せになり空応答を招く）。
     { maxTokens: 256, temperature: 0, format: THEME_SCHEMA, timeoutMs: 60_000 },
   );
-  return normalizeThemes(raw);
+  return normalizeActorInterests(raw);
+}
+
+export function normalizeActorInterests(raw: string): ActorInterests {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return { themes: [], genres: [] };
+  }
+  const value = parsed as { themes?: unknown; genres?: unknown };
+  return {
+    themes: normalizeThemeValues(value.themes),
+    genres: normalizeGenreValues(value.genres),
+  };
 }
 
 /** LLM 出力の掃除。重複・空・長すぎる語を落とす。抽出結果の検証はここに集約する。 */
@@ -98,7 +133,10 @@ export function normalizeThemes(raw: string): string[] {
   } catch {
     return [];
   }
-  const themes = (parsed as { themes?: unknown })?.themes;
+  return normalizeThemeValues((parsed as { themes?: unknown })?.themes);
+}
+
+function normalizeThemeValues(themes: unknown): string[] {
   if (!Array.isArray(themes)) return [];
   const seen = new Set<string>();
   const out: string[] = [];
@@ -114,14 +152,26 @@ export function normalizeThemes(raw: string): string[] {
   return out;
 }
 
-const MATCH_SYSTEM_PROMPT = `あなたは、ある人の関心テーマと、ニュース記事の見出しを突き合わせる担当です。
+function normalizeGenreValues(genres: unknown): string[] {
+  if (!Array.isArray(genres)) return [];
+  const allowed = new Set(NEWS_INTEREST_GENRES);
+  const out: string[] = [];
+  for (const value of genres) {
+    if (typeof value !== "string" || !allowed.has(value) || out.includes(value)) continue;
+    out.push(value);
+    if (out.length >= MAX_ACTOR_GENRES) break;
+  }
+  return out;
+}
 
-記事ごとに、その人のテーマのうち**実際にその記事の題材と重なるもの**を1つだけ選びます。
+const MATCH_SYSTEM_PROMPT = `あなたは、ある人の関心ジャンルと、ニュース記事の見出しを突き合わせる担当です。
+
+記事ごとに、その人のジャンルのうち**実際にその記事の題材と重なるもの**を1つだけ選びます。
 どれとも重ならなければ null を選びます。
 
 厳しく判定してください:
 - 「なんとなく明るい」「その人が好きそう」では選ばない。題材が重なっているかだけを見る。
-- テーマ一覧に無い言葉を作らない。必ず与えられた語をそのまま返す。
+- ジャンル一覧に無い言葉を作らない。必ず与えられた語をそのまま返す。
 - 迷ったら null。理由は出さないほうがましで、外した理由を出すのがいちばん悪い。
 
 記事は入力と同じ順序・同じ件数で返してください。JSONだけを返してください。`;
@@ -141,15 +191,15 @@ const matchSchema = (count: number) =>
   }) as const;
 
 /**
- * テーマ一覧と記事見出しを突き合わせ、記事ごとに当たったテーマ（無ければ null）を返す。
+ * 関心ジャンルと記事見出しを突き合わせ、記事ごとに当たったジャンル（無ければ null）を返す。
  * 戻り値の長さは必ず `titles` と同じ。
  */
-export async function matchNewsToThemes(
-  themes: string[],
+export async function matchNewsToGenres(
+  genres: string[],
   titles: string[],
 ): Promise<Array<string | null>> {
   const articles = titles.slice(0, MAX_MATCH_ARTICLES);
-  if (!themes.length || !articles.length) return titles.map(() => null);
+  if (!genres.length || !articles.length) return titles.map(() => null);
   const raw = await ollamaChat(
     "OLLAMA_NEWS_THEME_MATCH",
     [
@@ -157,7 +207,7 @@ export async function matchNewsToThemes(
       {
         role: "user",
         content: [
-          `テーマ: ${themes.join(" / ")}`,
+          `ジャンル: ${genres.join(" / ")}`,
           "",
           "記事:",
           ...articles.map((title, i) => `${i + 1}. ${title}`),
@@ -173,11 +223,11 @@ export async function matchNewsToThemes(
       timeoutMs: 60_000,
     },
   );
-  return normalizeMatches(raw, themes, titles.length);
+  return normalizeMatches(raw, genres, titles.length);
 }
 
 /**
- * 突合結果の掃除。**テーマ一覧に無い語は捨てる**（LLM が語を作って理由を捏造するのを塞ぐ）。
+ * 突合結果の掃除。**ジャンル一覧に無い語は捨てる**（LLM が語を作るのを塞ぐ）。
  * 件数が合わない場合も null で埋め、記事と理由がずれないようにする。
  */
 export function normalizeMatches(

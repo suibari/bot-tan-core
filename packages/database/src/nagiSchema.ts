@@ -800,20 +800,39 @@ export const nagiActorInterestKeywords = nagiSchema.table(
   },
   (t) => [primaryKey({ columns: [t.did, t.keyword] })],
 );
+
 /**
- * 「この人のテーマのうち、この記事はどれに当たるか」のローカルLLM判定結果。
+ * 全肯定ニュースの推薦に使う、ユーザーごとの広い関心ジャンル。
+ *
+ * actor_interest_keywords はプロフィールにも出す具体的な話題なので、そのまま残す。
+ * 推薦では「作品名と記事見出し」のような細すぎる突合を避けるため、投稿群から別途
+ * NEWS_INTEREST_GENRES の語彙へ一般化した結果だけをこの表へ保存する。
+ */
+export const nagiActorInterestGenres = nagiSchema.table(
+  "actor_interest_genres",
+  {
+    did: text("did").notNull(),
+    genre: text("genre").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.did, t.genre] })],
+);
+/**
+ * 「この人の関心ジャンルのうち、この記事はどれに当たるか」のローカルLLM判定結果。
  *
  * リクエスト経路でLLMを呼ぶと直列キューが詰まるので、ワーカーが先に計算して置いておく
- * （モデレーションと同じ「保存してから判定」の形）。`keyword` が NULL なら
- * 「どのテーマにも当たらない」＝理由を出さない、という判定済みの記録。
+ * （モデレーションと同じ「保存してから判定」の形）。`genre` が NULL なら
+ * 「どのジャンルにも当たらない」＝理由を出さない、という判定済みの記録。
  */
 export const nagiNewsReasons = nagiSchema.table(
   "news_reasons",
   {
     did: text("did").notNull(),
     newsUri: text("news_uri").notNull(),
-    /** 当たったテーマ。NULL は「当たらないと判定済み」。 */
-    keyword: text("keyword"),
+    /** 当たったジャンル。NULL は「当たらないと判定済み」。 */
+    genre: text("genre"),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .defaultNow()
       .notNull(),

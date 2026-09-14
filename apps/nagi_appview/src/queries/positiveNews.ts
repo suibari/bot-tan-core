@@ -24,7 +24,7 @@ import {
   type SearchMode,
 } from "./hybridSearch.js";
 import { loadMutes, type MuteSet } from "./mutes.js";
-import { loadNewsReasons, nearestOwnPost } from "./personalizedFeed.js";
+import { loadNewsGenres, nearestOwnPost } from "./personalizedFeed.js";
 import { embeddingProfile } from "@bsky-affirmative-bot/database";
 
 export type NewsLang = "ja" | "en";
@@ -428,11 +428,11 @@ export async function getRecommendedNews(opts: {
   mutes: MuteSet;
 }): Promise<RecommendedNewsView[]> {
   if (opts.limit <= 0) return [];
-  // **テーマが当たった記事だけを出す。** 理由は飾りではなく掲載条件。
+  // **関心ジャンルが当たった記事だけを出す。** 理由は飾りではなく掲載条件。
   // 近い順に3件並べるだけだと、実測で大半が「近いが話題は無関係」な記事になり
   // （本番で判定200ペア中 一致12件）、「あなたに近いかも」という見出しが実態を伴わなかった。
   // 当たりが無ければセクションごと出さない。
-  const matched = await loadNewsReasons(opts.viewerDid, null);
+  const matched = await loadNewsGenres(opts.viewerDid, null);
   const uris = [...matched.keys()].filter(
     (uri) => !opts.excludeUris.includes(uri),
   );
@@ -479,7 +479,7 @@ export async function getRecommendedNews(opts: {
   );
   return page.map((row) => ({
     ...view(row, opts.lang, reactions.get(row.news.uri) ?? []),
-    // uris は matched から作っているので、ここで必ず語が取れる。
-    reason: { keyword: matched.get(row.news.uri)! },
+    // uris は matched から作っているので、ここで必ずジャンルが取れる。
+    reason: { genre: matched.get(row.news.uri)! },
   }));
 }

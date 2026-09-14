@@ -79,6 +79,40 @@ try {
   } else {
     console.log("[drizzle:prepare] Bookmark schema is already compatible.");
   }
+
+  const recommendationResult = await sql.begin(async (tx) => {
+    await tx`SET LOCAL lock_timeout = '10s'`;
+    const [existing] = await tx`
+      SELECT
+        to_regclass('nagi.news_reasons')::text AS reasons,
+        EXISTS (
+          SELECT 1 FROM information_schema.columns
+           WHERE table_schema = 'nagi' AND table_name = 'news_reasons' AND column_name = 'keyword'
+        ) AS has_keyword,
+        EXISTS (
+          SELECT 1 FROM information_schema.columns
+           WHERE table_schema = 'nagi' AND table_name = 'news_reasons' AND column_name = 'genre'
+        ) AS has_genre
+    `;
+    if (!existing?.reasons || existing.has_genre || !existing.has_keyword)
+      return "already-compatible";
+
+    // drizzle-kit に drop/add と誤認させず、旧い具体語の判定だけを破棄して列を改名する。
+    await tx`LOCK TABLE "nagi"."news_reasons" IN ACCESS EXCLUSIVE MODE`;
+    await tx`DELETE FROM "nagi"."news_reasons"`;
+    await tx`ALTER TABLE "nagi"."news_reasons" RENAME COLUMN "keyword" TO "genre"`;
+    await tx`
+      UPDATE "nagi"."actors"
+         SET "themes_checked_at" = NULL,
+             "news_reasons_checked_at" = NULL
+    `;
+    return "renamed";
+  });
+  console.log(
+    recommendationResult === "renamed"
+      ? "[drizzle:prepare] Reset news recommendations for genre matching."
+      : "[drizzle:prepare] News recommendation schema is already compatible.",
+  );
 } finally {
   await sql.end();
 }

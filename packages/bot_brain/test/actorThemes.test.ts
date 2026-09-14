@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { MAX_MATCH_ARTICLES, normalizeMatches, normalizeThemes } from "../src/ai/actorThemes.js";
+import {
+  MAX_MATCH_ARTICLES,
+  normalizeActorInterests,
+  normalizeMatches,
+  normalizeThemes,
+} from "../src/ai/actorThemes.js";
 
 test("themes are trimmed, de-duplicated and capped", () => {
   const out = normalizeThemes(
@@ -23,10 +28,29 @@ test("malformed model output yields no themes instead of throwing", () => {
   assert.deepEqual(normalizeThemes(JSON.stringify({})), []);
 });
 
-test("a match the user does not actually have is discarded", () => {
+test("recommendation genres are restricted to the shared broad genre list", () => {
+  const out = normalizeActorInterests(JSON.stringify({
+    themes: ["葬送のフリーレン", "保護猫"],
+    genres: ["アニメ", "猫", "ファンタジー", "猫"],
+  }));
+  assert.deepEqual(out, {
+    themes: ["葬送のフリーレン", "保護猫"],
+    genres: ["アニメ", "猫"],
+  });
+});
+
+test("malformed interest output yields neither themes nor genres", () => {
+  assert.deepEqual(normalizeActorInterests("not json"), { themes: [], genres: [] });
+  assert.deepEqual(normalizeActorInterests(JSON.stringify({ themes: [], genres: "猫" })), {
+    themes: [],
+    genres: [],
+  });
+});
+
+test("a genre the user does not actually have is discarded", () => {
   // LLM が語を作って理由を捏造するのを塞ぐ。ここが緩むと嘘の理由が画面に出る。
   const out = normalizeMatches(
-    JSON.stringify({ matches: ["猫", "宇宙開発", null] }),
+    JSON.stringify({ matches: ["猫", "宇宙", null] }),
     ["猫", "ラーメン"],
     3,
   );
