@@ -3,13 +3,13 @@ import { AppBskyActorDefs } from "@atproto/api"; type ProfileView = AppBskyActor
 import { BotFeature, FeatureContext } from "./types.js";
 import { MemoryService, botLabelerManager } from "@bsky-affirmative-bot/clients";
 import { botBiothythmManager } from "@bsky-affirmative-bot/clients";
-import { ANALYZE_TRIGGER, NICKNAMES_BOT, BADGE_DEF } from "@bsky-affirmative-bot/shared-configs";
+import { BADGE_DEF } from "@bsky-affirmative-bot/shared-configs";
 import retry from 'async-retry';
 import { AppBskyFeedPost, ComAtprotoRepoListRecords } from '@atproto/api';
 type RecordPost = AppBskyFeedPost.Record;
 type RecordList = ComAtprotoRepoListRecords.Record;
 import { agent } from '../bsky/agent.js';
-import { getLangStr, isReplyOrMentionToMe } from "../bsky/util.js";
+import { getLangStr } from "../bsky/util.js";
 import { handleMode, isPast } from "./utils.js";
 import { GeminiResponseResult, UserInfoGemini } from '@bsky-affirmative-bot/shared-configs';
 import { generateAnalyzeResult, AnalyzeResult } from "@bsky-affirmative-bot/bot-brain";
@@ -23,13 +23,7 @@ export class AnalyzeFeature implements BotFeature {
     name = "Analyze";
 
     async shouldHandle(event: CommitCreateEvent<"app.bsky.feed.post">, follower: ProfileView, context: FeatureContext): Promise<boolean> {
-        const record = event.commit.record as any;
-        const text = (record.text || "").toLowerCase();
-
-        const isCalled = isReplyOrMentionToMe(record) || NICKNAMES_BOT.some(elem => text.includes(elem.toLowerCase()));
-        if (!isCalled) return false;
-
-        if (!ANALYZE_TRIGGER.some(trigger => text.includes(trigger.toLowerCase()))) return false;
+        if (!(await context.featureIntents()).intents.has("analyze")) return false;
 
         if (process.env.NODE_ENV !== "development") {
             if (!(await isPast(event, "last_analyze_at", 6 * 24 * 60))) return false;

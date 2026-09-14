@@ -120,6 +120,7 @@ const EXPECTED: Record<AiFeatureKey, [model: string, tier: "flex" | "standard" |
   GROUNDING_RESEARCH: [DEFAULT_OLLAMA_TEXT_MODEL, undefined],
   // ローカル Ollama
   OLLAMA_PREDEFINED_AFFIRMATION: [DEFAULT_OLLAMA_TEXT_MODEL, undefined],
+  OLLAMA_FEATURE_INTENT: [DEFAULT_OLLAMA_TEXT_MODEL, undefined],
   OLLAMA_NEWS_PRESCREEN: [DEFAULT_OLLAMA_TEXT_MODEL, undefined],
   // 動的枠の理由づけ。テーマ抽出も突合もテキスト生成なので ollama-chat に乗る。
   OLLAMA_ACTOR_THEMES: [DEFAULT_OLLAMA_TEXT_MODEL, undefined],

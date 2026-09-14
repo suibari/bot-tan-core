@@ -1,7 +1,6 @@
 import { AppBskyActorDefs } from "@atproto/api"; type ProfileView = AppBskyActorDefs.ProfileView;
 import { CommitCreateEvent } from "@skyware/jetstream";
 import { BotFeature, FeatureContext } from "./types.js";
-import { RECAP_TRIGGER, NICKNAMES_BOT } from "@bsky-affirmative-bot/shared-configs";
 import { AppBskyFeedPost } from "@atproto/api"; type Record = AppBskyFeedPost.Record;
 import { GeminiResponseResult, UserInfoGemini } from "@bsky-affirmative-bot/shared-configs";
 import { MemoryService } from "@bsky-affirmative-bot/clients";
@@ -12,7 +11,7 @@ import { fetchSentiment } from "../util/negaposi.js";
 import retry from 'async-retry';
 import { getUserInvolvedUsers } from "../bsky/analyzeInteractions.js";
 import { generateRecapResult } from "@bsky-affirmative-bot/bot-brain";
-import { getLangStr, isReplyOrMentionToMe, uniteDidNsidRkey } from "../bsky/util.js";
+import { getLangStr, uniteDidNsidRkey } from "../bsky/util.js";
 import { handleMode, isPast } from "./utils.js";
 import { getDaysAuthorFeed } from "../bsky/getDaysAuthorFeed.js";
 import { like } from "../bsky/like.js";
@@ -23,13 +22,7 @@ export class RecapYearFeature implements BotFeature {
   async shouldHandle(event: CommitCreateEvent<"app.bsky.feed.post">, follower: ProfileView, context: FeatureContext): Promise<boolean> {
     if (!context.isCommunityMember) return false;
 
-    const record = event.commit.record as Record;
-    const text = (record.text || "").toLowerCase();
-
-    const isCalled = isReplyOrMentionToMe(record) || NICKNAMES_BOT.some(elem => text.includes(elem.toLowerCase()));
-    if (!isCalled) return false;
-
-    if (!RECAP_TRIGGER.some(trigger => text.includes(trigger.toLowerCase()))) return false;
+    if (!(await context.featureIntents()).intents.has("recap")) return false;
 
     if (process.env.NODE_ENV !== "development") {
       if (!(await isPast(event, "last_recap_at", 6 * 24 * 60))) return false;

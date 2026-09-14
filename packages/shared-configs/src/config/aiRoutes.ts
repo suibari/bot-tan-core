@@ -289,6 +289,7 @@ export const AI_FEATURES = {
 
   // ══════ ローカル Ollama（ServiceTier なし） ════════════════════════
   OLLAMA_PREDEFINED_AFFIRMATION: "ollama-chat", // 定型文リプライの分類/LLM選択
+  OLLAMA_FEATURE_INTENT: "ollama-chat", // 投稿が呼んでいる機能（占い・日記など）の判定
   OLLAMA_NEWS_PRESCREEN: "ollama-chat", // ニュースの事前スクリーニング
   OLLAMA_ACTOR_THEMES: "ollama-chat", // 投稿から関心テーマを抽出（動的枠の理由づけ）
   OLLAMA_NEWS_THEME_MATCH: "ollama-chat", // 関心テーマとニュース見出しの突合

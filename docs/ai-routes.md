@@ -237,6 +237,7 @@ Nagi のリプライは**失敗するたびに段を上げる再試行ラダー*
 | 機能キー | 既定ルート | 用途 |
 |---|---|---|
 | `OLLAMA_PREDEFINED_AFFIRMATION` | `ollama-chat` | 定型文リプライの分類/LLM選択 |
+| `OLLAMA_FEATURE_INTENT` | `ollama-chat` | 投稿が呼んでいる機能（占い・日記など）の判定 |
 | `OLLAMA_NEWS_PRESCREEN` | `ollama-chat` | ニュースの事前スクリーニング |
 | `OLLAMA_EMBED` | `ollama-embed` | 埋め込み（投稿/ユーザ/チャンネル/ニュース） |
 | `OLLAMA_TRANSLATION` | `ollama-translate` | 投稿の一般翻訳 |

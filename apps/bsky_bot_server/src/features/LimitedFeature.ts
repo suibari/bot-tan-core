@@ -1,47 +1,41 @@
 import { CommitCreateEvent } from "@skyware/jetstream";
 import { AppBskyActorDefs } from "@atproto/api"; type ProfileView = AppBskyActorDefs.ProfileView;
 import { BotFeature, FeatureContext } from "./types.js";
-import { PREDEFINEDMODE_TRIGGER, PREDEFINEDMODE_RELEASE_TRIGGER, AIONLYMODE_TRIGGER, AIONLYMODE_RELEASE_TRIGGER, NICKNAMES_BOT } from "@bsky-affirmative-bot/shared-configs";
 import { AppBskyFeedPost } from "@atproto/api"; type Record = AppBskyFeedPost.Record;
 import { handleMode } from "./utils.js";
-import { getLangStr, isReplyOrMentionToMe } from "../bsky/util.js";
+import { getLangStr } from "../bsky/util.js";
 import { MemoryService } from "@bsky-affirmative-bot/clients";
 
 export class LimitedFeature implements BotFeature {
     name = "Limited";
 
     async shouldHandle(event: CommitCreateEvent<"app.bsky.feed.post">, follower: ProfileView, context: FeatureContext): Promise<boolean> {
-        const record = event.commit.record as any;
-        const text = (record.text || "").toLowerCase();
-
-        const isCalled = isReplyOrMentionToMe(record) || NICKNAMES_BOT.some(elem => text.includes(elem.toLowerCase()));
-        if (!isCalled) return false;
+        const { intents } = await context.featureIntents();
 
         return (
-            PREDEFINEDMODE_TRIGGER.some((trigger: string) => text.includes(trigger.toLowerCase())) ||
-            PREDEFINEDMODE_RELEASE_TRIGGER.some((trigger: string) => text.includes(trigger.toLowerCase())) ||
-            AIONLYMODE_RELEASE_TRIGGER.some((trigger: string) => text.includes(trigger.toLowerCase())) ||
-            AIONLYMODE_TRIGGER.some((trigger: string) => text.includes(trigger.toLowerCase()))
+            intents.has("predefined_mode_on") ||
+            intents.has("predefined_mode_off") ||
+            intents.has("ai_only_mode_off") ||
+            intents.has("ai_only_mode_on")
         );
     }
 
     async handle(event: CommitCreateEvent<"app.bsky.feed.post">, follower: ProfileView, context: FeatureContext): Promise<void> {
-        const record = event.commit.record as any;
-        const text = (record.text || "").toLowerCase();
+        const { intents } = await context.featureIntents();
 
-        if (PREDEFINEDMODE_RELEASE_TRIGGER.some((trigger: string) => text.includes(trigger.toLowerCase()))) {
+        if (intents.has("predefined_mode_off")) {
             await this.handleU18Release(event);
             return;
         }
-        if (PREDEFINEDMODE_TRIGGER.some((trigger: string) => text.includes(trigger.toLowerCase()))) {
+        if (intents.has("predefined_mode_on")) {
             await this.handleU18Register(event);
             return;
         }
-        if (AIONLYMODE_RELEASE_TRIGGER.some((trigger: string) => text.includes(trigger.toLowerCase()))) {
+        if (intents.has("ai_only_mode_off")) {
             await this.handleAIonlyRelease(event);
             return;
         }
-        if (AIONLYMODE_TRIGGER.some((trigger: string) => text.includes(trigger.toLowerCase()))) {
+        if (intents.has("ai_only_mode_on")) {
             await this.handleAIonlyRegister(event);
             return;
         }
