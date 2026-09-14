@@ -50,6 +50,7 @@ import {
 import {
   shouldConsiderWhimsicalPost,
   shouldPostGoodMorning,
+  shouldPostGoodNight,
 } from "./scheduledPostGate.js";
 import {
   DEFAULT_STEP_INTERVAL_MS,
@@ -110,7 +111,6 @@ export class BiorhythmManager extends EventEmitter {
     at: number;
     value: RecentBotMemoryImpression[];
   } | null = null;
-  private firstStepDone = false;
   private lastGoodNightPostDate?: string;
   private lastGoodMorningPostDate?: string;
   /** bottan_live.comments のうち energy へ反映済みの最大 id。null は初回未設定。 */
@@ -528,20 +528,21 @@ export class BiorhythmManager extends EventEmitter {
       // お部屋のできごとを取りこぼすと来てくれた人の体験がそのまま消える）。
       await MemoryService.markRoomEventsRead(roomEvents.map((event) => event.id));
 
-      // おやすみポスト
-      if (this.firstStepDone) {
-        if (this.status !== this.statusPrev && this.status === "Sleep" && (hour >= 21 || hour <= 3)) {
-          if (this.canPostGoodNight()) {
-            console.log(`[INFO][BIORHYTHM] post goodnight!`);
-            await postGoodNight(this.getMood, botContext);
-            await this.setGoodNightPostDate();
-          } else {
-            console.log(`[INFO][BIORHYTHM] goodnight post already done today, skipping`);
-          }
-        }
+      // おやすみポスト。起動直後の step でも抑えない。以前は初回 step を丸ごと除外しており、
+      // デプロイ直後の step で Sleep に遷移した夜（2026-09-14）を撃ち漏らした。
+      // status は DB から復元されるので起動直後でも判定は正しく、二重投稿は bot 日ガードが防ぐ。
+      if (shouldPostGoodNight({
+        status: this.status,
+        hour,
+        today: this.getAdjustedDateString(),
+        lastGoodNightPostDate: this.lastGoodNightPostDate,
+      })) {
+        console.log(`[INFO][BIORHYTHM] post goodnight!`);
+        await postGoodNight(this.getMood, botContext);
+        await this.setGoodNightPostDate();
       }
 
-      // おはようポスト。firstStepDone で抑えないのは、朝に再起動が挟まった日に撃ち漏らすため。
+      // おはようポスト。起動直後の step でも抑えないのは、朝に再起動が挟まった日に撃ち漏らすため。
       // 二重投稿は canPostGoodMorning() と同じ bot 日ガード（shouldPostGoodMorning）が防ぐ。
       if (shouldPostGoodMorning({
         status: this.status,
@@ -553,7 +554,6 @@ export class BiorhythmManager extends EventEmitter {
         await this.changeEnergy(-6000);
         await this.setGoodMorningPostDate();
       }
-      this.firstStepDone = true;
 
       // 定期つぶやきポスト。
       // おはようより先に出ないのは、両方が status !== "Sleep" を要求したうえで、おはようを
@@ -836,11 +836,6 @@ ${buildRoomEventsSection(roomEvents)}
 
   private getAdjustedDateString(): string {
     return botDayRange().date;
-  }
-
-  private canPostGoodNight(): boolean {
-    const today = this.getAdjustedDateString();
-    return this.lastGoodNightPostDate !== today;
   }
 
   private async setGoodNightPostDate() {

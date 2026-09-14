@@ -43,6 +43,26 @@ export function shouldPostGoodMorning(args: {
 }
 
 /**
+ * おやすみポストを撃つか。
+ *
+ * おはようと同じく「Sleep へ遷移した step」ではなく「夜の時間帯に寝ていて、その bot 日に
+ * まだ撃っていない」で判定する。遷移を条件にすると、遷移した step がデプロイ直後だったり
+ * LLM 失敗で catch に落ちたりしたとき、以降は Sleep → Sleep しか来ずその夜は撃ち漏らす
+ * （2026-09-14 に 22:57 の再起動直後の遷移を捨てて実際に起きた）。
+ *
+ * 0〜3時は botDayRange() では前日の bot 日に属するので、日付をまたいでも二重投稿しない。
+ */
+export function shouldPostGoodNight(args: {
+  status: Status;
+  hour: number;
+  today: string;
+  lastGoodNightPostDate?: string;
+}): boolean {
+  const isNight = args.hour >= 21 || args.hour <= 3;
+  return args.status === "Sleep" && isNight && args.lastGoodNightPostDate !== args.today;
+}
+
+/**
  * 定期つぶやきの抽選まで進んでよいか。抽選そのものは呼び出し側に残す。
  *
  * 開発時はエネルギーも就寝中判定も無視する（ローカルで夜に動かしても試せるように）。
