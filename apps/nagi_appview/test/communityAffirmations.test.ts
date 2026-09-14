@@ -8,6 +8,7 @@ const { db, nagiCommunityAffirmations, nagiPosts } =
   await import("@bsky-affirmative-bot/database");
 const { and } = await import("drizzle-orm");
 const {
+  COMMUNITY_AFFIRMATION_SIMILAR_POST_MAX_DISTANCE,
   communityAffirmationVisibility,
   decodeCommunityAffirmationCursor,
   encodeCommunityAffirmationCursor,
@@ -46,6 +47,28 @@ test("匿名候補のSQLはCID・CW・自分・ミュートを再検証する", 
   assert.ok(query.params.includes("did:plc:self"));
   assert.ok(text.includes("community_affirmation_dismissals"));
   assert.ok(text.includes("not exists"));
+  assert.ok(text.includes("community_affirmation_dismissed_post"));
+  assert.ok(
+    text.includes(
+      '"community_affirmation_dismissed_post"."did" = "nagi"."posts"."did"',
+    ),
+    "同じユーザーの投稿だけを類似判定する",
+  );
+  assert.ok(
+    text.includes(
+      '"community_affirmation_dismissed_post"."embedding" <=> "nagi"."posts"."embedding"',
+    ),
+    "見送った投稿と候補投稿の cosine 距離を比べる",
+  );
+  assert.ok(
+    query.params.includes(COMMUNITY_AFFIRMATION_SIMILAR_POST_MAX_DISTANCE),
+  );
+  assert.ok(
+    text.includes(
+      '"community_affirmation_dismissal"."source_uri" = "nagi"."posts"."uri"',
+    ),
+    "埋め込みが無い場合も選んだ投稿自体は除外する",
+  );
   assert.ok(text.includes('"reactions"'));
   assert.ok(
     query.params.every((param) => !(param instanceof Date)),
