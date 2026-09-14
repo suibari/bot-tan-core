@@ -4,6 +4,7 @@ import {
   isSleepingPeriod,
   shouldConsiderWhimsicalPost,
   shouldPostGoodMorning,
+  shouldPostGoodNight,
 } from "../src/scheduledPostGate.js";
 
 /** bot 日は4時始まり。おやすみは D に、その翌朝のおはようは D+1 に記録される。 */
@@ -71,6 +72,58 @@ test("寝坊して昼に起きた日でも、未投稿なら撃つ", () => {
   // 時刻は判定材料に入らない。10時を過ぎたら諦める旧仕様との違い。
   assert.equal(
     shouldPostGoodMorning({ status: "Relax", today: NEXT, lastGoodMorningPostDate: D }),
+    true,
+  );
+});
+
+// --- shouldPostGoodNight ---
+
+test("遷移した step を逃しても、夜に寝ていてその日未投稿なら撃つ", () => {
+  // 2026-09-14: 再起動直後の step で Sleep に遷移し、以降は Sleep → Sleep だけで撃ち漏らした。
+  assert.equal(
+    shouldPostGoodNight({ status: "Sleep", hour: 23, today: D, lastGoodNightPostDate: "2026-08-03" }),
+    true,
+  );
+});
+
+test("日付をまたいだ深夜でも、同じ bot 日に撃っていれば撃たない", () => {
+  // 23時に撃った夜の2時。0〜3時は前日の bot 日なので today は D のまま。
+  assert.equal(
+    shouldPostGoodNight({ status: "Sleep", hour: 2, today: D, lastGoodNightPostDate: D }),
+    false,
+  );
+});
+
+test("起きている間は夜でも撃たない", () => {
+  assert.equal(
+    shouldPostGoodNight({ status: "FreeTime", hour: 23, today: D, lastGoodNightPostDate: undefined }),
+    false,
+  );
+});
+
+test("夜の時間帯の外で寝ていても撃たない", () => {
+  // 朝の二度寝や夕方の昼寝。
+  assert.equal(
+    shouldPostGoodNight({ status: "Sleep", hour: 7, today: D, lastGoodNightPostDate: "2026-08-03" }),
+    false,
+  );
+  assert.equal(
+    shouldPostGoodNight({ status: "Sleep", hour: 20, today: D, lastGoodNightPostDate: "2026-08-03" }),
+    false,
+  );
+  assert.equal(
+    shouldPostGoodNight({ status: "Sleep", hour: 4, today: NEXT, lastGoodNightPostDate: D }),
+    false,
+  );
+});
+
+test("夜の時間帯の境界（21時・3時）では撃つ", () => {
+  assert.equal(
+    shouldPostGoodNight({ status: "Sleep", hour: 21, today: D, lastGoodNightPostDate: undefined }),
+    true,
+  );
+  assert.equal(
+    shouldPostGoodNight({ status: "Sleep", hour: 3, today: D, lastGoodNightPostDate: undefined }),
     true,
   );
 });
