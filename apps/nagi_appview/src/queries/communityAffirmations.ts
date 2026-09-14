@@ -31,6 +31,15 @@ const ONE_HOUR_MS = 60 * 60 * 1_000;
 export const COMMUNITY_AFFIRMATION_WINDOW_MS = 7 * 24 * ONE_HOUR_MS;
 
 /**
+ * 見送った投稿と「似ている」と判定する cosine 距離の上限。
+ *
+ * 投稿同士の比較は検索クエリ→投稿よりも距離が小さく出るため、検索用の
+ * semDistMax は使わない。同一作者に絞った上でも、単に文体が似ている投稿まで
+ * 広く消さないよう保守的な値にする。
+ */
+export const COMMUNITY_AFFIRMATION_SIMILAR_POST_MAX_DISTANCE = 0.2;
+
+/**
  * カーソルの基準は「要約を生成した時刻」（community_affirmations.updated_at）。
  * 投稿日時ではなく生成時刻の降順に並べることで、新しく積まれた要約が必ず先頭に来る。
  */
@@ -62,6 +71,10 @@ export function communityAffirmationVisibility(opts: {
     nagiCommunityAffirmationDismissals,
     "community_affirmation_dismissal",
   );
+  const dismissedPost = alias(
+    nagiPosts,
+    "community_affirmation_dismissed_post",
+  );
   const viewerReaction = alias(nagiReactions, "viewer_reaction");
   return [
     eq(nagiCommunityAffirmations.state, "posted"),
@@ -83,11 +96,21 @@ export function communityAffirmationVisibility(opts: {
       db
         .select({ sourceUri: dismissal.sourceUri })
         .from(dismissal)
+        .innerJoin(dismissedPost, eq(dismissedPost.uri, dismissal.sourceUri))
         .where(
           and(
             eq(dismissal.viewerDid, opts.viewerDid),
-            eq(dismissal.sourceUri, nagiPosts.uri),
             gt(dismissal.expiresAt, opts.now),
+            or(
+              // 埋め込みが未生成でも、選んだ投稿自体は必ず見送る。
+              eq(dismissal.sourceUri, nagiPosts.uri),
+              and(
+                eq(dismissedPost.did, nagiPosts.did),
+                isNotNull(dismissedPost.embedding),
+                isNotNull(nagiPosts.embedding),
+                sql`(${dismissedPost.embedding} <=> ${nagiPosts.embedding}) <= ${COMMUNITY_AFFIRMATION_SIMILAR_POST_MAX_DISTANCE}`,
+              ),
+            ),
           ),
         ),
     ),

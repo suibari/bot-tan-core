@@ -12,6 +12,7 @@
           "properties": {
             "uris": {
               "type": "array",
+              "description": "Posts selected as private dismissal anchors. Each anchor also excludes similar community-affirmation candidates by the same author while active.",
               "maxLength": 200,
               "items": {
                 "type": "string",
