@@ -11,7 +11,7 @@ import { bot_state, db } from './db.js';
 
 export const HEALTH_KEY_PREFIX = 'health:';
 
-/** UI に出す4タイルの内訳として、biorhythm_server が集約する単位。 */
+/** UI のサービス監視タイルへ、biorhythm_server が集約する単位。 */
 export type HealthService =
   | 'jetstream-bsky'
   | 'jetstream-nagi'

@@ -435,6 +435,7 @@ BIORHYTHM_TRUST_CF_CONNECTING_IP=true
 | `BIORHYTHM_MEMORY_API_HOST` / `PORT` | RAG内部API。既定`127.0.0.1:3003` |
 | `BIORHYTHM_INTERNAL_SECRET` | 内部API共通Bearer secret |
 | `BIORHYTHM_WS_ALLOWED_ORIGINS` | 本番必須のWebSocket Origin完全一致リスト |
+| `BIORHYTHM_DISK_PATH` | ダッシュボードに容量を出すファイルシステム。既定`/`。本番ホスト自身で計測 |
 | `BIORHYTHM_WS_MAX_CONNECTIONS` | 全体接続上限。既定500 |
 | `BIORHYTHM_WS_MAX_CONNECTIONS_PER_IP` | IP別上限。既定10 |
 | `BIORHYTHM_WS_HEARTBEAT_INTERVAL_MS` | ping/pong。既定30秒 |
