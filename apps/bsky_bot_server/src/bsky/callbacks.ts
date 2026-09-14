@@ -12,6 +12,7 @@ import { ProfileView } from "@atproto/api/dist/client/types/app/bsky/actor/defs.
 import { tombstoneBotMemoriesByUri, updateBotMemoriesByUri } from "@bsky-affirmative-bot/database";
 
 import { FeatureContext } from "../features/types.js";
+import { resolveFeatureIntents, type FeatureIntentResult } from "../features/featureIntent.js";
 
 function eventPostUri(event: any) {
   return `at://${event.did}/${event.commit.collection}/${event.commit.rkey}`;
@@ -118,7 +119,21 @@ export async function onPost(event: any) {
           return;
         }
 
-        const context: FeatureContext = { isSubscriber, isCommunityMember };
+        let featureIntentsPromise: Promise<FeatureIntentResult> | undefined;
+        const featureIntents = () => featureIntentsPromise ??= resolveFeatureIntents({
+          text,
+          isReplyOrMentionToMe: isReplyOrMentionToMe(record),
+          isCommunityMember,
+        }).then(result => {
+          if (result.fallbackReason) {
+            console.warn(`[WARN][${authorDid}] Feature intent fell back to regex: ${result.fallbackReason}`);
+          }
+          if (result.intents.size > 0) {
+            console.log(`[INFO][${authorDid}] Feature intent (${result.detector}): ${[...result.intents].join(", ")}`);
+          }
+          return result;
+        });
+        const context: FeatureContext = { isSubscriber, isCommunityMember, featureIntents };
 
         for (const feature of features) {
           try {

@@ -54,6 +54,8 @@ The flowchart below illustrates how the bot responds to your posts:
 
 ![bot flow](https://cdn.bsky.app/img/feed_fullsize/plain/did:plc:uixgxpiqf4i63p6rgpu7ytmx/bafkreihxgiteyk25cpv3e7lkdsggntpb3jj6ybha4btq5ykf2fzdyq7j6u@jpeg)
 
+The trigger phrases listed for each feature below are examples. The bot uses AI to decide which feature a post is asking for, so paraphrases such as "bot-tan, tell me my luck today" also work. When a post fits several features, the AI picks the one you most want. The cheer squad hashtag is still required.
+
 ### Fortune-telling
 1. Make sure you are followed back by the bot.
 2. Mention or reply to the bot with **"fortune"** (or "うらない", "占い", "占って", "うらなって").

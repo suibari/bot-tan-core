@@ -2,7 +2,6 @@ import { CommitCreateEvent } from "@skyware/jetstream";
 import { AppBskyActorDefs } from "@atproto/api"; type ProfileView = AppBskyActorDefs.ProfileView;
 import { BotFeature, FeatureContext } from "./types.js";
 
-import { DIARY_REGISTER_TRIGGER, DIARY_RELEASE_TRIGGER } from "@bsky-affirmative-bot/shared-configs";
 import { AppBskyFeedPost } from "@atproto/api"; type Record = AppBskyFeedPost.Record;
 import { handleMode } from "./utils.js";
 import { getLangStr, getTimezoneFromLang } from "../bsky/util.js";
@@ -30,20 +29,22 @@ export class DiaryFeature implements BotFeature {
     name = "Diary";
 
     async shouldHandle(event: CommitCreateEvent<"app.bsky.feed.post">, follower: ProfileView, context: FeatureContext): Promise<boolean> {
-        const record = event.commit.record as any;
-        const text = (record.text || "").toLowerCase();
-
         if (!context.isCommunityMember) return false;
 
-        return (
-            DIARY_REGISTER_TRIGGER.some(trigger => text.includes(trigger.toLowerCase())) ||
-            DIARY_RELEASE_TRIGGER.some(trigger => text.includes(trigger.toLowerCase()))
-        );
+        const { intents } = await context.featureIntents();
+        return intents.has("diary_on") || intents.has("diary_off");
     }
 
     async handle(event: CommitCreateEvent<"app.bsky.feed.post">, follower: ProfileView, context: FeatureContext): Promise<void> {
-        if (await this.handleDiaryRegister(event)) return;
-        if (await this.handleDiaryRelease(event)) return;
+        const { intents } = await context.featureIntents();
+        // 「日記をやめて」は解除を優先する。regex モードでは両方のトリガーを含む投稿がありうる。
+        if (intents.has("diary_off")) {
+            await this.handleDiaryRelease(event);
+            return;
+        }
+        if (intents.has("diary_on")) {
+            await this.handleDiaryRegister(event);
+        }
     }
 
     private async handleDiaryRegister(event: CommitCreateEvent<"app.bsky.feed.post">) {

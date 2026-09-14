@@ -3,7 +3,6 @@ import { AppBskyActorDefs } from "@atproto/api"; type ProfileView = AppBskyActor
 import { BotFeature, FeatureContext } from "./types.js";
 import { MemoryService } from "@bsky-affirmative-bot/clients";
 import { botBiothythmManager } from "@bsky-affirmative-bot/clients";
-import { CHEER_TRIGGER } from "@bsky-affirmative-bot/shared-configs";
 import { AppBskyFeedPost } from "@atproto/api"; type Record = AppBskyFeedPost.Record;
 import { handleMode, isPast } from "./utils.js";
 import { getLangStr, uniteDidNsidRkey } from "../bsky/util.js";
@@ -16,14 +15,11 @@ export class CheerFeature implements BotFeature {
     name = "Cheer";
 
     async shouldHandle(event: CommitCreateEvent<"app.bsky.feed.post">, follower: ProfileView, context: FeatureContext): Promise<boolean> {
-        const record = event.commit.record as any;
-        const text = (record.text || "").toLowerCase();
-
         // Check if subscriber
         if (!context.isCommunityMember) return false;
 
-        // Check trigger
-        if (!CHEER_TRIGGER.some(trigger => text.includes(trigger.toLowerCase()))) return false;
+        // Check trigger (ハッシュタグは必須。LLMモードでも、複数機能に該当したときの選択だけをLLMに任せる)
+        if (!(await context.featureIntents()).intents.has("cheer")) return false;
 
         // Check condition (isPast)
         if (process.env.NODE_ENV !== "development") {

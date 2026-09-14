@@ -3,11 +3,10 @@ import { AppBskyActorDefs } from "@atproto/api"; type ProfileView = AppBskyActor
 import { BotFeature, FeatureContext } from "./types.js";
 import { MemoryService } from "@bsky-affirmative-bot/clients";
 import { botBiothythmManager } from "@bsky-affirmative-bot/clients";
-import { DJ_TRIGGER, NICKNAMES_BOT } from "@bsky-affirmative-bot/shared-configs";
 import { AppBskyFeedPost } from "@atproto/api"; type Record = AppBskyFeedPost.Record;
 import { handleMode, isPast } from "./utils.js";
 import { generateRecommendedSong } from "@bsky-affirmative-bot/bot-brain";
-import { getLangStr, isReplyOrMentionToMe } from "../bsky/util.js";
+import { getLangStr } from "../bsky/util.js";
 import { UserInfoGemini, GeminiResponseResult } from "@bsky-affirmative-bot/shared-configs";
 import { agent } from "../bsky/agent.js";
 import { searchYoutubeLink } from "@bsky-affirmative-bot/bot-brain";
@@ -16,13 +15,7 @@ export class DJFeature implements BotFeature {
     name = "DJ";
 
     async shouldHandle(event: CommitCreateEvent<"app.bsky.feed.post">, follower: ProfileView, context: FeatureContext): Promise<boolean> {
-        const record = event.commit.record as Record;
-        const text = (record.text || "").toLowerCase();
-
-        const isCalled = isReplyOrMentionToMe(record) || NICKNAMES_BOT.some(elem => text.includes(elem.toLowerCase()));
-        if (!isCalled) return false;
-
-        if (!DJ_TRIGGER.some(trigger => text.includes(trigger.toLowerCase()))) return false;
+        if (!(await context.featureIntents()).intents.has("dj")) return false;
 
         if (process.env.NODE_ENV !== "development") {
             if (!(await isPast(event, "last_dj_at", 5))) return false;
