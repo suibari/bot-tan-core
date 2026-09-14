@@ -1,4 +1,5 @@
 import { and, asc, eq, lte, or } from "drizzle-orm";
+import { isAppviewOwnedUri } from "@bsky-affirmative-bot/nagi-lexicon";
 import {
   db,
   nagiBotReplyJobs,
@@ -12,6 +13,11 @@ import {
   awardSuperPositiveLevel,
 } from "@bsky-affirmative-bot/clients";
 import { createNagiReply } from "./createNagiReply.js";
+import {
+  enqueueNagiDrawingGift,
+  prepareNagiDrawingRequest,
+  type PreparedNagiDrawingRequest,
+} from "./nagiDrawing.js";
 import {
   decideNagiReplyMode,
   NagiAiQuotaExceededError,
@@ -128,31 +134,50 @@ export function startNagiReplyWorker() {
         }
       }
 
-      const decision = await decideNagiReplyMode(job.sourceUri, job.authorDid);
-      generationMode = decision.mode;
-      let result;
-      try {
-        result = await createNagiReply(job, {
-          mode: decision.mode,
-          beforeGeminiRequest:
-            decision.mode === "ai" ? reserveNagiAiRequest : undefined,
-          aiRoute,
+      // お絵描きの依頼なら、AI の返信の代わりに依頼への返事を返す（nagiDrawing.ts）。
+      // こっそりは返信が PDS に無く、絵をぶら下げる先の cid が取れないので対象外。
+      let drawingRequest: PreparedNagiDrawingRequest | undefined;
+      if (!isAppviewOwnedUri(job.sourceUri) && typeof incomingRecord?.text === "string") {
+        drawingRequest = await prepareNagiDrawingRequest({
+          sourceUri: job.sourceUri,
+          authorDid: job.authorDid,
+          text: incomingRecord.text,
+          langs: incomingRecord.langs,
         });
-      } catch (error) {
-        if (error instanceof NagiAiQuotaExceededError) {
-          await switchNagiReplyToTemplate(job.sourceUri, error.reason);
-          generationMode = "template";
-          result = await createNagiReply(job, { mode: "template" });
-        } else if (isDegenerateGenerationError(error) && isFinalAttempt(job, attempt)) {
-          // 生成物が壊れたままラダーを使い切った。無言で消えるより定型文で返す。
-          console.warn(
-            `[WARN][NAGI] ${job.sourceUri} falling back to a predefined reply after a degenerate generation:`,
-            formatNagiReplyError(error),
-          );
-          generationMode = "template";
-          result = await createNagiReply(job, { mode: "template" });
-        } else {
-          throw error;
+      }
+
+      let result;
+      if (drawingRequest) {
+        result = await createNagiReply(job, {
+          mode: "template",
+          presetComment: drawingRequest.comment,
+        });
+      } else {
+        const decision = await decideNagiReplyMode(job.sourceUri, job.authorDid);
+        generationMode = decision.mode;
+        try {
+          result = await createNagiReply(job, {
+            mode: decision.mode,
+            beforeGeminiRequest:
+              decision.mode === "ai" ? reserveNagiAiRequest : undefined,
+            aiRoute,
+          });
+        } catch (error) {
+          if (error instanceof NagiAiQuotaExceededError) {
+            await switchNagiReplyToTemplate(job.sourceUri, error.reason);
+            generationMode = "template";
+            result = await createNagiReply(job, { mode: "template" });
+          } else if (isDegenerateGenerationError(error) && isFinalAttempt(job, attempt)) {
+            // 生成物が壊れたままラダーを使い切った。無言で消えるより定型文で返す。
+            console.warn(
+              `[WARN][NAGI] ${job.sourceUri} falling back to a predefined reply after a degenerate generation:`,
+              formatNagiReplyError(error),
+            );
+            generationMode = "template";
+            result = await createNagiReply(job, { mode: "template" });
+          } else {
+            throw error;
+          }
         }
       }
 
@@ -219,6 +244,40 @@ export function startNagiReplyWorker() {
           affirmationScore: result.score ?? null,
           metadata: { replyUri: result.uri, generationMode: "ai" },
         });
+      }
+
+      // お絵描き（nagiDrawing.ts）。絵は botたんの返信へのリプライとして置く。描画は別の直列
+      // キューで回し、返信ワーカーは待たせない。
+      //  - 依頼: 上で返事を返したものを描く
+      //  - 贈り物: 公開のトップレベル投稿へ AI で返信できたとき、気持ちが大きく動いていれば贈る
+      // ジョブは既に posted なので、ここで投げると catch が pending に戻して返信を上書きする。
+      if ("cid" in result && typeof result.cid === "string") {
+        const thread = {
+          root: record?.reply?.root ?? { uri: job.sourceUri, cid: job.sourceCid },
+          parent: { uri: result.uri, cid: result.cid },
+        };
+        try {
+          if (drawingRequest) {
+            drawingRequest.onReplyPosted?.(thread);
+          } else if (
+            generationMode === "ai" &&
+            sourcePost &&
+            !sourcePost.deletedAt &&
+            !sourcePost.kossori &&
+            !record?.reply &&
+            typeof record?.text === "string"
+          ) {
+            enqueueNagiDrawingGift({
+              sourceUri: job.sourceUri,
+              authorDid: job.authorDid,
+              text: record.text,
+              langs: record.langs,
+              ...thread,
+            });
+          }
+        } catch (error) {
+          console.error(`[ERROR][NAGI][DRAWING] Failed to enqueue ${job.sourceUri}:`, error);
+        }
       }
 
       // 超ポジティブLvはBlueskyと共通のカウンタ（followers.positivity_level）。

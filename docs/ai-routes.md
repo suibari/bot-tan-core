@@ -185,6 +185,7 @@ Ollama既定とGemini切り戻しの両方を全機能ぶんピン留めして�
 | `BSKY_ROOM_WELCOME` | `lite-flex` | お部屋招待のお出迎え |
 | `BSKY_MY_MOOD_SONG` | `lite-flex` | 今日の気分ソング（**現在は呼び出し元なし**） |
 | `BSKY_IMAGE_PROMPT` | `ollama-chat` | 画像生成用に日本語の情景文を booru タグへ直す（必ずローカル） |
+| `BSKY_DRAWING_REQUEST` | `ollama-chat` | お絵描き: botたんに絵を頼んでいるか・題材・描いてよい依頼かの判定（Nagi の依頼も共用） |
 
 肯定返信（`generateAffirmativeWord`）と会話（`conversation`）の実装は Nagi からも呼ばれるが、
 **Nagi は必ず `requestOptions` で model/serviceTier を明示上書きする**（再試行ラダー）ので、
@@ -219,6 +220,7 @@ bsky の全機能は `callbacks.ts` の共通リトライ（初回+2回）に包
 | `NAGI_CHANNEL_WELCOME` | `lite-flex` | チャンネル作成時の歓迎 |
 | `NAGI_CHANNEL_TOPIC` | `lite-flex` | チャンネルへの話題ふり |
 | `NAGI_NAME_INTENT` | `lite-standard` | 呼称指定・訂正の判定（返信投稿前に完了待ち） |
+| `NAGI_DRAWING_GIFT` | `ollama-chat` | お絵描きの贈り物: 投稿者の気持ちが大きく動いているかと、贈る絵の場面 |
 
 Nagi のリプライは**失敗するたびに段を上げる再試行ラダー**になっている（`apps/nagi_bot_server/src/nagiReplyRetry.ts`）。
 段の刻み方（1-2 / 3-4 / 5以降）はコード側、各段が何を使うかは上の3キーが決める。

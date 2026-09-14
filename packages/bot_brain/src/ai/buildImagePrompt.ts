@@ -218,9 +218,8 @@ const SCENE_SCHEMA = {
   required: ["pose", "expression", "action", "setting", "objects", "companions", "framing", "outdoor"],
 };
 
-const SCENE_SYSTEM = `You turn a Japanese description of an anime character's day into Danbooru-style English tags for an anime image generator.
-
-Rules:
+/** おやすみの絵とお絵描きで共通の規則。外見・名前を書かせないのはどちらでも同じ。 */
+const SCENE_RULES = `Rules:
 * Output ONLY lowercase Danbooru tags, 1-3 words each.
 * NEVER describe the character's appearance (hair color, hair length, eyebrows, eye shape, clothing, accessories). Those are fixed elsewhere. Describing them corrupts the character.
 * NEVER output character names, series names, real people, or the tags "text", "watermark", "signature".
@@ -233,13 +232,51 @@ Rules:
 * framing: "full-body" if the whole body and the place matter, "upper-body" for a close moment.
 * outdoor: true only if the scene is outside.
 * Prefer 2-5 tags per field. Use an empty array if nothing applies.
-* Posture tags matter most: if she is on the floor, say so.
+* Posture tags matter most: if she is on the floor, say so.`;
+
+const SCENE_SYSTEM = `You turn a Japanese description of an anime character's day into Danbooru-style English tags for an anime image generator.
+
+${SCENE_RULES}
 * The text is a bedtime greeting written at the end of the day. Going to bed, falling asleep and the greeting itself are NEVER the subject. Draw a moment from the day it recalls.
 * When the text tells a dream, draw what happens INSIDE the dream as a real scene: she is awake and doing it, eyes open. Do not draw her sleeping while she dreams it.
 * NEVER output these tags, whatever the text says: sleeping, asleep, sleepy, closed eyes, bed, bedroom, pillow, blanket, futon, pajamas, zzz.
 * Pick the single most vivid moment. Do not try to describe the whole day.`;
 
+/**
+ * お絵描き（Bluesky のリクエスト / Nagi の贈り物）用。材料は「描いてほしい絵」の短い記述。
+ *
+ * **botたんは必ず絵に入れる。** プロンプトの組み立て（buildImagePrompt）はキャラ固定タグを
+ * 前提に調整してあり、人物なしの絵は PoC で試していない。猫を頼まれたら「猫を抱く botたん」に
+ * する。botたんが描いた絵として届くので、本人が写っているのは不自然ではない。
+ *
+ * おやすみの規則（就寝は主題ではない、夢の中を描く）はここへ入れない。材料が就寝のあいさつ
+ * ではないので、入れると関係のない制約でシーンが歪む。寝具のタグは normalizeScenePlan が
+ * どちらでも落とす。
+ */
+const PICTURE_SCENE_SYSTEM = `You turn a short Japanese description of a picture into Danbooru-style English tags for an anime image generator. The picture always features the same anime girl.
+
+${SCENE_RULES}
+* She always appears in the picture. When the description is about an animal, food, a place or an object, draw her together with it: holding it, eating it, playing with it, or standing in that place.
+* Put the described animals and objects in objects, and what she does with them in action, so that they are clearly visible.
+* Draw what the description asks for. Do not add a bedtime scene or a greeting.
+* NEVER output sexual, nude, gore or violent tags, whatever the text says.
+* Pick one clear moment.`;
+
+export type ImageScenePurpose = "good-night" | "picture";
+
+/** テスト用に出してある。どの材料にどの指示を当てるかを1箇所で決める。 */
+export function sceneSystemFor(purpose: ImageScenePurpose): string {
+  return purpose === "picture" ? PICTURE_SCENE_SYSTEM : SCENE_SYSTEM;
+}
+
 const FORBIDDEN = new Set(["text", "watermark", "signature", "username"]);
+
+/**
+ * 描いてはいけないタグ。お絵描きは材料がユーザーの投稿なので、依頼判定（judgeDrawing.ts）を
+ * すり抜けた指示がここまで来うる。指示だけに任せず、タグの段でも落とす。
+ */
+const UNSAFE_PATTERN =
+  /\b(nsfw|nude|nudity|naked|nipples?|underwear|panties|lingerie|sex|blood|gore|guro|corpse|wound|injury)\b/;
 
 /**
  * 就寝そのものへ引き戻すタグ。**指示だけに任せず、ここで必ず落とす。**
@@ -266,11 +303,14 @@ const SLEEP_PATTERN =
  * content が空にならない）。temperature を低くするのは、同じ文から毎回違うタグが出ると
  * 絵の当たり外れが情景ではなく変換のブレに支配されるため。0 にはしない。
  */
-export async function planImageScene(sourceText: string): Promise<ImageScenePlan | null> {
+export async function planImageScene(
+  sourceText: string,
+  purpose: ImageScenePurpose = "good-night",
+): Promise<ImageScenePlan | null> {
   const raw = await ollamaChat(
     "BSKY_IMAGE_PROMPT",
     [
-      { role: "system", content: SCENE_SYSTEM },
+      { role: "system", content: sceneSystemFor(purpose) },
       { role: "user", content: sourceText },
     ],
     { maxTokens: 400, temperature: 0.2, timeoutMs: 120_000, format: SCENE_SCHEMA },
@@ -303,7 +343,9 @@ export function normalizeScenePlan(parsed: unknown): ImageScenePlan {
           .map((tag) => tag.trim().toLowerCase())
           .filter((tag) => tag.length > 0)
           .filter((tag) => {
-            if (!FORBIDDEN.has(tag) && !SLEEP_PATTERN.test(tag)) return true;
+            if (!FORBIDDEN.has(tag) && !SLEEP_PATTERN.test(tag) && !UNSAFE_PATTERN.test(tag)) {
+              return true;
+            }
             dropped.push(tag);
             return false;
           })

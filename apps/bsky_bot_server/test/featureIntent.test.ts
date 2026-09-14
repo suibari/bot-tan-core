@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  buildFeatureIntentPrompt,
   buildFeatureIntentSchema,
   classifyFeatureIntentOllama,
   detectFeatureIntentsByKeyword,
@@ -199,4 +200,36 @@ test("Ollama へのリクエストは num_ctx を送らず temperature と forma
   assert.deepEqual(body.format.properties.feature.enum, ["dj", "fortune", "none"]);
   assert.equal(body.messages.at(-1).role, "user");
   assert.equal(body.messages.at(-1).content, "DJお願い");
+});
+
+test("お絵描き: 呼ばれたメンバーの投稿だけが候補になり、LLM が選べば発火する", async () => {
+  // メンバー限定・呼びかけ必須
+  assert.ok(featureIntentCandidates(called("猫の絵を描いて", true)).includes("drawing"));
+  assert.ok(!featureIntentCandidates(called("猫の絵を描いて")).includes("drawing"));
+  assert.ok(
+    !featureIntentCandidates({ text: "猫の絵を描いて", isReplyOrMentionToMe: false, isCommunityMember: true })
+      .includes("drawing"),
+  );
+
+  const result = await resolveFeatureIntents(called("botたん、猫の絵を描いて！", true), {
+    detector: "llm",
+    isOllamaConfigured: () => true,
+    classify: async () => ({ feature: "drawing" }),
+  });
+  assert.deepEqual(sorted(result.intents), ["drawing"]);
+
+  // regex モードは足切り語で広く当たる。依頼かどうかは DrawingFeature の判定が確かめる。
+  assert.ok(detectFeatureIntentsByKeyword(called("この絵かわいいね", true)).intents.has("drawing"));
+});
+
+test("プロンプトは各機能に日本語の呼び出し例を添え、お願いの形なら言い方を問わず機能呼び出しとする", () => {
+  const prompt = buildFeatureIntentPrompt(["fortune", "reply_frequency", "drawing"]);
+  // 説明文が英語だけだと、ひらがなの「うらなってー」を占いと結び付けられなかった（2026-09-14 実測）。
+  assert.match(prompt, /- fortune: .*"うらなって"/);
+  assert.match(prompt, /- reply_frequency: .*"freq30"/);
+  // お絵描きは足切り語（「絵」「描」）ではなく依頼の形の例を見せる。
+  assert.match(prompt, /- drawing: .*"猫の絵を描いて"/);
+  assert.doesNotMatch(prompt, /- drawing: .*"絵"/);
+  assert.match(prompt, /IS a feature call, in any wording/);
+  assert.match(prompt, /Choose "none" only when the post does not ask the bot for anything/);
 });

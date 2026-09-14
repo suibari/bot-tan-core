@@ -86,6 +86,8 @@ const EXPECTED: Record<AiFeatureKey, [model: string, tier: "flex" | "standard" |
   // 画像そのもののルーティングは AI_IMAGE_FEATURES 側（この表はテキスト専用）。
   // ここに残るのは、日本語の情景文を booru タグへ直す変換だけ。必ずローカルで回す。
   BSKY_IMAGE_PROMPT: [DEFAULT_OLLAMA_TEXT_MODEL, undefined],
+  // お絵描きの依頼判定。抽出作業なのでローカル。
+  BSKY_DRAWING_REQUEST: [DEFAULT_OLLAMA_TEXT_MODEL, undefined],
   // biorhythm_server（定期ポスト）
   // 今期の話題作リスト。grounding 付きだが7日キャッシュするので実質週1回。
   BIORHYTHM_SEASONAL_WORKS: [FLASH, "flex"],
@@ -111,6 +113,7 @@ const EXPECTED: Record<AiFeatureKey, [model: string, tier: "flex" | "standard" |
   NAGI_CHANNEL_WELCOME: [LITE, "flex"],
   NAGI_CHANNEL_TOPIC: [LITE, "flex"],
   NAGI_NAME_INTENT: [LITE, "standard"],
+  NAGI_DRAWING_GIFT: [DEFAULT_OLLAMA_TEXT_MODEL, undefined],
   // ニュース
   NEWS_POSITIVE_GATE: [LITE, "flex"],
   NEWS_POSITIVE_COMMENT: [LITE, "flex"],

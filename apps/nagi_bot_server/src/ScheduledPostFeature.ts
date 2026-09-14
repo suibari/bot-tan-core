@@ -15,7 +15,7 @@ import { seedNagiTranslations } from "./appviewInternal.js";
  * 失敗しても投稿自体は通す。**絵はおやすみポストの飾りで、本文のほうが本体**なので、
  * 画像の都合で投稿を落とさない。
  */
-async function uploadScheduledImage(image: ScheduledPostImage): Promise<NagiImage | null> {
+export async function uploadScheduledImage(image: ScheduledPostImage): Promise<NagiImage | null> {
   try {
     const data = Buffer.from(image.dataBase64, "base64");
     const { blob } = (await agent.uploadBlob(data, { encoding: image.mimeType })).data;
