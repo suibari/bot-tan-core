@@ -68,6 +68,15 @@ type IntentRule = {
    */
   requiresKeyword: boolean;
   keywords: readonly string[];
+  /**
+   * LLM へ見せる呼び出し例。未指定なら keywords をそのまま使う。
+   *
+   * **説明文だけでは足りない。** 説明は英語なので、12B のモデルはひらがなの口語と機能を
+   * 結び付けられない。2026-09-14 の実測で「botたん、うらなってー」が none、「botたん、
+   * うらなって」が predefined_mode_off になった（漢字の「占って」は通る）。日本語の例を
+   * 添えると3回とも fortune になった。
+   */
+  examples?: readonly string[];
   /** LLM へ見せる説明 */
   description: string;
 };
@@ -139,6 +148,7 @@ const INTENT_RULES: Record<FeatureIntent, IntentRule> = {
     requiresCommunity: false,
     requiresKeyword: false,
     keywords: [],
+    examples: ["freq30", "リプライの頻度を30%にして"],
     description:
       "change how often (0-100 percent) the bot replies to the author's posts",
   },
@@ -201,6 +211,8 @@ const INTENT_RULES: Record<FeatureIntent, IntentRule> = {
     // トリガーではなく粗い足切り語（「絵」「描」など）。regex モードでは広く当たりすぎるので、
     // 依頼かどうかは DrawingFeature が judgeDrawingRequest で確かめてから描く。
     keywords: DRAWING_HINTS,
+    // 足切り語は「絵」「描」のような断片なので、そのまま例にすると依頼の形に見えない。
+    examples: ["猫の絵を描いて", "イラストかいてー", "draw me a cat"],
     description:
       "draw a picture (an illustration) for the author of something they ask the bot to draw",
   },
@@ -332,9 +344,14 @@ export function featureIntentCandidates(
 export function buildFeatureIntentPrompt(
   candidates: readonly FeatureIntent[],
 ): string {
-  const lines = candidates.map(
-    (intent) => `- ${intent}: ${INTENT_RULES[intent].description}`,
-  );
+  const lines = candidates.map((intent) => {
+    const rule = INTENT_RULES[intent];
+    const examples = rule.examples ?? rule.keywords;
+    const hint = examples.length > 0
+      ? ` (e.g. ${examples.map((example) => `"${example}"`).join(", ")})`
+      : "";
+    return `- ${intent}: ${rule.description}${hint}`;
+  });
   const extraction: string[] = [];
   if (candidates.includes("reply_frequency")) {
     extraction.push(
@@ -350,8 +367,9 @@ export function buildFeatureIntentPrompt(
   return `You route a Bluesky post addressed to "全肯定botたん" (Bot-tan, an affirmation bot) to at most one of the bot's features.
 Read the whole post and answer with JSON.
 
-feature: the one feature the author is directly asking the bot to perform now, or "none".
-Choose "none" when a feature word is only mentioned in passing, quoted, reported as somebody else's words, used for a past or hypothetical situation, part of a question about how the feature works, or when the post is ordinary chatting with the bot.
+feature: the one feature the author is asking the bot to perform now, or "none".
+A post that tells or asks the bot to do what a feature does IS a feature call, in any wording: commands and requests, casual or polite, hiragana or kanji, typos, stretched endings ("ー", "〜"), emoji, or "I want you to" forms (e.g. "うらなってー", "DJたのむ", "分析よろしく", "日記つけといて", "定型文モードにしてほしい", "今年のまとめおねがい"). This applies to every feature. The examples listed with each feature are only hints; paraphrases count too.
+Choose "none" only when the post does not ask the bot for anything: a feature word mentioned in passing or quoted, an opinion or impression about a feature (e.g. "占いって当たるよね"), somebody else's words, a past or hypothetical event (e.g. "昨日友達に占ってもらった"), a question about how a feature works, or ordinary chatting.
 Settings changes (modes, diary, anniversary on/off, reply frequency) must be requested explicitly; if you are unsure, choose "none".
 If the post asks for several features, choose the one the author most wants right now.
 
