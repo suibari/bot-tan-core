@@ -10,14 +10,13 @@ import {
     releaseDailyDrawing,
     type DrawingClaimResult,
 } from "@bsky-affirmative-bot/database";
-import { NICKNAMES_BOT, hasDrawingHint } from "@bsky-affirmative-bot/shared-configs";
 import {
     generateImage,
     isImageGenerationAvailable,
     judgeDrawingRequest,
     type DrawingRequestJudgement,
 } from "@bsky-affirmative-bot/bot-brain";
-import { getLangStr, isReplyOrMentionToMe, uniteDidNsidRkey } from "../bsky/util.js";
+import { getLangStr, uniteDidNsidRkey } from "../bsky/util.js";
 import { postContinuous } from "../bsky/postContinuous.js";
 import { agent } from "../bsky/agent.js";
 import { drawingReplyText, type DrawingReplyKind } from "./drawingReply.js";
@@ -35,8 +34,9 @@ const postUri = (event: CommitCreateEvent<"app.bsky.feed.post">) =>
  *
  * - Discord メンバーとサブスクメンバーだけ（isCommunityMember は両方を含む）
  * - 1人1日1枚（JST の暦日）。面ごとの枠は drawingClaims.ts
- * - 依頼かどうかは固定のトリガー語ではなく LLM が判定する（judgeDrawingRequest）。
- *   「絵を描いた」「日記かいて」を語で見分けるのは無理なので
+ * - どの機能を呼んでいるかは featureIntent.ts の振り分けが決め、お絵描きに振られた投稿だけを
+ *   judgeDrawingRequest で確かめる（題材・描いてよい依頼か）。「絵を描いた」「日記かいて」を
+ *   語で見分けるのは無理なので、固定のトリガー語は持たない
  *
  * **描き始めたら例外を投げない。** callbacks.ts は handle を3回までリトライするが、
  * 画像生成はリトライしてはいけない（imageGenClient.ts の requestImage のコメント）。
@@ -51,17 +51,18 @@ export class DrawingFeature implements BotFeature {
     async shouldHandle(event: CommitCreateEvent<"app.bsky.feed.post">, follower: ProfileView, context: FeatureContext): Promise<boolean> {
         if (!context.isCommunityMember) return false;
 
-        const record = event.commit.record as PostRecord;
-        const text = record.text || "";
-        const lower = text.toLowerCase();
-        const isCalled = isReplyOrMentionToMe(record) || NICKNAMES_BOT.some(elem => lower.includes(elem.toLowerCase()));
-        if (!isCalled || !hasDrawingHint(text)) return false;
+        // 振り分け（featureIntent.ts）がお絵描きを選んだ投稿だけ。ほかの機能と排他にするため。
+        // 呼びかけの有無とメンバー限定もそちらのルールが見ている。
+        if (!(await context.featureIntents()).intents.has("drawing")) return false;
 
         // 描けない状態で依頼を拾うと、通常の返信の代わりに「描けなかった」が返ってしまう。
         // 投稿は後ろの機能（会話・通常の返信）へ流す。
         if (!isImageGenerationAvailable() || drawingServiceDailyLimit() === 0) return false;
 
-        const judgement = await judgeDrawingRequest(text);
+        // 振り分けは「どの機能か」しか見ない。題材と、描いてよい依頼かはここで確かめる。
+        // regex モードでは「絵」の一語で振り分けに当たるので、依頼でなければここで落ちる。
+        const record = event.commit.record as PostRecord;
+        const judgement = await judgeDrawingRequest(record.text || "");
         if (judgement.intent !== "request") return false;
 
         this.requests.set(postUri(event), judgement);

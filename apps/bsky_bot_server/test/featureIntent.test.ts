@@ -200,3 +200,23 @@ test("Ollama へのリクエストは num_ctx を送らず temperature と forma
   assert.equal(body.messages.at(-1).role, "user");
   assert.equal(body.messages.at(-1).content, "DJお願い");
 });
+
+test("お絵描き: 呼ばれたメンバーの投稿だけが候補になり、LLM が選べば発火する", async () => {
+  // メンバー限定・呼びかけ必須
+  assert.ok(featureIntentCandidates(called("猫の絵を描いて", true)).includes("drawing"));
+  assert.ok(!featureIntentCandidates(called("猫の絵を描いて")).includes("drawing"));
+  assert.ok(
+    !featureIntentCandidates({ text: "猫の絵を描いて", isReplyOrMentionToMe: false, isCommunityMember: true })
+      .includes("drawing"),
+  );
+
+  const result = await resolveFeatureIntents(called("botたん、猫の絵を描いて！", true), {
+    detector: "llm",
+    isOllamaConfigured: () => true,
+    classify: async () => ({ feature: "drawing" }),
+  });
+  assert.deepEqual(sorted(result.intents), ["drawing"]);
+
+  // regex モードは足切り語で広く当たる。依頼かどうかは DrawingFeature の判定が確かめる。
+  assert.ok(detectFeatureIntentsByKeyword(called("この絵かわいいね", true)).intents.has("drawing"));
+});

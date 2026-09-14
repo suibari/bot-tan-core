@@ -10,6 +10,7 @@ import {
   DIARY_REGISTER_TRIGGER,
   DIARY_RELEASE_TRIGGER,
   DJ_TRIGGER,
+  DRAWING_HINTS,
   FORTUNE_TRIGGER,
   NICKNAMES_BOT,
   PREDEFINEDMODE_RELEASE_TRIGGER,
@@ -42,6 +43,7 @@ export const FEATURE_INTENTS = [
   "dj",
   "cheer",
   "recap",
+  "drawing",
 ] as const;
 
 export type FeatureIntent = (typeof FEATURE_INTENTS)[number];
@@ -191,6 +193,16 @@ const INTENT_RULES: Record<FeatureIntent, IntentRule> = {
     requiresKeyword: false,
     keywords: RECAP_TRIGGER,
     description: "summarize the author's past year on Bluesky",
+  },
+  drawing: {
+    requiresCall: true,
+    requiresCommunity: true,
+    requiresKeyword: false,
+    // トリガーではなく粗い足切り語（「絵」「描」など）。regex モードでは広く当たりすぎるので、
+    // 依頼かどうかは DrawingFeature が judgeDrawingRequest で確かめてから描く。
+    keywords: DRAWING_HINTS,
+    description:
+      "draw a picture (an illustration) for the author of something they ask the bot to draw",
   },
 };
 
