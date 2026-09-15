@@ -6,6 +6,7 @@ import {
   sceneSystemFor,
   type ImageScenePlan,
 } from "../src/ai/buildImagePrompt.js";
+import type { ResolvedCharacter } from "../src/ai/characterLookup.js";
 
 function plan(overrides: Partial<ImageScenePlan> = {}): ImageScenePlan {
   return {
@@ -17,9 +18,29 @@ function plan(overrides: Partial<ImageScenePlan> = {}): ImageScenePlan {
     companions: [],
     framing: "upper-body",
     outdoor: false,
+    characters: [],
+    botTan: true,
     ...overrides,
   };
 }
+
+const shimakaze: ResolvedCharacter = {
+  request: { name: "島風", series: "艦これ" },
+  tag: "shimakaze (kancolle)",
+  series: "kantai collection",
+  countTag: "1girl",
+  appearance: ["blonde hair", "long hair", "black hairband", "striped thighhighs"],
+  postCount: 20724,
+};
+
+const tanjirou: ResolvedCharacter = {
+  request: { name: "竈門炭治郎", series: "鬼滅の刃" },
+  tag: "kamado tanjirou",
+  series: "kimetsu no yaiba",
+  countTag: "1boy",
+  appearance: ["haori", "earrings", "scar on forehead"],
+  postCount: 30000,
+};
 
 test("キャラの外見タグはコード側が必ず連結する", () => {
   const built = buildImagePrompt(plan(), "crayon-diary");
@@ -228,12 +249,16 @@ test("既定タグは通す（過剰にマッチして場面ごと消さない�
   assert.deepEqual(kept.companions, ["morpho"]);
 });
 
-test("お絵描きの材料には就寝の規則を当てず、botたんを必ず絵に入れさせる", () => {
+test("お絵描きの材料には就寝の規則を当てず、既存キャラの名前を原文のまま出させる", () => {
   const goodNight = sceneSystemFor("good-night");
   const picture = sceneSystemFor("picture");
   assert.match(goodNight, /bedtime greeting/);
   assert.doesNotMatch(picture, /bedtime greeting written at the end of the day/);
-  assert.match(picture, /She always appears in the picture/);
+  // キャラ指名が無ければ従来どおり botたんを入れる。
+  assert.match(picture, /When characters is empty, bot-tan always appears/);
+  // タグは Danbooru で解決するので、名前は翻訳・ローマ字化させない（other_names で引く）。
+  assert.match(picture, /Do not translate or romanize it/);
+  assert.doesNotMatch(goodNight, /characters:/);
   // 外見・名前を書かせない規則はどちらにも効く（キャラ崩れと領域割りの破綻を防ぐ）。
   for (const system of [goodNight, picture]) {
     assert.match(system, /NEVER describe the character's appearance/);
@@ -253,4 +278,95 @@ test("描いてはいけないタグはどの材料でも落とす", () => {
   });
   assert.deepEqual(plan.expression, ["smile"]);
   assert.deepEqual(plan.objects, ["cat"]);
+});
+
+test("既存キャラを頼まれたら botたんではなくそのキャラを描く", () => {
+  const built = buildImagePrompt(plan({ botTan: false }), "crayon-diary", [shimakaze]);
+  assert.ok(built);
+  assert.equal(built.regions.length, 0);
+  assert.match(built.prompt, /1girl, solo, shimakaze \(kancolle\), kantai collection, blonde hair/);
+  assert.doesNotMatch(built.prompt, /light blue hair/);
+  // キャラタグは学習元の露出傾向ごと呼ぶので、キャラのときだけネガティブを足す。
+  assert.match(built.negativePrompt, /panties/);
+  assert.equal(built.width, 832);
+});
+
+test("botたんの絵には既存キャラ用のネガティブを足さない（PoC で詰めた値のまま）", () => {
+  const built = buildImagePrompt(plan(), "crayon-diary");
+  assert.ok(built);
+  assert.doesNotMatch(built.negativePrompt, /panties/);
+});
+
+test("キャラを解決できなければ botTan=false でも botたんの絵に戻す", () => {
+  const built = buildImagePrompt(
+    plan({ botTan: false, characters: [{ name: "謎のキャラ", series: "" }] }),
+    "crayon-diary",
+    [],
+  );
+  assert.ok(built);
+  assert.match(built.prompt, /light blue hair/);
+});
+
+test("botたんと既存キャラの2人は領域を割り、キャラを先に置く", () => {
+  const built = buildImagePrompt(plan(), "crayon-diary", [shimakaze]);
+  assert.ok(built);
+  assert.equal(built.regions.length, 2);
+  assert.match(built.prompt, /2girls/);
+  assert.doesNotMatch(built.prompt, /shimakaze|light blue hair/);
+  assert.match(built.regions[0].prompt, /^1girl, shimakaze \(kancolle\)/);
+  assert.doesNotMatch(built.regions[0].prompt, /light blue hair/);
+  assert.match(built.regions[1].prompt, /light blue hair/);
+  assert.doesNotMatch(built.regions[1].prompt, /shimakaze/);
+});
+
+test("男の子のキャラは 1boy で数える", () => {
+  const solo = buildImagePrompt(plan({ botTan: false }), "crayon-diary", [tanjirou]);
+  assert.ok(solo);
+  assert.match(solo.prompt, /1boy, solo, kamado tanjirou/);
+
+  const pair = buildImagePrompt(plan({ botTan: false }), "crayon-diary", [shimakaze, tanjirou]);
+  assert.ok(pair);
+  assert.match(pair.prompt, /^child's drawing, crayon \(medium\), traditional media, 1girl, 1boy,/);
+  assert.match(pair.regions[1].prompt, /^1boy, kamado tanjirou/);
+});
+
+test("人物は2人で止める（キャラ2人 + botたんなら botたんが落ちる）", () => {
+  const built = buildImagePrompt(plan({ botTan: true }), "crayon-diary", [shimakaze, tanjirou]);
+  assert.ok(built);
+  assert.equal(built.regions.length, 2);
+  assert.doesNotMatch(built.regions.map((region) => region.prompt).join("\n"), /light blue hair/);
+});
+
+test("キャラ指名を検査する（botたんたち自身・重複・空は落とし、botTan は指名があるときだけ外せる）", () => {
+  const parsed = normalizeScenePlan({
+    ...plan(),
+    characters: [
+      { name: "島風", series: "艦これ" },
+      { name: "botたん", series: "" },
+      { name: "島風", series: "艦これ" },
+      { name: " ", series: "" },
+      { name: "雪風", series: "艦これ" },
+      { name: "天津風", series: "艦これ" },
+    ],
+    bot_tan: false,
+  });
+  assert.deepEqual(parsed.characters, [
+    { name: "島風", series: "艦これ" },
+    { name: "雪風", series: "艦これ" },
+  ]);
+  assert.equal(parsed.botTan, false);
+
+  // 指名が無いのに bot_tan=false と言われても、誰も描かない絵にはしない。
+  assert.equal(normalizeScenePlan({ ...plan(), characters: [], bot_tan: false }).botTan, true);
+  // おやすみの絵のスキーマには characters が無い。
+  assert.deepEqual(normalizeScenePlan({ ...plan(), characters: undefined }).characters, []);
+});
+
+test("名前だけの依頼でシーンが空なら、既存キャラは立ち絵で描く（botたんは描かないまま）", () => {
+  const empty = { pose: [], expression: [], action: [], setting: [], objects: [] };
+  const built = buildImagePrompt(plan({ ...empty, botTan: false }), "crayon-diary", [shimakaze]);
+  assert.ok(built);
+  assert.match(built.prompt, /shimakaze \(kancolle\).*standing, smile, waving/);
+  // キャラが解決できていなければ、従来どおり同じ絵の量産を防ぐ。
+  assert.equal(buildImagePrompt(plan({ ...empty, botTan: false }), "crayon-diary", []), null);
 });

@@ -17,6 +17,9 @@
  *   # 画風を切り替える
  *   pnpm imagegen:probe -- --run --style=anime
  *
+ *   # お絵描きの依頼（既存キャラの解決込み）で試す。材料は judgeDrawingRequest の subject
+ *   pnpm imagegen:probe -- --run --purpose=picture --text="艦これの島風"
+ *
  * 【前提】IMAGEGEN_BASE_URL と OLLAMA_BASE_URL / OLLAMA_MODEL が .env にあること。
  * サイドカーは GPU 機で起動しておく（bot-tan-imagegen の scripts/sidecar.sh start）。
  */
@@ -26,8 +29,10 @@ import path from "node:path";
 import {
   buildImagePrompt,
   planImageScene,
+  type ImageScenePurpose,
   type ImageStyle,
 } from "../packages/bot_brain/src/ai/buildImagePrompt.js";
+import { resolveCharacters } from "../packages/bot_brain/src/ai/characterLookup.js";
 import { isImageGenConfigured, requestImage } from "../packages/bot_brain/src/ai/imageGenClient.js";
 
 /** `--name=value` は後勝ち。指定が黙って無視されて古い結果を上書きする事故を避ける。 */
@@ -47,6 +52,7 @@ const DEFAULT_TEXTS = [
 async function main() {
   const run = process.argv.includes("--run");
   const style = (argValue("style") as ImageStyle) ?? "crayon-diary";
+  const purpose = (argValue("purpose") as ImageScenePurpose) ?? "good-night";
   const texts = argValue("text") ? [argValue("text")!] : DEFAULT_TEXTS;
   const outDir = path.resolve(argValue("out") ?? "out/imagegen-probe");
 
@@ -60,14 +66,26 @@ async function main() {
   for (const [index, text] of texts.entries()) {
     console.log(`\n${"=".repeat(72)}\n[${index + 1}] ${text}`);
 
-    const plan = await planImageScene(text);
+    // お絵描きは DrawingFeature と同じ見出しを付けて渡す。
+    const plan = await planImageScene(
+      purpose === "picture" ? `### 描いてほしいと頼まれた絵\n${text}` : text,
+      purpose,
+    );
     if (!plan) {
       console.error("  シーン変換に失敗した（Ollama が応答しないか JSON が壊れている）");
       continue;
     }
     console.log(`  同伴者: ${plan.companions.join(", ") || "なし"} / 構図: ${plan.framing} / 屋外: ${plan.outdoor}`);
 
-    const built = buildImagePrompt(plan, style);
+    const characters = await resolveCharacters(plan.characters);
+    if (plan.characters.length > 0) {
+      console.log(
+        `  キャラ : ${plan.characters.map((c) => `${c.name}(${c.series || "?"})`).join(", ")}` +
+          ` -> ${characters.map((c) => c.tag).join(", ") || "解決できず（botたんを描く）"} / botたん: ${plan.botTan}`,
+      );
+    }
+
+    const built = buildImagePrompt(plan, style, characters);
     if (!built) {
       console.error("  シーンが薄すぎるので描かない（本番でもここで止まる）");
       continue;
@@ -95,7 +113,7 @@ async function main() {
 
     await mkdir(outDir, { recursive: true });
     const ext = image.mimeType.includes("jpeg") ? "jpg" : "png";
-    const file = path.join(outDir, `${style}-${index + 1}.${ext}`);
+    const file = path.join(outDir, `${purpose}-${style}-${index + 1}.${ext}`);
     await writeFile(file, image.data, { mode: 0o600 });
     console.log(
       `  → ${file} (${(image.data.byteLength / 1024).toFixed(0)}KB, ${image.mimeType}, ${((Date.now() - started) / 1000).toFixed(1)}s)`,
