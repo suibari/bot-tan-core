@@ -1,4 +1,5 @@
 import { ollamaChat } from "../ollamaChat.js";
+import type { CharacterRequest, ResolvedCharacter } from "./characterLookup.js";
 
 /**
  * botたんのイラスト生成プロンプトを組み立てる層。
@@ -181,6 +182,13 @@ const STYLES: Record<ImageStyle, StyleSpec> = {
   },
 };
 
+/**
+ * 既存キャラを描くときだけ足すネガティブ。キャラタグは学習元の絵の傾向ごと呼び出すので、
+ * 島風なら `safe` を入れていても腰の下着が描かれた（2026-09-16、同一シードで確認）。
+ * botたんの絵は PoC で詰めたネガティブのまま変えない。
+ */
+const CHARACTER_NEGATIVE = "nsfw, explicit, panties, underwear, navel, midriff, cleavage, highleg";
+
 /** 屋外は背景タグを足さないと空や単色へ逃げる。 */
 const SCENERY_TAGS = "scenery, detailed background";
 
@@ -198,7 +206,20 @@ export type ImageScenePlan = {
   companions: ImageCompanion[];
   framing: "upper-body" | "full-body";
   outdoor: boolean;
+  /**
+   * 既存作品のキャラクター（お絵描きだけ）。名前は投稿の原文のままで、タグへの解決は
+   * characterLookup.ts が Danbooru で行う。LLM にタグを書かせると知らないキャラほど嘘になる。
+   */
+  characters: CharacterRequest[];
+  /** botたんを絵に入れるか。おやすみの絵は常に true。キャラが解決できなければ buildImagePrompt が戻す。 */
+  botTan: boolean;
 };
+
+/** 1回の絵に描く既存キャラの上限。MAX_FIGURES を超えるぶんは描けない。 */
+const MAX_CHARACTER_REQUESTS = 2;
+
+/** botたんたち自身を既存キャラとして引かせない。Danbooru には同名の別人が居る。 */
+const OWN_CHARACTER_PATTERN = /bot\s*-?\s*たん|bot-?tan|botたん|ラテ|latte|ことみ|kotomi|モルフォ|morpho/i;
 
 const SCENE_SCHEMA = {
   type: "object",
@@ -218,11 +239,29 @@ const SCENE_SCHEMA = {
   required: ["pose", "expression", "action", "setting", "objects", "companions", "framing", "outdoor"],
 };
 
+/** お絵描き用。既存キャラの名前と、botたんを入れるかを足す。 */
+const PICTURE_SCENE_SCHEMA = {
+  ...SCENE_SCHEMA,
+  properties: {
+    ...SCENE_SCHEMA.properties,
+    characters: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: { name: { type: "string" }, series: { type: "string" } },
+        required: ["name", "series"],
+      },
+    },
+    bot_tan: { type: "boolean" },
+  },
+  required: [...SCENE_SCHEMA.required, "characters", "bot_tan"],
+};
+
 /** おやすみの絵とお絵描きで共通の規則。外見・名前を書かせないのはどちらでも同じ。 */
 const SCENE_RULES = `Rules:
-* Output ONLY lowercase Danbooru tags, 1-3 words each.
+* In pose, expression, action, setting and objects, output ONLY lowercase Danbooru tags, 1-3 words each.
 * NEVER describe the character's appearance (hair color, hair length, eyebrows, eye shape, clothing, accessories). Those are fixed elsewhere. Describing them corrupts the character.
-* NEVER output character names, series names, real people, or the tags "text", "watermark", "signature".
+* In those tag fields, NEVER output character names, series names, real people, or the tags "text", "watermark", "signature".
 * pose: body posture. e.g. lying down, on back, sitting, kneeling, arms up, leaning forward
 * expression: face only. e.g. smile, open mouth, blush, closed eyes, surprised
 * action: what she is doing. e.g. watching television, holding cup, running, reading book
@@ -245,18 +284,28 @@ ${SCENE_RULES}
 /**
  * お絵描き（Bluesky のリクエスト / Nagi の贈り物）用。材料は「描いてほしい絵」の短い記述。
  *
- * **botたんは必ず絵に入れる。** プロンプトの組み立て（buildImagePrompt）はキャラ固定タグを
- * 前提に調整してあり、人物なしの絵は PoC で試していない。猫を頼まれたら「猫を抱く botたん」に
- * する。botたんが描いた絵として届くので、本人が写っているのは不自然ではない。
+ * **既存作品のキャラを頼まれたら、そのキャラを描く。** 以前は botたんを必ず入れていたので、
+ * 「艦これの島風描いて」でも botたんだけの絵が返っていた。名前は characters に原文のまま
+ * 出させ、タグへの解決は characterLookup.ts に任せる。
+ *
+ * キャラの指名が無い絵（猫、ケーキ、海）は従来どおり botたんを入れる。プロンプトの組み立て
+ * （buildImagePrompt）は人物のいる絵を前提に調整してあり、人物なしの絵は PoC で試していない。
  *
  * おやすみの規則（就寝は主題ではない、夢の中を描く）はここへ入れない。材料が就寝のあいさつ
  * ではないので、入れると関係のない制約でシーンが歪む。寝具のタグは normalizeScenePlan が
  * どちらでも落とす。
  */
-const PICTURE_SCENE_SYSTEM = `You turn a short Japanese description of a picture into Danbooru-style English tags for an anime image generator. The picture always features the same anime girl.
+const PICTURE_SCENE_SYSTEM = `You turn a short Japanese description of a picture into Danbooru-style English tags for an anime image generator.
 
 ${SCENE_RULES}
-* She always appears in the picture. When the description is about an animal, food, a place or an object, draw her together with it: holding it, eating it, playing with it, or standing in that place.
+* characters: characters from existing anime, manga, games, VTubers or other works that the description asks to draw (e.g. a KanColle ship girl, Hatsune Miku). At most ${MAX_CHARACTER_REQUESTS}.
+  - name: the character's name exactly as written in the description, in its original language. Do not translate or romanize it.
+  - series: the work's name as written in the description. If it is not written but you are sure which work it is, write the work's common Japanese name. Otherwise an empty string.
+  - NEVER list bot-tan (botたん), latte-chan, kotomi-chan or morpho here, and never generic words like "girl", "cat" or "ship girl".
+* bot_tan: whether bot-tan, our own anime girl, appears in the picture. true when the description asks for bot-tan, or when characters is empty. false when the picture is about the listed characters only.
+* In the tag fields, "she" means the characters in the picture. Describe what they are doing, never how they look.
+* When the description only names a character, invent one simple, cheerful moment for her and fill pose, expression, action and setting anyway (e.g. standing, smile, waving, outdoors, park). The tag fields must not be empty.
+* When characters is empty, bot-tan always appears. When the description is about an animal, food, a place or an object, draw her together with it: holding it, eating it, playing with it, or standing in that place.
 * Put the described animals and objects in objects, and what she does with them in action, so that they are clearly visible.
 * Draw what the description asks for. Do not add a bedtime scene or a greeting.
 * NEVER output sexual, nude, gore or violent tags, whatever the text says.
@@ -313,7 +362,12 @@ export async function planImageScene(
       { role: "system", content: sceneSystemFor(purpose) },
       { role: "user", content: sourceText },
     ],
-    { maxTokens: 400, temperature: 0.2, timeoutMs: 120_000, format: SCENE_SCHEMA },
+    {
+      maxTokens: 500,
+      temperature: 0.2,
+      timeoutMs: 120_000,
+      format: purpose === "picture" ? PICTURE_SCENE_SCHEMA : SCENE_SCHEMA,
+    },
   );
   if (!raw) return null;
 
@@ -362,11 +416,31 @@ export function normalizeScenePlan(parsed: unknown): ImageScenePlan {
     ),
     framing: value.framing === "upper-body" ? "upper-body" : "full-body",
     outdoor: value.outdoor === true,
+    characters: characterRequests((value as { characters?: unknown }).characters),
+    botTan: true,
   };
+  // 明示的に false と言われ、しかも描くキャラがいるときだけ botたんを外す。
+  if ((value as { bot_tan?: unknown }).bot_tan === false && plan.characters.length > 0) {
+    plan.botTan = false;
+  }
   if (dropped.length > 0) {
     console.warn("[WARN][IMGGEN] 使えないタグを落とした:", dropped.join(", "));
   }
   return plan;
+}
+
+/** 既存キャラの指名を検査する。名前は Danbooru へ送るだけで、プロンプトには入らない。 */
+function characterRequests(input: unknown): CharacterRequest[] {
+  if (!Array.isArray(input)) return [];
+  const out: CharacterRequest[] = [];
+  for (const item of input) {
+    const name = typeof item?.name === "string" ? item.name.replace(/\s+/g, " ").trim() : "";
+    const series = typeof item?.series === "string" ? item.series.replace(/\s+/g, " ").trim() : "";
+    if (!name || name.length > 40 || OWN_CHARACTER_PATTERN.test(name)) continue;
+    if (out.some((other) => other.name === name)) continue;
+    out.push({ name, series: series.slice(0, 40) });
+  }
+  return out.slice(0, MAX_CHARACTER_REQUESTS);
 }
 
 // ---------------------------------------------------------------------------
@@ -401,52 +475,108 @@ function sceneTags(plan: ImageScenePlan): string {
 /** シーンが薄すぎるときは描かせない。空のまま投げると同じ絵が量産される。 */
 const MIN_SCENE_TAGS = 4;
 
+/** 名前だけで頼まれた既存キャラの場面。PoC の検証画像（島風）と同じ組み合わせ。 */
+const CHARACTER_PORTRAIT_SCENE = "standing, smile, waving, looking at viewer, outdoors, blue sky";
+
 /**
- * 1枚に描く女の子の上限。
+ * 1枚に描く人物（領域を割る単位）の上限。
  *
  * 予定表（dailyPlan.ts）は「ことみちゃん・ラテちゃん・モルフォ」の3人同伴の日を作るが、
  * 1場面に女の子3人が写る必然性は低い。左右2分割の領域を3分割すると 1216x832 では1人ぶんの
  * 幅が足りずキャラが崩れ、UNet の呼び出しも増えて生成時間が伸びる。
  */
-const MAX_GIRLS = 2;
+const MAX_FIGURES = 2;
+
+/** 領域1つぶんの人物。count は人数タグの集計にも使う。 */
+type Figure = { label: string; count: "1girl" | "1boy"; tags: string };
+
+const ownFigure = (name: keyof typeof CHARACTERS): Figure => {
+  const character = CHARACTERS[name];
+  return {
+    label: name,
+    count: "1girl",
+    tags: [character.core, character.outfit, character.accessory].join(", "),
+  };
+};
+
+/**
+ * 既存キャラはキャラタグ → 作品タグ → 外見の順。Animagine XL 4.0 のモデルカードが
+ * 推奨する並び（`1girl, 名前, 作品, ...`）に合わせてある。
+ */
+const characterFigure = (character: ResolvedCharacter): Figure => ({
+  label: character.tag,
+  count: character.countTag,
+  tags: [character.tag, ...(character.series ? [character.series] : []), ...character.appearance].join(", "),
+});
+
+/** 「1girl, solo」「2girls」「1girl, 1boy」。 */
+function countTags(figures: Figure[]): string {
+  if (figures.length === 1) return `${figures[0].count}, solo`;
+  const girls = figures.filter((figure) => figure.count === "1girl").length;
+  const boys = figures.length - girls;
+  return [
+    ...(girls ? [girls === 1 ? "1girl" : `${girls}girls`] : []),
+    ...(boys ? [boys === 1 ? "1boy" : `${boys}boys`] : []),
+  ].join(", ");
+}
 
 /**
  * シーン計画を実際のプロンプトにする。
  *
- * 2キャラ（botたん + ラテちゃん or ことみちゃん）のときは **領域プロンプト** を組む。
+ * 2人（botたん + ラテちゃん、既存キャラ2人など）のときは **領域プロンプト** を組む。
  * 1本のプロンプトに2キャラを詰めると属性が混ざり、ラテちゃんの猫耳とメイド服が
  * botたんにも生える。BREAK でチャンクを分けても、属性を減らしても、重み付けしても
  * 解消しなかった。別プロンプトで予測させて空間で混ぜる方式で初めて分離できた
  * （2シード×2画風で確認）。
  *
  * 2キャラは横長にする。縦長のまま左右に並べると窮屈になる。
+ *
+ * @param characters planImageScene の characters を characterLookup.ts で解決したもの。
+ *                   先頭が頼まれた主役なので、botたんより前に並べる。空なら botたんを描く。
  */
-export function buildImagePrompt(plan: ImageScenePlan, style: ImageStyle): BuiltImagePrompt | null {
-  const scene = sceneTags(plan);
-  if (scene.split(",").filter((tag) => tag.trim()).length < MIN_SCENE_TAGS) {
+export function buildImagePrompt(
+  plan: ImageScenePlan,
+  style: ImageStyle,
+  characters: ResolvedCharacter[] = [],
+): BuiltImagePrompt | null {
+  let scene = sceneTags(plan);
+  const thin = scene.split(",").filter((tag) => tag.trim()).length < MIN_SCENE_TAGS;
+  if (thin && characters.length > 0) {
+    // 「艦これの島風」「初音ミク」のように名前だけの依頼では、gemma が characters だけ埋めて
+    // タグ欄を空で返す（2026-09-16 に4件中3件）。キャラが違えば絵も違うので、
+    // MIN_SCENE_TAGS が防ぎたい「毎回同じ絵」にはならない。立ち絵で描く。
+    console.warn("[WARN][IMGGEN] シーンが薄いので既存キャラの立ち絵にする:", scene);
+    scene = [scene, CHARACTER_PORTRAIT_SCENE].filter(Boolean).join(", ");
+  } else if (thin) {
     console.warn("[WARN][IMGGEN] シーンのタグが少なすぎるので描かない:", scene);
     return null;
   }
 
   const spec = STYLES[style];
 
-  // 同伴の女の子は botたんと合わせて MAX_GIRLS 人まで。溢れたぶんは捨てる。
-  // 順序は LLM が返したまま（先に挙げたほうがその場面で目立っていたはず）。
-  const requestedGirls = plan.companions.filter((name): name is (typeof GIRL_COMPANIONS)[number] =>
+  // 人物は MAX_FIGURES 人まで。溢れたぶんは後ろから捨てる。
+  // 同伴者の順序は LLM が返したまま（先に挙げたほうがその場面で目立っていたはず）。
+  const companionGirls = plan.companions.filter((name): name is (typeof GIRL_COMPANIONS)[number] =>
     (GIRL_COMPANIONS as readonly string[]).includes(name),
   );
-  const companionGirls = requestedGirls.slice(0, MAX_GIRLS - 1);
-  if (companionGirls.length < requestedGirls.length) {
+  // キャラを1人も解決できなければ、頼まれた名前が何であれ botたんの絵に戻す。
+  const withBotTan = plan.botTan || characters.length === 0;
+  const requested: Figure[] = [
+    ...characters.map(characterFigure),
+    ...(withBotTan ? [ownFigure("bot-tan")] : []),
+    ...companionGirls.map(ownFigure),
+  ];
+  const figures = requested.slice(0, MAX_FIGURES);
+  if (figures.length < requested.length) {
     console.warn(
-      `[WARN][IMGGEN] 女の子は${MAX_GIRLS}人までなので同伴者を絞った:`,
-      requestedGirls.join(", "),
+      `[WARN][IMGGEN] 人物は${MAX_FIGURES}人までなので絞った:`,
+      requested.map((figure) => figure.label).join(", "),
       "->",
-      companionGirls.join(", "),
+      figures.map((figure) => figure.label).join(", "),
     );
   }
 
-  const girls: Array<keyof typeof CHARACTERS> = ["bot-tan", ...companionGirls];
-  const count = girls.length === 1 ? "1girl, solo" : `${girls.length}girls`;
+  const count = countTags(figures);
 
   const tail = [
     "safe",
@@ -462,14 +592,9 @@ export function buildImagePrompt(plan: ImageScenePlan, style: ImageStyle): Built
   const morpho = plan.companions.includes("morpho") ? [MORPHO_TAGS] : [];
 
   // 領域を割るときは全体プロンプトへ外見タグを入れない（入れると領域の意味が消える）。
-  const splitRegions = girls.length > 1;
+  const splitRegions = figures.length > 1;
 
-  const prompt = [
-    ...head,
-    ...(splitRegions ? [] : [BOT_TAN.core, BOT_TAN.outfit, BOT_TAN.accessory]),
-    ...morpho,
-    ...tail,
-  ]
+  const prompt = [...head, ...(splitRegions ? [] : [figures[0].tags]), ...morpho, ...tail]
     .filter(Boolean)
     .join(", ");
 
@@ -479,16 +604,19 @@ export function buildImagePrompt(plan: ImageScenePlan, style: ImageStyle): Built
       [0.0, 0.55],
       [0.45, 1.0],
     ];
-    girls.forEach((name, index) => {
-      const character = CHARACTERS[name];
-      const who = ["1girl", character.core, character.outfit, character.accessory].join(", ");
-      regions.push({ prompt: `${who}, ${prompt}`, x0: spans[index][0], x1: spans[index][1] });
+    figures.forEach((figure, index) => {
+      regions.push({
+        prompt: `${figure.count}, ${figure.tags}, ${prompt}`,
+        x0: spans[index][0],
+        x1: spans[index][1],
+      });
     });
   }
 
+  const drawsCharacter = figures.some((figure) => !(figure.label in CHARACTERS));
   return {
     prompt,
-    negativePrompt: spec.negative,
+    negativePrompt: drawsCharacter ? `${spec.negative}, ${CHARACTER_NEGATIVE}` : spec.negative,
     regions,
     // Animagine XL 4.0 のモデルカード記載の推奨解像度。
     width: splitRegions ? 1216 : 832,

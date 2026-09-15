@@ -8,6 +8,7 @@ import {
 import { generateImageGemini } from "./generateImageGemini.js";
 import { isImageGenConfigured, requestImage, type GeneratedImage } from "./imageGenClient.js";
 import { applyBotSignature } from "./botSignature.js";
+import { resolveCharacters } from "./characterLookup.js";
 
 /**
  * 絵を描ける状態か。お絵描き機能は、描けないときに依頼の判定（LLM）ごと回さないためにこれを見る。
@@ -70,8 +71,11 @@ export async function generateImage(
     const plan = await planImageScene(sourceText, options.purpose);
     if (!plan) return null;
 
+    // 既存キャラの名前は Danbooru のタグへ解決する。解決できなければ botたんの絵に戻る。
+    const characters = await resolveCharacters(plan.characters);
+
     const style = (process.env.IMAGEGEN_STYLE as ImageStyle) || "crayon-diary";
-    const built = buildImagePrompt(plan, style);
+    const built = buildImagePrompt(plan, style, characters);
     // シーンが薄いときは buildImagePrompt が null を返す。**そのまま描かせてはいけない。**
     // キャラ固定タグだけの同じプロンプトになり、同じ絵が毎日出る（PoC で3枚重複した）。
     if (!built) return null;
