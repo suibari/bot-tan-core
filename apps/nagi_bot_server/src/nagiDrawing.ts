@@ -326,7 +326,9 @@ export async function prepareNagiDrawingRequest(
     nagiDrawingRequestText(kind, lang, judgement.subject);
 
   if (!judgement.allowed) {
-    console.log(`[INFO][NAGI][DRAWING] request declined ${input.sourceUri}`);
+    console.log(
+      `[INFO][NAGI][DRAWING] request declined concern=${judgement.concern ?? "unknown"} ${input.sourceUri}`,
+    );
     return { comment: reply("declined") };
   }
 
