@@ -29,7 +29,7 @@ import { embeddingProfile } from "@bsky-affirmative-bot/database";
 
 export type NewsLang = "ja" | "en";
 
-const hasTrustedSnapshot = or(
+export const hasTrustedSnapshot = or(
   eq(nagiNews.did, config.botDid),
   and(
     isNotNull(nagiNewsApprovals.snapshotUrl),
