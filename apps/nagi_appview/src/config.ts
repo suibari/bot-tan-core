@@ -192,6 +192,9 @@ export const config = {
   // 共通Gemma 4 runnerを共有し、生成モデル間のVRAM入れ替えを発生させない。
   botTranslationModel: aiModel("OLLAMA_BOT_TRANSLATION"),
   translationConcurrency: integer("TRANSLATION_CONCURRENCY", 2, 1, 8),
+  // ポストおたすけ。共通 Gemma runner を返信と共有するので、本人1人あたりの回数で絞る。
+  postAssistModel: aiModel("OLLAMA_POST_ASSIST"),
+  postAssistLimitPerMinute: integer("NAGI_POST_ASSIST_LIMIT_PER_MINUTE", 6, 1, 60),
   translationMissLimitPerMinute: integer(
     "TRANSLATION_MISS_LIMIT_PER_MINUTE",
     60,

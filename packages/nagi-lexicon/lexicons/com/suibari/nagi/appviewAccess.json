@@ -76,7 +76,8 @@
             "com.suibari.nagi.putPreferences",
             "com.suibari.nagi.getDiaries",
             "com.suibari.nagi.createKossoriPost",
-            "com.suibari.nagi.deleteKossoriPost"
+            "com.suibari.nagi.deleteKossoriPost",
+            "com.suibari.nagi.generatePostAssist"
           ]
         }
       ]

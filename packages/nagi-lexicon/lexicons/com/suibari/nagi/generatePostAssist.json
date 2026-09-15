@@ -1,0 +1,50 @@
+{
+  "lexicon": 1,
+  "id": "com.suibari.nagi.generatePostAssist",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "投稿を書いている途中で手が止まった本人へ、botたんが書く手助けになるひとことを生成する。書きかけの本文は生成にだけ使い、保存しない。",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["text", "lang", "today"],
+          "properties": {
+            "text": {
+              "type": "string",
+              "maxLength": 30000,
+              "maxGraphemes": 3000,
+              "description": "書きかけの本文。空文字なら書き始める前の声かけになる。"
+            },
+            "lang": { "type": "string", "knownValues": ["ja", "en"] },
+            "today": {
+              "type": "string",
+              "description": "本人の端末のローカル日付 YYYY-MM-DD。日記の「同じ日付」を探すのに使う。"
+            },
+            "previous": {
+              "type": "array",
+              "maxLength": 5,
+              "items": { "type": "string", "maxLength": 2000, "maxGraphemes": 200 },
+              "description": "同じ書きかけの間にすでに出したひとこと。繰り返さないために渡す。"
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["message"],
+          "properties": { "message": { "type": "string", "maxGraphemes": 200 } }
+        }
+      },
+      "errors": [
+        { "name": "AuthRequired" },
+        { "name": "InvalidRequest" },
+        { "name": "RateLimited" },
+        { "name": "UpstreamUnavailable" }
+      ]
+    }
+  }
+}

@@ -244,6 +244,7 @@ Nagi のリプライは**失敗するたびに段を上げる再試行ラダー*
 | `OLLAMA_EMBED` | `ollama-embed` | 埋め込み（投稿/ユーザ/チャンネル/ニュース） |
 | `OLLAMA_TRANSLATION` | `ollama-translate` | 投稿の一般翻訳 |
 | `OLLAMA_BOT_TRANSLATION` | `ollama-bot-translate` | botたん投稿のペルソナ翻訳 |
+| `OLLAMA_POST_ASSIST` | `ollama-chat` | Nagi ポストおたすけ（書きかけへの声かけ） |
 
 ## モデル別名と env
 

@@ -298,6 +298,7 @@ export const AI_FEATURES = {
   OLLAMA_QUERY_EXPANSION: "ollama-chat", // 検索クエリの別名展開（略称→正式名称）
   OLLAMA_TRANSLATION: "ollama-translate", // 投稿の一般翻訳
   OLLAMA_BOT_TRANSLATION: "ollama-bot-translate", // botたん投稿のペルソナ翻訳
+  OLLAMA_POST_ASSIST: "ollama-chat", // Nagi ポストおたすけ（書きかけへの声かけ）
 } as const satisfies Record<string, AiRouteName>;
 
 export type AiFeatureKey = keyof typeof AI_FEATURES;
