@@ -190,6 +190,19 @@ test("気持ちが大きく動いた投稿には、判定後に枠を取って�
   assert.equal(published[0].hasImage, true);
 });
 
+test("元投稿の添付画像を贈り物の場面判定へ渡す", async () => {
+  const images = [{ image_url: "https://pds.example/blob", mimeType: "image/png" }];
+  let received: unknown;
+  const { deps } = fakeDeps({
+    async judgeGift(_text, sourceImages) {
+      received = sourceImages;
+      return { gift: false };
+    },
+  });
+  assert.equal(await processNagiDrawingJob(gift({ images }), deps), "not_moved");
+  assert.deepEqual(received, images);
+});
+
 test("自動プレゼントは同じ人に1日1回だけで、判定の LLM も再実行しない", async () => {
   const { deps, calls } = fakeDeps({ hasDrawnToday: async () => true });
   assert.equal(await processNagiDrawingJob(gift(), deps), "already_drawn");

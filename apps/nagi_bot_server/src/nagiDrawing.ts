@@ -16,6 +16,7 @@ import {
   type GeneratedImage,
 } from "@bsky-affirmative-bot/bot-brain";
 import { hasDrawingHint } from "@bsky-affirmative-bot/shared-configs";
+import type { ImageRef } from "@bsky-affirmative-bot/shared-configs";
 import { NAGI, type StrongRef } from "@bsky-affirmative-bot/nagi-lexicon";
 import { publishNagiPost } from "./nagiPost.js";
 import { uploadScheduledImage } from "./ScheduledPostFeature.js";
@@ -144,7 +145,7 @@ export function nagiDrawingReplyThread(source: StrongRef, root: StrongRef) {
 }
 
 export type NagiDrawingJob =
-  | (NagiDrawingThread & { kind: "gift"; text: string })
+  | (NagiDrawingThread & { kind: "gift"; text: string; images?: ImageRef[] })
   | (NagiDrawingThread & { kind: "request"; subject: string; day: string });
 
 export type NagiDrawingOutcome =
@@ -159,7 +160,7 @@ export type NagiDrawingContent = { text: string; image?: GeneratedImage; alt?: s
 
 export type NagiDrawingDeps = {
   hasDrawnToday(did: string): Promise<boolean>;
-  judgeGift(text: string): Promise<DrawingGiftJudgement>;
+  judgeGift(text: string, images?: readonly ImageRef[]): Promise<DrawingGiftJudgement>;
   claim(did: string, sourceUri: string): Promise<DrawingClaimResult>;
   release(sourceUri: string, day: string): Promise<void>;
   /** sourceText はシーン変換（planImageScene）の材料。見出し付きで渡す。 */
@@ -220,7 +221,7 @@ export async function processNagiDrawingJob(
   if (!job.text.trim()) return "empty";
   if (await deps.hasDrawnToday(job.authorDid)) return "already_drawn";
 
-  const judgement = await deps.judgeGift(job.text);
+  const judgement = await deps.judgeGift(job.text, job.images);
   if (!judgement.gift) return "not_moved";
 
   const claim = await deps.claim(job.authorDid, job.sourceUri);
@@ -355,7 +356,7 @@ export async function prepareNagiDrawingRequest(
 
 const defaultDeps: NagiDrawingDeps = {
   hasDrawnToday: (did) => hasDailyDrawingGift({ did }),
-  judgeGift: (text) => judgeDrawingGift(text),
+  judgeGift: (text, images) => judgeDrawingGift(text, images),
   claim: (did, sourceUri) => claimDailyDrawing({ surface: "nagi", did, sourceUri, kind: "gift" }),
   release: (sourceUri, day) => releaseDailyDrawing({ surface: "nagi", sourceUri, day }),
   draw: (sourceText) => generateImage(sourceText, IMAGE_MAX_BYTES, { purpose: "picture" }),
@@ -403,6 +404,7 @@ export function enqueueNagiDrawingGift(input: {
   sourceUri: string;
   authorDid: string;
   text: string;
+  images?: ImageRef[];
   langs?: unknown;
   root: StrongRef;
   parent: StrongRef;
@@ -413,6 +415,7 @@ export function enqueueNagiDrawingGift(input: {
     sourceUri: input.sourceUri,
     authorDid: input.authorDid,
     text: input.text,
+    images: input.images,
     lang: nagiDrawingLang(input.langs),
     root: input.root,
     parent: input.parent,

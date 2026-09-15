@@ -2,7 +2,12 @@ import { aiModel, ollamaNativeUrl } from "@bsky-affirmative-bot/shared-configs";
 import type { AiFeatureKey } from "@bsky-affirmative-bot/shared-configs";
 import { reportAiCallAsync } from "./ai/aiCallStats.js";
 
-export type OllamaMessage = { role: string; content: string };
+export type OllamaMessage = {
+  role: string;
+  content: string;
+  /** Ollama native /api/chat の画像入力。base64 本体だけを渡す。 */
+  images?: string[];
+};
 
 export type OllamaChatOptions = {
   /** 生成の上限トークン。分類なら数トークン、描写なら数百。 */

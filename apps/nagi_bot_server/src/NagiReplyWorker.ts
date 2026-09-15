@@ -12,6 +12,7 @@ import {
   SUPER_POSITIVE_SCORE_THRESHOLD,
   awardSuperPositiveLevel,
 } from "@bsky-affirmative-bot/clients";
+import { blobImagesToImageRefs, resolvePdsUrl } from "@bsky-affirmative-bot/bot-runtime";
 import { createNagiReply } from "./createNagiReply.js";
 import {
   enqueueNagiDrawingGift,
@@ -221,6 +222,7 @@ export function startNagiReplyWorker() {
         .select({
           kossori: nagiPosts.kossori,
           deletedAt: nagiPosts.deletedAt,
+          embedImages: nagiPosts.embedImages,
         })
         .from(nagiPosts)
         .where(eq(nagiPosts.uri, job.sourceUri))
@@ -266,10 +268,18 @@ export function startNagiReplyWorker() {
             !record?.reply &&
             typeof record?.text === "string"
           ) {
+            const imageRefs = sourcePost.embedImages
+              ? blobImagesToImageRefs(
+                  job.authorDid,
+                  await resolvePdsUrl(job.authorDid).catch(() => ""),
+                  sourcePost.embedImages as any,
+                )
+              : [];
             enqueueNagiDrawingGift({
               sourceUri: job.sourceUri,
               authorDid: job.authorDid,
               text: record.text,
+              images: imageRefs,
               langs: record.langs,
               ...thread,
             });
