@@ -23,8 +23,25 @@ test("botたん宛ての依頼で確信度が十分なら描く", () => {
   assert.deepEqual(normalizeDrawingRequest(request), {
     intent: "request",
     allowed: true,
+    concern: "none",
     subject: "猫",
   });
+});
+
+test("既存作品の架空キャラクターは描く", () => {
+  assert.deepEqual(
+    normalizeDrawingRequest({
+      ...request,
+      subject: "スタックチャン",
+      concern: "existing_character",
+    }),
+    {
+      intent: "request",
+      allowed: true,
+      concern: "existing_character",
+      subject: "スタックチャン",
+    },
+  );
 });
 
 test("botたん以外への依頼や依頼でない投稿は描かない", () => {
@@ -41,10 +58,11 @@ test("確信度が低い依頼は描かない", () => {
 });
 
 test("問題のある依頼や知らない concern は断る側に倒す", () => {
-  for (const concern of ["sexual", "violence", "real_person", "existing_character", "unknown", undefined]) {
+  for (const concern of ["sexual", "violence", "hate", "real_person", "self_harm", "unknown", undefined]) {
     const result = normalizeDrawingRequest({ ...request, concern });
     assert.equal(result.intent, "request");
     assert.equal(result.intent === "request" && result.allowed, false, `concern=${concern} が通ってしまう`);
+    assert.equal(result.intent === "request" && result.concern, concern ?? "unknown");
   }
 });
 

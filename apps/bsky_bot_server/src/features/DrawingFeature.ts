@@ -86,7 +86,9 @@ export class DrawingFeature implements BotFeature {
                 );
 
             if (!request.allowed) {
-                console.log(`[INFO][${follower.did}] Drawing declined: ${request.subject}`);
+                console.log(
+                    `[INFO][${follower.did}] Drawing declined concern=${request.concern ?? "unknown"}: ${request.subject}`,
+                );
                 await reply("declined");
                 return;
             }

@@ -87,7 +87,7 @@ function fakeRequestDeps(overrides: Partial<NagiDrawingRequestDeps> = {}) {
     available: () => true,
     async judgeRequest() {
       calls.push("judgeRequest");
-      return { intent: "request", allowed: true, subject: "猫" };
+      return { intent: "request", allowed: true, concern: "none", subject: "猫" };
     },
     async claim() {
       calls.push("claim");
@@ -140,7 +140,12 @@ test("依頼でなければ通常の返信へ流す", async () => {
 
 test("描けない依頼は枠を取らずに断る", async () => {
   const { deps, calls } = fakeRequestDeps({
-    judgeRequest: async () => ({ intent: "request", allowed: false, subject: "有名人" }),
+    judgeRequest: async () => ({
+      intent: "request",
+      allowed: false,
+      concern: "real_person",
+      subject: "有名人",
+    }),
   });
   const prepared = await quiet(() => prepareNagiDrawingRequest(input, deps));
   assert.ok(prepared);
