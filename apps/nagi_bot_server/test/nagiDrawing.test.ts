@@ -4,6 +4,7 @@ import {
   createNagiDrawingQueue,
   nagiDrawingGiftText,
   nagiDrawingLang,
+  nagiDrawingReplyThread,
   prepareNagiDrawingRequest,
   processNagiDrawingJob,
   type NagiDrawingDeps,
@@ -16,7 +17,7 @@ const thread = {
   authorDid: "did:plc:alice",
   lang: "ja" as const,
   root: { uri: "at://did:plc:alice/com.suibari.nagi.post/3abc", cid: "bafy-source" },
-  parent: { uri: "at://did:plc:bot/com.suibari.nagi.post/3abc", cid: "bafy-reply" },
+  parent: { uri: "at://did:plc:alice/com.suibari.nagi.post/3abc", cid: "bafy-source" },
 };
 
 const gift = (overrides: Partial<NagiDrawingJob> = {}): NagiDrawingJob =>
@@ -68,6 +69,12 @@ const quiet = async <T>(run: () => Promise<T>): Promise<T> => {
     Object.assign(console, { log, warn, error });
   }
 };
+
+test("2段階目は会話のルートではなく、起点のユーザー投稿へ直接返信する", () => {
+  const root = { uri: "at://did:plc:bot/com.suibari.nagi.post/scheduled", cid: "bafy-root" };
+  const source = { uri: thread.sourceUri, cid: "bafy-request" };
+  assert.deepEqual(nagiDrawingReplyThread(source, root), { root, parent: source });
+});
 
 // ---------------------------------------------------------------------------
 // 依頼

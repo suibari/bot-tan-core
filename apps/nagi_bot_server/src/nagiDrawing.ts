@@ -28,7 +28,9 @@ import { uploadScheduledImage } from "./ScheduledPostFeature.js";
  *    （enqueueNagiDrawingGift）
  *
  * 枠は Nagi の中で依頼と贈り物の共通で、1人1日1枚（drawingClaims.ts。Bluesky とは別枠）。
- * 絵はどちらも botたんの返信へのリプライとして置く。
+ * 絵はどちらも、きっかけになったユーザー投稿への直接リプライとして置く。
+ * 受付・通常返信へぶら下げると直接の返信先が botたん自身になり、完成時の通知が
+ * ユーザーへ届かないため。
  *
  * ## 依頼には AI の返信を返さない
  * 返信ワーカーは依頼に気付くと、AI の返信の代わりに「描いてみるね」を返す（NagiReplyWorker）。
@@ -126,9 +128,19 @@ export type NagiDrawingThread = {
   authorDid: string;
   lang: DrawingLang;
   root: StrongRef;
-  /** botたんの返信。絵はこの返信へのリプライとして置く。 */
+  /** お絵描きの起点になったユーザー投稿。完成した絵はここへ直接返信する。 */
   parent: StrongRef;
 };
+
+/**
+ * 2段階目のお絵描き投稿のスレッド参照。
+ *
+ * root は元の会話を維持しつつ、parent は受付・通常返信ではなく起点のユーザー投稿にする。
+ * これにより、AppView の通常の直接返信通知だけで完成を依頼者へ知らせられる。
+ */
+export function nagiDrawingReplyThread(source: StrongRef, root: StrongRef) {
+  return { root, parent: source };
+}
 
 export type NagiDrawingJob =
   | (NagiDrawingThread & { kind: "gift"; text: string })

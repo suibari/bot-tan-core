@@ -15,6 +15,7 @@ import {
 import { createNagiReply } from "./createNagiReply.js";
 import {
   enqueueNagiDrawingGift,
+  nagiDrawingReplyThread,
   prepareNagiDrawingRequest,
   type PreparedNagiDrawingRequest,
 } from "./nagiDrawing.js";
@@ -246,16 +247,14 @@ export function startNagiReplyWorker() {
         });
       }
 
-      // お絵描き（nagiDrawing.ts）。絵は botたんの返信へのリプライとして置く。描画は別の直列
-      // キューで回し、返信ワーカーは待たせない。
+      // お絵描き（nagiDrawing.ts）。絵は起点のユーザー投稿へ直接リプライし、完成時にも
+      // 通常の返信通知が届くようにする。描画は別の直列キューで回し、返信ワーカーは待たせない。
       //  - 依頼: 上で返事を返したものを描く
       //  - 贈り物: 公開のトップレベル投稿へ AI で返信できたとき、気持ちが大きく動いていれば贈る
       // ジョブは既に posted なので、ここで投げると catch が pending に戻して返信を上書きする。
       if ("cid" in result && typeof result.cid === "string") {
-        const thread = {
-          root: record?.reply?.root ?? { uri: job.sourceUri, cid: job.sourceCid },
-          parent: { uri: result.uri, cid: result.cid },
-        };
+        const source = { uri: job.sourceUri, cid: job.sourceCid };
+        const thread = nagiDrawingReplyThread(source, record?.reply?.root ?? source);
         try {
           if (drawingRequest) {
             drawingRequest.onReplyPosted?.(thread);
