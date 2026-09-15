@@ -7,6 +7,7 @@ import {
 } from "./buildImagePrompt.js";
 import { generateImageGemini } from "./generateImageGemini.js";
 import { isImageGenConfigured, requestImage, type GeneratedImage } from "./imageGenClient.js";
+import { applyBotSignature } from "./botSignature.js";
 
 /**
  * 絵を描ける状態か。お絵描き機能は、描けないときに依頼の判定（LLM）ごと回さないためにこれを見る。
@@ -56,7 +57,9 @@ export async function generateImage(
   try {
     if (route.provider === "gemini") {
       const data = await generateImageGemini(sourceText);
-      return data ? { data, mimeType: "image/png", width: 0, height: 0 } : null;
+      return data
+        ? await applyBotSignature({ data, mimeType: "image/png", width: 0, height: 0 }, maxBytes)
+        : null;
     }
 
     if (!isImageGenConfigured()) {
@@ -74,7 +77,7 @@ export async function generateImage(
     if (!built) return null;
 
     console.log(`[INFO][IMGGEN] style=${style} regions=${built.regions.length} prompt=${built.prompt}`);
-    return await requestImage({
+    const generated = await requestImage({
       prompt: built.prompt,
       negativePrompt: built.negativePrompt,
       width: built.width,
@@ -83,6 +86,7 @@ export async function generateImage(
       loras: built.loras,
       ...(maxBytes ? { maxBytes } : {}),
     });
+    return generated ? await applyBotSignature(generated, maxBytes) : null;
   } catch (error) {
     console.error("[ERROR][IMGGEN] 画像生成に失敗した。絵は添えずに進める:", error);
     return null;
