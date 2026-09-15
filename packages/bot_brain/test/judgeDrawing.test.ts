@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   DEFAULT_DRAWING_SUBJECT,
+  DRAWING_GIFT_SYSTEM,
   normalizeDrawingGift,
   normalizeDrawingRequest,
 } from "../src/ai/judgeDrawing.js";
@@ -87,6 +88,13 @@ const gift = {
 test("気持ちが大きく動いていれば、判定が書いた場面で贈る", () => {
   assert.deepEqual(normalizeDrawingGift(gift), { gift: true, mood: "very_happy", scene: gift.scene });
   assert.equal(normalizeDrawingGift({ ...gift, mood: "very_down" }).gift, true);
+});
+
+test("贈り物の場面は元投稿の主題と添付画像の架空キャラクターを引き継ぐ", () => {
+  assert.match(DRAWING_GIFT_SYSTEM, /投稿の中心.*必ず場面の主題/);
+  assert.match(DRAWING_GIFT_SYSTEM, /キャラクター名と作品名を正確に書き/);
+  assert.match(DRAWING_GIFT_SYSTEM, /ガチャ.*そのキャラクターとbotたん/);
+  assert.doesNotMatch(DRAWING_GIFT_SYSTEM, /作品のキャラクター名は入れない/);
 });
 
 test("ふつうの日常や弱い気持ちには贈らない", () => {

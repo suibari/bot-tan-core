@@ -40,7 +40,7 @@ test("ネイティブ /api/chat へ think:false で投げ、num_ctx は送らな
     try {
       const text = await ollamaChat(
         "OLLAMA_PREDEFINED_AFFIRMATION",
-        [{ role: "user", content: "できた！" }],
+        [{ role: "user", content: "できた！", images: ["base64-image"] }],
         { maxTokens: 5 },
       );
       assert.equal(text, "positive");
@@ -48,6 +48,7 @@ test("ネイティブ /api/chat へ think:false で投げ、num_ctx は送らな
       assert.equal(url, "http://ollama.test:11434/api/chat");
       assert.equal(body.think, false);
       assert.equal(body.stream, false);
+      assert.deepEqual(body.messages[0].images, ["base64-image"]);
       assert.equal(body.options.num_predict, 5);
       assert.ok(
         !("num_ctx" in body.options),
