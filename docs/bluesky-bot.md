@@ -148,7 +148,7 @@ Extracts a beautiful summary of your entire year's activities on Bluesky!
 *(※Discord Member or Subscriber Member Only)*
 
 Ask Bot-tan for a picture and she will draw one for you with her crayons.
-You can request **one drawing per day** (days are counted in Japan Standard Time).
+There is no per-user daily limit on drawing requests.
 
 1. Make sure you are followed back by the bot.
 2. Mention or reply to the bot asking for a picture and saying what to draw (e.g., "Bot-tan, draw me a cat", "botたん、猫の絵を描いて！").
@@ -156,9 +156,9 @@ You can request **one drawing per day** (days are counted in Japan Standard Time
 3. The bot draws the picture and replies with it. Bot-tan herself appears in the picture.
 
 *Note: Bot-tan cannot draw sexual or violent content, real people, or characters from existing works.*
-*Note: When she is busy or the drawing does not turn out, she tells you instead. A drawing that did not turn out does not use up that day's request.*
+*Note: When she is busy or the drawing does not turn out, she tells you instead. If a drawing fails, you can try asking again later.*
 
-On Nagi, drawing is available to all users. You can ask Bot-tan for a picture just like on Bluesky, and when something makes you very happy or you are feeling very down, she may also decide on her own to draw you one. On Nagi, requests and gifts together are limited to once per day (counted separately from Bluesky).
+On Nagi, drawing is available to all users. You can ask Bot-tan for a picture just like on Bluesky, and when something makes you very happy or you are feeling very down, she may also decide on her own to draw you one. Requests have no per-user daily limit; drawings Bot-tan sends on her own are limited to one per user per day.
 
 ---
 

@@ -44,8 +44,8 @@ function fakeDeps(overrides: Partial<NagiDrawingDeps> = {}) {
       calls.push("claim");
       return { status: "claimed", day: "2026-09-14" };
     },
-    async release(_did, day) {
-      calls.push(`release:${day}`);
+    async release(sourceUri, day) {
+      calls.push(`release:${sourceUri}:${day}`);
     },
     async draw(sourceText) {
       calls.push(`draw:${sourceText.split("\n")[0]}`);
@@ -154,11 +154,11 @@ test("描けない依頼は枠を取らずに断る", async () => {
   assert.equal(calls.includes("claim"), false);
 });
 
-test("枠が無ければ理由を返して描かない。機能停止中は通常の返信へ流す", async () => {
-  const limited = fakeRequestDeps({ claim: async () => ({ status: "user_limit", day: "2026-09-14" }) });
+test("サービス枠が無ければ理由を返して描かない。機能停止中は通常の返信へ流す", async () => {
+  const limited = fakeRequestDeps({ claim: async () => ({ status: "service_limit", day: "2026-09-14" }) });
   const prepared = await prepareNagiDrawingRequest(input, limited.deps);
   assert.ok(prepared);
-  assert.match(prepared.comment, /1日1回/);
+  assert.match(prepared.comment, /手がくたくた/);
   assert.equal(prepared.onReplyPosted, undefined);
 
   const disabled = fakeRequestDeps({ claim: async () => ({ status: "disabled", day: "2026-09-14" }) });
@@ -173,7 +173,7 @@ test("依頼の絵は描いて投稿し、描けなければ枠を返して知�
 
   const failed = fakeDeps({ draw: async () => null });
   assert.equal(await processNagiDrawingJob(request(), failed.deps), "failed");
-  assert.ok(failed.calls.includes("release:2026-09-14"));
+  assert.ok(failed.calls.includes(`release:${thread.sourceUri}:2026-09-14`));
   assert.equal(failed.published.length, 1);
   assert.equal(failed.published[0].hasImage, false);
   assert.match(failed.published[0].text, /うまく描けなかった/);
@@ -183,14 +183,14 @@ test("依頼の絵は描いて投稿し、描けなければ枠を返して知�
 // 贈り物
 // ---------------------------------------------------------------------------
 
-test("気持ちが大きく動いた投稿には、枠を取ってから判定の場面で描いて贈る", async () => {
+test("気持ちが大きく動いた投稿には、判定後に枠を取ってその場面を描いて贈る", async () => {
   const { deps, calls, published } = fakeDeps();
   assert.equal(await processNagiDrawingJob(gift(), deps), "drawn");
   assert.deepEqual(calls, ["hasDrawnToday", "judgeGift", "claim", "draw:### botたんが贈る絵の場面", "publish"]);
   assert.equal(published[0].hasImage, true);
 });
 
-test("今日もう描いた人には判定の LLM も回さない", async () => {
+test("自動プレゼントは同じ人に1日1回だけで、判定の LLM も再実行しない", async () => {
   const { deps, calls } = fakeDeps({ hasDrawnToday: async () => true });
   assert.equal(await processNagiDrawingJob(gift(), deps), "already_drawn");
   assert.deepEqual(calls, []);
@@ -209,7 +209,7 @@ test("気持ちが動いていなければ枠を取らず、枠が無ければ�
 test("贈れなかったときは枠を返すが、頼まれていないので知らせない", async () => {
   const noImage = fakeDeps({ draw: async () => null });
   assert.equal(await processNagiDrawingJob(gift(), noImage.deps), "failed");
-  assert.ok(noImage.calls.includes("release:2026-09-14"));
+  assert.ok(noImage.calls.includes(`release:${thread.sourceUri}:2026-09-14`));
   assert.equal(noImage.published.length, 0);
 
   const publishFails = fakeDeps({
@@ -218,7 +218,7 @@ test("贈れなかったときは枠を返すが、頼まれていないので�
     },
   });
   assert.equal(await quiet(() => processNagiDrawingJob(gift(), publishFails.deps)), "failed");
-  assert.ok(publishFails.calls.includes("release:2026-09-14"));
+  assert.ok(publishFails.calls.includes(`release:${thread.sourceUri}:2026-09-14`));
 });
 
 test("本文の無い投稿（画像だけ）には贈り物の判定をしない", async () => {

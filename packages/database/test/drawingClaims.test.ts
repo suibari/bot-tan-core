@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { drawingDay, drawingServiceDailyLimit } from "../src/drawingClaims.js";
+import {
+  drawingDay,
+  drawingServiceDailyLimit,
+  hasDrawingUserDailyLimit,
+} from "../src/drawingClaims.js";
 
 test("お絵描きの1日は JST の暦日で区切る", () => {
   assert.equal(drawingDay(new Date("2026-09-13T14:59:59.999Z")), "2026-09-13");
@@ -24,4 +28,9 @@ test("壊れたサービス枠の値では throw せず既定値に倒す", () =
   } finally {
     console.warn = warn;
   }
+});
+
+test("本人からの依頼は無制限で、Nagi の自動プレゼントだけを1日1枚にする", () => {
+  assert.equal(hasDrawingUserDailyLimit("request"), false);
+  assert.equal(hasDrawingUserDailyLimit("gift"), true);
 });

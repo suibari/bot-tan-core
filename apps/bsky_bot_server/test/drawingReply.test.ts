@@ -20,6 +20,8 @@ test("描いた絵のリプライは題材を添え、日本語以外は英語�
   const en = drawingReplyText("drawn", { langStr: "English", name: "suibari", subject: "a cat" });
   assert.match(en, /"a cat"/);
   assert.doesNotMatch(en, /[ぁ-ん]/);
+  assert.doesNotMatch(ja, /1日1回|また明日/);
+  assert.doesNotMatch(en, /once a day|tomorrow/i);
 });
 
 test("すべての結果に日英の本文がある", () => {

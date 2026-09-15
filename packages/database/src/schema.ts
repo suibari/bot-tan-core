@@ -451,8 +451,8 @@ export const bot_memory_research_jobs = affirmativeBotSchema.table(
 );
 
 /**
- * botたんのお絵描き（Bluesky の依頼 / Nagi の依頼と贈り物）の日次枠。drawingClaims.ts が読み書きする。
- * 面（surface: bsky / nagi）ごとに1人1日1枚。day は JST の "YYYY-MM-DD"。
+ * botたんのお絵描き（Bluesky の依頼 / Nagi の依頼と贈り物）の日次サービス枠。
+ * source_uri ごとに冪等に枠を取り、surface / day で全体の使用数を数える。
  */
 export const drawing_claims = affirmativeBotSchema.table(
   "drawing_claims",
@@ -460,11 +460,13 @@ export const drawing_claims = affirmativeBotSchema.table(
     surface: text("surface").notNull(),
     did: text("did").notNull(),
     day: text("day").notNull(),
-    source_uri: text("source_uri"),
+    source_uri: text("source_uri").notNull(),
+    kind: text("kind").default("request").notNull(),
     created_at: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [
-    primaryKey({ columns: [table.surface, table.did, table.day] }),
+    primaryKey({ columns: [table.surface, table.source_uri, table.day] }),
+    check("drawing_claims_kind_check", sql`${table.kind} in ('request', 'gift')`),
     // サービス枠は「その面のその日の枚数」を数える。
     index("drawing_claims_surface_day_idx").on(table.surface, table.day),
   ],

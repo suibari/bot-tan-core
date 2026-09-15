@@ -1,7 +1,7 @@
 import {
   claimDailyDrawing,
   drawingServiceDailyLimit,
-  hasDailyDrawing,
+  hasDailyDrawingGift,
   releaseDailyDrawing,
   type DrawingClaimResult,
 } from "@bsky-affirmative-bot/database";
@@ -27,7 +27,8 @@ import { uploadScheduledImage } from "./ScheduledPostFeature.js";
  *  - 贈り物: botたんの判断で描く。投稿者がとても喜んでいる / ひどく落ち込んでいるときだけ
  *    （enqueueNagiDrawingGift）
  *
- * 枠は Nagi の中で依頼と贈り物の共通で、1人1日1枚（drawingClaims.ts。Bluesky とは別枠）。
+ * 本人からの依頼に日次上限はない。自動プレゼントは1人1日1枚のままで、
+ * 依頼と贈り物はどちらも面ごとの運用上限に数える。
  * 絵はどちらも、きっかけになったユーザー投稿への直接リプライとして置く。
  * 受付・通常返信へぶら下げると直接の返信先が botたん自身になり、完成時の通知が
  * ユーザーへ届かないため。
@@ -81,7 +82,7 @@ export function nagiDrawingRequestText(
       case "declined":
         return "リクエストありがとう！ でもごめんね、その絵はわたしには描けないんだ…。ほかのものなら描いてみるから、また頼んでね！";
       case "user_limit":
-        return "リクエストありがとう！ でも今日のお絵描きはもう終わっちゃったんだ。お絵描きは1日1回だから、また明日頼んでね！";
+        return "リクエストありがとう！ でもごめんね、今はお絵描きできないみたい…。少ししたらまた頼んでね！";
       case "service_limit":
         return "リクエストありがとう！ でもごめんね、今日はたくさん描いて手がくたくたになっちゃった…。また明日頼んでくれるとうれしいな！";
       case "drawn":
@@ -96,7 +97,7 @@ export function nagiDrawingRequestText(
     case "declined":
       return "Thanks for asking! I'm sorry, but that's not something I can draw... Ask me for something else and I'll give it a try!";
     case "user_limit":
-      return "Thanks for asking! But I've already drawn for you today. I can only draw once a day, so please ask me again tomorrow!";
+      return "Thanks for asking! I'm sorry, I can't draw that right now... Try asking me again in a little while!";
     case "service_limit":
       return "Thanks for asking! I'm sorry, I drew so much today that my hands are worn out... Please ask me again tomorrow!";
     case "drawn":
@@ -160,7 +161,7 @@ export type NagiDrawingDeps = {
   hasDrawnToday(did: string): Promise<boolean>;
   judgeGift(text: string): Promise<DrawingGiftJudgement>;
   claim(did: string, sourceUri: string): Promise<DrawingClaimResult>;
-  release(did: string, day: string): Promise<void>;
+  release(sourceUri: string, day: string): Promise<void>;
   /** sourceText はシーン変換（planImageScene）の材料。見出し付きで渡す。 */
   draw(sourceText: string): Promise<GeneratedImage | null>;
   publish(thread: NagiDrawingThread, content: NagiDrawingContent): Promise<void>;
@@ -186,7 +187,7 @@ async function drawAndPublish(
     console.error(`[ERROR][NAGI][DRAWING] ${job.sourceUri} failed:`, error);
   }
 
-  await deps.release(job.authorDid, day).catch((error) => {
+  await deps.release(job.sourceUri, day).catch((error) => {
     console.error("[ERROR][NAGI][DRAWING] Failed to release claim:", error);
   });
   if (content.failedText) {
@@ -198,8 +199,8 @@ async function drawAndPublish(
 }
 
 /**
- * 1件を処理する。贈り物は**安い順に足切りする**:
- * 今日もう描いたか（DB） → 気持ちが動いているか（LLM） → 枠（DB） → 描く（GPU）。
+ * 1件を処理する。贈り物は安い順に、今日すでに贈ったか（DB）、
+ * 気持ちが動いているか（LLM）、サービス枠（DB）を見てから描く（GPU）。
  * 依頼は返信ワーカーの中で判定と枠取りを済ませているので、描くだけ。
  */
 export async function processNagiDrawingJob(
@@ -237,8 +238,8 @@ export async function processNagiDrawingJob(
 /**
  * 直列キュー。GPU のサイドカーは同時実行1なので、並べても速くならない。
  *
- * 贈り物は、同じ人の贈り物がすでに待っていたら新しい投稿で置き換える（1人1日1枚なので、
- * 同じ人の投稿を並べて判定しても描けるのは1枚だけ）。上限を超えた贈り物は捨てる。
+ * 贈り物は、同じ人の贈り物がすでに待っていたら、遅れて古い投稿へ届けないよう
+ * 新しい投稿で置き換える。上限を超えた贈り物は捨てる。
  */
 export function createNagiDrawingQueue(
   deps: NagiDrawingDeps,
@@ -353,10 +354,10 @@ export async function prepareNagiDrawingRequest(
 }
 
 const defaultDeps: NagiDrawingDeps = {
-  hasDrawnToday: (did) => hasDailyDrawing({ surface: "nagi", did }),
+  hasDrawnToday: (did) => hasDailyDrawingGift({ did }),
   judgeGift: (text) => judgeDrawingGift(text),
-  claim: (did, sourceUri) => claimDailyDrawing({ surface: "nagi", did, sourceUri }),
-  release: (did, day) => releaseDailyDrawing({ surface: "nagi", did, day }),
+  claim: (did, sourceUri) => claimDailyDrawing({ surface: "nagi", did, sourceUri, kind: "gift" }),
+  release: (sourceUri, day) => releaseDailyDrawing({ surface: "nagi", sourceUri, day }),
   draw: (sourceText) => generateImage(sourceText, IMAGE_MAX_BYTES, { purpose: "picture" }),
   async publish(thread, content) {
     const uploaded = content.image
