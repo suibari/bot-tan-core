@@ -131,6 +131,8 @@ const EXPECTED: Record<AiFeatureKey, [model: string, tier: "flex" | "standard" |
   OLLAMA_QUERY_EXPANSION: [DEFAULT_OLLAMA_TEXT_MODEL, undefined],
   OLLAMA_TRANSLATION: [DEFAULT_OLLAMA_TEXT_MODEL, undefined],
   OLLAMA_BOT_TRANSLATION: [DEFAULT_OLLAMA_TEXT_MODEL, undefined],
+  // ポストおたすけは返信と同じ共通 runner に乗せ、VRAM の入れ替えを起こさない。
+  OLLAMA_POST_ASSIST: [DEFAULT_OLLAMA_TEXT_MODEL, undefined],
 };
 
 test("各機能に意図したモデル/tierが割り当たっている", () => {

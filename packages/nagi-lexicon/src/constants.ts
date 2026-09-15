@@ -38,6 +38,11 @@ export const NAGI = {
   deletePushInstallation: "com.suibari.nagi.deletePushInstallation",
   translatePost: "com.suibari.nagi.translatePost",
   translatePosts: "com.suibari.nagi.translatePosts",
+  /**
+   * ポストおたすけ。書きかけの本文と本人の日記・過去の投稿から、botたんが書く手助けの
+   * ひとことを LLM で生成する。本文は保存しないので GET の URL に載せず procedure にする。
+   */
+  generatePostAssist: "com.suibari.nagi.generatePostAssist",
   /** PDS書き込み直後に本人の正本をAppViewへ即時反映する。 */
   ensureRecord: "com.suibari.nagi.ensureRecord",
   getLinkMetadata: "com.suibari.nagi.getLinkMetadata",

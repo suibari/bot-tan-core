@@ -40,6 +40,7 @@ import {
   upsertSubscription,
 } from "../queries/pushSubscriptions.js";
 import { translatePost, translatePosts } from "../services/translation.js";
+import { generatePostAssist } from "../services/postAssist.js";
 import { ApiError } from "../middleware/errors.js";
 import { deleteAccountData } from "../services/deleteAccountData.js";
 import {
@@ -1446,6 +1447,20 @@ xrpc.post(`/${NAGI.translatePost}`, async (req, res, next) => {
     next(e);
   }
 });
+// 書きかけの本文を受け取るので本人認証を必須にし、応答もキャッシュさせない。
+xrpc.post(
+  `/${NAGI.generatePostAssist}`,
+  requiredServiceAuth(NAGI.generatePostAssist),
+  async (req, res, next) => {
+    try {
+      res
+        .set("Cache-Control", "private, no-store")
+        .json(await generatePostAssist(req.viewerDid!, req.body));
+    } catch (e) {
+      next(e);
+    }
+  },
+);
 xrpc.get(
   `/${NAGI.getLinkMetadata}`,
   requiredServiceAuth(NAGI.getLinkMetadata),
