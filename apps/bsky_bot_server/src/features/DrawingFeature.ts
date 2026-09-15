@@ -33,7 +33,7 @@ const postUri = (event: CommitCreateEvent<"app.bsky.feed.post">) =>
  * お絵描き機能。botたんに「絵を描いて」と頼むと、描いた絵を添えてリプライする。
  *
  * - Discord メンバーとサブスクメンバーだけ（isCommunityMember は両方を含む）
- * - 1人1日1枚（JST の暦日）。面ごとの枠は drawingClaims.ts
+ * - ユーザーごとの日次上限はない。面ごとの運用上限は drawingClaims.ts
  * - どの機能を呼んでいるかは featureIntent.ts の振り分けが決め、お絵描きに振られた投稿だけを
  *   judgeDrawingRequest で確かめる（題材・描いてよい依頼か）。「絵を描いた」「日記かいて」を
  *   語で見分けるのは無理なので、固定のトリガー語は持たない
@@ -101,7 +101,7 @@ export class DrawingFeature implements BotFeature {
                 return;
             }
 
-            await this.drawAndReply(follower, request, claim, reply);
+            await this.drawAndReply(follower, request, claim, uri, reply);
         } finally {
             this.requests.delete(uri);
         }
@@ -111,10 +111,11 @@ export class DrawingFeature implements BotFeature {
         follower: ProfileView,
         request: DrawingRequest,
         claim: DrawingClaimResult,
+        sourceUri: string,
         reply: (kind: DrawingReplyKind, image?: { blob: BlobRef; alt: string }) => Promise<unknown>,
     ) {
         const release = () =>
-            releaseDailyDrawing({ surface: "bsky", did: follower.did, day: claim.day }).catch((error) => {
+            releaseDailyDrawing({ surface: "bsky", sourceUri, day: claim.day }).catch((error) => {
                 console.error(`[ERROR][${follower.did}] Failed to release drawing claim:`, error);
             });
 
