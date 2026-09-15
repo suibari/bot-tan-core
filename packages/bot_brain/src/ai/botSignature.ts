@@ -5,6 +5,8 @@ import type { GeneratedImage } from "./imageGenClient.js";
 const SIGNATURE_URL = new URL("../../../../img/bot-tan-signature.png", import.meta.url);
 const DECODE_TIMEOUT_MS = 10_000;
 const SIGNATURE_OPACITY = 0.82;
+// @napi-rs/canvas のネイティブ Canvas API は 0..1 ではなく 0..100 を受け取る。
+const LOSSY_QUALITY_STEPS = [95, 90, 82, 74, 66, 58, 50, 42, 34, 26, 20];
 
 let signatureImagePromise: ReturnType<typeof loadImage> | undefined;
 
@@ -136,17 +138,17 @@ function averageLuminance(pixels: Uint8ClampedArray): number {
 function encode(canvas: Canvas, preferredMimeType: string, maxBytes?: number) {
   const normalizedMimeType = preferredMimeType.toLowerCase();
   if (normalizedMimeType.includes("jpeg") || normalizedMimeType.includes("jpg")) {
-    for (const quality of [0.9, 0.82, 0.74, 0.66, 0.58, 0.5]) {
+    for (const quality of LOSSY_QUALITY_STEPS) {
       const data = canvas.toBuffer("image/jpeg", quality);
-      if (!maxBytes || data.byteLength <= maxBytes || quality === 0.5) {
+      if (!maxBytes || data.byteLength <= maxBytes || quality === LOSSY_QUALITY_STEPS.at(-1)) {
         return { data, mimeType: "image/jpeg" };
       }
     }
   }
   if (normalizedMimeType.includes("webp")) {
-    for (const quality of [0.9, 0.82, 0.74, 0.66, 0.58, 0.5]) {
+    for (const quality of LOSSY_QUALITY_STEPS) {
       const data = canvas.toBuffer("image/webp", quality);
-      if (!maxBytes || data.byteLength <= maxBytes || quality === 0.5) {
+      if (!maxBytes || data.byteLength <= maxBytes || quality === LOSSY_QUALITY_STEPS.at(-1)) {
         return { data, mimeType: "image/webp" };
       }
     }
@@ -156,9 +158,11 @@ function encode(canvas: Canvas, preferredMimeType: string, maxBytes?: number) {
   if (!maxBytes || png.byteLength <= maxBytes) return { data: png, mimeType: "image/png" };
 
   // PNG に色を足すとサイドカーで満たした上限を少し超えることがある。寸法は変えず WebP に退避する。
-  for (const quality of [0.9, 0.82, 0.74, 0.66, 0.58, 0.5]) {
+  for (const quality of LOSSY_QUALITY_STEPS) {
     const data = canvas.toBuffer("image/webp", quality);
-    if (data.byteLength <= maxBytes || quality === 0.5) return { data, mimeType: "image/webp" };
+    if (data.byteLength <= maxBytes || quality === LOSSY_QUALITY_STEPS.at(-1)) {
+      return { data, mimeType: "image/webp" };
+    }
   }
   return { data: png, mimeType: "image/png" };
 }

@@ -99,3 +99,31 @@ test("上限を超えるPNGは寸法を保ったWebPへ圧縮する", async () =
   const decoded = await loadImage(result.data);
   assert.deepEqual({ width: decoded.width, height: decoded.height }, { width, height });
 });
+
+test("容量に余裕があるWebPを極端な低品質で再圧縮しない", async () => {
+  const width = 256;
+  const height = 256;
+  const canvas = createCanvas(width, height);
+  const context = canvas.getContext("2d");
+  const pixels = context.createImageData(width, height);
+  let random = 0x87654321;
+  for (let index = 0; index < pixels.data.length; index += 4) {
+    random ^= random << 13;
+    random ^= random >>> 17;
+    random ^= random << 5;
+    pixels.data[index] = random & 0xff;
+    pixels.data[index + 1] = (random >>> 8) & 0xff;
+    pixels.data[index + 2] = (random >>> 16) & 0xff;
+    pixels.data[index + 3] = 255;
+  }
+  context.putImageData(pixels, 0, 0);
+  const result = await applyBotSignature({
+    data: canvas.toBuffer("image/png"),
+    mimeType: "image/webp",
+    width,
+    height,
+  });
+
+  // 旧実装は quality=0.9（約1%）と解釈され、この入力を約12KBまで潰していた。
+  assert.ok(result.data.byteLength > 50_000, `高品質WebPであること: ${result.data.byteLength} bytes`);
+});
