@@ -27,7 +27,12 @@ export type DrawingClaimResult = {
 
 const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
-const DEFAULT_SERVICE_DAILY_LIMIT = 30;
+/**
+ * 1枚60秒として、GPU が絵に取られるのが1日の半分（12時間 = 720枚）までなら、
+ * 同居する Ollama の遅延は許容できるという見立て。上限は「GPU を占有しすぎない」ための
+ * 運用上の歯止めであって、1日に何人が頼めるかを決める数ではない。
+ */
+const DEFAULT_SERVICE_DAILY_LIMIT = 720;
 /** 枠の判定には当日分しか使わない。記録として少しだけ残して、古い行は枠取りのついでに消す。 */
 const RETENTION_DAYS = 30;
 
