@@ -259,6 +259,9 @@ test("お絵描きの材料には就寝の規則を当てず、既存キャラ�
   // タグは Danbooru で解決するので、名前は翻訳・ローマ字化させない（other_names で引く）。
   assert.match(picture, /Do not translate or romanize it/);
   assert.doesNotMatch(goodNight, /characters:/);
+  // 語り手の「わたし」を『人類は衰退しました』の主人公へ解決させない。作品名付きなら拾う。
+  assert.match(picture, /pronoun \(わたし[^)]*\) used by the writer is NOT a character name/);
+  assert.match(picture, /人類は衰退しましたのわたし/);
   // 外見・名前を書かせない規則はどちらにも効く（キャラ崩れと領域割りの破綻を防ぐ）。
   for (const system of [goodNight, picture]) {
     assert.match(system, /NEVER describe the character's appearance/);

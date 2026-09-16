@@ -5,6 +5,7 @@ sqlite3/
 !.env.example
 log.*
 output.png
+output.jpg
 service-account.json
 *.tsbuildinfo
 *.db

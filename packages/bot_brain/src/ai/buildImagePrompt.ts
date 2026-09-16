@@ -291,6 +291,11 @@ ${SCENE_RULES}
  * キャラの指名が無い絵（猫、ケーキ、海）は従来どおり botたんを入れる。プロンプトの組み立て
  * （buildImagePrompt）は人物のいる絵を前提に調整してあり、人物なしの絵は PoC で試していない。
  *
+ * **語り手の一人称はキャラ名ではない。** 占いの絵の題材はペルソナのまま「わたしが〜」と
+ * 書かれることがあり、それを characters に出すと Danbooru の別名「わたし」から
+ * 『人類は衰退しました』の主人公に解決されていた。一方で作品名を添えてその「わたし」を
+ * 頼まれることもあるので、コードで語を弾かず、作品名が書かれているときだけ拾わせる。
+ *
  * おやすみの規則（就寝は主題ではない、夢の中を描く）はここへ入れない。材料が就寝のあいさつ
  * ではないので、入れると関係のない制約でシーンが歪む。寝具のタグは normalizeScenePlan が
  * どちらでも落とす。
@@ -302,6 +307,7 @@ ${SCENE_RULES}
   - name: the character's name exactly as written in the description, in its original language. Do not translate or romanize it.
   - series: the work's name as written in the description. If it is not written but you are sure which work it is, write the work's common Japanese name. Otherwise an empty string.
   - NEVER list bot-tan (botたん), latte-chan, kotomi-chan or morpho here, and never generic words like "girl", "cat" or "ship girl".
+  - A first-person or second-person pronoun (わたし, 私, あたし, ぼく, 僕, 俺, うち, 自分, あなた, きみ) used by the writer is NOT a character name. It means bot-tan. List it only when the description ties it to a work: for 「人類は衰退しましたのわたし」, name is わたし and series is 人類は衰退しました.
 * bot_tan: whether bot-tan, our own anime girl, appears in the picture. true when the description asks for bot-tan, or when characters is empty. false when the picture is about the listed characters only.
 * In the tag fields, "she" means the characters in the picture. Describe what they are doing, never how they look.
 * When the description only names a character, invent one simple, cheerful moment for her and fill pose, expression, action and setting anyway (e.g. standing, smile, waving, outdoors, park). The tag fields must not be empty.
