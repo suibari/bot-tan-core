@@ -1,11 +1,13 @@
 /**
- * 一覧に残っている承認済みニュースへ、OGP画像のURL文字列だけを後から補う。
+ * 承認済みニュースへ、OGP画像のURL文字列だけを後から補う。
  * 画像本体のダウンロード・保存はしない。
  *
  * Preview:
  *   pnpm --filter nagi-bot-server news:image:backfill
  * Apply:
  *   pnpm --filter nagi-bot-server news:image:backfill --apply
+ * Optional period filter:
+ *   pnpm --filter nagi-bot-server news:image:backfill --days 14
  */
 import {
   db,
@@ -15,8 +17,16 @@ import {
 import { getNewsMetadata } from "@bsky-affirmative-bot/nagi-linkcard";
 import { and, desc, eq, gte, isNull } from "drizzle-orm";
 
-const apply = process.argv.slice(2).filter((arg) => arg !== "--").includes("--apply");
-const since = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+const args = process.argv.slice(2).filter((arg) => arg !== "--");
+const apply = args.includes("--apply");
+const daysIndex = args.indexOf("--days");
+const days = daysIndex >= 0 ? Number(args[daysIndex + 1]) : undefined;
+if (days !== undefined && (!Number.isInteger(days) || days <= 0)) {
+  throw new Error("--daysには1以上の整数を指定してください");
+}
+const since = days === undefined
+  ? undefined
+  : new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 const rows = await db
   .select({
     uri: nagiNewsApprovals.newsUri,
@@ -39,12 +49,14 @@ const rows = await db
       isNull(nagiNewsApprovals.hiddenAt),
       isNull(nagiNewsApprovals.snapshotImageUrl),
       isNull(nagiNews.deletedAt),
-      gte(nagiNews.indexedAt, since),
+      since ? gte(nagiNews.indexedAt, since) : undefined,
     ),
   )
   .orderBy(desc(nagiNews.indexedAt));
 
-console.log(`[NEWS_IMAGE_BACKFILL] targets=${rows.length} apply=${apply}`);
+console.log(
+  `[NEWS_IMAGE_BACKFILL] targets=${rows.length} apply=${apply} period=${days ? `${days}days` : "all"}`,
+);
 if (!apply) {
   for (const row of rows.slice(0, 10))
     console.log(`- ${row.title ?? row.uri} (${row.url ?? row.fallbackUrl})`);
