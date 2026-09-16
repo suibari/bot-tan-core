@@ -15,6 +15,7 @@ function article(id: string, title: string) {
     title,
     description: `${title}の説明`,
     source_name: "テストニュース",
+    image_url: `https://cdn.example.com/${id}.jpg`,
     category: ["top"],
   };
 }
@@ -73,10 +74,41 @@ test("候補が3件集まるまでページングし、NewsDataの必須条件�
   const result = await service.getCandidates();
 
   assert.deepEqual(result.candidates.map((item) => item.articleId), ["a1", "a2", "a3"]);
+  assert.equal(result.candidates[0]?.imageUrl, "https://cdn.example.com/a1.jpg");
   assert.equal(result.diagnostics.pagesFetched, 2);
   assert.equal(result.diagnostics.articlesFetched, 4);
   assert.equal(calls.filter((url) => url.startsWith("https://newsdata.io")).length, 2);
   assert.equal(calls.filter((url) => url.endsWith("/api/chat")).length, 4);
+});
+
+test("HTTPS以外の画像URLは候補に持ち込まない", async () => {
+  const fetchMock = async (input: string | URL | Request) => {
+    if (String(input).startsWith("https://newsdata.io")) {
+      return response({
+        status: "success",
+        totalResults: 1,
+        results: [{ ...article("a1", "明るい発見"), image_url: "http://example.com/news.jpg" }],
+      });
+    }
+    return response({
+      message: {
+        content: JSON.stringify({
+          decision: "accept",
+          promotional: false,
+          reasonCode: "positive_result",
+        }),
+      },
+    });
+  };
+  const service = new PositiveNewsService({
+    fetchImpl: fetchMock as typeof fetch,
+    getNewsDataApiKey: () => "test-key",
+    getOllamaBaseUrl: () => "http://ollama.test:11434",
+    logger: silentLogger,
+  });
+
+  const result = await service.getCandidates({ maxPages: 1 });
+  assert.equal(result.candidates[0]?.imageUrl, undefined);
 });
 
 test("Gemma判定は同時2件までに制限する", async () => {

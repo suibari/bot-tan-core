@@ -129,6 +129,8 @@ export type NewsView = {
   title: string;
   sourceName?: string;
   sourceUrl?: string;
+  /** OGP画像のURL。画像データはNagiに保存せず、表示時に配信元から直接取得する。 */
+  image?: string;
   publishedAt?: string;
   botComment: string;
   lang: "ja" | "en";

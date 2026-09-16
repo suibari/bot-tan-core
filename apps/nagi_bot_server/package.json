@@ -17,7 +17,8 @@
     "diary:activity:backfill": "tsx --env-file=../../.env scripts/backfillDiaryPostCounts.ts",
     "news:feed:preview": "tsx --env-file=../../.env src/newsFeedAdmin.ts preview",
     "news:feed:list": "tsx --env-file=../../.env src/newsFeedAdmin.ts list",
-    "news:feed:hide": "tsx --env-file=../../.env src/newsFeedAdmin.ts hide"
+    "news:feed:hide": "tsx --env-file=../../.env src/newsFeedAdmin.ts hide",
+    "news:image:backfill": "tsx --env-file=../../.env scripts/backfillNewsImageUrls.ts"
   },
   "dependencies": {
     "@atproto/api": "^0.18.21",
