@@ -80,21 +80,50 @@ test("構造化出力を本文と語へ解く", () => {
   assert.deepEqual(value, { reply: "そうなんだ！", terms: ["薬屋のひとりごと"] });
 });
 
-test("解析に失敗しても本文を失わない", () => {
+test("JSONでない返事はそのまま本文にする", () => {
   // ここが throw すると、構造化に失敗しただけでリプライが消える。
-  // 利用者に生の JSON が届かないことが最優先。
-  for (const raw of ["JSONじゃない普通の返事", "", "{壊れたJSON"]) {
+  for (const raw of ["JSONじゃない普通の返事", "", "顔文字{笑}も普通の返事"]) {
     const value = unwrapReplyWithTerms(raw);
     assert.equal(value.reply, raw);
     assert.deepEqual(value.terms, []);
   }
 });
 
-test("replyが無い構造化出力は素のテキスト扱いにする", () => {
+test("解けない JSON は生のまま本文にしない", () => {
+  // 利用者に生の JSON が届かないことが最優先。空にして呼び出し側の再試行へ回す。
+  for (const raw of ["{壊れたJSON", '{"unknownTerms": ["薬屋'] ) {
+    assert.equal(unwrapReplyWithTerms(raw).reply, "");
+  }
+});
+
+test("replyが無い構造化出力は本文を空にする", () => {
   const raw = JSON.stringify({ unknownTerms: ["薬屋のひとりごと"] });
   const value = unwrapReplyWithTerms(raw);
-  assert.equal(value.reply, raw, "本文を空にしない");
+  assert.equal(value.reply, "", "生の JSON を投稿させない");
   assert.deepEqual(value.terms, ["薬屋のひとりごと"]);
+});
+
+test("改行が暴走して閉じなかった JSON から本文を救う", () => {
+  // 2026-09-16 の事故。reply の中で改行を出し続けて num_predict で切れ、
+  // 閉じていない JSON が4連投された。
+  const raw =
+    '{"reply": "湖底、おやすみなさい！😊\\n\\n優しいお言葉をありがとう！\\n\\nおやすみなさい！✨' +
+    "\\n".repeat(400) +
+    "\\";
+  const value = unwrapReplyWithTerms(raw);
+  assert.equal(value.reply, "湖底、おやすみなさい！😊\n\n優しいお言葉をありがとう！\n\nおやすみなさい！✨");
+  assert.deepEqual(value.terms, []);
+});
+
+test("書きかけのエスケープやサロゲートの片割れで切れても壊れた文字を残さない", () => {
+  assert.equal(unwrapReplyWithTerms('{"reply": "やっほー\\u26').reply, "やっほー");
+  assert.equal(unwrapReplyWithTerms('{"reply": "やっほー\\ud83d').reply, "やっほー");
+  assert.equal(unwrapReplyWithTerms('{"reply": "「引用\\"だよ\\"」').reply, '「引用"だよ"」');
+});
+
+test("解けた本文でも改行の連続は段落区切りまで畳む", () => {
+  const value = unwrapReplyWithTerms(JSON.stringify({ reply: "おやすみ！\n\n\n\n\n\nまたね" }));
+  assert.equal(value.reply, "おやすみ！\n\nまたね");
 });
 
 test("コードブロックで包まれても解ける", () => {

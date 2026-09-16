@@ -128,22 +128,73 @@ export function collectsUnknownTerms(feature?: AiFeatureKey): boolean {
 /**
  * `{reply, unknownTerms}` を解いて本文と語に分ける。
  *
- * 解析に失敗したら素のテキストとして返す。ここで throw すると、構造化に失敗しただけで
- * リプライが消える。**利用者に生の JSON が届かないことが最優先。**
+ * 解析に失敗しても throw しない。ここで throw すると、構造化に失敗しただけで
+ * リプライが消える。ただし**利用者に生の JSON が届かないことが最優先**。
+ *
+ * 2026-09-16 に、モデルが reply 文字列の中で改行を延々と出し続けて num_predict で
+ * 切れ、閉じていない JSON がそのまま4連投された（`{"reply": "…\n\n\n…`）。
+ * 切れた JSON でも reply の書きかけ部分は取り出せるので、それを本文にする。
+ * 取り出せない JSON は空文字にして、呼び出し側の再試行に回す。
  */
 export function unwrapReplyWithTerms(text: string): { reply: string; terms: string[] } {
   const raw = text ?? "";
+  const body =
+    /```json\n([\s\S]*?)\n```/.exec(raw)?.[1] ??
+    /(\{[\s\S]*\})/.exec(raw)?.[1] ??
+    raw.replace(/^\s*```json\s*/i, "");
   try {
-    const parsed = JSON.parse(
-      /```json\n([\s\S]*?)\n```/.exec(raw)?.[1] ??
-        /(\{[\s\S]*\})/.exec(raw)?.[1] ??
-        raw,
-    ) as { reply?: unknown; unknownTerms?: unknown };
+    const parsed = JSON.parse(body) as { reply?: unknown; unknownTerms?: unknown };
+    if (parsed === null || typeof parsed !== "object") {
+      return { reply: tidyReply(raw), terms: [] };
+    }
     return {
-      reply: typeof parsed?.reply === "string" ? parsed.reply : raw,
-      terms: sanitizeUnknownTerms(parsed?.unknownTerms),
+      reply: typeof parsed.reply === "string" ? tidyReply(parsed.reply) : "",
+      terms: sanitizeUnknownTerms(parsed.unknownTerms),
     };
   } catch {
-    return { reply: raw, terms: [] };
+    const partial = salvageReplyString(body);
+    if (partial !== undefined) return { reply: tidyReply(partial), terms: [] };
+    // JSON を返すはずが自由文で返ってきただけなら、それは普通の返事として使える。
+    if (/^\s*(?:```json\s*)?[{\[]/i.test(raw)) return { reply: "", terms: [] };
+    return { reply: tidyReply(raw), terms: [] };
   }
+}
+
+/** 改行の暴走を畳む。段落の区切り（空行1つ）までは残す。 */
+function tidyReply(text: string): string {
+  return text.replace(/[ \t]*\n(?:[ \t]*\n){2,}/g, "\n\n").trim();
+}
+
+/**
+ * 閉じていない JSON から `"reply": "…` の中身を、閉じ引用符か入力の終わりまで復号する。
+ * reply キーが見つからなければ undefined。
+ */
+function salvageReplyString(text: string): string | undefined {
+  const start = /^\s*\{[\s\S]*?"reply"\s*:\s*"/.exec(text);
+  if (!start) return undefined;
+  let out = "";
+  for (let i = start[0].length; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '"') break;
+    if (ch !== "\\") {
+      out += ch;
+      continue;
+    }
+    const next = text[i + 1];
+    if (next === undefined) break;
+    if (next === "u") {
+      const hex = text.slice(i + 2, i + 6);
+      if (!/^[0-9a-fA-F]{4}$/.test(hex)) break;
+      out += String.fromCharCode(parseInt(hex, 16));
+      i += 5;
+      continue;
+    }
+    const escapes: Record<string, string> = {
+      n: "\n", r: "\r", t: "\t", b: "\b", f: "\f", '"': '"', "\\": "\\", "/": "/",
+    };
+    out += escapes[next] ?? next;
+    i += 1;
+  }
+  // サロゲートペアの片割れで切れていたら落とす。
+  return out.replace(/[\uD800-\uDBFF]$/, "");
 }
