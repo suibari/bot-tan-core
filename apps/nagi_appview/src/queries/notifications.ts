@@ -92,7 +92,10 @@ export async function getNotifications(did: string, limit: number) {
   ]);
   // 日記の通知先は日記の subject 本人なので実質いつも読めるが、経路を分けずに同じ判定を通す。
   const diaryByUri = new Map(
-    diaryRows.map((row) => [row.uri, diaryView(row, did)]),
+    diaryRows.flatMap((row) => {
+      const view = diaryView(row, did);
+      return view ? [[row.uri, view] as const] : [];
+    }),
   );
   const posts = await hydratePostViews(postRows, did);
   const postByUri = new Map(posts.map((post) => [post.uri, post]));

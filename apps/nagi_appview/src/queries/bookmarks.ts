@@ -327,10 +327,16 @@ async function assertBookmarkable(
     )
       return;
   } else {
+    // 日記は本人だけのもの。他人の日記はブックマークさせない。
     const [row] = await db
       .select({ uri: nagiDiaries.uri })
       .from(nagiDiaries)
-      .where(eq(nagiDiaries.uri, subjectUri))
+      .where(
+        and(
+          eq(nagiDiaries.uri, subjectUri),
+          eq(nagiDiaries.subjectDid, ownerDid),
+        ),
+      )
       .limit(1);
     if (row) return;
   }
@@ -505,6 +511,7 @@ export async function getBookmarks(opts: {
       (${nagiBookmarks.subjectType} = 'diary' and exists (
         select 1 from ${nagiDiaries}
         where ${nagiDiaries.uri} = ${nagiBookmarks.subjectUri}
+          and ${nagiDiaries.subjectDid} = ${opts.ownerDid}
           and position(lower(${q}) in lower(concat_ws(' ',
             ${nagiDiaries.text}, ${nagiDiaries.titleJa}, ${nagiDiaries.titleEn}, ${nagiDiaries.diaryDate}
           ))) > 0
@@ -543,9 +550,13 @@ export async function getBookmarks(opts: {
     getBotActor(),
   ]);
   const posts = new Map(postViews.map((post) => [post.uri, post]));
-  // 他人の日記もブックマークできるので、後からプライベートになった日記はここで伏せる。
+  // 日記は本人のものだけ見せる。日記が本人限定になる前にブックマークした他人の日記は
+  // diaryView が undefined を返すので、unavailable として出す。
   const diaries = new Map(
-    diaryRows.map((row) => [row.uri, diaryView(row, opts.ownerDid)]),
+    diaryRows.flatMap((row) => {
+      const view = diaryView(row, opts.ownerDid);
+      return view ? [[row.uri, view] as const] : [];
+    }),
   );
   const items: BookmarkItemView[] = page.map((row) => {
     const common = {

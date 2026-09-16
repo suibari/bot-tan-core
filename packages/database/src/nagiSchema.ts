@@ -522,8 +522,9 @@ export const nagiProfiles = nagiSchema.table(
   ],
 );
 /**
- * botたんが書いたユーザーの日記（com.suibari.nagi.diary）。
- * ポストではないのでタイムラインには一切出ず、通知とプロフィールの日記タブからのみ参照する。
+ * botたんが書いたユーザーの日記（com.suibari.nagi.diary）。本人だけが読む。
+ * ポストではないのでタイムラインには一切出ず、通知と本人の日記ページからのみ参照する。
+ * PDS には置かず、AppView にだけある（2026-09 以前に PDS へ書いた分は移行スクリプトで移す）。
  */
 export const nagiDiaries = nagiSchema.table(
   "diaries",
@@ -541,9 +542,8 @@ export const nagiDiaries = nagiSchema.table(
     titleEn: text("title_en"),
     emoji: text("emoji"),
     postCount: integer("post_count"),
-    // その日の材料にこっそり投稿が1つ以上含まれる日記。本人以外には本文・タイトル・
-    // つながりを返さず（日付と件数だけ返すのでコミットグラフには出る）、botたんの PDS にも
-    // レコードを作らない。既存行は false のまま（バックフィルなし）。
+    // その日の材料にこっそり投稿が1つ以上含まれていたかの記録。日記はどれも本人限定に
+    // なったので、表示の出し分けには使わない。既存行は false のまま（バックフィルなし）。
     isPrivate: boolean("is_private").default(false).notNull(),
     langs: jsonb("langs"),
     recordCreatedAt: timestamp("record_created_at", {

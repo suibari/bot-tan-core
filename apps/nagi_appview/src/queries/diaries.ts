@@ -202,37 +202,18 @@ async function loadActorViews(dids: string[]): Promise<Map<string, ActorView>> {
   );
 }
 
-/** その日記の中身を viewer に見せてよいか。こっそりを含む日は本人だけ。 */
-export const canReadDiaryBody = (row: DiaryRow, viewerDid?: string): boolean =>
-  !row.isPrivate || row.subjectDid === viewerDid;
-
 /**
- * viewerDid は必須引数にしてある。省略できるようにすると、新しい呼び出し元が
- * うっかり渡し忘れたときにプライベート日記の本文が漏れるため。
+ * 日記は本人だけのもの。本人以外（未認証を含む）には undefined を返す。
+ * viewerDid を必須引数にしてあるのは、新しい呼び出し元がうっかり渡し忘れたときに
+ * 他人の日記が漏れないようにするため。
  */
 export function diaryView(
   row: DiaryRow,
   viewerDid: string | undefined,
   involvedActors?: ActorView[],
   involvedActorsHasMore = false,
-): DiaryView {
-  // 本文・称号・つながりは伏せるが、日付と件数は返す。コミットグラフのセルと濃淡は
-  // 従来どおり出したうえで、選んだときに「読めない」と分かるようにするため。
-  if (!canReadDiaryBody(row, viewerDid))
-    return {
-      uri: row.uri,
-      cid: row.cid,
-      subject: row.subjectDid,
-      date: row.diaryDate,
-      text: "",
-      postCount: row.postCount ?? undefined,
-      isPrivate: true,
-      bodyHidden: true,
-      langs: (row.langs as string[] | null) ?? undefined,
-      createdAt: row.recordCreatedAt.toISOString(),
-      indexedAt: row.indexedAt.toISOString(),
-    };
-  const canReadInvolvedActors = row.subjectDid === viewerDid;
+): DiaryView | undefined {
+  if (row.subjectDid !== viewerDid) return undefined;
   return {
     uri: row.uri,
     cid: row.cid,
@@ -242,14 +223,8 @@ export function diaryView(
     titleJa: row.titleJa ?? undefined,
     titleEn: row.titleEn ?? undefined,
     postCount: row.postCount ?? undefined,
-    isPrivate: row.isPrivate || undefined,
-    // リアクション・返信・引用から作る関係性情報は、日記本文が公開でも本人限定。
-    involvedActors:
-      canReadInvolvedActors && involvedActors?.length
-        ? involvedActors
-        : undefined,
-    involvedActorsHasMore:
-      (canReadInvolvedActors && involvedActorsHasMore) || undefined,
+    involvedActors: involvedActors?.length ? involvedActors : undefined,
+    involvedActorsHasMore: involvedActorsHasMore || undefined,
     langs: (row.langs as string[] | null) ?? undefined,
     createdAt: row.recordCreatedAt.toISOString(),
     indexedAt: row.indexedAt.toISOString(),
@@ -263,7 +238,7 @@ export async function fetchDiaryRows(uris: string[]): Promise<DiaryRow[]> {
 }
 
 /**
- * プロフィールの日記タブ用。
+ * 日記ページ用。本人の日記だけを返す。
  * from/to を指定すると年間グラフ用の範囲と関わった人を返す。
  * month（"YYYY-MM"）は旧クライアント互換として、その月の全件を日付昇順で返す。
  * 未指定なら新しい順にページングする。
@@ -275,11 +250,17 @@ export async function getDiaries(opts: {
   to?: string;
   limit: number;
   cursor?: string;
-  /** 未認証でも呼べる公開エンドポイントなので undefined になりうる（その場合は伏せる側に倒れる）。 */
-  viewerDid?: string;
+  /** 認証必須のエンドポイントなので常にある。actor と一致しなければ拒否する。 */
+  viewerDid: string;
 }): Promise<{ items: DiaryView[]; cursor?: string; hasMore: boolean }> {
   if (!opts.actor)
     throw new ApiError(400, "invalid_request", "actor is required");
+  if (opts.actor !== opts.viewerDid)
+    throw new ApiError(
+      403,
+      "forbidden",
+      "Diaries are only available to their owner",
+    );
   if (opts.month && !/^\d{4}-\d{2}$/.test(opts.month))
     throw new ApiError(400, "invalid_request", "Invalid month");
   if (opts.month && (opts.from || opts.to))
@@ -310,13 +291,6 @@ export async function getDiaries(opts: {
       .orderBy(asc(nagiDiaries.diaryDate));
     if (!rows.length) return { items: [], hasMore: false };
 
-    // 「この日のつながり」は本人用。第三者には返さず、集計クエリ自体も走らせない。
-    if (opts.viewerDid !== opts.actor)
-      return {
-        items: rows.map((row) => diaryView(row, opts.viewerDid)),
-        hasMore: false,
-      };
-
     const windows = rows.map((row) => diaryInteractionWindow(row));
     const start = new Date(
       Math.min(...windows.map((window) => window.start.getTime())),
@@ -338,16 +312,17 @@ export async function getDiaries(opts: {
     );
     const actors = await loadActorViews(visibleRanked.flat());
     return {
-      items: rows.map((row, index) =>
-        diaryView(
-          row,
-          opts.viewerDid,
-          visibleRanked[index].map(
-            (did) =>
-              actors.get(did) ?? ({ did, handle: did } satisfies ActorView),
-          ),
-          ranked[index].length > INVOLVED_ACTOR_LIMIT,
-        ),
+      items: rows.flatMap(
+        (row, index) =>
+          diaryView(
+            row,
+            opts.viewerDid,
+            visibleRanked[index].map(
+              (did) =>
+                actors.get(did) ?? ({ did, handle: did } satisfies ActorView),
+            ),
+            ranked[index].length > INVOLVED_ACTOR_LIMIT,
+          ) ?? [],
       ),
       hasMore: false,
     };
@@ -365,7 +340,7 @@ export async function getDiaries(opts: {
       )
       .orderBy(asc(nagiDiaries.diaryDate));
     return {
-      items: rows.map((row) => diaryView(row, opts.viewerDid)),
+      items: rows.flatMap((row) => diaryView(row, opts.viewerDid) ?? []),
       hasMore: false,
     };
   }
@@ -379,7 +354,7 @@ export async function getDiaries(opts: {
     .where(and(...filters))
     .orderBy(desc(nagiDiaries.diaryDate))
     .limit(opts.limit);
-  const items = rows.map((row) => diaryView(row, opts.viewerDid));
+  const items = rows.flatMap((row) => diaryView(row, opts.viewerDid) ?? []);
   return {
     items,
     cursor:

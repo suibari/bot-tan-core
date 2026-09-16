@@ -51,8 +51,8 @@ const NAGI_BOT_SERVER_URL =
   process.env.NAGI_BOT_SERVER_URL || "http://localhost:3003";
 
 /**
- * 日記は botたんのリポジトリにあるので、AppView からは消せない。
- * bot サーバーに依頼する。DB の行を消す前に呼ぶこと（rkey を行から引くため）。
+ * 日記は今は AppView にしか無いが、移行前に botたんのリポジトリへ書いた日記が残っていれば
+ * AppView からは消せないので bot サーバーに依頼する。DB の行を消す前に呼ぶこと（rkey を行から引くため）。
  */
 async function purgeDiaryRecords(did: string) {
   try {
@@ -151,7 +151,7 @@ export async function deleteAccountData(did: string) {
         ),
       );
     // 所有分はフォルダ削除の cascade で消す。対象URI側にも退会者のDIDを残さない。
-    // 日記URIはbotたん所有なので、subjectDidから先に特定したURIも明示的に消す。
+    // 日記URIは本人のDIDを含まないので、subjectDidから先に特定したURIも明示的に消す。
     await tx
       .delete(nagiBookmarks)
       .where(like(nagiBookmarks.subjectUri, `at://${did}/%`));

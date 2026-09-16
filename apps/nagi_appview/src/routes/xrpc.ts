@@ -636,7 +636,7 @@ xrpc.get(
             mode: searchMode(req.query.mode),
             limit: limit(req.query.limit),
             cursor: String(req.query.cursor ?? "") || undefined,
-            viewerDid: req.viewerDid,
+            viewerDid: req.viewerDid!,
           }),
         );
         return;
@@ -723,21 +723,15 @@ xrpc.get(
     }
   },
 );
-// 日記は基本的に公開コンテンツ（Bluesky 側が公開リプライなのと同じ）なので認証は任意。
-// ただしこっそり投稿を含む日の日記は本人にしか本文を返さないので、居るなら viewerDid を
-// 使う。必須にはしない: 未認証でも日付と件数（＝コミットグラフ）は従来どおり見せたいのと、
-// permission set の反映には最大24hかかるため、その間も 401 にせず伏せる側へ倒す。
+// 日記は本人だけが読む。requiredServiceAuth が検証した viewerDid と actor が一致しなければ
+// getDiaries が 403 を返す（日付や件数も含めて、他人には何も返さない）。
 xrpc.get(
   `/${NAGI.getDiaries}`,
-  optionalServiceAuth(NAGI.getDiaries),
+  requiredServiceAuth(NAGI.getDiaries),
   async (req, res, next) => {
     try {
       res
-        .set(
-          "Cache-Control",
-          // viewer 依存の出し分けが入るので、認証付きの応答は共有キャッシュに載せない。
-          req.viewerDid ? "private, no-store" : "public, max-age=60",
-        )
+        .set("Cache-Control", "private, no-store")
         .json(
           await getDiaries({
             actor: String(req.query.actor ?? ""),
@@ -746,7 +740,7 @@ xrpc.get(
             to: String(req.query.to ?? "") || undefined,
             limit: limit(req.query.limit),
             cursor: String(req.query.cursor ?? "") || undefined,
-            viewerDid: req.viewerDid,
+            viewerDid: req.viewerDid!,
           }),
         );
     } catch (e) {

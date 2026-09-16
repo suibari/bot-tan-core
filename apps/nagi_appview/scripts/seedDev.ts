@@ -16,7 +16,7 @@ import {
   nagiProfiles,
   nagiReactions,
 } from "@bsky-affirmative-bot/database";
-import { NAGI } from "@bsky-affirmative-bot/nagi-lexicon";
+import { NAGI, appviewRecordUri } from "@bsky-affirmative-bot/nagi-lexicon";
 import { assertSafeDevDatabase } from "./seedDevSafety.js";
 
 const FIXTURE_AUTHOR_DID = "did:web:nagi-fixture.localhost";
@@ -70,7 +70,8 @@ export async function seedDevelopmentDatabase(env = process.env) {
   const reactionUri = atUri(FIXTURE_FRIEND_DID, NAGI.reaction, "dev-reaction");
   const newsUri = atUri(botDid, NAGI.news, "dev-positive-news");
   const diaryDate = localDate(now);
-  const diaryUri = atUri(botDid, NAGI.diary, `dev-diary-${diaryDate}`);
+  // 日記は PDS に置かず AppView にだけあるので、URI の authority は AppView の DID。
+  const diaryUri = appviewRecordUri(NAGI.diary, `dev-diary-${diaryDate}`);
 
   const actorRows = [
     {
