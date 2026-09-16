@@ -11,6 +11,7 @@ import {
   type PositiveNewsCandidate,
 } from "@bsky-affirmative-bot/bot-brain";
 import { getNewsMetadata, LinkMetadataError } from "@bsky-affirmative-bot/nagi-linkcard";
+import { httpsImageUrl } from "./newsImageUrl.js";
 import { createHash } from "node:crypto";
 import { and, asc, eq, isNull, lt, ne, or, sql } from "drizzle-orm";
 
@@ -327,16 +328,6 @@ export async function runUserNewsReviewBatch(now = new Date()): Promise<number> 
     if (didApprove) approved++;
   }
   return approved;
-}
-
-function httpsImageUrl(value: string | undefined): string | undefined {
-  if (!value) return undefined;
-  try {
-    const url = new URL(value);
-    return url.protocol === "https:" ? url.toString() : undefined;
-  } catch {
-    return undefined;
-  }
 }
 
 export function scheduleUserNewsReviews() {
