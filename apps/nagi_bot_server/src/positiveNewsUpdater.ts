@@ -3,6 +3,7 @@ import { db, nagiNews, nagiNewsApprovals, nagiNewsCandidates, nagiNewsScreening,
 import { getPositiveNewsCandidates, isNewsInterestGenre, judgePositiveNewsBatch, POSITIVE_NEWS_PROMPT_VERSION, positiveNewsModel } from "@bsky-affirmative-bot/bot-brain";
 import { and, asc, eq, gt, inArray, isNull, lt, notInArray, or, sql } from "drizzle-orm";
 import { publishNews } from "./NagiNewsFeature.js";
+import { resolveNewsImageUrl } from "./newsImageUrl.js";
 import type { PositiveNewsCandidate } from "@bsky-affirmative-bot/bot-brain";
 
 const SIX_HOURS = 6 * 60 * 60 * 1000;
@@ -219,10 +220,12 @@ export async function updatePositiveNews(now = new Date()): Promise<number> {
       await db.insert(nagiNewsScreening).values({ cacheKey, articleId: candidate.articleId, decision: decision.publishable ? "approved_final" : "rejected_final", reasonCode: decision.reasonCode, expiresAt: new Date(now.getTime() + 24 * 60 * 60 * 1000) }).onConflictDoUpdate({ target: nagiNewsScreening.cacheKey, set: { decision: decision.publishable ? "approved_final" : "rejected_final", reasonCode: decision.reasonCode, expiresAt: new Date(now.getTime() + 24 * 60 * 60 * 1000) } });
       if (!decision.publishable || !candidate.link || !normalizedUrl(candidate.link)) continue;
       try {
+        // NewsData が image_url を返さない記事は、ここで記事ページの OGP を見て補う。
+        const imageUrl = await resolveNewsImageUrl(candidate);
         const ref = await publishNews({ articleId: candidate.articleId, url: candidate.link, titleJa: candidate.title, sourceName: candidate.sourceName, sourceUrl: candidate.sourceUrl, publishedAt: candidate.publishedAt, langs: ["ja"], createdAt: now.toISOString() });
         const snapshot = { snapshotArticleId: candidate.articleId, snapshotUrl: candidate.link, snapshotTitleJa: candidate.title,
           snapshotSourceName: candidate.sourceName ?? null, snapshotSourceUrl: candidate.sourceUrl ?? null,
-          snapshotImageUrl: candidate.imageUrl ?? null,
+          snapshotImageUrl: imageUrl ?? null,
           snapshotPublishedAt: candidate.publishedAt ? new Date(candidate.publishedAt) : null, snapshotCreatedAt: now };
         await db.insert(nagiNewsApprovals).values({ newsUri: ref.uri, newsCid: ref.cid, status: "approved", reasonCode: decision.reasonCode, botCommentJa: decision.botCommentJa, titleEn: decision.titleEn, botCommentEn: decision.botCommentEn, model: positiveNewsModel(), promptVersion: POSITIVE_NEWS_PROMPT_VERSION, ...snapshot }).onConflictDoUpdate({ target: [nagiNewsApprovals.newsUri, nagiNewsApprovals.newsCid], set: { status: "approved", reasonCode: decision.reasonCode, botCommentJa: decision.botCommentJa, titleEn: decision.titleEn, botCommentEn: decision.botCommentEn, model: positiveNewsModel(), promptVersion: POSITIVE_NEWS_PROMPT_VERSION, hiddenAt: null, ...snapshot } });
         published++;
