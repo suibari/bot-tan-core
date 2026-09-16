@@ -419,6 +419,10 @@ export class ConversationFeature implements BotFeature {
                 langStr,
                 botContext: await getBotContext(),
             });
+            if (!result) {
+                console.warn(`[WARN][${follower.did}][WHIMSICAL] no usable reply, skipping`);
+                return false;
+            }
 
             // ポスト
             await postContinuous(result, { uri, cid: String(event.commit.cid), record });

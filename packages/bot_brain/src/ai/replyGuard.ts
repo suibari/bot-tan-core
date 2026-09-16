@@ -56,7 +56,16 @@ export function assertUsableReply(
     throw new DegenerateReplyError("name echo", comment);
   }
 
-  // 2. 出力枠に到達して切れた（truncated）うえに極端に短い。
+  // 2. 構造化出力の生 JSON や、エスケープされたままの改行の連続。
+  //    2026-09-16 に `{"reply": "…\n\n\n…` が4連投された。普通の返事には出ない形。
+  if (/^\s*(?:```json\s*)?\{\s*"(?:reply|unknownTerms)"\s*:/i.test(comment)) {
+    throw new DegenerateReplyError("raw JSON", comment);
+  }
+  if (/(?:\\n){3,}/.test(comment)) {
+    throw new DegenerateReplyError("escaped newlines", comment);
+  }
+
+  // 3. 出力枠に到達して切れた（truncated）うえに極端に短い。
   //    truncated との AND にしているのは、短い相づちを誤爆させないため。
   if (options.truncated && graphemeLength(comment) < 5) {
     throw new DegenerateReplyError("truncated and too short", comment);

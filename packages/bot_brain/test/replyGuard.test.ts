@@ -48,3 +48,17 @@ test("空文字はこれまでどおり空エラーにする", () => {
 test("呼びかけ名が未設定でも落ちない", () => {
   assert.doesNotThrow(() => assertUsableReply("こんにちは！", undefined, {}));
 });
+
+test("生の構造化 JSON やエスケープされた改行の連続は投稿させない", () => {
+  // 2026-09-16 の事故。`{"reply": "…\\n\\n\\n…` がそのまま4連投された。
+  assert.throws(
+    () => assertUsableReply('{"reply": "湖底、おやすみなさい！', "湖底", {}),
+    DegenerateReplyError,
+  );
+  assert.throws(
+    () => assertUsableReply("おやすみ！" + "\\n".repeat(10), "湖底", {}),
+    DegenerateReplyError,
+  );
+  // 本物の改行や、波括弧を含むだけの返事は通す。
+  assert.doesNotThrow(() => assertUsableReply("おやすみ！\n\nまたね{笑}", "湖底", {}));
+});
