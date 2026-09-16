@@ -77,6 +77,7 @@ function view(
   const publishedAt = userSubmitted
     ? row.approval.snapshotPublishedAt
     : row.approval.snapshotPublishedAt ?? row.news.publishedAt;
+  const image = safeHttpsUrl(row.approval.snapshotImageUrl);
   const createdAt = userSubmitted
     ? row.approval.snapshotCreatedAt!
     : row.approval.snapshotCreatedAt ?? row.news.recordCreatedAt;
@@ -88,6 +89,7 @@ function view(
     title: useEn ? row.approval.titleEn! : snapshotTitle,
     sourceName: sourceName ?? undefined,
     sourceUrl: sourceUrl ?? undefined,
+    ...(image ? { image } : {}),
     publishedAt: publishedAt?.toISOString(),
     botComment: useEn ? row.approval.botCommentEn! : row.approval.botCommentJa!,
     lang: useEn ? "en" : "ja",
@@ -109,6 +111,16 @@ function view(
         }
       : {}),
   };
+}
+
+function safeHttpsUrl(value: string | null | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" ? url.toString() : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export async function getPositiveNews(opts: {

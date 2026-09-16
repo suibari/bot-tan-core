@@ -32,6 +32,7 @@ export interface PositiveNewsCandidate {
   description?: string;
   sourceName?: string;
   sourceUrl?: string;
+  imageUrl?: string;
   link?: string;
   publishedAt?: string;
   categories: string[];
@@ -68,6 +69,7 @@ interface NewsDataArticleResponse {
   description?: unknown;
   source_name?: unknown;
   source_url?: unknown;
+  image_url?: unknown;
   link?: unknown;
   pubDate?: unknown;
   category?: unknown;
@@ -164,12 +166,24 @@ function normalizeArticle(value: unknown): PositiveNewsCandidate | null {
     description: asOptionalString(article.description)?.slice(0, DESCRIPTION_LIMIT),
     sourceName: asOptionalString(article.source_name),
     sourceUrl: asOptionalString(article.source_url),
+    imageUrl: asOptionalHttpsUrl(article.image_url),
     link: asOptionalString(article.link),
     publishedAt: asOptionalString(article.pubDate),
     categories: Array.isArray(article.category)
       ? article.category.filter((item): item is string => typeof item === "string")
       : [],
   };
+}
+
+function asOptionalHttpsUrl(value: unknown): string | undefined {
+  const raw = asOptionalString(value);
+  if (!raw) return undefined;
+  try {
+    const url = new URL(raw);
+    return url.protocol === "https:" ? url.toString() : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 async function mapWithConcurrency<T, R>(

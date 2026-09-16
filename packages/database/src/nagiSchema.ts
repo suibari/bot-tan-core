@@ -329,6 +329,8 @@ export const nagiNewsApprovals = nagiSchema.table(
     snapshotTitleJa: text("snapshot_title_ja"),
     snapshotSourceName: text("snapshot_source_name"),
     snapshotSourceUrl: text("snapshot_source_url"),
+    /** OGP画像の参照先。画像データ自体は保持せず、クライアントが配信元から直接読む。 */
+    snapshotImageUrl: text("snapshot_image_url"),
     snapshotPublishedAt: timestamp("snapshot_published_at", {
       withTimezone: true,
     }),
@@ -398,6 +400,8 @@ export const nagiNewsCandidates = nagiSchema.table(
     description: text("description"),
     sourceName: text("source_name"),
     sourceUrl: text("source_url"),
+    /** 配信元が返したOGP相当の画像URL。画像データ自体は保存しない。 */
+    imageUrl: text("image_url"),
     publishedAt: timestamp("published_at", { withTimezone: true }),
     /** 在庫の賞味期限。過ぎたら掃除する（古いニュースを今さら出さない）。 */
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),

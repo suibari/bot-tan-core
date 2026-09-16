@@ -75,6 +75,7 @@ async function stockCandidates(
       description: item.description ?? null,
       sourceName: item.sourceName ?? null,
       sourceUrl: item.sourceUrl ?? null,
+      imageUrl: item.imageUrl ?? null,
       publishedAt: item.publishedAt ? new Date(item.publishedAt) : null,
       expiresAt: new Date(now.getTime() + CANDIDATE_TTL_MS),
     }];
@@ -124,6 +125,7 @@ async function takeStock(
     description: row.description ?? undefined,
     sourceName: row.sourceName ?? undefined,
     sourceUrl: row.sourceUrl ?? undefined,
+    imageUrl: row.imageUrl ?? undefined,
     link: row.url,
     publishedAt: row.publishedAt?.toISOString(),
     categories: [],
@@ -220,6 +222,7 @@ export async function updatePositiveNews(now = new Date()): Promise<number> {
         const ref = await publishNews({ articleId: candidate.articleId, url: candidate.link, titleJa: candidate.title, sourceName: candidate.sourceName, sourceUrl: candidate.sourceUrl, publishedAt: candidate.publishedAt, langs: ["ja"], createdAt: now.toISOString() });
         const snapshot = { snapshotArticleId: candidate.articleId, snapshotUrl: candidate.link, snapshotTitleJa: candidate.title,
           snapshotSourceName: candidate.sourceName ?? null, snapshotSourceUrl: candidate.sourceUrl ?? null,
+          snapshotImageUrl: candidate.imageUrl ?? null,
           snapshotPublishedAt: candidate.publishedAt ? new Date(candidate.publishedAt) : null, snapshotCreatedAt: now };
         await db.insert(nagiNewsApprovals).values({ newsUri: ref.uri, newsCid: ref.cid, status: "approved", reasonCode: decision.reasonCode, botCommentJa: decision.botCommentJa, titleEn: decision.titleEn, botCommentEn: decision.botCommentEn, model: positiveNewsModel(), promptVersion: POSITIVE_NEWS_PROMPT_VERSION, ...snapshot }).onConflictDoUpdate({ target: [nagiNewsApprovals.newsUri, nagiNewsApprovals.newsCid], set: { status: "approved", reasonCode: decision.reasonCode, botCommentJa: decision.botCommentJa, titleEn: decision.titleEn, botCommentEn: decision.botCommentEn, model: positiveNewsModel(), promptVersion: POSITIVE_NEWS_PROMPT_VERSION, hiddenAt: null, ...snapshot } });
         published++;

@@ -174,6 +174,7 @@ export async function runUserNewsReviewBatch(now = new Date()): Promise<number> 
           description: metadata.description,
           sourceName: metadata.siteName ?? new URL(metadata.uri).hostname,
           sourceUrl: new URL(metadata.uri).origin,
+          imageUrl: httpsImageUrl(metadata.image),
           link: canonicalUrl,
           publishedAt: metadata.publishedAt,
           categories: [],
@@ -214,6 +215,7 @@ export async function runUserNewsReviewBatch(now = new Date()): Promise<number> 
       snapshotTitleJa: item.candidate.title,
       snapshotSourceName: item.candidate.sourceName ?? null,
       snapshotSourceUrl: item.candidate.sourceUrl ?? null,
+      snapshotImageUrl: item.candidate.imageUrl ?? null,
       snapshotPublishedAt: item.candidate.publishedAt ? new Date(item.candidate.publishedAt) : null,
       snapshotCreatedAt: item.news.recordCreatedAt,
     };
@@ -325,6 +327,16 @@ export async function runUserNewsReviewBatch(now = new Date()): Promise<number> 
     if (didApprove) approved++;
   }
   return approved;
+}
+
+function httpsImageUrl(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" ? url.toString() : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export function scheduleUserNewsReviews() {
