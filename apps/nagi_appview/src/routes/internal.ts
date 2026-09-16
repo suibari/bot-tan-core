@@ -168,10 +168,10 @@ internal.post("/kossori-replies", async (req, res, next) => {
 });
 
 /**
- * こっそり投稿を含む日の日記。
+ * botたんが書く日記。
  *
- * 日記は botたんの PDS に置くレコードなので、そのままだとこっそりの内容を要約した本文が
- * 公開リポジトリに出てしまう。プライベート日記だけはここを通して AppView にだけ置く。
+ * 日記は本人だけが読むもので、PDS に置くと botたんの公開リポジトリから誰でも読めてしまう。
+ * そのためすべての日記をここを通して AppView にだけ置く（PDS 由来の日記は取り込まない）。
  * 取り込み・通知・Web Push は applyMutation の日記分岐がそのまま担う。
  */
 internal.post("/diaries", async (req, res, next) => {
@@ -182,7 +182,7 @@ internal.post("/diaries", async (req, res, next) => {
       res.status(400).json({ error: "rkey and record are required" });
       return;
     }
-    const value = { ...record, $type: NAGI.diary, isPrivate: true };
+    const value = { ...record, $type: NAGI.diary };
     const cid = (await cidForCbor(value)).toString();
     await applyMutation(
       {

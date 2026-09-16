@@ -154,7 +154,9 @@ export async function applyMutation(
     return { cursorAdvanced: false };
   const did = evt.did;
   // 日記を書けるのは botたんだけ。他人が他人の日記を捏造できないようにする。
-  if (collection === NAGI.diary && did !== config.botDid)
+  // さらに日記は本人だけが読むもので PDS には置かないので、internal ルーター経由
+  // （appviewOnly）で作られたものだけを受け付け、PDS 由来のレコードは取り込まない。
+  if (collection === NAGI.diary && (did !== config.botDid || !appviewOnly))
     return { cursorAdvanced: false };
   // AppView 発行のレコードは authority を AppView の DID にして、URI から著者を辿れなくする。
   // 行の did（＝著者）は分けて持つので、プロフィールや通知の宛先解決はこれまでどおり効く。
@@ -805,8 +807,8 @@ export async function applyMutation(
               titleEn: value.titleEn ?? null,
               emoji: value.emoji ?? null,
               postCount: value.postCount ?? null,
-              // その日の材料にこっそり投稿が混ざる日記。PDS には書かれないので、この値が
-              // true で届くのは internal ルーター経由（appviewOnly）のときだけ。
+              // その日の材料にこっそり投稿が混ざったかの記録。日記はどれも本人限定なので、
+              // 表示の出し分けには使わない。
               isPrivate: value.isPrivate === true,
               langs: value.langs ?? null,
               recordCreatedAt: createdAt,

@@ -15,7 +15,6 @@ import {
   isPastLocal22,
   localDateStr,
   trackedDeleteRecord,
-  trackedPutRecord,
   withPreferredName,
   selectUserDiaryMediaReference,
 } from "@bsky-affirmative-bot/clients";
@@ -29,7 +28,7 @@ import type { AppBskyActorDefs } from "@atproto/api";
 import { NAGI, type NagiDiary } from "@bsky-affirmative-bot/nagi-lexicon";
 import retry from "async-retry";
 import { agent } from "./agent.js";
-import { createPrivateDiary } from "./appviewInternal.js";
+import { createDiary } from "./appviewInternal.js";
 import { clipNagiPostText } from "./nagiPostText.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -95,8 +94,9 @@ export type NagiDiaryRunOptions = {
 
 /**
  * 1ユーザー分の日記を書く。
- * ポストではなく com.suibari.nagi.diary レコードを bot のリポジトリに置くので、
- * グローバルタイムラインには出ない。通知は AppView が取り込み時に作る。
+ * ポストではなく com.suibari.nagi.diary レコードを AppView にだけ作るので、
+ * グローバルタイムラインには出ない。日記は本人だけが読むもので、PDS には書かない。
+ * 通知は AppView が取り込み時に作る。
  *
  * 引数なしで呼べば「今この瞬間から24時間ぶん」を今日の日記として書く（定時実行の経路）。
  * options を渡すと過去日のバックフィルになる（scripts/backfillNagiDiary.ts）。
@@ -121,8 +121,7 @@ export async function processNagiDiary(
       return;
     }
 
-    // こっそりを1つでも含む日は、日記も本人だけのものになる。日記は「その日の投稿」を
-    // まとめたものなので、こっそりの内容が本文に溶けて出てしまうため。
+    // こっそりを1つでも含む日かどうか。日記はどれも本人限定なので出し分けには使わず、記録として残す。
     const isPrivate = recentPosts.some((post) => post.kossori);
 
     const latestLangs = [...recentPosts]
@@ -207,27 +206,17 @@ export async function processNagiDiary(
 
     await retry(
       async () => {
-        // こっそり投稿が1つでも混ざる日の日記は、その内容を要約したものになる。PDS へ置くと
-        // botたんの公開リポジトリから誰でも読めてしまうので、AppView にだけ作る。
-        if (isPrivate) {
-          await createPrivateDiary({
-            rkey: diaryRkey(userDid, date),
-            record,
-          });
-          return;
-        }
-        await trackedPutRecord(agent, {
-          repo: process.env.NAGI_BOT_DID!,
-          collection: NAGI.diary,
+        // 日記は本人だけが読む。PDS へ置くと botたんの公開リポジトリから誰でも読めてしまうので、
+        // こっそりを含むかどうかにかかわらず AppView にだけ作る。
+        await createDiary({
           rkey: diaryRkey(userDid, date),
-          validate: false,
-          record,
-        } as any, "nagi.diary");
+          record: { ...record, isPrivate },
+        });
       },
       {
         retries: 2,
         onRetry: (error, attempt) => {
-          console.warn(`[WARN][NAGI][${userDid}][DIARY] putRecord retry ${attempt}:`, error);
+          console.warn(`[WARN][NAGI][${userDid}][DIARY] create retry ${attempt}:`, error);
         },
       },
     );
@@ -328,17 +317,21 @@ export async function scheduleAllNagiDiaries() {
   await manageNagiDiarySchedules();
 }
 
-/** ユーザーのデータ削除時に、bot のリポジトリからその人の日記を消す。 */
+/**
+ * ユーザーのデータ削除時に、その人の日記を消す。今の日記は AppView にしか無いが、
+ * 移行前に bot のリポジトリへ書いた日記が残っていれば、そのレコードも消す。
+ */
 export async function purgeNagiDiaries(userDid: string): Promise<number> {
   const rows = await db
-    .select({ uri: nagiDiaries.uri, isPrivate: nagiDiaries.isPrivate })
+    .select({ uri: nagiDiaries.uri })
     .from(nagiDiaries)
     .where(eq(nagiDiaries.subjectDid, userDid));
 
+  const legacyPrefix = `at://${process.env.NAGI_BOT_DID}/${NAGI.diary}/`;
   let deleted = 0;
-  for (const { uri, isPrivate } of rows) {
-    // プライベート日記は PDS に無いので、下の行削除だけで完全に消える。
-    if (isPrivate) continue;
+  for (const { uri } of rows) {
+    // AppView にだけある日記は PDS に無いので、下の行削除だけで完全に消える。
+    if (!uri.startsWith(legacyPrefix)) continue;
     const rkey = uri.split("/").pop();
     if (!rkey) continue;
     try {

@@ -88,10 +88,10 @@ export async function resolveBluemojiAliases(
 }
 
 /**
- * こっそり投稿を含む日の日記を AppView にだけ作る。
- * PDS へ書くと、こっそりの内容を要約した本文が botたんの公開リポジトリに出てしまう。
+ * 日記を AppView にだけ作る。日記は本人だけが読むもので、PDS へ書くと
+ * botたんの公開リポジトリから誰でも読めてしまう。
  */
-export function createPrivateDiary(input: {
+export function createDiary(input: {
   rkey: string;
   record: unknown;
 }): Promise<{ uri: string; cid: string }> {

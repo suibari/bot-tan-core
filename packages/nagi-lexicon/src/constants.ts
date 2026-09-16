@@ -190,8 +190,7 @@ export const NAGI_COLLECTIONS = [
 ] as const;
 /**
  * jetstream で購読するコレクション。
- * 日記は bot だけが書くのでユーザーの書き込みスコープ（NAGI_COLLECTIONS）には無いが、
- * AppView は取り込む必要があるためここにだけ足す。
+ * 日記は本人だけが読むもので PDS には置かず、AppView の internal ルーターでだけ作るので含めない。
  * 逆に appLinks と bluemoji サイドカーはユーザー書き込み可能（NAGI_COLLECTIONS に含む）だが、
  * AppView では使わない。よって NAGI_COLLECTIONS を spread せず明示列挙する。
  */
@@ -200,7 +199,6 @@ export const NAGI_INGEST_COLLECTIONS = [
   NAGI.reaction,
   NAGI.profile,
   BLUEMOJI_ITEM,
-  NAGI.diary,
   NAGI.news,
   NAGI.channel,
 ] as const;

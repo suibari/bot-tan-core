@@ -1,7 +1,6 @@
 import {
   db,
   nagiChannels,
-  nagiDiaries,
   nagiEmojis,
   nagiNews,
   nagiPosts,
@@ -58,7 +57,8 @@ const USER_COLLECTIONS = [
   NAGI.news,
 ] as const;
 
-const BOT_COLLECTIONS = [...USER_COLLECTIONS, NAGI.diary, NAGI.news] as const;
+// 日記は PDS に置かない（AppView にだけある）ので、照合の対象にしない。
+const BOT_COLLECTIONS = [...USER_COLLECTIONS, NAGI.news] as const;
 
 export const isReconcilableCollection = (
   did: string,
@@ -220,15 +220,6 @@ async function localRecords(
         row.uri,
         { cid: row.cid, active: isNormalizedBluemojiFormats(row.formats) },
       ]),
-    );
-  }
-  if (collection === NAGI.diary) {
-    const rows = await db
-      .select({ uri: nagiDiaries.uri, cid: nagiDiaries.cid })
-      .from(nagiDiaries)
-      .where(eq(nagiDiaries.did, did));
-    return new Map(
-      rows.map((row) => [row.uri, { cid: row.cid, active: true }]),
     );
   }
   if (collection === NAGI.news) {

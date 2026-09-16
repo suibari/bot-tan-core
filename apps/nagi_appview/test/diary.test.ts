@@ -52,9 +52,9 @@ test("rejects invalid post counts", () => {
   }
 });
 
-test("diary view exposes involved actors only to the diary owner", () => {
+test("diary view is returned only to the diary owner", () => {
   const base = {
-    uri: "at://did:plc:bot/com.suibari.nagi.diary/alice-2026-08-02",
+    uri: "at://did:web:nagi-api.suibari.com/com.suibari.nagi.diary/alice-2026-08-02",
     cid: "bafyreidiary",
     did: "did:plc:bot",
     subjectDid: "did:plc:alice",
@@ -67,9 +67,18 @@ test("diary view exposes involved actors only to the diary owner", () => {
     recordCreatedAt: new Date("2026-08-02T13:00:00.000Z"),
     indexedAt: new Date("2026-08-02T13:00:01.000Z"),
   };
+  const involved = [{ did: "did:plc:bob", handle: "bob.test" }];
+
+  // 他人と未認証には、日付や件数も含めて何も返さない。
+  for (const viewer of ["did:plc:bob", undefined]) {
+    assert.equal(
+      diaryView({ ...base, emoji: null, postCount: 4 }, viewer, involved, true),
+      undefined,
+    );
+  }
 
   assert.deepEqual(
-    diaryView({ ...base, emoji: null, postCount: null }, undefined),
+    diaryView({ ...base, emoji: null, postCount: null }, base.subjectDid),
     {
       uri: base.uri,
       cid: base.cid,
@@ -79,7 +88,6 @@ test("diary view exposes involved actors only to the diary owner", () => {
       titleJa: undefined,
       titleEn: undefined,
       postCount: undefined,
-      isPrivate: undefined,
       involvedActors: undefined,
       involvedActorsHasMore: undefined,
       langs: undefined,
@@ -88,21 +96,11 @@ test("diary view exposes involved actors only to the diary owner", () => {
     },
   );
 
-  const involved = [{ did: "did:plc:bob", handle: "bob.test" }];
-  const hiddenView = diaryView(
-    { ...base, emoji: "🍜🚃🎸", postCount: 4 },
-    undefined,
-    involved,
-  );
-  assert.equal(hiddenView.postCount, 4);
-  assert.equal(hiddenView.involvedActors, undefined);
-  assert.equal(hiddenView.involvedActorsHasMore, undefined);
-
   const view = diaryView(
     { ...base, emoji: "🍜🚃🎸", postCount: 4 },
     base.subjectDid,
     involved,
-  );
+  )!;
   assert.equal(view.postCount, 4);
   assert.deepEqual(view.involvedActors, involved);
   assert.equal(view.involvedActorsHasMore, undefined);
@@ -112,13 +110,13 @@ test("diary view exposes involved actors only to the diary owner", () => {
       base.subjectDid,
       involved,
       true,
-    ).involvedActorsHasMore,
+    )!.involvedActorsHasMore,
     true,
   );
   assert.equal("emoji" in view, false);
 });
 
-test("private diaries keep the graph cell but hide the body from everyone else", () => {
+test("diaries with kossori posts are shown to their owner like any other diary", () => {
   const row = {
     uri: "at://did:web:nagi-api.suibari.com/com.suibari.nagi.diary/alice-2026-08-02",
     cid: "bafyreidiary",
@@ -135,29 +133,13 @@ test("private diaries keep the graph cell but hide the body from everyone else",
     recordCreatedAt: new Date("2026-08-02T13:00:00.000Z"),
     indexedAt: new Date("2026-08-02T13:00:01.000Z"),
   };
-  const involved = [{ did: "did:plc:bob", handle: "bob.test" }];
 
-  // 本人。中身は普通に読める。
-  const mine = diaryView(row, "did:plc:alice", involved);
+  const mine = diaryView(row, "did:plc:alice")!;
   assert.equal(mine.text, row.text);
   assert.equal(mine.titleJa, "今日の称号");
-  assert.deepEqual(mine.involvedActors, involved);
-  assert.equal(mine.isPrivate, true);
-  assert.equal(mine.bodyHidden, undefined);
-
-  // 他人と未認証。日付と件数だけ（コミットグラフの濃淡は出したいので postCount は残す）。
-  for (const viewer of ["did:plc:bob", undefined]) {
-    const hidden = diaryView(row, viewer, involved, true);
-    assert.equal(hidden.isPrivate, true);
-    assert.equal(hidden.bodyHidden, true);
-    assert.equal(hidden.date, row.diaryDate);
-    assert.equal(hidden.postCount, 4);
-    assert.equal(hidden.text, "");
-    assert.equal(hidden.titleJa, undefined);
-    assert.equal(hidden.titleEn, undefined);
-    assert.equal(hidden.involvedActors, undefined);
-    assert.equal(hidden.involvedActorsHasMore, undefined);
-  }
+  assert.equal("isPrivate" in mine, false);
+  assert.equal("bodyHidden" in mine, false);
+  assert.equal(diaryView(row, "did:plc:bob"), undefined);
 });
 
 test("accepts at most 371 inclusive days for the annual diary graph", () => {

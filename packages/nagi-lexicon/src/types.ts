@@ -232,8 +232,8 @@ export type EmojiView = {
   formats?: BluemojiFacetFormats;
 };
 /**
- * botたんが書くユーザーの日記。bot のリポジトリに置く。
- * rkey は `${subject の ":" を "_" にしたもの}-${date}` で決定論的にし、putRecord で冪等にする。
+ * botたんが書くユーザーの日記。本人だけが読むので PDS には置かず、AppView にだけ作る。
+ * rkey は `${subject の ":" を "_" にしたもの}-${date}` で決定論的にする。
  */
 export type NagiDiary = {
   $type: "com.suibari.nagi.diary";
@@ -249,6 +249,8 @@ export type NagiDiary = {
   emoji?: string;
   /** 日記生成の材料にした、返信を含むNagiポスト数。 */
   postCount?: number;
+  /** その日の材料にこっそり投稿が含まれていたか。表示の出し分けには使わない。 */
+  isPrivate?: boolean;
   langs?: string[];
   createdAt: string;
 };
@@ -261,15 +263,6 @@ export type DiaryView = {
   titleJa?: string;
   titleEn?: string;
   postCount?: number;
-  /**
-   * その日の材料にこっそり投稿が含まれる、本人限定の日記であることを示す。
-   */
-  isPrivate?: boolean;
-  /**
-   * 現在の閲覧者には本文を見せられないことを示す。true のとき text は空文字で、
-   * titleJa / titleEn / involvedActors は返さない。
-   */
-  bodyHidden?: boolean;
   /** その日のリアクション・返信・引用で、本人から多く関わった相手（最大10人）。 */
   involvedActors?: ActorView[];
   /** 11人目以降の関わった相手がいる。 */
