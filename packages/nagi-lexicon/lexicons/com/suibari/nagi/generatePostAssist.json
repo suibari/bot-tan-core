@@ -4,7 +4,7 @@
   "defs": {
     "main": {
       "type": "procedure",
-      "description": "投稿を書いている途中で手が止まった本人へ、botたんが書く手助けになるひとことを生成する。書きかけの本文は生成にだけ使い、保存しない。",
+      "description": "投稿を書いている本人へ、書きかけの具体的な良さを肯定するか、未入力・削除時に発想を促すひとことを生成する。書きかけの本文は生成にだけ使い、保存しない。",
       "input": {
         "encoding": "application/json",
         "schema": {
@@ -16,6 +16,14 @@
               "maxLength": 30000,
               "maxGraphemes": 3000,
               "description": "書きかけの本文。空文字なら書き始める前の声かけになる。"
+            },
+            "mode": {
+              "type": "string",
+              "knownValues": [
+                "affirm",
+                "question"
+              ],
+              "description": "affirm は書きかけの具体的な良さを肯定、question は発想を促す問いかけ。クライアントは IME 変換を除く実際の削除時に question、その後の追記で affirm へ戻す。未指定なら本文ありは affirm。空白のみ・空文字は常に question。"
             },
             "lang": { "type": "string", "knownValues": ["ja", "en"] },
             "today": {
