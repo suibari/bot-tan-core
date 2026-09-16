@@ -19,7 +19,12 @@ import {
   isInBotDayRange,
   type BotContext,
 } from "@bsky-affirmative-bot/shared-configs";
-import { recordBotMemoryUsages } from "@bsky-affirmative-bot/database";
+import {
+  claimDailyDrawing,
+  drawingDay,
+  recordBotMemoryUsages,
+  releaseDailyDrawing,
+} from "@bsky-affirmative-bot/database";
 import {
   getDailyTopPostCandidate,
   parseDailyTopPostSource,
@@ -97,16 +102,41 @@ export function goodNightImageSource(
  * 就寝の枠に引っ張られる（`todayActivityLines` のコメント参照）。
  *
  * 失敗しても null が返るだけで、おやすみポストは絵なしで出る。
+ *
+ * 絵は GPU のサイドカーを回すので、お絵描きや占いと同じ日次枠を消費する（drawingClaims.ts）。
+ * ただし**上限でも止めない**。botたん自身の定期投稿なので、人の依頼の多さでその日の絵が
+ * 欠けるのはおかしい。枠を取れなかった（DB が見えない）ときも絵は描く。
  */
 async function buildGoodNightImage(
   sourceText: string,
   botContext?: BotContext,
 ): Promise<ScheduledPostImage | undefined> {
+  const now = new Date();
+  const sourceUri = `goodnight:${drawingDay(now)}`;
+  const claim = await claimDailyDrawing({
+    surface: "scheduled",
+    did: process.env.BSKY_DID ?? "bot",
+    sourceUri,
+    bypassServiceLimit: true,
+    now,
+  }).catch((error) => {
+    console.error("[ERROR][IMGGEN] おやすみの絵の枠を取れなかった。絵はそのまま描く:", error);
+    return undefined;
+  });
+
   const generated = await generateImage(
-    goodNightImageSource(sourceText, botContext, new Date()),
+    goodNightImageSource(sourceText, botContext, now),
     IMAGE_MAX_BYTES,
   );
-  if (!generated) return undefined;
+  if (!generated) {
+    // 描けなかったぶんは GPU を使っていないので枠を返す。
+    if (claim?.status === "claimed") {
+      await releaseDailyDrawing({ surface: "scheduled", sourceUri, day: claim.day }).catch((error) => {
+        console.error("[ERROR][IMGGEN] おやすみの絵の枠を返せなかった:", error);
+      });
+    }
+    return undefined;
+  }
   return {
     dataBase64: generated.data.toString("base64"),
     mimeType: generated.mimeType,

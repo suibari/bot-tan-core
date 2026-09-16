@@ -5,14 +5,24 @@ import { MemoryService, botBiothythmManager, botLabelerManager } from "@bsky-aff
 import { BADGE_DEF } from "@bsky-affirmative-bot/shared-configs";
 import { AppBskyFeedPost } from "@atproto/api"; type Record = AppBskyFeedPost.Record;
 import { handleMode, isPast } from "./utils.js";
-import { generateFortuneResult } from "@bsky-affirmative-bot/bot-brain";
-import { getLangStr } from "../bsky/util.js";
+import { generateFortuneResult, generateImage, isImageGenerationAvailable } from "@bsky-affirmative-bot/bot-brain";
+import { getLangStr, uniteDidNsidRkey } from "../bsky/util.js";
 import { UserInfoGemini, GeminiResponseResult } from "@bsky-affirmative-bot/shared-configs";
-import { textToImageBufferWithBackground } from "../util/canvas.js";
+import { claimDailyDrawing, releaseDailyDrawing } from "@bsky-affirmative-bot/database";
+import { claimedImageGenerator, composeFortuneImage, type FortuneImage } from "./fortuneImage.js";
 import { agent } from "../bsky/agent.js";
 
 export class FortuneFeature implements BotFeature {
     name = "Fortune";
+
+    /**
+     * 作った占い画像を投稿URIごとに持っておく。
+     *
+     * callbacks.ts は handle を3回までリトライするが、画像生成はリトライしてはいけない
+     * （imageGenClient.ts の requestImage のコメント）。投稿で落ちたときに描き直さないよう、
+     * 次の試行ではここから使う。成功したら消す。
+     */
+    private readonly prepared = new Map<string, FortuneImage>();
 
     async shouldHandle(event: CommitCreateEvent<"app.bsky.feed.post">, follower: ProfileView, context: FeatureContext): Promise<boolean> {
         if (!(await context.featureIntents()).intents.has("fortune")) return false;
@@ -31,16 +41,19 @@ export class FortuneFeature implements BotFeature {
         }
 
         const record = event.commit.record as Record;
+        const uri = uniteDidNsidRkey(event.did, event.commit.collection, event.commit.rkey);
 
         const result = await handleMode(event, {
             dbColumn: "last_uranai_at",
             dbValue: new Date(),
-            generateText: this.getBlobWithAnalyze.bind(this),
+            generateText: (userinfo) => this.getBlobWithAnalyze(userinfo, uri),
         },
             {
                 follower,
                 langStr: getLangStr(record.langs),
             });
+
+        this.prepared.delete(uri);
 
         if (result) {
             await MemoryService.logUsage('fortune', follower.did);
@@ -48,22 +61,45 @@ export class FortuneFeature implements BotFeature {
         }
     }
 
-    private async getBlobWithAnalyze(userinfo: UserInfoGemini): Promise<GeminiResponseResult> {
+    private async prepareImage(userinfo: UserInfoGemini, uri: string): Promise<FortuneImage> {
+        const cached = this.prepared.get(uri);
+        if (cached) return cached;
+
+        const fortune = await generateFortuneResult(userinfo);
+
+        if (process.env.NODE_ENV === "development") {
+            console.log("[DEBUG] bot>>> " + JSON.stringify(fortune));
+        }
+
+        const did = userinfo.follower.did;
+        // 背景の絵はお絵描きと同じ日次枠を使う（GPU の混み具合を見るための枠）。
+        const generate = claimedImageGenerator(
+            generateImage,
+            {
+                claim: () => claimDailyDrawing({ surface: "bsky", did, sourceUri: uri }),
+                release: (day) =>
+                    releaseDailyDrawing({ surface: "bsky", sourceUri: uri, day }).catch((error) => {
+                        console.error(`[ERROR][${did}] Failed to release fortune drawing claim:`, error);
+                    }),
+            },
+            did,
+        );
+        const image = await composeFortuneImage(fortune, { generateImage: generate, isImageGenerationAvailable }, did);
+        // 3回とも失敗した投稿のぶんは消されずに残るので、古いものから捨てる。
+        if (this.prepared.size >= 20) this.prepared.delete(this.prepared.keys().next().value!);
+        this.prepared.set(uri, image);
+        return image;
+    }
+
+    private async getBlobWithAnalyze(userinfo: UserInfoGemini, uri: string): Promise<GeminiResponseResult> {
         const TEXT_INTRO_ANALYZE = (userinfo.langStr === "日本語") ?
             `${userinfo.follower.displayName}さんを占ったよ！ 画像を貼るので見てみてね。占いは1日に1回までしかできないので、明日またやってみてね！` :
             `${userinfo.follower.displayName}, I did a fortune reading for you! Check the image. You can only do fortune reading once a day, so try again tommorow!`;
 
-        const result = await generateFortuneResult(userinfo);
-
-        if (process.env.NODE_ENV === "development") {
-            console.log("[DEBUG] bot>>> " + JSON.stringify(result));
-        }
-
-        // 画像生成
-        const buffer = await textToImageBufferWithBackground(result.fortune, "./img/bot-tan-fortune.png");
+        const { fortune: result, data, mimeType } = await this.prepareImage(userinfo, uri);
 
         // uploadBlod
-        const { blob } = (await agent.uploadBlob(buffer, { encoding: "image/png" })).data;
+        const { blob } = (await agent.uploadBlob(data, { encoding: mimeType })).data;
 
         let replyText = TEXT_INTRO_ANALYZE;
 
