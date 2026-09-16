@@ -33,7 +33,7 @@ const postUri = (event: CommitCreateEvent<"app.bsky.feed.post">) =>
  * お絵描き機能。botたんに「絵を描いて」と頼むと、描いた絵を添えてリプライする。
  *
  * - Discord メンバーとサブスクメンバーだけ（isCommunityMember は両方を含む）
- * - ユーザーごとの日次上限はない。面ごとの運用上限は drawingClaims.ts
+ * - ユーザーごとの日次上限はない。運用上限（お絵描き・占い・おやすみの絵で共通の枠）は drawingClaims.ts
  * - どの機能を呼んでいるかは featureIntent.ts の振り分けが決め、お絵描きに振られた投稿だけを
  *   judgeDrawingRequest で確かめる（題材・描いてよい依頼か）。「絵を描いた」「日記かいて」を
  *   語で見分けるのは無理なので、固定のトリガー語は持たない

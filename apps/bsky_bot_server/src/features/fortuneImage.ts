@@ -31,6 +31,36 @@ export function fortuneBackgroundSource(picture: string): string {
     return `### 描いてほしいと頼まれた絵\n今日の占い結果をモチーフにした絵。${picture}`;
 }
 
+export type FortuneImageClaims = {
+    /** 今日の枠を1つ取る。 */
+    claim: () => Promise<{ status: string; day: string }>;
+    /** 描けなかったときに枠を返す。 */
+    release: (day: string) => Promise<void>;
+};
+
+/**
+ * 枠を取ってから描く generateImage を作る。
+ *
+ * 占いの背景も GPU のサイドカーを回すので、お絵描きと同じ枠を消費する（drawingClaims.ts）。
+ * 枠が取れなければ描かず、composeFortuneImage が固定背景へ戻す。描けなかったら枠は返す。
+ */
+export function claimedImageGenerator(
+    generate: FortuneImageDeps["generateImage"],
+    claims: FortuneImageClaims,
+    logLabel: string,
+): FortuneImageDeps["generateImage"] {
+    return async (source, maxBytes, options) => {
+        const claim = await claims.claim();
+        if (claim.status !== "claimed") {
+            console.log(`[INFO][${logLabel}] Fortune background skipped, REASON: ${claim.status}`);
+            return null;
+        }
+        const image = await generate(source, maxBytes, options);
+        if (!image) await claims.release(claim.day);
+        return image;
+    };
+}
+
 /** 占い結果を題材に描いた絵を背景にする。描けなければ従来の固定背景に戻す。 */
 export async function composeFortuneImage(
     fortune: FortuneResult,

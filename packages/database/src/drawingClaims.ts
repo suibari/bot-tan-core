@@ -2,18 +2,27 @@ import { and, count, eq, lt, sql } from "drizzle-orm";
 import { db, drawing_claims } from "./db.js";
 
 /**
- * botたんのお絵描き（Bluesky の依頼 / Nagi の依頼と贈り物）の日次サービス枠。
+ * botたんが絵を描くときの日次サービス枠。
  *
  * 絵は GPU 機のサイドカーが1枚ずつ直列に描く。同じ GPU に Ollama が常駐しているので、
- * 描いた枚数はそのままテキスト生成の遅延になるため、面ごとに1日
- * DRAWING_SERVICE_DAILY_LIMIT 枚の運用上限を持つ（0 で機能ごと止める）。本人からの依頼に
- * ユーザーごとの日次上限はないが、Nagi の自動プレゼントだけは1人1日1枚にする。
+ * 描いた枚数はそのままテキスト生成の遅延になる。**GPU は面も用途も区別しない**ので、
+ * 枠は面ごとではなく全体で1本、1日 DRAWING_SERVICE_DAILY_LIMIT 枚として数える
+ * （0 でお絵描きと占いを止める）。surface は記録用のラベルとして残す。
+ *
+ * 数える対象はサイドカーを回すすべての経路。
+ *  - お絵描き（Bluesky の依頼 / Nagi の依頼と贈り物）: 枠が無ければ描かない
+ *  - 占いの背景: 枠が無ければ固定背景へ戻る
+ *  - おやすみポストの絵: botたん自身の定期投稿なので **必ず描く**。枠は消費するが
+ *    上限では止めない（bypassServiceLimit）。止めると毎晩の絵が人の依頼次第で欠ける。
+ *
+ * 本人からの依頼にユーザーごとの日次上限はないが、Nagi の自動プレゼントだけは1人1日1枚にする。
  *
  * 「1日」は JST の暦日。24時間の窓にすると、昨夜に頼んだ人は今夜まで頼めなくなる。
  * day を文字列で持つのは、枠の判定に Date を一切使わないため（AGENTS.md の timestamp の規則）。
  */
 
-export type DrawingSurface = "bsky" | "nagi";
+/** 記録用のラベル。枠の数え方には影響しない（全体で1本）。"scheduled" は定期投稿の絵。 */
+export type DrawingSurface = "bsky" | "nagi" | "scheduled";
 export type DrawingKind = "request" | "gift";
 
 /** 本人の依頼は無制限、Nagi の自動プレゼントだけを日次制限する。 */
@@ -41,7 +50,7 @@ export const drawingDay = (now: Date = new Date()): string =>
   new Date(now.getTime() + JST_OFFSET_MS).toISOString().slice(0, 10);
 
 /**
- * 面ごとの1日の上限枚数。
+ * 1日の上限枚数。面も用途もまとめて全体で1本の枠。
  *
  * 壊れた値で throw しない。呼び出し元は投稿のハンドラで、throw すると機能のリトライが回り、
  * そのたびに LLM の判定までやり直すことになる。既定値へ倒して警告だけ残す。
@@ -75,27 +84,29 @@ export async function claimDailyDrawing(input: {
   kind?: DrawingKind;
   now?: Date;
   serviceDailyLimit?: number;
+  /**
+   * 枠は消費するが、上限でも止めない。おやすみポストの絵だけがこれを使う。
+   * 0（機能停止）も素通りする。`.env.example` が「0 はおやすみポストの絵に影響しない」と
+   * 書いているとおりで、止めるとその日の定期投稿から絵が消える。
+   */
+  bypassServiceLimit?: boolean;
 }): Promise<DrawingClaimResult> {
   const now = input.now ?? new Date();
   const day = drawingDay(now);
   const limit = input.serviceDailyLimit ?? drawingServiceDailyLimit();
   const kind = input.kind ?? "request";
-  if (limit === 0) return { status: "disabled", day };
+  if (limit === 0 && !input.bypassServiceLimit) return { status: "disabled", day };
 
   return db.transaction(async (tx): Promise<DrawingClaimResult> => {
     // 主キーだけではサービス枠を守れない（数えてから入れるまでの間に他の人が入る）。
-    // 面ごとに直列にする。描く頻度は低いので、ロックの待ちは問題にならない。
-    const lockKey = `drawing-claims-v1:${input.surface}`;
+    // 枠は全体で1本なので、面をまたいで直列にする。描く頻度は低いので、ロックの待ちは
+    // 問題にならない。
+    const lockKey = "drawing-claims-v1:all";
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${lockKey}))`);
 
     await tx
       .delete(drawing_claims)
-      .where(
-        and(
-          eq(drawing_claims.surface, input.surface),
-          lt(drawing_claims.day, drawingDay(new Date(now.getTime() - RETENTION_DAYS * DAY_MS))),
-        ),
-      );
+      .where(lt(drawing_claims.day, drawingDay(new Date(now.getTime() - RETENTION_DAYS * DAY_MS))));
 
     const [existing] = await tx
       .select({ sourceUri: drawing_claims.source_uri })
@@ -117,7 +128,6 @@ export async function claimDailyDrawing(input: {
         .from(drawing_claims)
         .where(
           and(
-            eq(drawing_claims.surface, input.surface),
             eq(drawing_claims.did, input.did),
             eq(drawing_claims.day, day),
             eq(drawing_claims.kind, "gift"),
@@ -127,11 +137,14 @@ export async function claimDailyDrawing(input: {
       if (gift) return { status: "user_limit", day };
     }
 
+    // 面で絞らない。GPU の混み具合を見るための枠なので、どの面の何の絵でも1枚は1枚。
     const [usage] = await tx
       .select({ total: count() })
       .from(drawing_claims)
-      .where(and(eq(drawing_claims.surface, input.surface), eq(drawing_claims.day, day)));
-    if (Number(usage?.total ?? 0) >= limit) return { status: "service_limit", day };
+      .where(eq(drawing_claims.day, day));
+    if (!input.bypassServiceLimit && Number(usage?.total ?? 0) >= limit) {
+      return { status: "service_limit", day };
+    }
 
     await tx.insert(drawing_claims).values({
       surface: input.surface,
