@@ -9,6 +9,7 @@
  */
 
 export type PostAssistTopicKind =
+  | "affirmation"
   | "diary"
   | "whatDay"
   | "interest"

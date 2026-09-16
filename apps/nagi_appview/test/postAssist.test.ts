@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 process.env.DATABASE_URL ??= "postgres://user:pass@localhost:5432/test";
+process.env.NAGI_APPVIEW_DID ??= "did:web:localhost";
 process.env.NAGI_BOT_DID ??= "did:plc:testbot";
 
 const {
@@ -9,6 +10,7 @@ const {
   normalizePostAssistMessage,
   parsePostAssistInput,
   postAssistDates,
+  postAssistMode,
   postAssistPrompt,
   postAssistWhatDay,
   recentPostAssistMessages,
@@ -37,7 +39,7 @@ const materials = {
   news: [{ uri: "at://news/1", title: "保護犬が図書館の人気者に", comment: "ほっこり！", genre: "動物" }],
 };
 const emptyInput = { text: "", lang: "ja" as const, today: "2026-09-15", previous: [] as string[] };
-const draftInput = { ...emptyInput, text: "久しぶりにギターを" };
+const draftInput = { ...emptyInput, mode: "question" as const, text: "久しぶりにギターを" };
 /** 常に先頭を選ぶ乱数。種類の並びは定義順（未使用同士は同点）になる。 */
 const first = () => 0;
 
@@ -248,4 +250,36 @@ test("reports an unavailable upstream instead of an empty line", async () => {
     requestPostAssist("x".repeat(1_000_000), { reportCall, fetcher: async () => assert.fail("must not call") }),
     { status: 503 },
   );
+});
+
+
+test("uses affirmation for nonempty drafts and questions for empty or deleted drafts", () => {
+  const writing = { ...emptyInput, text: "帰り道の空がきれいだった" };
+  assert.equal(postAssistMode(writing), "affirm");
+  assert.equal(postAssistMode({ ...writing, mode: "question" }), "question");
+  assert.equal(postAssistMode({ ...emptyInput, text: "  ", mode: "affirm" }), "question");
+  assert.equal(postAssistMode({ ...writing, mode: "affirm" }), "affirm");
+  assert.equal(parsePostAssistInput({ ...writing, mode: "question" }).mode, "question");
+  assertInvalid({ ...writing, mode: "unknown" });
+  // 肯定履歴があっても問いかけへ逃げず、外部の話題は選ばない。
+  assert.deepEqual(selectPostAssistTopic(writing, materials, [{ kind: "affirmation", key: "affirmation", at: 1 }]), {
+    kind: "affirmation", key: "affirmation",
+  });
+  for (const lang of ["ja", "en"] as const) {
+    const prompt = postAssistPrompt({ ...writing, lang }, { kind: "interest", key: "interest:登山", keyword: "登山" }, ["前のひとこと"]);
+    assert.ok(prompt.endsWith(writing.text));
+    assert.ok(prompt.indexOf("前のひとこと") < prompt.lastIndexOf(writing.text));
+    assert.equal(prompt.includes("登山"), false);
+    if (lang === "ja") {
+      assert.match(prompt, /具体的な言葉や内容を1つ拾い、どこがいいか/);
+      assert.match(prompt, /疑問形・質問・話題の提案・加筆や推敲の要求はしない/);
+      assert.match(prompt, /未完了のことを完了として祝わない/);
+    } else {
+      assert.match(prompt, /Generic praise alone is not enough/);
+      assert.match(prompt, /No questions, topic suggestions/);
+      assert.match(prompt, /Never congratulate an unfinished action as completed/);
+    }
+  }
+  const question = postAssistPrompt({ ...writing, mode: "question" }, { kind: "question", key: "question" });
+  assert.match(question, /疑問形で発想を促す/);
 });
