@@ -1,13 +1,26 @@
 import {
   db,
   nagiActors,
+  nagiCardGets,
   nagiEmojis,
   nagiNotifications,
   nagiProfiles,
   nagiReactions,
+  nagiZenkatsuCards,
+  nagiZenkatsuSubmissions,
 } from "@bsky-affirmative-bot/database";
 import {
+  getThemeDef,
+  resolveCardDef,
+} from "@bsky-affirmative-bot/shared-configs";
+import {
+  NAGI,
+  type CardView,
+  type NotificationCardSubject,
+} from "@bsky-affirmative-bot/nagi-lexicon";
+import {
   and,
+  asc,
   count,
   desc,
   eq,
@@ -97,6 +110,18 @@ export async function getNotifications(did: string, limit: number) {
       return view ? [[row.uri, view] as const] : [];
     }),
   );
+  // ゼンカツの提出とドローの控えは投稿ではないので、post には入らない。
+  // ここを足さないと「リアクションされた」とだけ出て、何にされたのか分からなくなる。
+  const cardSubjectByUri = await fetchCardSubjects([
+    ...new Set(
+      rows.flatMap(({ notification }) => {
+        const collection = notification.subjectUri.split("/")[3];
+        return collection === NAGI.zenkatsu || collection === NAGI.cardGet
+          ? [notification.subjectUri]
+          : [];
+      }),
+    ),
+  ]);
   const posts = await hydratePostViews(postRows, did);
   const postByUri = new Map(posts.map((post) => [post.uri, post]));
   // リアクション通知の reasonUri はリアクションレコードの URI。押された絵文字は
@@ -146,6 +171,7 @@ export async function getNotifications(did: string, limit: number) {
       diary: n.type === "diary" ? diaryByUri.get(n.subjectUri) : undefined,
       reaction:
         n.type === "reaction" ? reactionByUri.get(n.reasonUri) : undefined,
+      cardSubject: cardSubjectByUri.get(n.subjectUri),
     })),
     hasMore: rows.length === limit,
   };
@@ -180,4 +206,68 @@ export async function updateSeen(did: string, seenAt: Date) {
     )
     .returning({ id: nagiNotifications.id });
   return { updated: result.length };
+}
+
+/**
+ * 通知が指しているゼンカツ／カードの対象を引く。
+ *
+ * どちらもユーザー自身の repo にあるレコードなので、宛先の特殊扱いは要らない
+ * （botたん の repo に置いていたら、持ち主＝botたん になってしまうところだった）。
+ */
+async function fetchCardSubjects(
+  uris: string[],
+): Promise<Map<string, NotificationCardSubject>> {
+  if (!uris.length) return new Map();
+  const zenkatsuUris = uris.filter((u) => u.split("/")[3] === NAGI.zenkatsu);
+  const cardGetUris = uris.filter((u) => u.split("/")[3] === NAGI.cardGet);
+
+  const [submissions, submissionCards, gets] = await Promise.all([
+    zenkatsuUris.length
+      ? db
+          .select()
+          .from(nagiZenkatsuSubmissions)
+          .where(inArray(nagiZenkatsuSubmissions.uri, zenkatsuUris))
+      : Promise.resolve([]),
+    zenkatsuUris.length
+      ? db
+          .select()
+          .from(nagiZenkatsuCards)
+          .where(inArray(nagiZenkatsuCards.submissionUri, zenkatsuUris))
+          .orderBy(asc(nagiZenkatsuCards.position))
+      : Promise.resolve([]),
+    cardGetUris.length
+      ? db.select().from(nagiCardGets).where(inArray(nagiCardGets.uri, cardGetUris))
+      : Promise.resolve([]),
+  ]);
+
+  const byUri = new Map<string, NotificationCardSubject>();
+  const cardsBySubmission = new Map<string, CardView[]>();
+  for (const row of submissionCards) {
+    const def = resolveCardDef(row.cardVolume, row.cardNumber);
+    if (!def) continue;
+    const list = cardsBySubmission.get(row.submissionUri) ?? [];
+    list.push({ ...def, owned: true });
+    cardsBySubmission.set(row.submissionUri, list);
+  }
+  for (const row of submissions) {
+    if (row.deletedAt) continue;
+    const theme = getThemeDef(row.themeVolume, row.themeNumber);
+    byUri.set(row.uri, {
+      uri: row.uri,
+      type: "zenkatsu",
+      ...(theme ? { themeJa: theme.textJa, themeEn: theme.textEn } : {}),
+      cards: cardsBySubmission.get(row.uri) ?? [],
+    });
+  }
+  for (const row of gets) {
+    if (row.deletedAt) continue;
+    const def = resolveCardDef(row.cardVolume, row.cardNumber);
+    if (!def) continue;
+    byUri.set(row.uri, {
+      uri: row.uri,
+      type: "cardGet",
+      cards: [{ ...def, owned: true }],
+    });
+  }
+  return byUri;
 }

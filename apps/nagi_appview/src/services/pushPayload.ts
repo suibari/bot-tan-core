@@ -116,3 +116,19 @@ function compose(
       return { title: "botたんがあなたの名刺を更新しました", body: "" };
   }
 }
+
+/**
+ * 全肯定カードまわり（ゼンカツの提出・ドローの控え）への通知本文。
+ *
+ * `postPushBody` は本文テキストを持つ投稿の形に固定されているが、ゼンカツは自由記述を
+ * 持たない（カードでしか喋らない設計）ので、こちらで組み立てる。
+ */
+export function cardSubjectPushBody(
+  subject:
+    | { kind: "zenkatsu"; themeJa?: string; cardNames: string[] }
+    | { kind: "cardGet"; cardNameJa: string },
+): string {
+  if (subject.kind === "cardGet") return `${subject.cardNameJa} をゲット`;
+  const cards = subject.cardNames.join("・");
+  return subject.themeJa ? `「${subject.themeJa}」に ${cards}` : cards;
+}

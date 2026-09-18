@@ -11,7 +11,12 @@ import {
   type NagiPost,
   type NagiProfile,
   type NagiReaction,
+  type NagiZenkatsu,
+  type NagiCardGet,
 } from "@bsky-affirmative-bot/nagi-lexicon";
+import { isValidZenkatsuSelection } from "@bsky-affirmative-bot/shared-configs";
+/** "YYYY-MM-DD"。実在する日付かどうかまでは見ない（範囲の照合は取り込み側で行う）。 */
+const DATE_KEY = /^\d{4}-\d{2}-\d{2}$/;
 const graphemes = (value: string) =>
   [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(value)]
     .length;
@@ -262,7 +267,9 @@ export function validateRecord(
   | BluemojiItem
   | NagiDiary
   | NagiNews
-  | NagiChannel {
+  | NagiChannel
+  | NagiZenkatsu
+  | NagiCardGet {
   if (!value || value.$type !== collection || !date(value.createdAt))
     return false;
   if (collection === NAGI.post) {
@@ -390,6 +397,23 @@ export function validateRecord(
           graphemes(value.description) <= 300)) &&
       (value.banner === undefined || bannerBlob(value.banner)) &&
       (value.pinnedPost === undefined || ref(value.pinnedPost))
+    );
+  if (collection === NAGI.cardGet)
+    // 形だけ。実際に引いたかの照合は AppView が card_draws を見て行う（applyMutation 側）。
+    return (
+      DATE_KEY.test(value.drawDate) &&
+      ["my_nagi", "reaction", "anniversary"].includes(value.source) &&
+      !!value.card &&
+      Number.isInteger(value.card.volume) &&
+      value.card.volume >= 0 &&
+      Number.isInteger(value.card.id) &&
+      value.card.id >= 1
+    );
+  if (collection === NAGI.zenkatsu)
+    // ここで見るのは**形だけ**。所持・おやすみ・当日かの照合は AppView が DB を見て行う
+    // （applyMutation 側）。形だけ通しても索引されないので、偽レコードは記録に出ない。
+    return (
+      DATE_KEY.test(value.themeDate) && isValidZenkatsuSelection(value.cards)
     );
   return false;
 }

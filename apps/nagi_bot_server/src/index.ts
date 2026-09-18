@@ -18,6 +18,7 @@ import {
 import { startNagiReplyWorker } from "./NagiReplyWorker.js";
 import { startNagiAnalysisWorker } from "./NagiAnalysisWorker.js";
 import { startNagiCardCommentWorker } from "./NagiCardCommentWorker.js";
+import { startNagiZenkatsuWorker } from "./NagiZenkatsuWorker.js";
 import { startNagiCommunityAffirmationWorker } from "./NagiCommunityAffirmationWorker.js";
 import { startNagiThemeWorker } from "./NagiThemeWorker.js";
 import { startNewsInterestWorker } from "./NewsInterestWorker.js";
@@ -90,6 +91,8 @@ async function start() {
   startNagiAnalysisWorker();
   // 全肯定カードを引いたときの吹き出しコメント。エンキューは AppView の drawCard が担う。
   startNagiCardCommentWorker();
+  // ゼンカツ！の総評。エンキューは AppView が提出レコードを索引した時点で行う。
+  startNagiZenkatsuWorker();
   // 右サイドバー「みんなで全肯定」の匿名要約。候補選出と生成を作者単位で行う。
   startNagiCommunityAffirmationWorker();
   // 動的枠の「おすすめの理由」を先に計算しておく（リクエスト経路でLLMを呼ばないため）。

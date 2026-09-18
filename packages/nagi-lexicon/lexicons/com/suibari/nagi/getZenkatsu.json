@@ -1,0 +1,50 @@
+{
+  "lexicon": 1,
+  "id": "com.suibari.nagi.getZenkatsu",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "ゼンカツ！の、ある1日のお題と全回答。回答は新着順（indexedAt 降順）。記録は公開情報なので未認証でも読める。認証した本人のぶんだけ viewer（提出済みか、今日出せる札）が付く。",
+      "parameters": {
+        "type": "params",
+        "properties": {
+          "date": {
+            "type": "string",
+            "maxLength": 10,
+            "description": "\"YYYY-MM-DD\"。省略すると今日。未来の日付は指定できない。"
+          },
+          "cursor": { "type": "string" },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 30
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["theme", "submissions"],
+          "properties": {
+            "theme": {
+              "type": "unknown",
+              "description": "その日のお題。初回アクセス時に確定して以後変わらない（お題を足しても過去は動かない）。"
+            },
+            "submissions": {
+              "type": "array",
+              "items": { "type": "unknown" },
+              "description": "その日の回答。新着順。出したカードと botたんの総評だけを含む（スコアも順位も無い）。"
+            },
+            "cursor": { "type": "string" },
+            "viewer": {
+              "type": "unknown",
+              "description": "認証した本人のぶんだけ。提出済みか、今日出せる札とおやすみの残り日数。"
+            }
+          }
+        }
+      }
+    }
+  }
+}

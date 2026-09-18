@@ -1,0 +1,361 @@
+[
+  {
+    "id": 1,
+    "volume": 1,
+    "textJa": "パンをくわえた転校生と、曲がり角で正面衝突！",
+    "textEn": "You round the corner and slam into a transfer student with toast in their mouth.",
+    "attribute": "wind",
+    "raceJa": "JK族",
+    "tone": "neta"
+  },
+  {
+    "id": 2,
+    "volume": 1,
+    "textJa": "傘を持っていない日に限って、空が光った",
+    "textEn": "The one day you left the umbrella at home, the sky flashes.",
+    "attribute": "wind",
+    "raceJa": "天候族",
+    "tone": "neta"
+  },
+  {
+    "id": 3,
+    "volume": 1,
+    "textJa": "自転車で坂を下りはじめた。ブレーキが、効かない",
+    "textEn": "You're halfway down the hill when you notice the brakes aren't working.",
+    "attribute": "wind",
+    "tone": "neta"
+  },
+  {
+    "id": 4,
+    "volume": 1,
+    "textJa": "干したばかりの洗濯物が、ベランダから飛んでいった",
+    "textEn": "The laundry you just hung up has left the balcony.",
+    "attribute": "wind",
+    "raceJa": "家事族",
+    "tone": "neta"
+  },
+  {
+    "id": 5,
+    "volume": 1,
+    "textJa": "書き上げたばかりの原稿が、風で窓の外へ",
+    "textEn": "The pages you just finished are out the window.",
+    "attribute": "wind",
+    "raceJa": "創作族",
+    "tone": "neta"
+  },
+  {
+    "id": 6,
+    "volume": 1,
+    "textJa": "電車のドアが閉まる。あと3歩",
+    "textEn": "The doors are closing. You are three steps away.",
+    "attribute": "wind",
+    "tone": "neta"
+  },
+  {
+    "id": 7,
+    "volume": 1,
+    "textJa": "帽子が飛んだ。追いかけるか、見送るか",
+    "textEn": "Your hat is gone with the wind. Chase it, or let it go?",
+    "attribute": "wind",
+    "tone": "neta"
+  },
+  {
+    "id": 8,
+    "volume": 1,
+    "textJa": "目覚ましを7個かけたのに、全部止めていた",
+    "textEn": "Seven alarms. You turned off every single one. Still asleep.",
+    "attribute": "light",
+    "raceJa": "応援族",
+    "tone": "neta"
+  },
+  {
+    "id": 9,
+    "volume": 1,
+    "textJa": "カーテンを開けた。まぶしすぎる",
+    "textEn": "You open the curtains. It is far too bright.",
+    "attribute": "light",
+    "tone": "neta"
+  },
+  {
+    "id": 10,
+    "volume": 1,
+    "textJa": "集合写真。自分だけ、目を閉じていた",
+    "textEn": "The group photo is back. Your eyes are shut in every copy.",
+    "attribute": "light",
+    "raceJa": "記録族",
+    "tone": "neta"
+  },
+  {
+    "id": 11,
+    "volume": 1,
+    "textJa": "通知が999件たまっている",
+    "textEn": "999 unread notifications are waiting for you.",
+    "attribute": "light",
+    "raceJa": "機械族",
+    "tone": "neta"
+  },
+  {
+    "id": 12,
+    "volume": 1,
+    "textJa": "朝礼で、いきなり名前を呼ばれた",
+    "textEn": "Morning assembly. Your name is called out of nowhere.",
+    "attribute": "light",
+    "tone": "neta"
+  },
+  {
+    "id": 13,
+    "volume": 1,
+    "textJa": "誕生日を、誰かが覚えていてくれた",
+    "textEn": "Someone remembered your birthday.",
+    "attribute": "light",
+    "tone": "sunao"
+  },
+  {
+    "id": 14,
+    "volume": 1,
+    "textJa": "久しぶりに、よく眠れた朝",
+    "textEn": "For the first time in a while, you slept well.",
+    "attribute": "light",
+    "raceJa": "天使族",
+    "tone": "sunao"
+  },
+  {
+    "id": 15,
+    "volume": 1,
+    "textJa": "深夜2時。冷蔵庫に、何もない",
+    "textEn": "2 a.m. The fridge is empty.",
+    "attribute": "dark",
+    "raceJa": "冒険族",
+    "tone": "neta"
+  },
+  {
+    "id": 16,
+    "volume": 1,
+    "textJa": "締切まであと3時間。まだ1文字も書いていない",
+    "textEn": "Three hours to the deadline. Not one word written.",
+    "attribute": "dark",
+    "tone": "neta"
+  },
+  {
+    "id": 17,
+    "volume": 1,
+    "textJa": "ラスボスを前に、仲間が全員やられた",
+    "textEn": "The final boss stands before you. Your whole party is down.",
+    "attribute": "dark",
+    "raceJa": "戦士族",
+    "tone": "neta"
+  },
+  {
+    "id": 18,
+    "volume": 1,
+    "textJa": "停電した。スマホの充電は12%",
+    "textEn": "The power is out. Your phone is at 12%.",
+    "attribute": "dark",
+    "tone": "neta"
+  },
+  {
+    "id": 19,
+    "volume": 1,
+    "textJa": "積んだゲームが、また1本増えた",
+    "textEn": "The backlog just grew by one more.",
+    "attribute": "dark",
+    "raceJa": "収集族",
+    "tone": "neta"
+  },
+  {
+    "id": 20,
+    "volume": 1,
+    "textJa": "押し入れの奥から、昔の自分の落書きが出てきた",
+    "textEn": "From the back of the closet: something you drew years ago.",
+    "attribute": "dark",
+    "raceJa": "創作族",
+    "tone": "neta"
+  },
+  {
+    "id": 21,
+    "volume": 1,
+    "textJa": "夜中に、なぜか元気が出てきた",
+    "textEn": "It's late, and for no reason at all, you feel good.",
+    "attribute": "dark",
+    "tone": "sunao"
+  },
+  {
+    "id": 22,
+    "volume": 1,
+    "textJa": "告白する。3秒後に",
+    "textEn": "You are going to confess. In three seconds.",
+    "attribute": "fire",
+    "raceJa": "信奉族",
+    "tone": "neta"
+  },
+  {
+    "id": 23,
+    "volume": 1,
+    "textJa": "推しの新グッズ。財布の中身は1,200円",
+    "textEn": "New merch just dropped. You have 1,200 yen.",
+    "attribute": "fire",
+    "raceJa": "信奉族",
+    "tone": "neta"
+  },
+  {
+    "id": 24,
+    "volume": 1,
+    "textJa": "激辛カレーを頼んだ。運ばれてきた。赤い",
+    "textEn": "You ordered the extra-spicy curry. It has arrived. It is red.",
+    "attribute": "fire",
+    "tone": "neta"
+  },
+  {
+    "id": 25,
+    "volume": 1,
+    "textJa": "最後の試合。あと1点が、どうしても届かない",
+    "textEn": "Last match of the season. One point away, and it will not come.",
+    "attribute": "fire",
+    "raceJa": "戦士族",
+    "tone": "neta"
+  },
+  {
+    "id": 26,
+    "volume": 1,
+    "textJa": "カラオケで、無茶なキーの曲を入れられた",
+    "textEn": "Someone queued a song for you. The key is impossible.",
+    "attribute": "fire",
+    "tone": "neta"
+  },
+  {
+    "id": 27,
+    "volume": 1,
+    "textJa": "ずっと言えなかったことを、言うと決めた",
+    "textEn": "You decided to say the thing you've never been able to say.",
+    "attribute": "fire",
+    "tone": "sunao"
+  },
+  {
+    "id": 28,
+    "volume": 1,
+    "textJa": "好きなものの話を、3時間した",
+    "textEn": "You talked about the thing you love for three hours straight.",
+    "attribute": "fire",
+    "raceJa": "信奉族",
+    "tone": "sunao"
+  },
+  {
+    "id": 29,
+    "volume": 1,
+    "textJa": "温泉に着いた。タオルを忘れた",
+    "textEn": "You made it to the hot spring. You forgot a towel.",
+    "attribute": "water",
+    "raceJa": "妖精族",
+    "tone": "neta"
+  },
+  {
+    "id": 30,
+    "volume": 1,
+    "textJa": "突然の雨。コンビニまで200メートル",
+    "textEn": "Sudden downpour. The convenience store is 200 meters away.",
+    "attribute": "water",
+    "raceJa": "天候族",
+    "tone": "neta"
+  },
+  {
+    "id": 31,
+    "volume": 1,
+    "textJa": "泣きたい。でも、まわりに人がいる",
+    "textEn": "You want to cry. There are people around.",
+    "attribute": "water",
+    "raceJa": "妖精族",
+    "tone": "sunao"
+  },
+  {
+    "id": 32,
+    "volume": 1,
+    "textJa": "飲み物をこぼした。ノートの上に",
+    "textEn": "You spilled your drink. Onto the notebook.",
+    "attribute": "water",
+    "tone": "neta"
+  },
+  {
+    "id": 33,
+    "volume": 1,
+    "textJa": "プール開き。水が、冷たい",
+    "textEn": "First swim of the season. The water is cold.",
+    "attribute": "water",
+    "tone": "neta"
+  },
+  {
+    "id": 34,
+    "volume": 1,
+    "textJa": "お風呂で、そのまま寝そうになっている",
+    "textEn": "You are falling asleep in the bath.",
+    "attribute": "water",
+    "raceJa": "粘体族",
+    "tone": "neta"
+  },
+  {
+    "id": 35,
+    "volume": 1,
+    "textJa": "ゆっくりお茶を飲む時間ができた",
+    "textEn": "You found time for a slow cup of tea.",
+    "attribute": "water",
+    "tone": "sunao"
+  },
+  {
+    "id": 36,
+    "volume": 1,
+    "textJa": "階段で盛大に転んだ。誰も見ていない、はず",
+    "textEn": "You went down the stairs the hard way. Nobody saw. Probably.",
+    "attribute": "earth",
+    "tone": "neta"
+  },
+  {
+    "id": 37,
+    "volume": 1,
+    "textJa": "荷物が重い。あと3駅、立ったまま",
+    "textEn": "The bag is heavy. Three more stops, standing.",
+    "attribute": "earth",
+    "tone": "neta"
+  },
+  {
+    "id": 38,
+    "volume": 1,
+    "textJa": "部屋の床が、また見えなくなった",
+    "textEn": "The floor of your room has disappeared again.",
+    "attribute": "earth",
+    "raceJa": "家事族",
+    "tone": "neta"
+  },
+  {
+    "id": 39,
+    "volume": 1,
+    "textJa": "引っ越しの荷造り、半分で力尽きた",
+    "textEn": "You packed half the boxes and ran out of everything.",
+    "attribute": "earth",
+    "tone": "neta"
+  },
+  {
+    "id": 40,
+    "volume": 1,
+    "textJa": "新しい靴で靴ずれ。目的地はまだ先",
+    "textEn": "New shoes, fresh blisters. You are not there yet.",
+    "attribute": "earth",
+    "raceJa": "応援族",
+    "tone": "neta"
+  },
+  {
+    "id": 41,
+    "volume": 1,
+    "textJa": "一歩だけ、外に出てみた",
+    "textEn": "You stepped outside. Just one step.",
+    "attribute": "earth",
+    "raceJa": "応援族",
+    "tone": "sunao"
+  },
+  {
+    "id": 42,
+    "volume": 1,
+    "textJa": "やろうと思っていたことを、やった",
+    "textEn": "You did the thing you'd been meaning to do.",
+    "attribute": "earth",
+    "tone": "sunao"
+  }
+]

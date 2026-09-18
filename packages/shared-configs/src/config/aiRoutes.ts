@@ -268,6 +268,9 @@ export const AI_FEATURES = {
   // flex は割引と引き換えのベストエフォート枠で 503(UNAVAILABLE) を踏みやすい。
   NAGI_ANALYSIS: "lite-standard", // 自動アクター分析
   NAGI_CARD_COMMENT: "lite-standard", // カードのbotたんコメント
+  // ゼンカツ！の総評。カードコメントと同じく、ユーザーは提出直後に結果を見ながら
+  // 待っているので FLEX にしない。呼び出しは1人1日1回なので総量は誤差。
+  NAGI_ZENKATSU: "lite-standard",
   NAGI_COMMUNITY_AFFIRMATION: "lite-flex", // コミュニティ全肯定
   NAGI_CHANNEL_WELCOME: "lite-flex", // チャンネル作成時の歓迎
   NAGI_CHANNEL_TOPIC: "lite-flex", // チャンネルへの話題ふり

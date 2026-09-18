@@ -55,6 +55,9 @@ const USER_COLLECTIONS = [
   NAGI.post,
   NAGI.reaction,
   NAGI.news,
+  // ゼンカツの提出。クライアントは createRecord 直後に ensureRecord を呼び、
+  // Jetstream の到着を待たずに記録へ反映させる。
+  NAGI.zenkatsu,
 ] as const;
 
 // 日記は PDS に置かない（AppView にだけある）ので、照合の対象にしない。

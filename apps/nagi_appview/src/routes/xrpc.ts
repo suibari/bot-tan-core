@@ -77,6 +77,8 @@ import {
   drawGuestCard,
   getCards,
 } from "../queries/cards.js";
+import { getZenkatsu } from "../queries/zenkatsu.js";
+import { getCardNews } from "../queries/cardNews.js";
 import { getCommunityAffirmations } from "../queries/communityAffirmations.js";
 import { loadPersonalizationContext } from "../queries/personalizedFeed.js";
 
@@ -1227,6 +1229,44 @@ xrpc.get(
     }
   },
 );
+// ゼンカツの記録は公開情報（未認証でも読める）なので optional 認証。
+// 認証したときだけ viewer（提出済みか・今日出せる札）が付くので、キャッシュは private。
+xrpc.get(
+  `/${NAGI.getZenkatsu}`,
+  optionalServiceAuth(NAGI.getZenkatsu),
+  async (req, res, next) => {
+    try {
+      const date = req.query.date ? String(req.query.date) : undefined;
+      const cursor = req.query.cursor ? String(req.query.cursor) : undefined;
+      const limit = Math.min(
+        100,
+        Math.max(1, Number(req.query.limit ?? 30) || 30),
+      );
+      res.set("Cache-Control", "private, no-store").json(
+        await getZenkatsu({
+          ...(date ? { date } : {}),
+          ...(cursor ? { cursor } : {}),
+          limit,
+          ...(req.viewerDid ? { viewerDid: req.viewerDid } : {}),
+        }),
+      );
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+// ニュースは公開情報。未認証でも読める。
+xrpc.get(`/${NAGI.getCardNews}`, async (req, res, next) => {
+  try {
+    const cursor = req.query.cursor ? String(req.query.cursor) : undefined;
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit ?? 30) || 30));
+    res
+      .set("Cache-Control", "public, max-age=30")
+      .json(await getCardNews({ ...(cursor ? { cursor } : {}), limit }));
+  } catch (e) {
+    next(e);
+  }
+});
 // DID をまだ持たない端末の通常枠。同じ端末秘密・同じ日付はDBの一意索引で同じ1枚へ収束する。
 xrpc.post(
   `/${NAGI.drawGuestCard}`,

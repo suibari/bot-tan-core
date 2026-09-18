@@ -1393,3 +1393,203 @@ export const nagiNewsInterestTopics = nagiSchema.table(
   },
   (t) => [index("nagi_news_interest_topics_pick_idx").on(t.lastUsedAt, t.score)],
 );
+
+/**
+ * ゼンカツ！（1日1回、お題に手持ちのカード1〜3枚で答える遊び）。
+ * 設計の経緯と理由は docs/zenkatsu.md を参照。
+ *
+ * 提出そのものは**ユーザー自身の PDS レコード**（com.suibari.nagi.zenkatsu）で、
+ * ここにあるのはその索引。ドローと違い、提出は「既に所持している札を参照するだけ」なので、
+ * 所持・お休み・1日1回のすべてを AppView が取り込み時に照合して弾ける
+ * （ドローは乱数から価値を生むので照合先が無く、PDS 権威にできない。card_instances 参照）。
+ */
+
+/**
+ * その日のお題を不変に焼き付ける。
+ *
+ * お題を「日付 % お題数」で都度計算すると、**themes_v{n}.json にお題を足した瞬間に
+ * 過去の日のお題が全部ずれる。** 日付パーマリンクでさかのぼれる仕様なのでアーカイブの破壊になる
+ * （リリース済みのカード番号を変更禁止にしているのと同じクラスの問題）。
+ *
+ * その日を初めて開いたときに INSERT ... ON CONFLICT DO NOTHING で確定させる。以後は変えない。
+ */
+export const nagiZenkatsuDaily = nagiSchema.table("zenkatsu_daily", {
+  /** JST 4:00 始まりの "YYYY-MM-DD"（shared-configs の cardDrawDate が算出）。 */
+  themeDate: text("theme_date").primaryKey(),
+  /** お題の段。themes_v{volume}.json に対応。 */
+  themeVolume: integer("theme_volume").notNull(),
+  /** 段内の通し番号。定義本体（本文・追い風）は JSON 側が真実源。 */
+  themeNumber: integer("theme_number").notNull(),
+  assignedAt: timestamp("assigned_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
+
+/** ユーザーの PDS にある提出レコードの索引。1人1日1件。 */
+export const nagiZenkatsuSubmissions = nagiSchema.table(
+  "zenkatsu_submissions",
+  {
+    /** at://did/com.suibari.nagi.zenkatsu/{themeDate}。rkey が日付なので repo 側でも1日1本。 */
+    uri: text("uri").primaryKey(),
+    cid: text("cid").notNull(),
+    did: text("did").notNull(),
+    themeDate: text("theme_date").notNull(),
+    /** 提出時点のお題を焼き付ける（zenkatsu_daily と同じ値。表示のたびに join しないため）。 */
+    themeVolume: integer("theme_volume").notNull(),
+    themeNumber: integer("theme_number").notNull(),
+    /** botたんの総評。NULL = 生成待ち（UI はコメント無しで先に記録を出す）。 */
+    commentJa: text("comment_ja"),
+    commentEn: text("comment_en"),
+    commentModel: text("comment_model"),
+    commentPromptVersion: text("comment_prompt_version"),
+    /**
+     * サーバ側で決定論的に計算した「読み」のラベル（追い風の枚数、編成の傾向、初登板など）。
+     * 量子化モデルに算術をさせないためにプロンプトへ渡すものだが、
+     * ニュースの選別（isHighlight）と記録表示でも使い回すので保存する。
+     */
+    reading: jsonb("reading").notNull(),
+    /** ニュースタブに載せるか。reading から決まる。 */
+    isHighlight: boolean("is_highlight").default(false).notNull(),
+    /** レコードに書かれた値。表示用。ユーザーが自由に書けるので並び順には使わない。 */
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    /**
+     * 本人がレコードを消した時刻。**行は消さない。**
+     *
+     * 物理削除にすると、消して出し直せてしまう（しかも zenkatsu_cards ごと消えるので
+     * おやすみまでリセットされ、気に入る総評が出るまで引き直せる）。
+     * 行を残すことで (did, theme_date) の一意索引が再提出を止め、
+     * 出した札のおやすみも生き続ける。記録から見えなくなるだけ。
+     */
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    /**
+     * AppView が索引した時刻。**新着順はこちらで並べる。**
+     * createdAt はユーザーが自由に書けるので、フィード上位を取るために遡られる。
+     */
+    indexedAt: timestamp("indexed_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    // 1日1回・先着のみ。レコードが削除されてもこの行は残すので、再提出はできない
+    // （「1日1回・確定」を保つ）。
+    uniqueIndex("nagi_zenkatsu_submission_did_date_idx").on(t.did, t.themeDate),
+    // 日付ページの新着順ページング。
+    index("nagi_zenkatsu_submission_feed_idx").on(
+      t.themeDate,
+      t.indexedAt,
+      t.uri,
+    ),
+    // クールタイム判定（直近7日ぶんの提出を引く）。
+    index("nagi_zenkatsu_submission_owner_idx").on(t.did, t.indexedAt),
+    // ニュースタブ。
+    index("nagi_zenkatsu_submission_highlight_idx").on(
+      t.isHighlight,
+      t.indexedAt,
+    ),
+  ],
+);
+
+/**
+ * 提出した1〜3枚。
+ *
+ * 子テーブルに分けるのは、クールタイム判定が「この札を直近 D 日に何回出したか」という
+ * 札単位の集計だから。カラムに3枚並べるとこの集計が書けない。
+ */
+export const nagiZenkatsuCards = nagiSchema.table(
+  "zenkatsu_cards",
+  {
+    submissionUri: text("submission_uri").notNull(),
+    /** 1..3。プレイヤーが置いた順は意味を持つ（botたんの総評でも順に読む）ので保つ。 */
+    position: integer("position").notNull(),
+    cardVolume: integer("card_volume").notNull(),
+    cardNumber: integer("card_number").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.submissionUri, t.position] }),
+    // 「その札が何回出されたか」の逆引き（図鑑やカード詳細から辿る用）。
+    index("nagi_zenkatsu_cards_card_idx").on(t.cardVolume, t.cardNumber),
+  ],
+);
+
+/**
+ * botたんの総評を生成するリースキュー（card_comment_jobs と同型）。
+ * enqueue は提出レコードを索引した時点、処理は nagi_bot_server の NagiZenkatsuWorker。
+ */
+export const nagiZenkatsuCommentJobs = nagiSchema.table(
+  "zenkatsu_comment_jobs",
+  {
+    submissionUri: text("submission_uri").primaryKey(),
+    state: botJobState("state").default("pending").notNull(),
+    attempts: integer("attempts").default(0).notNull(),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    index("nagi_zenkatsu_comment_jobs_ready_idx").on(t.state, t.nextAttemptAt),
+  ],
+);
+
+/**
+ * ドローの控え（com.suibari.nagi.cardGet）の索引。
+ *
+ * レコードは**ユーザー自身の repo** にあるが、**権威ではなく控え**。ドローの結果を決めるのは
+ * AppView で、ここに来るのは「引いた」という申告にすぎない。card_draws / card_instances と
+ * 突き合わせて一致しないものは索引しない。
+ *
+ * ユーザーの repo に置く理由は、リアクションの subject（strongRef）が実在の PDS レコードを
+ * 要求するから。botたん の repo に置くと通知の宛先が botたん になってしまうが、
+ * 本人の repo なら「レコードの持ち主＝宛先」で済む。
+ */
+export const nagiCardGets = nagiSchema.table(
+  "card_gets",
+  {
+    /** at://did/com.suibari.nagi.cardGet/{drawDate}-{source}。rkey は決定論的。 */
+    uri: text("uri").primaryKey(),
+    cid: text("cid").notNull(),
+    did: text("did").notNull(),
+    cardVolume: integer("card_volume").notNull(),
+    cardNumber: integer("card_number").notNull(),
+    /** JST 4:00 始まりの "YYYY-MM-DD"。card_draws と突き合わせるキー。 */
+    drawDate: text("draw_date").notNull(),
+    /**
+     * "my_nagi" | "reaction" | "anniversary"。
+     * card_draws の enum を広げずに text で持つのは、記念日が card_draws を使わないため
+     * （既存 enum に値を足すと ALTER TYPE が要る）。
+     */
+    source: text("source").notNull(),
+    /** ニュースの絞り込み（SR以上）に使う。定義から引けるが、SQL で絞りたいので焼き付ける。 */
+    rarity: text("rarity").notNull(),
+    /**
+     * 実際に引いた時刻（card_draws.created_at / card_instances.acquired_at）。**照合済み**。
+     * ニュースはこれで並べる。過去ぶんを後から控えても、今日のニュースには出ない。
+     */
+    drawnAt: timestamp("drawn_at", { withTimezone: true }).notNull(),
+    indexedAt: timestamp("indexed_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    /** 本人がレコードを消したら記録から隠す。所持そのものは card_instances 側が権威。 */
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (t) => [
+    // 同じドローを別の rkey で二重に控えさせない。
+    uniqueIndex("nagi_card_gets_draw_idx").on(
+      t.did,
+      t.drawDate,
+      t.source,
+      t.cardVolume,
+      t.cardNumber,
+    ),
+    // ニュースタブ（レアリティで絞って実時刻順）。
+    index("nagi_card_gets_news_idx").on(t.rarity, t.drawnAt),
+    index("nagi_card_gets_owner_idx").on(t.did, t.drawnAt),
+  ],
+);
