@@ -48,6 +48,7 @@ import type {
   ZenkatsuViewerState,
 } from "@bsky-affirmative-bot/nagi-lexicon";
 import { and, asc, desc, eq, gte, inArray, isNull, lt, or } from "drizzle-orm";
+import { getReactionViews } from "./reactions.js";
 import { zenkatsuPlayInventory } from "./zenkatsuPlayInventory.js";
 import { config } from "../config.js";
 import { ApiError } from "../middleware/errors.js";
@@ -574,7 +575,7 @@ export async function getZenkatsu(opts: {
   const page = rows.slice(0, opts.limit);
   const uris = page.map((r) => r.uri);
 
-  const [cardRows, actors] = await Promise.all([
+  const [cardRows, actors, reactions] = await Promise.all([
     uris.length
       ? db
           .select({
@@ -601,6 +602,8 @@ export async function getZenkatsu(opts: {
           .where(inArray(nagiZenkatsuCards.submissionUri, uris))
       : Promise.resolve([]),
     loadActorViews(page.map((r) => r.did)),
+    // 提出レコードそのものが subject。投稿・ニュースと同じ経路で付く。
+    getReactionViews(uris, opts.viewerDid),
   ]);
 
   const cardsByUri = new Map<string, CardView[]>();
@@ -633,6 +636,7 @@ export async function getZenkatsu(opts: {
           (c) => c.attribute === theme.attribute,
         ).length,
         combos: comboViewsOf(row.combos),
+        reactions: reactions.get(row.uri) ?? [],
         createdAt: row.createdAt.toISOString(),
         indexedAt: row.indexedAt.toISOString(),
       },

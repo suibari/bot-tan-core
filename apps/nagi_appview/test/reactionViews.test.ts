@@ -116,3 +116,24 @@ test("drops a custom reaction when its emoji is unavailable", () => {
 
   assert.equal(reaction, undefined);
 });
+
+test("keeps reactors anonymous on zenkatsu and cardGet subjects", () => {
+  /*
+   * ゼンカツの提出とドローの控えは投稿テーブルに無いので、subjectDid は解決されない。
+   * 提出した本人が見ても送信者は出ないまま（ニュースと同じ匿名側）で、
+   * 自分が押したかどうかだけが返る。クライアントも showReactors={false} で合わせる。
+   */
+  const owner = "did:example:owner";
+  const subjectUri = `at://${owner}/com.suibari.nagi.zenkatsu/2026-09-19`;
+  const reaction = groupReactionViews(
+    [
+      row("did:example:reactor", { subjectUri, subjectDid: null }),
+      row(owner, { subjectUri, subjectDid: null }),
+    ],
+    owner,
+  ).get(subjectUri)?.[0];
+
+  assert.deepEqual(reaction?.reactors, []);
+  assert.equal(reaction?.hasMoreReactors, true);
+  assert.equal(reaction?.reactedByMe, true);
+});
