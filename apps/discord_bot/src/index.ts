@@ -12,6 +12,7 @@ import { db, subscribers, initializeDatabases } from '@bsky-affirmative-bot/data
 import { botLabelerManager, MemoryService } from '@bsky-affirmative-bot/clients';
 import { eq } from 'drizzle-orm';
 import { BADGE_DEF } from '@bsky-affirmative-bot/shared-configs';
+import { assertExternalAccountAccessAllowed } from '@bsky-affirmative-bot/shared-configs/externalAccountAccess';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -21,6 +22,10 @@ const __dirname = path.dirname(__filename);
 
 // Load .env from project root
 dotenv.config({ path: path.join(__dirname, '../../../.env') });
+assertExternalAccountAccessAllowed('Discord bot', 'ALLOW_DEV_DISCORD_BOT', {
+  NODE_ENV: process.env.NODE_ENV,
+  ALLOW_DEV_DISCORD_BOT: process.env.ALLOW_DEV_DISCORD_BOT,
+});
 
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN as string;
 const GUILD_ID = process.env.DISCORD_GUILD_ID as string;

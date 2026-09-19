@@ -61,8 +61,20 @@ function moderationConfig() {
   }
   return {
     apiKey,
-    discordWebhookUrl: process.env.NAGI_MODERATION_DISCORD_WEBHOOK_URL || "",
+    discordWebhookUrl: appviewExternalNotificationsAllowed()
+      ? process.env.NAGI_MODERATION_DISCORD_WEBHOOK_URL || ""
+      : "",
   };
+}
+
+/** 開発用AppViewが本番通知先へ送らないための既定値。 */
+export function appviewExternalNotificationsAllowed(
+  env: { NODE_ENV?: string; ALLOW_DEV_APPVIEW_NOTIFICATIONS?: string } = {
+    NODE_ENV: process.env.NODE_ENV,
+    ALLOW_DEV_APPVIEW_NOTIFICATIONS: process.env.ALLOW_DEV_APPVIEW_NOTIFICATIONS,
+  },
+) {
+  return env.NODE_ENV === "production" || env.ALLOW_DEV_APPVIEW_NOTIFICATIONS === "true";
 }
 
 /**
@@ -211,7 +223,7 @@ export const config = {
 
   // Web Push（VAPID）。未設定ならプッシュ配信は無効化し、通知の挿入だけ従来どおり続ける。
   vapid:
-    process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY
+    appviewExternalNotificationsAllowed() && process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY
       ? {
           publicKey: process.env.VAPID_PUBLIC_KEY,
           privateKey: process.env.VAPID_PRIVATE_KEY,

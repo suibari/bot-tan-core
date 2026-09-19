@@ -1,6 +1,7 @@
 import { LabelerServer } from "@skyware/labeler";
 import dotenv from "dotenv";
 import { AtpAgent, RichText } from "@atproto/api";
+import { assertExternalAccountAccessAllowed } from "@bsky-affirmative-bot/shared-configs/externalAccountAccess";
 
 import path from "path";
 import { fileURLToPath } from "url";
@@ -10,6 +11,10 @@ const __dirname = path.dirname(__filename);
 
 // Load workspace root .env file relative to this script
 dotenv.config({ path: path.resolve(__dirname, "../../../.env") });
+assertExternalAccountAccessAllowed("Labeler", "ALLOW_DEV_LABELER_WRITES", {
+  NODE_ENV: process.env.NODE_ENV,
+  ALLOW_DEV_LABELER_WRITES: process.env.ALLOW_DEV_LABELER_WRITES,
+});
 
 const PORT = Number(process.env.LABELER_SERVER_PORT || 3400);
 // 空文字で受けて下の guard に集約する。undefined のままだと、下の guard で narrowing しても

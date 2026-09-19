@@ -80,6 +80,14 @@ The database command applies the current Drizzle schema. Review it before pointi
 
 For AppView development away from the production database, start the bundled pgvector-enabled PostgreSQL service. It listens only on loopback port `5433` by default and creates a separate `nagi_dev` database.
 
+Bot servers refuse to log in to the PDS unless `NODE_ENV=production`. A copied
+production app password in a development worktree therefore cannot publish to
+the live bot account. To intentionally test PDS writes with a disposable bot
+account, set `ALLOW_DEV_BOT_PDS_WRITES=true` in that worktree's `.env`.
+The labeler, Discord bot, and AppView outbound notifications follow the same
+closed-by-default rule; their separate development overrides are documented in
+`.env.example`.
+
 ```sh
 # In the existing .env, use the DATABASE_URL from .env.example and set at least
 # NAGI_BOT_DID. Set DEVELOPER_DID to your login DID for authenticated views.
