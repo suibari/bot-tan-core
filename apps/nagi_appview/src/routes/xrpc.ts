@@ -77,7 +77,11 @@ import {
   drawGuestCard,
   getCards,
 } from "../queries/cards.js";
-import { getZenkatsu } from "../queries/zenkatsu.js";
+import {
+  getZenkatsu,
+  getZenkatsuDeck,
+  resetZenkatsuForDev,
+} from "../queries/zenkatsu.js";
 import { getCardNews } from "../queries/cardNews.js";
 import { getCommunityAffirmations } from "../queries/communityAffirmations.js";
 import { loadPersonalizationContext } from "../queries/personalizedFeed.js";
@@ -1250,6 +1254,40 @@ xrpc.get(
           ...(req.viewerDid ? { viewerDid: req.viewerDid } : {}),
         }),
       );
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+/*
+ * 開発専用: 今日の提出を消して、もう一度ゼンカツを出せるようにする。
+ *
+ * config.dev が false のときは**ルート自体を登録しない**。フラグ判定をハンドラ内に置くと、
+ * 本番でも経路が存在してしまい、条件を1つ間違えるだけで開通する。存在しないほうが安全。
+ */
+if (config.dev)
+  xrpc.post(
+    `/${NAGI.resetZenkatsu}`,
+    requiredServiceAuth(NAGI.resetZenkatsu),
+    async (req, res, next) => {
+      try {
+        res
+          .set("Cache-Control", "private, no-store")
+          .json(await resetZenkatsuForDev(req.viewerDid!));
+      } catch (e) {
+        next(e);
+      }
+    },
+  );
+// マイデッキは自分のものだけ。未認証では返さない。
+xrpc.get(
+  `/${NAGI.getZenkatsuDeck}`,
+  requiredServiceAuth(NAGI.getZenkatsuDeck),
+  async (req, res, next) => {
+    try {
+      res
+        .set("Cache-Control", "private, no-store")
+        .json(await getZenkatsuDeck(req.viewerDid!));
     } catch (e) {
       next(e);
     }

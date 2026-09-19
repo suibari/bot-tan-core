@@ -3,14 +3,23 @@ import {
   nagiActors,
   nagiCardInstances,
   nagiProfiles,
+  nagiZenkatsuAwardJobs,
   nagiZenkatsuCards,
+  nagiZenkatsuComboDiscoveries,
   nagiZenkatsuCommentJobs,
   nagiZenkatsuDaily,
   nagiZenkatsuSubmissions,
+  nagiZenkatsuTrophies,
 } from "@bsky-affirmative-bot/database";
 import {
   buildZenkatsuReading,
   cardDrawDate,
+  COMBO_TOTAL,
+  dayIndexOfDateKey,
+  getComboDef,
+  matchCombos,
+  scoreZenkatsu,
+  type ComboDefinition,
   getThemeDef,
   isValidZenkatsuSelection,
   resolveCardDef,
@@ -22,18 +31,23 @@ import {
   type ZenkatsuHolding,
   type ZenkatsuReading,
   type ZenkatsuReadingCard,
+  type ZenkatsuScore,
 } from "@bsky-affirmative-bot/shared-configs";
 import type {
   ActorView,
   CardView,
   NagiZenkatsu,
+  ZenkatsuComboView,
+  ZenkatsuDeckView,
   ZenkatsuFeed,
+  ZenkatsuSubmissionCombo,
+  ZenkatsuTrophyView,
   ZenkatsuPlayableCard,
   ZenkatsuSubmissionView,
   ZenkatsuThemeView,
   ZenkatsuViewerState,
 } from "@bsky-affirmative-bot/nagi-lexicon";
-import { and, desc, eq, gte, inArray, isNull, lt, or } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lt, or } from "drizzle-orm";
 import { config } from "../config.js";
 import { ApiError } from "../middleware/errors.js";
 
@@ -246,7 +260,14 @@ export type ZenkatsuRejection =
   | "already_submitted";
 
 export type ZenkatsuDecision =
-  | { ok: true; reading: ZenkatsuReading }
+  | {
+      ok: true;
+      reading: ZenkatsuReading;
+      /** 成立したコンボ。リザルトと発見記録に使う。 */
+      combos: ComboDefinition[];
+      /** 隠し得点。**表示には絶対に出さない**（botたん賞の候補を絞るためだけ）。 */
+      score: ZenkatsuScore;
+    }
   | { ok: false; reason: ZenkatsuRejection };
 
 /**
@@ -313,7 +334,15 @@ export function decideZenkatsuSubmission(input: {
     });
   }
 
-  return { ok: true, reading: buildZenkatsuReading(input.theme, readingCards) };
+  // コンボは隠し要素。出す前には見えず、成立して初めてリザルトに出る。
+  const combos = matchCombos(record.cards);
+  const reading = buildZenkatsuReading(input.theme, readingCards, combos);
+  const score = scoreZenkatsu({
+    theme: input.theme,
+    cards: readingCards,
+    comboBonuses: combos.map((c) => c.bonus),
+  });
+  return { ok: true, reading, combos, score };
 }
 
 /** 検証を通した提出を索引する。原子性は呼び出し側のトランザクションに委ねる（DbLike 参照）。 */
@@ -363,6 +392,8 @@ export async function indexZenkatsuSubmission(
       themeNumber: theme.id,
       reading: decision.reading.labels,
       isHighlight: decision.reading.highlight,
+      score: decision.score.value,
+      combos: decision.combos.map((c) => ({ volume: c.volume, id: c.id })),
       createdAt: new Date(record.createdAt),
     })
     .onConflictDoNothing()
@@ -379,9 +410,28 @@ export async function indexZenkatsuSubmission(
       cardNumber: ref.id,
     })),
   );
+  // コンボの初回発見を記録する。既に誰かが出していれば何も起きない（発見者は不変）。
+  if (decision.combos.length)
+    await tx
+      .insert(nagiZenkatsuComboDiscoveries)
+      .values(
+        decision.combos.map((combo) => ({
+          comboVolume: combo.volume,
+          comboNumber: combo.id,
+          did,
+          submissionUri: input.uri,
+        })),
+      )
+      .onConflictDoNothing();
+
   await tx
     .insert(nagiZenkatsuCommentJobs)
     .values({ submissionUri: input.uri })
+    .onConflictDoNothing();
+  // 翌朝のトロフィー確定ジョブ。その日の最初の提出で作られ、以後は何もしない。
+  await tx
+    .insert(nagiZenkatsuAwardJobs)
+    .values({ themeDate: record.themeDate })
     .onConflictDoNothing();
 
   return { indexed: true };
@@ -442,6 +492,28 @@ async function loadActorViews(dids: string[]): Promise<Map<string, ActorView>> {
     ]),
   );
 }
+
+/** 保存済みの成立コンボを、表示用の要約へ。定義に無いものは黙って落とす。 */
+const comboViewsOf = (stored: unknown): ZenkatsuSubmissionCombo[] => {
+  const list = Array.isArray(stored)
+    ? (stored as { volume: number; id: number }[])
+    : [];
+  return list.flatMap((ref) => {
+    const def = getComboDef(ref.volume, ref.id);
+    return def
+      ? [
+          {
+            volume: def.volume,
+            id: def.id,
+            nameJa: def.nameJa,
+            nameEn: def.nameEn,
+            descJa: def.descJa,
+            descEn: def.descEn,
+          },
+        ]
+      : [];
+  });
+};
 
 const submissionCardView = (def: CardDefinition): CardView => ({
   ...def,
@@ -555,6 +627,11 @@ export async function getZenkatsu(opts: {
         ...(row.commentJa ? { commentJa: row.commentJa } : {}),
         ...(row.commentEn ? { commentEn: row.commentEn } : {}),
         commentPending: !row.commentJa,
+        // 追い風の枚数とコンボは「何が起きたか」なので出す。得点は出さない。
+        tailwindCount: (cardsByUri.get(row.uri) ?? []).filter(
+          (c) => c.attribute === theme.attribute,
+        ).length,
+        combos: comboViewsOf(row.combos),
         createdAt: row.createdAt.toISOString(),
         indexedAt: row.indexedAt.toISOString(),
       },
@@ -602,4 +679,179 @@ async function loadViewerState(
     playable,
     maxCards: ZENKATSU_MAX_CARDS,
   };
+}
+
+/**
+ * 「今日のゼンカツ部長」＝ 直前に閉じた日の botたん賞の受賞者か。
+ *
+ * **バッジに出すのはこの1つだけで、しかも1日で消える。** 累積を出すと、
+ * `badges.ts` が「競争や『ネガティブなことを言いづらい』という圧力につながる」として
+ * 既に非表示にした超ポジティブLvと同じ構造を、別の名前で復活させてしまう。
+ * 毎日ひとりだけが持ち、翌朝には別の人へ移るので、順位の梯子にならない。
+ *
+ * 判定する日は「今日」ではなく**直前に閉じた日**。トロフィーは JST 4:00 に前日ぶんを
+ * 確定するので、今日まだ進行中の日には受賞者が居ない。
+ */
+export async function isZenkatsuChief(
+  did: string,
+  now: Date = new Date(),
+): Promise<boolean> {
+  const [row] = await db
+    .select({ id: nagiZenkatsuTrophies.id })
+    .from(nagiZenkatsuTrophies)
+    .where(
+      and(
+        eq(nagiZenkatsuTrophies.did, did),
+        eq(nagiZenkatsuTrophies.kind, "botan"),
+        eq(nagiZenkatsuTrophies.themeDate, previousThemeDate(now)),
+      ),
+    )
+    .limit(1);
+  return !!row;
+}
+
+/** 直前に閉じた日の日付キー。日付キーは "YYYY-MM-DD" なので日数で1引くだけ。 */
+export function previousThemeDate(now: Date = new Date()): string {
+  const today = cardDrawDate(now);
+  return new Date((dayIndexOfDateKey(today) - 1) * 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+}
+
+/**
+ * マイデッキ。**自分が成立させたことのあるコンボ**と、受け取ったトロフィー。
+ *
+ * コンボは隠し要素なので、**まだ出していないコンボの中身は返さない**。総数だけ返して
+ * 「26種のうち3種」と出せるようにする。未発見のぶんを名前入りで並べると、
+ * 発見の楽しみをこちらから奪ってしまう。
+ *
+ * 成立履歴は zenkatsu_submissions.combos に入っているので、専用テーブルは要らない。
+ */
+export async function getZenkatsuDeck(did: string): Promise<ZenkatsuDeckView> {
+  const [rows, trophyRows, pioneers] = await Promise.all([
+    db
+      .select({
+        combos: nagiZenkatsuSubmissions.combos,
+        themeDate: nagiZenkatsuSubmissions.themeDate,
+      })
+      .from(nagiZenkatsuSubmissions)
+      .where(eq(nagiZenkatsuSubmissions.did, did))
+      .orderBy(asc(nagiZenkatsuSubmissions.themeDate)),
+    db
+      .select()
+      .from(nagiZenkatsuTrophies)
+      .where(eq(nagiZenkatsuTrophies.did, did))
+      .orderBy(desc(nagiZenkatsuTrophies.themeDate)),
+    db.select().from(nagiZenkatsuComboDiscoveries),
+  ]);
+
+  // 同じコンボを何度も出していることがあるので、いちばん古い日を採る。
+  const firstPlayed = new Map<string, string>();
+  for (const row of rows) {
+    const list = Array.isArray(row.combos)
+      ? (row.combos as { volume: number; id: number }[])
+      : [];
+    for (const ref of list) {
+      const key = `${ref.volume}:${ref.id}`;
+      if (!firstPlayed.has(key)) firstPlayed.set(key, row.themeDate);
+    }
+  }
+
+  const pioneerByKey = new Map(
+    pioneers.map((p) => [`${p.comboVolume}:${p.comboNumber}`, p.did]),
+  );
+  const pioneerActors = await loadActorViews(
+    [...firstPlayed.keys()].flatMap((key) => {
+      const pioneerDid = pioneerByKey.get(key);
+      return pioneerDid ? [pioneerDid] : [];
+    }),
+  );
+
+  const combos: ZenkatsuComboView[] = [...firstPlayed.entries()]
+    .flatMap(([key, themeDate]) => {
+      const [volume, id] = key.split(":").map(Number);
+      const def = getComboDef(volume, id);
+      if (!def) return [];
+      const pioneerDid = pioneerByKey.get(key);
+      const pioneer = pioneerDid ? pioneerActors.get(pioneerDid) : undefined;
+      return [
+        {
+          volume: def.volume,
+          id: def.id,
+          nameJa: def.nameJa,
+          nameEn: def.nameEn,
+          descJa: def.descJa,
+          descEn: def.descEn,
+          slots: def.members.map((slot) =>
+            slot.flatMap((cardId) => {
+              const card = resolveCardDef(def.volume, cardId);
+              return card ? [{ ...card, owned: true }] : [];
+            }),
+          ),
+          firstPlayedDate: themeDate,
+          ...(pioneer ? { pioneer } : {}),
+          isPioneer: pioneerDid === did,
+        },
+      ];
+    })
+    .sort((a, b) => a.firstPlayedDate.localeCompare(b.firstPlayedDate));
+
+  const trophies: ZenkatsuTrophyView[] = trophyRows.map((row) => {
+    // お題は日付から引き直す。トロフィー行に焼き付けなくても、daily が固定しているので動かない。
+    return {
+      kind: row.kind,
+      themeDate: row.themeDate,
+      submissionUri: row.submissionUri,
+      ...(row.commentJa ? { commentJa: row.commentJa } : {}),
+      ...(row.commentEn ? { commentEn: row.commentEn } : {}),
+    };
+  });
+
+  return { comboTotal: COMBO_TOTAL, combos, trophies };
+}
+
+/**
+ * **開発専用**: 今日の自分の提出を消して、もう一度出せるようにする。
+ *
+ * ゼンカツは1日1回なので、そのままでは総評や演出を1日1度しか確かめられない。
+ * 「1日1回のロックを env で外す」やり方もあるが、それだと**検証したい当の制約が
+ * 効いていない状態**で試すことになる。消して出し直す形にすれば、所持・おやすみ・
+ * 当日判定・採点・コンボ・総評まで、本物の経路を毎回まるごと通せる。
+ *
+ * zenkatsu_cards も一緒に消すので、出した札のおやすみも戻る。
+ * 公開の記録からも消えるが、開発環境の話なので問題にならない。
+ */
+export async function resetZenkatsuForDev(
+  did: string,
+  now: Date = new Date(),
+): Promise<{ deleted: number }> {
+  const themeDate = cardDrawDate(now);
+  const rows = await db
+    .select({ uri: nagiZenkatsuSubmissions.uri })
+    .from(nagiZenkatsuSubmissions)
+    .where(
+      and(
+        eq(nagiZenkatsuSubmissions.did, did),
+        eq(nagiZenkatsuSubmissions.themeDate, themeDate),
+      ),
+    );
+  if (!rows.length) return { deleted: 0 };
+  const uris = rows.map((r) => r.uri);
+
+  await db.transaction(async (tx) => {
+    await tx
+      .delete(nagiZenkatsuCards)
+      .where(inArray(nagiZenkatsuCards.submissionUri, uris));
+    await tx
+      .delete(nagiZenkatsuCommentJobs)
+      .where(inArray(nagiZenkatsuCommentJobs.submissionUri, uris));
+    // 初回発見も戻す。同じコンボを何度も「世界初」として試せるようにするため。
+    await tx
+      .delete(nagiZenkatsuComboDiscoveries)
+      .where(inArray(nagiZenkatsuComboDiscoveries.submissionUri, uris));
+    await tx
+      .delete(nagiZenkatsuSubmissions)
+      .where(inArray(nagiZenkatsuSubmissions.uri, uris));
+  });
+  return { deleted: uris.length };
 }

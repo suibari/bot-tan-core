@@ -176,6 +176,7 @@ const HIGHLIGHT_RARITIES = new Set<CardRarity>(["UR", "AAR"]);
 export function buildZenkatsuReading(
   theme: { attribute: string; raceJa?: string },
   cards: readonly ZenkatsuReadingCard[],
+  combos: readonly { nameJa: string; bonus: number }[] = [],
 ): ZenkatsuReading {
   const labels: string[] = [];
   let highlight = false;
@@ -236,6 +237,14 @@ export function buildZenkatsuReading(
     if (HIGHLIGHT_RARITIES.has(boldest.rarity)) highlight = true;
   }
 
+  if (combos.length) {
+    // コンボは狙って組むもの。botたん には「気づいて触れてほしい」ので必ず渡す。
+    labels.push(
+      `コンボ成立: ${combos.map((c) => c.nameJa).join("、")}`,
+    );
+    highlight = true;
+  }
+
   if (cards.length === 1) {
     // 1枚で答えるのは、3枚並べるのとは別の身振り。botたんに気づかせる。
     labels.push("1枚で答えた");
@@ -243,4 +252,77 @@ export function buildZenkatsuReading(
   }
 
   return { labels, highlight };
+}
+
+/**
+ * 隠し採点。**プレイヤーには数値を見せない。**
+ *
+ * 見せるのは「追い風 x2」「コンボ成立」といった**出来事**だけで、合計点も順位も出さない。
+ * 点数を見せた瞬間に上下が生まれ、下位を黙って否定することになる（docs/zenkatsu.md 1章）。
+ * この数値の用途は、翌朝の「botたん賞」の候補を数件に絞ることだけ。
+ *
+ * **ATK/DEF を採点に入れていないのは意図的。** 高ATKのレアを出すのが得なゲームにすると、
+ * 実測で60日かけて卓から消えていく N が完全に死ぬ（5章のレアリティ・インフレ）。
+ * 追い風・コンボ・種族一致だけで採点すれば、**N がコンボ要員として一級品**になり、
+ * 「N を厚く集めている人ほど組める」が成立する。
+ */
+
+/** 追い風1枚あたりの倍率。3枚すべて追い風なら 1.3^3 ≒ 2.2 倍。 */
+const TAILWIND_MULTIPLIER = 1.3;
+/** お題の種族と一致した1枚あたりの倍率。属性より控えめにする（持っていない人が出るため）。 */
+const THEME_RACE_MULTIPLIER = 1.15;
+/** 提出内で種族が揃った1組あたりの倍率。 */
+const RACE_PAIR_MULTIPLIER = 1.1;
+/** 初登板1枚あたりの倍率。使い回しより、新しい札を試すほうを少しだけ後押しする。 */
+const DEBUT_MULTIPLIER = 1.05;
+
+export interface ZenkatsuScoreInput {
+  theme: { attribute: string; raceJa?: string };
+  cards: readonly ZenkatsuReadingCard[];
+  /** 成立したコンボの倍率（matchCombos の結果から取る）。 */
+  comboBonuses: readonly number[];
+}
+
+export interface ZenkatsuScore {
+  /** 隠し得点。**表示してはいけない。** botたん賞の候補を絞るためだけに使う。 */
+  value: number;
+  /** リザルトで見せる出来事。数値ではなく「何が起きたか」。 */
+  tailwindCount: number;
+  themeRaceCount: number;
+  racePairCount: number;
+  debutCount: number;
+}
+
+/**
+ * 隠し得点を出す。倍率の積にしているのは、狙って重ねたときに素直に伸ばすため。
+ * 1枚で出しても不利にならないよう、枚数そのものは点に入れない。
+ */
+export function scoreZenkatsu(input: ZenkatsuScoreInput): ZenkatsuScore {
+  const tailwindCount = input.cards.filter(
+    (c) => c.attribute === input.theme.attribute,
+  ).length;
+  const themeRaceCount = input.theme.raceJa
+    ? input.cards.filter((c) => c.raceJa === input.theme.raceJa).length
+    : 0;
+  const raceCounts = new Map<string, number>();
+  for (const card of input.cards)
+    raceCounts.set(card.raceJa, (raceCounts.get(card.raceJa) ?? 0) + 1);
+  const racePairCount = [...raceCounts.values()].filter((n) => n >= 2).length;
+  const debutCount = input.cards.filter((c) => c.firstPlay).length;
+
+  let value = 1;
+  value *= TAILWIND_MULTIPLIER ** tailwindCount;
+  value *= THEME_RACE_MULTIPLIER ** themeRaceCount;
+  value *= RACE_PAIR_MULTIPLIER ** racePairCount;
+  value *= DEBUT_MULTIPLIER ** debutCount;
+  for (const bonus of input.comboBonuses) value *= bonus;
+
+  return {
+    // 小数のまま持つと比較のたびに誤差が乗るので、整数（1.00 = 100）に丸めて持つ。
+    value: Math.round(value * 100),
+    tailwindCount,
+    themeRaceCount,
+    racePairCount,
+    debutCount,
+  };
 }

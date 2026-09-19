@@ -1,0 +1,33 @@
+{
+  "lexicon": 1,
+  "id": "com.suibari.nagi.getZenkatsuDeck",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "マイデッキ。自分がこれまでに成立させたコンボと、受け取ったトロフィーを返す。コンボは隠し要素なので、**まだ出していないコンボの中身は返さない**（総数だけ返す）。要認証。",
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["comboTotal", "combos", "trophies"],
+          "properties": {
+            "comboTotal": {
+              "type": "integer",
+              "description": "存在するコンボの総数。未発見のぶんは中身を伏せたままこの数だけ示す。"
+            },
+            "combos": {
+              "type": "array",
+              "items": { "type": "unknown" },
+              "description": "自分が成立させたことのあるコンボ。初めて出した日の古い順。"
+            },
+            "trophies": {
+              "type": "array",
+              "items": { "type": "unknown" },
+              "description": "受け取ったトロフィー。新しい順。"
+            }
+          }
+        }
+      }
+    }
+  }
+}

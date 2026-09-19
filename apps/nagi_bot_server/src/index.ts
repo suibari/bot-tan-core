@@ -19,6 +19,7 @@ import { startNagiReplyWorker } from "./NagiReplyWorker.js";
 import { startNagiAnalysisWorker } from "./NagiAnalysisWorker.js";
 import { startNagiCardCommentWorker } from "./NagiCardCommentWorker.js";
 import { startNagiZenkatsuWorker } from "./NagiZenkatsuWorker.js";
+import { startNagiZenkatsuAwardWorker } from "./NagiZenkatsuAwardWorker.js";
 import { startNagiCommunityAffirmationWorker } from "./NagiCommunityAffirmationWorker.js";
 import { startNagiThemeWorker } from "./NagiThemeWorker.js";
 import { startNewsInterestWorker } from "./NewsInterestWorker.js";
@@ -93,6 +94,8 @@ async function start() {
   startNagiCardCommentWorker();
   // ゼンカツ！の総評。エンキューは AppView が提出レコードを索引した時点で行う。
   startNagiZenkatsuWorker();
+  // 前日ぶんのトロフィー確定。JST 4:00 で日付が変わったぶんから順に処理する。
+  startNagiZenkatsuAwardWorker();
   // 右サイドバー「みんなで全肯定」の匿名要約。候補選出と生成を作者単位で行う。
   startNagiCommunityAffirmationWorker();
   // 動的枠の「おすすめの理由」を先に計算しておく（リクエスト経路でLLMを呼ばないため）。

@@ -296,6 +296,14 @@ export type ActorView = {
    * 表示側が UI 言語で出し分けるので両方返す。
    */
   currentTitle?: { ja: string; en: string };
+  /**
+   * 「今日のゼンカツ部長」＝ 直前に閉じた日の botたん賞の受賞者。
+   *
+   * **毎日ひとりだけが持ち、1日で消える。** 累積は出さない（累積表示は競争圧力になるとして
+   * 超ポジティブLvが既に非表示にされている。docs/zenkatsu.md）。
+   * プロフィール取得の経路でだけ埋める。フィードでは引かない。
+   */
+  zenkatsuChief?: boolean;
 };
 export type ReactionView = {
   emoji: string;
@@ -956,10 +964,30 @@ export type ZenkatsuSubmissionView = {
   commentEn?: string;
   /** true の間は総評を生成中。クライアントは取り直す。 */
   commentPending: boolean;
+  /**
+   * その日の追い風に乗っていた枚数。**得点ではない**（得点は隠しで、どこにも出さない）。
+   * 「何が起きたか」だけを見せる。
+   */
+  tailwindCount: number;
+  /**
+   * 成立したコンボ。**成立したものだけ**を送る。
+   * 定義そのものをクライアントへ配ると、バンドルを読むだけで全部わかってしまい、
+   * 隠し要素にした意味が無くなる。
+   */
+  combos: ZenkatsuSubmissionCombo[];
   /** レコードに書かれた時刻（表示用）。 */
   createdAt: string;
   /** AppView が索引した時刻。**並び順はこちら**（createdAt は遡れてしまう）。 */
   indexedAt: string;
+};
+/** 記録に出す、成立したコンボの要約。 */
+export type ZenkatsuSubmissionCombo = {
+  volume: number;
+  id: number;
+  nameJa: string;
+  nameEn: string;
+  descJa: string;
+  descEn: string;
 };
 /** 今日出せる札1種。所持している札だけが並ぶ。 */
 export type ZenkatsuPlayableCard = {
@@ -1015,6 +1043,16 @@ export type CardNewsItem = {
   themeEn?: string;
   commentJa?: string;
   commentEn?: string;
+  /**
+   * type=zenkatsu のとき。成立したコンボ。
+   *
+   * ニュースに出すのは、**攻略がコミュニティに伝わる道**にするため。コンボは隠し要素で
+   * 4060通りの総当たりは現実的でないので、誰かが出したものを見て広がる形にしている。
+   * 未成立のぶんは送らないので、これで定義が漏れることはない。
+   */
+  combos?: ZenkatsuSubmissionCombo[];
+  /** type=zenkatsu のとき。追い風に乗っていた枚数。**得点ではない。** */
+  tailwindCount?: number;
 };
 export type CardNewsFeed = {
   items: CardNewsItem[];
@@ -1035,4 +1073,40 @@ export type NotificationCardSubject = {
   themeEn?: string;
   /** 出した札、または引いた1枚。 */
   cards: CardView[];
+};
+
+/** マイデッキに出す、成立させたことのあるコンボ1件。 */
+export type ZenkatsuComboView = {
+  volume: number;
+  id: number;
+  nameJa: string;
+  nameEn: string;
+  descJa: string;
+  descEn: string;
+  /** スロットごとの構成札。1スロットに複数あるのは「どちらでもよい」という意味。 */
+  slots: CardView[][];
+  /** 自分が初めて成立させた日（"YYYY-MM-DD"）。 */
+  firstPlayedDate: string;
+  /** 世界で最初に見つけた人。自分なら isPioneer が立つ。 */
+  pioneer?: ActorView;
+  isPioneer: boolean;
+};
+/** 受け取ったトロフィー1件。 */
+export type ZenkatsuTrophyView = {
+  /** ZENKATSU_AWARD_KINDS のいずれか。表示名はクライアントが持つ。 */
+  kind: string;
+  /** 対象の日（"YYYY-MM-DD"）。 */
+  themeDate: string;
+  themeJa?: string;
+  themeEn?: string;
+  submissionUri: string;
+  /** botたん賞のときの、選んだ理由。 */
+  commentJa?: string;
+  commentEn?: string;
+};
+export type ZenkatsuDeckView = {
+  /** 存在するコンボの総数。未発見のぶんは中身を伏せる（隠し要素なので）。 */
+  comboTotal: number;
+  combos: ZenkatsuComboView[];
+  trophies: ZenkatsuTrophyView[];
 };

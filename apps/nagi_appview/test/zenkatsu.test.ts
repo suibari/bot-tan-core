@@ -166,3 +166,70 @@ test("初登板でない札だけなら、初登板ラベルは付かない", ()
   if (!d.ok) return;
   assert.ok(!d.reading.labels.some((l) => l.startsWith("初登板")));
 });
+
+test("コンボが成立すると隠し得点が跳ね上がり、ハイライトになる", () => {
+	// BLTトリオ: 全肯定botたん(30) + ラテ(24) + ことみ(26)
+	const blt = [
+		{ volume: 1, id: 30 },
+		{ volume: 1, id: 24 },
+		{ volume: 1, id: 26 },
+	];
+	const d = decide({
+		record: { themeDate: TODAY, cards: blt, createdAt: '2026-09-19T05:00:00Z' },
+		holdings: blt.map((c) => ({ ...c, rarity: CARD_DEFS[c.id - 1].rarity, stock: 1 })),
+	});
+	assert.equal(d.ok, true);
+	if (!d.ok) return;
+	assert.ok(d.combos.some((c) => c.nameJa === 'BLTトリオ'));
+	assert.ok(d.reading.labels.some((l) => l.startsWith('コンボ成立')));
+	assert.equal(d.reading.highlight, true);
+
+	// 同じ3枚から1枚差し替えるとコンボは消え、得点も下がる。
+	const broken = [
+		{ volume: 1, id: 30 },
+		{ volume: 1, id: 24 },
+		{ volume: 1, id: 1 },
+	];
+	const e = decide({
+		record: { themeDate: TODAY, cards: broken, createdAt: '2026-09-19T05:00:00Z' },
+		holdings: broken.map((c) => ({ ...c, rarity: CARD_DEFS[c.id - 1].rarity, stock: 1 })),
+	});
+	assert.equal(e.ok, true);
+	if (!e.ok) return;
+	assert.equal(e.combos.length, 0);
+	assert.ok(d.score.value > e.score.value);
+});
+
+test("N だけのコンボも成立する（新規が触れる入口）", () => {
+	// 朝の三点セット: 起床せし者(1) + 白湯の癒し手(2) + 洗濯物を干した者(3)
+	const morning = [
+		{ volume: 1, id: 1 },
+		{ volume: 1, id: 2 },
+		{ volume: 1, id: 3 },
+	];
+	const d = decide({
+		record: { themeDate: TODAY, cards: morning, createdAt: '2026-09-19T05:00:00Z' },
+		holdings: morning.map((c) => ({ ...c, rarity: CARD_DEFS[c.id - 1].rarity, stock: 1 })),
+	});
+	assert.equal(d.ok, true);
+	if (!d.ok) return;
+	assert.ok(d.combos.some((c) => c.nameJa === '朝の三点セット'));
+});
+
+test("隠し得点はレアリティでは上がらない（低レアを殺さないため）", () => {
+	// 同じ水属性・同じ枚数・コンボ無しで、N(2) と SR(25) を比べる。
+	const theme = { attribute: 'water' };
+	const n = decide({
+		theme,
+		record: { themeDate: TODAY, cards: [{ volume: 1, id: 2 }], createdAt: '2026-09-19T05:00:00Z' },
+		holdings: [{ volume: 1, id: 2, rarity: 'N', stock: 1 }],
+	});
+	const sr = decide({
+		theme,
+		record: { themeDate: TODAY, cards: [{ volume: 1, id: 25 }], createdAt: '2026-09-19T05:00:00Z' },
+		holdings: [{ volume: 1, id: 25, rarity: 'SR', stock: 1 }],
+	});
+	assert.equal(n.ok && sr.ok, true);
+	if (!n.ok || !sr.ok) return;
+	assert.equal(n.score.value, sr.score.value);
+});

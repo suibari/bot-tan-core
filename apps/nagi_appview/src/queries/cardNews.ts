@@ -11,6 +11,7 @@ import {
 import {
   cardGetRkey,
   dayIndexOfDateKey,
+  getComboDef,
   getThemeDef,
   isAnniversaryCard,
   parseAnniversaryCardNumber,
@@ -22,6 +23,7 @@ import type {
   CardNewsItem,
   CardView,
   NagiCardGet,
+  ZenkatsuSubmissionCombo,
 } from "@bsky-affirmative-bot/nagi-lexicon";
 import { and, desc, eq, gte, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { config } from "../config.js";
@@ -234,6 +236,28 @@ async function loadActorViews(dids: string[]): Promise<Map<string, ActorView>> {
   );
 }
 
+/** 保存済みの成立コンボを表示用へ。定義に無いものは黙って落とす。 */
+const comboViewsOf = (stored: unknown): ZenkatsuSubmissionCombo[] => {
+  const list = Array.isArray(stored)
+    ? (stored as { volume: number; id: number }[])
+    : [];
+  return list.flatMap((ref) => {
+    const def = getComboDef(ref.volume, ref.id);
+    return def
+      ? [
+          {
+            volume: def.volume,
+            id: def.id,
+            nameJa: def.nameJa,
+            nameEn: def.nameEn,
+            descJa: def.descJa,
+            descEn: def.descEn,
+          },
+        ]
+      : [];
+  });
+};
+
 const view = (def: Parameters<typeof cardViewOf>[0]) => cardViewOf(def);
 const cardViewOf = (
   def: NonNullable<ReturnType<typeof resolveCardDef>>,
@@ -376,6 +400,13 @@ export async function getCardNews(opts: {
         at: row.indexedAt.toISOString(),
         cards: zenCards.get(row.uri) ?? [],
         ...(theme ? { themeJa: theme.textJa, themeEn: theme.textEn } : {}),
+        // コンボはニュースにも出す。これが攻略の伝わる道になる。
+        combos: comboViewsOf(row.combos),
+        tailwindCount: theme
+          ? (zenCards.get(row.uri) ?? []).filter(
+              (c) => c.attribute === theme.attribute,
+            ).length
+          : 0,
         ...(row.commentJa ? { commentJa: row.commentJa } : {}),
         ...(row.commentEn ? { commentEn: row.commentEn } : {}),
       },

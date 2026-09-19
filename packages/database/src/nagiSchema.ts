@@ -1450,6 +1450,14 @@ export const nagiZenkatsuSubmissions = nagiSchema.table(
     reading: jsonb("reading").notNull(),
     /** ニュースタブに載せるか。reading から決まる。 */
     isHighlight: boolean("is_highlight").default(false).notNull(),
+    /**
+     * 隠し得点（1.00 = 100 の整数）。**プレイヤーには絶対に見せない。**
+     * 用途は翌朝の「botたん賞」の候補を数件に絞ることだけで、合計点も順位も出さない。
+     * ATK/DEF は意図的に入れていない（入れると低レアが完全に死ぬ。docs/zenkatsu.md 5章）。
+     */
+    score: integer("score").default(100).notNull(),
+    /** 成立したコンボ（combos_v{n}.json の {volume, id}）。リザルトと発見記録に使う。 */
+    combos: jsonb("combos").default([]).notNull(),
     /** レコードに書かれた値。表示用。ユーザーが自由に書けるので並び順には使わない。 */
     createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
     /**
@@ -1592,4 +1600,91 @@ export const nagiCardGets = nagiSchema.table(
     index("nagi_card_gets_news_idx").on(t.rarity, t.drawnAt),
     index("nagi_card_gets_owner_idx").on(t.did, t.drawnAt),
   ],
+);
+
+/**
+ * コンボの初回発見。**誰が最初にその組み合わせを出したか**を1コンボ1行で持つ。
+ *
+ * コンボは隠し要素で、30枚から3枚は4060通りあるため自力での全探索は現実的でない。
+ * 一度誰かが出したら記録に出して伝播させることで「攻略」が成立する。
+ * 発見者は後から変わらないので、行は作られたら不変。
+ */
+export const nagiZenkatsuComboDiscoveries = nagiSchema.table(
+  "zenkatsu_combo_discoveries",
+  {
+    comboVolume: integer("combo_volume").notNull(),
+    comboNumber: integer("combo_number").notNull(),
+    /** 最初に出した人。 */
+    did: text("did").notNull(),
+    /** そのときの提出。記録へ飛べるように持つ。 */
+    submissionUri: text("submission_uri").notNull(),
+    discoveredAt: timestamp("discovered_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    // 「最初の1人」なので、コンボごとに1行しか作らせない。
+    primaryKey({ columns: [t.comboVolume, t.comboNumber] }),
+    index("nagi_zenkatsu_combo_discoveries_did_idx").on(t.did, t.discoveredAt),
+  ],
+);
+
+/**
+ * 前日ぶんのトロフィー。JST 4:00 の切り替えで確定する。
+ *
+ * **賞は1つにしない。** 毎日1人だけにすると、大多数が「取れなかった」を日次で積み上げる。
+ * 全肯定と正面から衝突するので、切り口を複数に分けて「毎日誰かしらに何か当たる」ようにする。
+ * 判定材料は提出時に計算済みの reading / score / combos で、追加のコストはかからない。
+ */
+export const nagiZenkatsuTrophies = nagiSchema.table(
+  "zenkatsu_trophies",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    /** 対象の日（前日ぶん）。 */
+    themeDate: text("theme_date").notNull(),
+    did: text("did").notNull(),
+    /**
+     * 賞の種類。'botan' だけが botたんの選出で、残りは決定論で決まる。
+     * 文字列で持つのは、賞を足すたびに enum の ALTER を挟みたくないため。
+     */
+    kind: text("kind").notNull(),
+    submissionUri: text("submission_uri").notNull(),
+    /** botたん賞のときの、選んだ理由のひとこと。 */
+    commentJa: text("comment_ja"),
+    commentEn: text("comment_en"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    // 同じ日・同じ賞・同じ人は1回まで（ジョブの再実行でも増えない）。
+    uniqueIndex("nagi_zenkatsu_trophies_day_kind_did_idx").on(
+      t.themeDate,
+      t.kind,
+      t.did,
+    ),
+    index("nagi_zenkatsu_trophies_owner_idx").on(t.did, t.createdAt),
+  ],
+);
+
+/** 日次のトロフィー確定ジョブ。1日1件で、二重確定を主キーで防ぐ。 */
+export const nagiZenkatsuAwardJobs = nagiSchema.table(
+  "zenkatsu_award_jobs",
+  {
+    themeDate: text("theme_date").primaryKey(),
+    state: botJobState("state").default("pending").notNull(),
+    attempts: integer("attempts").default(0).notNull(),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [index("nagi_zenkatsu_award_jobs_ready_idx").on(t.state, t.nextAttemptAt)],
 );

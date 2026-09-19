@@ -1,0 +1,23 @@
+{
+  "lexicon": 1,
+  "id": "com.suibari.nagi.resetZenkatsu",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "**開発専用。** 今日の自分のゼンカツ提出を消して、もう一度出せるようにする。ゼンカツは1日1回なので、そのままでは総評や演出を1日1度しか確かめられない。1日1回のロックを環境変数で外すのではなく「消して出し直す」形にしているのは、所持・おやすみ・当日判定・採点・コンボ・総評という本物の経路を毎回まるごと通すため。AppView は開発モードでないときルート自体を登録しない。",
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["deleted"],
+          "properties": {
+            "deleted": {
+              "type": "integer",
+              "description": "消した提出の件数。もともと未提出なら 0。"
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -81,7 +81,9 @@
             "com.suibari.nagi.deleteKossoriPost",
             "com.suibari.nagi.generatePostAssist",
             "com.suibari.nagi.getZenkatsu",
-            "com.suibari.nagi.getCardNews"
+            "com.suibari.nagi.getCardNews",
+            "com.suibari.nagi.getZenkatsuDeck",
+            "com.suibari.nagi.resetZenkatsu"
           ]
         }
       ]

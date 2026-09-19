@@ -121,6 +121,13 @@ export const NAGI = {
   cardGet: "com.suibari.nagi.cardGet",
   /** 全肯定カードのニュース（SR以上のドローと、ゼンカツのハイライト）。 */
   getCardNews: "com.suibari.nagi.getCardNews",
+  /** マイデッキ。自分が成立させたコンボと、受け取ったトロフィー。要認証。 */
+  getZenkatsuDeck: "com.suibari.nagi.getZenkatsuDeck",
+  /**
+   * **開発専用**: 今日の提出を消して、もう一度ゼンカツを出せるようにする。
+   * AppView 側は config.dev が false のときルート自体を登録しない。
+   */
+  resetZenkatsu: "com.suibari.nagi.resetZenkatsu",
   /**
    * 姉妹アプリ（botたんのお部屋など）へサインイン済みのまま移動するための、
    * 短命・単回使用の署名付きチケットを発行する。チケットは「この利用者は指定の DID

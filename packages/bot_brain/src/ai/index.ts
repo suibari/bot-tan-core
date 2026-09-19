@@ -6,6 +6,7 @@ export * from './generateAnalyzeResult.js';
 export * from './generateNagiAnalysis.js';
 export * from './generateNagiCardComment.js';
 export * from './generateZenkatsuComment.js';
+export * from './generateZenkatsuAward.js';
 export * from './generateCommunityAffirmation.js';
 export * from './generateAnniversary.js';
 export * from './generateCheerResult.js';
