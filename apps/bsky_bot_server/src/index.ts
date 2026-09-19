@@ -77,5 +77,6 @@ app.listen(PORT, "127.0.0.1", async () => {
     reportHeartbeat("bsky-bot").catch(() => {});
   } catch (e) {
     console.error("[CRITICAL] Bot startup failed:", e);
+    process.exit(1);
   }
 });

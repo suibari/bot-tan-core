@@ -1,10 +1,21 @@
 import { AtpAgent } from "@atproto/api";
+import { assertExternalAccountAccessAllowed } from "@bsky-affirmative-bot/shared-configs/externalAccountAccess";
 
 export type BotAgentOptions = {
   identifier: string | undefined;
   password: string | undefined;
   service?: string;
 };
+
+/** 開発用DBと本番PDSを同時に使っても、botの投稿だけが本番へ漏れないようにする。 */
+export function assertBotPdsAccessAllowed(
+  env: { NODE_ENV?: string; ALLOW_DEV_BOT_PDS_WRITES?: string } = {
+    NODE_ENV: process.env.NODE_ENV,
+    ALLOW_DEV_BOT_PDS_WRITES: process.env.ALLOW_DEV_BOT_PDS_WRITES,
+  },
+) {
+  assertExternalAccountAccessAllowed("Bot PDS login", "ALLOW_DEV_BOT_PDS_WRITES", env);
+}
 
 export function createBotAgent({
   identifier,
@@ -16,6 +27,7 @@ export function createBotAgent({
   let refreshJwt: string | null = null;
 
   async function login() {
+    assertBotPdsAccessAllowed();
     if (!identifier || !password) {
       throw new Error("Bot identifier and app password are required");
     }

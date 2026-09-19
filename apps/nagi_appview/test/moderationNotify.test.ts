@@ -5,6 +5,7 @@ process.env.NAGI_BOT_DID ??= "did:plc:bot";
 process.env.OPENAI_API_KEY ??= "test-key";
 process.env.NAGI_MODERATION_DISCORD_WEBHOOK_URL ??=
   "https://discord.example/webhook";
+process.env.ALLOW_DEV_APPVIEW_NOTIFICATIONS = "true";
 
 const { notifyDecision } = await import("../src/services/moderation/notify.js");
 

@@ -3,6 +3,7 @@ import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
 import { labelerServiceRecord } from "@bsky-affirmative-bot/shared-configs";
+import { assertExternalAccountAccessAllowed } from "@bsky-affirmative-bot/shared-configs/externalAccountAccess";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -10,6 +11,10 @@ const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.resolve(__dirname, "../../../.env") });
 
 async function main() {
+  assertExternalAccountAccessAllowed("Labeler", "ALLOW_DEV_LABELER_WRITES", {
+    NODE_ENV: process.env.NODE_ENV,
+    ALLOW_DEV_LABELER_WRITES: process.env.ALLOW_DEV_LABELER_WRITES,
+  });
   // 識別子はハンドルではなく DID。ハンドルは可変なので、変更のたびにログインが黙って壊れる。
   const identifier = process.env.LABELER_DID || process.env.BSKY_DID;
   const password = process.env.LABELER_PASSWORD || process.env.BSKY_APP_PASSWORD;

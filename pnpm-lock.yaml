@@ -392,6 +392,9 @@ importers:
       '@atproto/api':
         specifier: ^0.18.21
         version: 0.18.21
+      '@bsky-affirmative-bot/shared-configs':
+        specifier: workspace:*
+        version: link:../shared-configs
       '@skyware/jetstream':
         specifier: ^0.2.5
         version: 0.2.5
