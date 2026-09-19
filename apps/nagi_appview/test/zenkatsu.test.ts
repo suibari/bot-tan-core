@@ -233,3 +233,15 @@ test("隠し得点はレアリティでは上がらない（低レアを殺さ�
 	if (!n.ok || !sr.ok) return;
 	assert.equal(n.score.value, sr.score.value);
 });
+
+
+test("開発用の全札から未所持のBLTトリオを提出してコンボ判定できる", async () => {
+  const { zenkatsuPlayInventory } = await import("../src/queries/zenkatsuPlayInventory.js");
+  const cards = [30, 24, 26].map(id => ({ volume: 1, id }));
+  const d = decide({
+    ...zenkatsuPlayInventory([], [], true),
+    record: { themeDate: TODAY, cards, createdAt: "2026-09-19T05:00:00Z" },
+  });
+  assert.equal(d.ok, true);
+  if (d.ok) assert.ok(d.combos.some(c => c.nameJa === "BLTトリオ"));
+});

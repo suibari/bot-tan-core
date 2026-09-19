@@ -48,6 +48,7 @@ import type {
   ZenkatsuViewerState,
 } from "@bsky-affirmative-bot/nagi-lexicon";
 import { and, asc, desc, eq, gte, inArray, isNull, lt, or } from "drizzle-orm";
+import { zenkatsuPlayInventory } from "./zenkatsuPlayInventory.js";
 import { config } from "../config.js";
 import { ApiError } from "../middleware/errors.js";
 
@@ -237,7 +238,7 @@ async function loadEverPlayed(
   );
 }
 
-/** 今日出せる札。所持している札だけが並び、おやすみ中のものは残り日数付きで返る。 */
+/** 今日出せる札。本番は所持・クールダウンを反映し、開発時は図鑑の全札を使える。 */
 export async function loadPlayable(
   did: string,
   today: string,
@@ -246,7 +247,8 @@ export async function loadPlayable(
     loadHoldings(did),
     loadRecentPlays(did, today),
   ]);
-  return zenkatsuAvailability(holdings, plays, today);
+  const inventory = zenkatsuPlayInventory(holdings, plays, config.dev);
+  return zenkatsuAvailability(inventory.holdings, inventory.plays, today);
 }
 
 /** 提出が弾かれた理由。ログと、将来クライアントへ返すときの識別子を兼ねる。 */
@@ -374,9 +376,8 @@ export async function indexZenkatsuSubmission(
       attribute: theme.attribute,
       ...(theme.raceJa ? { raceJa: theme.raceJa } : {}),
     },
-    holdings,
+    ...zenkatsuPlayInventory(holdings, plays, config.dev),
     labels,
-    plays,
     everPlayed,
   });
   if (!decision.ok) return { indexed: false, reason: decision.reason };
