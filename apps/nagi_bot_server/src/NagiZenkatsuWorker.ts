@@ -4,8 +4,14 @@ import { runNagiZenkatsu } from "./NagiZenkatsuFeature.js";
 
 const MAX_ATTEMPTS = 5;
 const LEASE_DURATION_MS = 120_000;
-// ユーザーは提出直後に総評を見に来るので、分析ワーカーより短い間隔で回す。
-const WORKER_INTERVAL_MS = 3_000;
+/*
+ * ユーザーは提出直後、総評が出るまで画面で待っている。
+ *
+ * 生成そのものは実測 3.2秒。そこへ取得待ちが丸ごと上乗せされるので、間隔がそのまま
+ * 体感の待ち時間になる（3秒間隔だと最悪 3.2 + 3.0 秒）。空振りのクエリは
+ * (state, next_attempt_at) の索引で引く軽いものなので、短くしても負荷はほぼ増えない。
+ */
+const WORKER_INTERVAL_MS = 1_000;
 const MAX_BACKOFF_MS = 300_000;
 
 let running = false;
