@@ -126,10 +126,15 @@ export const buildZenkatsuCommentPrompt = (
   input: NagiZenkatsuCommentInput,
 ): string => {
   const format = commentFormat(input.cards.length);
+  /*
+   * **英語名も必ず渡す。** 日本語名しか渡さないと、commentEn を書くときにモデルが自力で
+   * 訳すことになり、12B では別言語が混ざる（実測で「積みゲーの番人」が韓国語の
+   * 「쌓기 Game Guardian」になった）。定義側が正式な英語名を持っているので、それを使わせる。
+   */
   const cards = input.cards
     .map(
       (card, index) =>
-        `${index + 1}枚目: ${card.nameJa} / ${card.rarity} / ${card.attribute} / ${card.raceJa} / ATK${card.atk}・DEF${card.def}
+        `${index + 1}枚目: ${card.nameJa}（英語名: ${card.nameEn}） / ${card.rarity} / ${card.attribute} / ${card.raceJa} / ATK${card.atk}・DEF${card.def}
         札の説明文（この人がした行動ではありません）: ${card.textJa}`,
     )
     .join("\n");
@@ -149,6 +154,8 @@ export const buildZenkatsuCommentPrompt = (
 # 出力するもの
 * commentJa: ${format.ja}。
 * commentEn: 同じ気持ちを伝える自然な${format.en}。直訳ではなく英語として自然に。
+  **札に触れるときは、上に書いてある英語名をそのまま使ってください。自分で訳さないこと。**
+  **commentEn は全体を英語だけで書いてください。日本語や他の言語を混ぜないこと。**
 
 # ルール
 * 「いい編成だね」「センスあるね」だけで終わる汎用コメントは禁止です。

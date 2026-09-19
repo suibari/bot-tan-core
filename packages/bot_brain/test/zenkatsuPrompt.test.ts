@@ -16,7 +16,7 @@ test("出した札はお題と読みラベルより後ろに置く", () => {
   const prompt = buildZenkatsuCommentPrompt(input);
   const theme = prompt.indexOf(input.themeJa);
   const reading = prompt.indexOf(input.reading[0]);
-  const cards = prompt.indexOf(input.cards[0].nameJa + " /");
+  const cards = prompt.indexOf(`1枚目: ${input.cards[0].nameJa}`);
   assert.ok(theme > 0 && reading > theme, "読みラベルはお題より後ろ");
   assert.ok(cards > reading, "出した札はいちばん後ろ");
 });
@@ -68,4 +68,16 @@ test("表示名はそのまま埋め、プレースホルダを残さない", ()
   const prompt = buildZenkatsuCommentPrompt(input);
   assert.ok(prompt.includes("すいばり さんが出した札"));
   assert.ok(!/\{\{|\}\}/.test(prompt));
+});
+
+test("カードの英語名も渡す（英語出力で別言語が混ざるのを防ぐ）", () => {
+  // 日本語名しか渡さないと commentEn でモデルが自力翻訳し、12B では別言語が漏れる
+  // （実測で「積みゲーの番人」が韓国語になった）。
+  const prompt = buildZenkatsuCommentPrompt(input);
+  for (const card of input.cards) {
+    assert.ok(prompt.includes(card.nameJa), card.nameJa);
+    assert.ok(prompt.includes(card.nameEn), card.nameEn);
+  }
+  assert.match(prompt, /英語名をそのまま使ってください。自分で訳さないこと/);
+  assert.match(prompt, /commentEn は全体を英語だけで書いてください/);
 });

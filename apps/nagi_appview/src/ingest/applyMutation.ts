@@ -1,3 +1,4 @@
+import { startZenkatsuComment } from "../services/zenkatsuComment.js";
 import {
   bot_memory_documents,
   botMemoryContentHash,
@@ -246,6 +247,7 @@ export async function applyMutation(
   // fire-and-forget でプッシュ配信する（重複挿入時は returning が空なので送らない）。
   const pushJobs: PushJob[] = [];
   const englishPrewarmUris: string[] = [];
+  let zenkatsuCommentUri: string | undefined;
   await db.transaction(async (tx) => {
     let semanticRecordAccepted = true;
     const processed = id
@@ -686,6 +688,7 @@ export async function applyMutation(
           rkey: commit.rkey,
           record: value,
         });
+        if (result.indexed) zenkatsuCommentUri = uri;
         if (!result.indexed)
           console.info(
             `[INFO] zenkatsu record rejected (${result.reason}): ${uri}`,
@@ -1110,6 +1113,7 @@ export async function applyMutation(
         });
     }
   });
+  if (zenkatsuCommentUri) void startZenkatsuComment(zenkatsuCommentUri);
   // コミット後に配信。送信失敗はイングェストに影響させない。
   if (emitPush && pushJobs.length) dispatchPushAll(pushJobs);
   for (const postUri of englishPrewarmUris) startEnglishPrewarm(postUri);

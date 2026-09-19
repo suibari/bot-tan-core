@@ -18,7 +18,7 @@ import {
 import { startNagiReplyWorker } from "./NagiReplyWorker.js";
 import { startNagiAnalysisWorker } from "./NagiAnalysisWorker.js";
 import { startNagiCardCommentWorker } from "./NagiCardCommentWorker.js";
-import { startNagiZenkatsuWorker } from "./NagiZenkatsuWorker.js";
+import { processNagiZenkatsuJob, startNagiZenkatsuWorker } from "./NagiZenkatsuWorker.js";
 import { startNagiZenkatsuAwardWorker } from "./NagiZenkatsuAwardWorker.js";
 import { startNagiCommunityAffirmationWorker } from "./NagiCommunityAffirmationWorker.js";
 import { startNagiThemeWorker } from "./NagiThemeWorker.js";
@@ -146,6 +146,16 @@ async function start() {
   );
   // 画像を受け取る予約投稿以外は、Express 既定の小さい上限を維持する。
   app.use(express.json());
+  // AppView が索引をコミットした直後に呼ぶ。生成完了をHTTP応答で待たせない。
+  app.post("/zenkatsu/run", (req, res) => {
+    const uri = req.body?.submissionUri;
+    if (typeof uri !== "string" || !/^at:\/\/did:[^/]+\/com\.suibari\.nagi\.zenkatsu\/[^/]+$/.test(uri)) {
+      res.status(400).json({ error: "submissionUri is required" });
+      return;
+    }
+    void processNagiZenkatsuJob(uri).catch(console.error);
+    res.status(202).json({ ok: true });
+  });
   app.post("/news", async (req, res) => {
     try {
       const value = req.body;
