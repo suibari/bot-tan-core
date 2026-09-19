@@ -475,6 +475,11 @@ export type NotificationView = {
   diary?: DiaryView;
   /** type が "reaction" のときの、押された絵文字。 */
   reaction?: { emoji: string; bluemoji?: EmojiView };
+  /**
+   * subject がゼンカツの提出・ドローの控えのときの中身。post には入らないので、
+   * これが無いと「リアクションされた」とだけ出て何にされたのか分からなくなる。
+   */
+  cardSubject?: NotificationCardSubject;
   subjectUri: string;
   reasonUri: string;
   createdAt: string;
@@ -975,6 +980,11 @@ export type ZenkatsuSubmissionView = {
    * 隠し要素にした意味が無くなる。
    */
   combos: ZenkatsuSubmissionCombo[];
+  /**
+   * 提出レコードに付いたリアクション。subject は本人の repo にある提出そのものなので、
+   * 投稿・ニュースとまったく同じ経路で付き、通知も同じ経路で飛ぶ。
+   */
+  reactions: ReactionView[];
   /** レコードに書かれた時刻（表示用）。 */
   createdAt: string;
   /** AppView が索引した時刻。**並び順はこちら**（createdAt は遡れてしまう）。 */
@@ -1031,7 +1041,12 @@ export type NagiCardGet = {
 export type CardNewsItem = {
   uri: string;
   cid: string;
-  type: "cardGet" | "zenkatsu";
+  /**
+   * "comboFound" は**そのコンボを世界で最初に成立させた回**。中身はゼンカツの回そのもので、
+   * 変わるのは見出しだけ。同じ提出を "zenkatsu" としては返さない（同じ uri の項目が
+   * 2つ並ぶと、クライアント側の一覧キーが重複する）。
+   */
+  type: "cardGet" | "zenkatsu" | "comboFound";
   author: ActorView;
   /** 並びと表示に使う時刻。cardGet は実際に引いた時刻、zenkatsu は索引時刻。 */
   at: string;
@@ -1051,8 +1066,16 @@ export type CardNewsItem = {
    * 未成立のぶんは送らないので、これで定義が漏れることはない。
    */
   combos?: ZenkatsuSubmissionCombo[];
+  /**
+   * type=comboFound のとき。`combos` のうち、この回が世界初だったぶんだけ。
+   * 真実源は zenkatsu_combo_discoveries（発見者は不変）なので、マイデッキの
+   * pioneer 表示と必ず一致する。
+   */
+  pioneerCombos?: ZenkatsuSubmissionCombo[];
   /** type=zenkatsu のとき。追い風に乗っていた枚数。**得点ではない。** */
   tailwindCount?: number;
+  /** 項目そのものに付いたリアクション。subject は uri/cid の実レコード。 */
+  reactions: ReactionView[];
 };
 export type CardNewsFeed = {
   items: CardNewsItem[];

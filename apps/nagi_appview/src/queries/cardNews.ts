@@ -6,6 +6,7 @@ import {
   nagiCardInstances,
   nagiProfiles,
   nagiZenkatsuCards,
+  nagiZenkatsuComboDiscoveries,
   nagiZenkatsuSubmissions,
 } from "@bsky-affirmative-bot/database";
 import {
@@ -28,6 +29,7 @@ import type {
 import { and, desc, eq, gte, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { config } from "../config.js";
 import { ApiError } from "../middleware/errors.js";
+import { getReactionViews } from "./reactions.js";
 import type { DbLike } from "./zenkatsu.js";
 
 /**
@@ -258,6 +260,39 @@ const comboViewsOf = (stored: unknown): ZenkatsuSubmissionCombo[] => {
   });
 };
 
+/**
+ * 世界初の発見を提出ごとにまとめる。
+ *
+ * zenkatsu_combo_discoveries はコンボごとに1行しか作らない（primary key が
+ * (combo_volume, combo_number)）ので、ここに出てくる提出は**そのコンボを世界で
+ * 最初に成立させた回**にほかならない。定義から消えたコンボは黙って落とす
+ * （comboViewsOf と同じ扱い。古い行が名前の無いピルになるのを防ぐ）。
+ */
+export function groupPioneerCombos(
+  rows: readonly {
+    comboVolume: number;
+    comboNumber: number;
+    submissionUri: string;
+  }[],
+): Map<string, ZenkatsuSubmissionCombo[]> {
+  const bySubmission = new Map<string, ZenkatsuSubmissionCombo[]>();
+  for (const row of rows) {
+    const def = getComboDef(row.comboVolume, row.comboNumber);
+    if (!def) continue;
+    const list = bySubmission.get(row.submissionUri) ?? [];
+    list.push({
+      volume: def.volume,
+      id: def.id,
+      nameJa: def.nameJa,
+      nameEn: def.nameEn,
+      descJa: def.descJa,
+      descEn: def.descEn,
+    });
+    bySubmission.set(row.submissionUri, list);
+  }
+  return bySubmission;
+}
+
 const view = (def: Parameters<typeof cardViewOf>[0]) => cardViewOf(def);
 const cardViewOf = (
   def: NonNullable<ReturnType<typeof resolveCardDef>>,
@@ -273,6 +308,8 @@ const cardViewOf = (
 export async function getCardNews(opts: {
   cursor?: string;
   limit: number;
+  /** 認証していれば、自分の押したリアクションが reactedByMe で返る。 */
+  viewerDid?: string;
 }): Promise<CardNewsFeed> {
   const after = opts.cursor ? decodeCursor(opts.cursor) : undefined;
   if (opts.cursor && !after)
@@ -340,7 +377,7 @@ export async function getCardNews(opts: {
   const zenByUri = new Map(zenkatsu.map((r) => [r.uri, r]));
   const zenUris = page.filter((m) => m.kind === "zenkatsu").map((m) => m.uri);
 
-  const [cardRows, actors] = await Promise.all([
+  const [cardRows, actors, reactions, discoveries] = await Promise.all([
     zenUris.length
       ? db
           .select({
@@ -359,7 +396,25 @@ export async function getCardNews(opts: {
           : (zenByUri.get(m.uri)?.did ?? ""),
       ),
     ),
+    // ドローの控えも提出も、リアクションの subject はこの uri そのもの。
+    getReactionViews(
+      page.map((m) => m.uri),
+      opts.viewerDid,
+    ),
+    /*
+     * 世界初の発見。zenkatsu_combo_discoveries はコンボごとに1行しか作らない
+     * （primary key が (combo_volume, combo_number)）ので、**発見者は不変**。
+     * マイデッキの pioneer 表示と同じ源を使うので、両者がずれることはない。
+     */
+    zenUris.length
+      ? db
+          .select()
+          .from(nagiZenkatsuComboDiscoveries)
+          .where(inArray(nagiZenkatsuComboDiscoveries.submissionUri, zenUris))
+      : Promise.resolve([]),
   ]);
+
+  const pioneerBySubmission = groupPioneerCombos(discoveries);
 
   const zenCards = new Map<string, CardView[]>();
   for (const row of [...cardRows].sort((a, b) => a.position - b.position)) {
@@ -384,6 +439,7 @@ export async function getCardNews(opts: {
           author,
           at: row.drawnAt.toISOString(),
           card: view(def),
+          reactions: reactions.get(row.uri) ?? [],
         },
       ];
     }
@@ -391,17 +447,21 @@ export async function getCardNews(opts: {
     const author = row && actors.get(row.did);
     if (!row || !author) return [];
     const theme = getThemeDef(row.themeVolume, row.themeNumber);
+    // 世界初の発見だけは独立した見出しを立てる。**zenkatsu としては返さない**
+    // （同じ提出が2項目に割れると、クライアント側の一覧キーが重複する）。
+    const pioneerCombos = pioneerBySubmission.get(row.uri) ?? [];
     return [
       {
         uri: row.uri,
         cid: row.cid,
-        type: "zenkatsu",
+        type: pioneerCombos.length ? "comboFound" : "zenkatsu",
         author,
         at: row.indexedAt.toISOString(),
         cards: zenCards.get(row.uri) ?? [],
         ...(theme ? { themeJa: theme.textJa, themeEn: theme.textEn } : {}),
         // コンボはニュースにも出す。これが攻略の伝わる道になる。
         combos: comboViewsOf(row.combos),
+        ...(pioneerCombos.length ? { pioneerCombos } : {}),
         tailwindCount: theme
           ? (zenCards.get(row.uri) ?? []).filter(
               (c) => c.attribute === theme.attribute,
@@ -409,6 +469,7 @@ export async function getCardNews(opts: {
           : 0,
         ...(row.commentJa ? { commentJa: row.commentJa } : {}),
         ...(row.commentEn ? { commentEn: row.commentEn } : {}),
+        reactions: reactions.get(row.uri) ?? [],
       },
     ];
   });
