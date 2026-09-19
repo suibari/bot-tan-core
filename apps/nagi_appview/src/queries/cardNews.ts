@@ -33,14 +33,14 @@ import { getReactionViews } from "./reactions.js";
 import type { DbLike } from "./zenkatsu.js";
 
 /**
- * 全肯定カードのニュース。**SR以上のドロー**と**ゼンカツのハイライト**が同じ列に並ぶ。
+ * 全肯定カードのニュース。**R以上のドロー**と**ゼンカツのハイライト**が同じ列に並ぶ。
  *
  * ゼンカツを全件流すとニュースの約8割がゼンカツになり、見せたいレアドローが埋もれる。
  * ハイライトの選別は提出時に計算済みの reading ラベルから決まっている（追加コストはゼロ）。
  */
 
 /** ニュースに載せるレアリティ。 */
-const NEWS_RARITIES = ["SR", "UR", "AAR"];
+const NEWS_RARITIES = ["R", "SR", "UR", "AAR"];
 
 export type CardGetRejection =
   | "rkey_mismatch"
