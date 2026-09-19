@@ -33,6 +33,7 @@ import {
   nagiAiRouteForAttempt,
   nextNagiReplyAttemptAt,
 } from "./nagiReplyRetry.js";
+import { startWorkerLoop } from "./workerLoop.js";
 
 const LEASE_DURATION_MS = 15 * 60_000;
 const WORKER_INTERVAL_MS = 2_000;
@@ -53,7 +54,6 @@ function isFinalAttempt(job: { createdAt: Date }, attempt: number): boolean {
 }
 
 let running = false;
-let processing = false;
 
 export function startNagiReplyWorker() {
   if (running) {
@@ -353,13 +353,9 @@ export function startNagiReplyWorker() {
     }
   };
 
-  setInterval(() => {
-    if (processing) return;
-    processing = true;
-    void run()
-      .catch(console.error)
-      .finally(() => {
-        processing = false;
-      });
-  }, WORKER_INTERVAL_MS);
+  startWorkerLoop({
+    name: "NAGI_REPLY",
+    intervalMs: WORKER_INTERVAL_MS,
+    tick: run,
+  });
 }

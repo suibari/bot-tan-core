@@ -4,12 +4,12 @@ import {
   nagiGuestAffirmationJobs,
 } from "@bsky-affirmative-bot/database";
 import { createGuestAffirmationReply } from "./guestAffirmationReply.js";
+import { startWorkerLoop } from "./workerLoop.js";
 
 const INTERVAL_MS = 2_000;
 const LEASE_MS = 5 * 60_000;
 const MAX_ATTEMPTS = 3;
 let started = false;
-let processing = false;
 
 async function run() {
   const now = new Date();
@@ -89,14 +89,9 @@ async function run() {
 export function startGuestAffirmationWorker() {
   if (started) return;
   started = true;
-  const timer = setInterval(() => {
-    if (processing) return;
-    processing = true;
-    void run()
-      .catch((error) => console.error("[ERROR][GUEST_AFFIRMATION] worker failed", error))
-      .finally(() => {
-        processing = false;
-      });
-  }, INTERVAL_MS);
-  timer.unref();
+  startWorkerLoop({
+    name: "GUEST_AFFIRMATION",
+    intervalMs: INTERVAL_MS,
+    tick: run,
+  }).unref();
 }

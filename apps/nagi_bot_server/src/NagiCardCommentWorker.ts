@@ -1,6 +1,7 @@
 import { and, asc, eq, lte, or } from "drizzle-orm";
 import { db, nagiCardCommentJobs } from "@bsky-affirmative-bot/database";
 import { runNagiCardComment } from "./NagiCardCommentFeature.js";
+import { startWorkerLoop } from "./workerLoop.js";
 
 const MAX_ATTEMPTS = 5;
 const LEASE_DURATION_MS = 120_000;
@@ -77,7 +78,9 @@ export function startNagiCardCommentWorker() {
     }
   };
 
-  setInterval(() => {
-    void run().catch(console.error);
-  }, WORKER_INTERVAL_MS);
+  startWorkerLoop({
+    name: "NAGI_CARD_COMMENT",
+    intervalMs: WORKER_INTERVAL_MS,
+    tick: run,
+  });
 }

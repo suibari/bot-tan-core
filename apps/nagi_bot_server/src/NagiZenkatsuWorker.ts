@@ -1,17 +1,20 @@
 import { and, asc, eq, lte, or } from "drizzle-orm";
 import { db, nagiZenkatsuCommentJobs } from "@bsky-affirmative-bot/database";
 import { runNagiZenkatsu } from "./NagiZenkatsuFeature.js";
+import { startWorkerLoop } from "./workerLoop.js";
 
 const MAX_ATTEMPTS = 5;
 const LEASE_DURATION_MS = 120_000;
 /*
- * ユーザーは提出直後、総評が出るまで画面で待っている。
+ * ユーザーが待っている経路はここを通らない。AppView は提出をコミットした直後に
+ * POST /zenkatsu/run を投げ、`processNagiZenkatsuJob(uri)` が直に走る（ジョブ行は
+ * コミット済みなのでレースもない）。だから間隔は体感の待ち時間に乗らない。
  *
- * 生成そのものは実測 3.2秒。そこへ取得待ちが丸ごと上乗せされるので、間隔がそのまま
- * 体感の待ち時間になる（3秒間隔だと最悪 3.2 + 3.0 秒）。空振りのクエリは
- * (state, next_attempt_at) の索引で引く軽いものなので、短くしても負荷はほぼ増えない。
+ * この定期回収が効くのは、通知のHTTPが落ちたとき・処理中のプロセスが落ちて
+ * リース（120秒）が切れたとき・失敗のバックオフ（最小10秒）待ちの3つだけ。
+ * どれも秒単位を詰める意味がないので、分析ワーカーと同じ間隔に揃える。
  */
-const WORKER_INTERVAL_MS = 1_000;
+const WORKER_INTERVAL_MS = 10_000;
 const MAX_BACKOFF_MS = 300_000;
 
 let running = false;
@@ -109,7 +112,11 @@ export async function processNagiZenkatsuJob(
 export function startNagiZenkatsuWorker() {
   if (running) return;
   running = true;
-  setInterval(() => {
-    void processNagiZenkatsuJob().catch(console.error);
-  }, WORKER_INTERVAL_MS);
+  // 直列化するのは定期回収だけ。即時起動（/zenkatsu/run）はユーザーの提出ペースで
+  // しか来ないので、ここで弾くと待っている本人の総評が次の tick まで遅れる。
+  startWorkerLoop({
+    name: "ZENKATSU",
+    intervalMs: WORKER_INTERVAL_MS,
+    tick: () => processNagiZenkatsuJob(),
+  });
 }

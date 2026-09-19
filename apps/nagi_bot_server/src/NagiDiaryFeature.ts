@@ -30,6 +30,7 @@ import retry from "async-retry";
 import { agent } from "./agent.js";
 import { createDiary } from "./appviewInternal.js";
 import { clipNagiPostText } from "./nagiPostText.js";
+import { startWorkerLoop } from "./workerLoop.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const RESCAN_INTERVAL_MS = 60 * 60 * 1000;
@@ -308,11 +309,11 @@ async function manageNagiDiarySchedules() {
 export async function scheduleAllNagiDiaries() {
   console.log("[INFO][NAGI][DIARY] scheduling all user diary");
 
-  setInterval(() => {
-    manageNagiDiarySchedules().catch((error) =>
-      console.error("[ERROR][NAGI][DIARY] periodic scheduling failed:", error),
-    );
-  }, RESCAN_INTERVAL_MS);
+  startWorkerLoop({
+    name: "NAGI_DIARY",
+    intervalMs: RESCAN_INTERVAL_MS,
+    tick: manageNagiDiarySchedules,
+  });
 
   await manageNagiDiarySchedules();
 }

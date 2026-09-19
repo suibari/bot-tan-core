@@ -2,6 +2,7 @@ import { and, asc, eq, lt, lte, or } from "drizzle-orm";
 import { db, nagiZenkatsuAwardJobs } from "@bsky-affirmative-bot/database";
 import { cardDrawDate } from "@bsky-affirmative-bot/shared-configs";
 import { runNagiZenkatsuAward } from "./NagiZenkatsuAwardFeature.js";
+import { startWorkerLoop } from "./workerLoop.js";
 
 const MAX_ATTEMPTS = 5;
 const LEASE_DURATION_MS = 300_000;
@@ -85,7 +86,9 @@ export function startNagiZenkatsuAwardWorker() {
     }
   };
 
-  setInterval(() => {
-    void run().catch(console.error);
-  }, WORKER_INTERVAL_MS);
+  startWorkerLoop({
+    name: "ZENKATSU_AWARD",
+    intervalMs: WORKER_INTERVAL_MS,
+    tick: run,
+  });
 }
