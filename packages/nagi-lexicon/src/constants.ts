@@ -119,7 +119,7 @@ export const NAGI = {
    * リアクションの subject が実在の PDS レコードを要るから。本人の repo なら通知の宛先も本人。
    */
   cardGet: "com.suibari.nagi.cardGet",
-  /** 全肯定カードのニュース（SR以上のドローと、ゼンカツのハイライト）。 */
+  /** 全肯定カードのニュース（R以上のドローと、ゼンカツのハイライト）。 */
   getCardNews: "com.suibari.nagi.getCardNews",
   /** マイデッキ。自分が成立させたコンボと、受け取ったトロフィー。要認証。 */
   getZenkatsuDeck: "com.suibari.nagi.getZenkatsuDeck",
