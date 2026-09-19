@@ -29,6 +29,7 @@ import {
 } from "drizzle-orm";
 import { config } from "../config.js";
 import { ApiError } from "../middleware/errors.js";
+import { isZenkatsuChief } from "./zenkatsu.js";
 import { getCurrentTitle, getSuperPositiveLevel } from "./badges.js";
 import {
   buildFeedItems,
@@ -62,6 +63,7 @@ export async function getActorProfile(
     [analysis],
     interestKeywords,
     [ageAssurance],
+    zenkatsuChief,
   ] = await Promise.all([
     db.select().from(nagiActors).where(eq(nagiActors.did, did)),
     db.select().from(nagiProfiles).where(eq(nagiProfiles.did, did)),
@@ -95,6 +97,8 @@ export async function getActorProfile(
       .from(nagiAgeAssurance)
       .where(eq(nagiAgeAssurance.did, did))
       .limit(1),
+    // 「今日のゼンカツ部長」。プロフィール経路でだけ引く（フィードでは引かない）。
+    isZenkatsuChief(did, now),
   ]);
   if (!actor && !profile && !stats?.postCount)
     throw new ApiError(404, "not_found", "Actor not found");
@@ -123,6 +127,8 @@ export async function getActorProfile(
     isBot: did === config.botDid,
     superPositiveLevel,
     currentTitle,
+    // バッジに出すのは「今日のゼンカツ部長」だけ。1日で消えるので梯子にならない。
+    ...(zenkatsuChief ? { zenkatsuChief: true } : {}),
     postCount: stats?.postCount ?? 0,
     firstPostAt,
     joinedAt: profile?.createdAt?.toISOString() ?? firstPostAt,

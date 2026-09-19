@@ -1,0 +1,47 @@
+{
+  "lexicon": 1,
+  "id": "com.suibari.nagi.zenkatsu",
+  "defs": {
+    "main": {
+      "type": "record",
+      "key": "any",
+      "description": "ゼンカツ！の提出。その日のお題に、手持ちの全肯定カード1〜3枚で答える。rkey は themeDate（\"2026-09-19\"）なので、repo 側でも1日1本に限られる。所持していない札・おやすみ中の札・当日以外の日付を書いても、AppView が取り込み時に照合して索引しない（ドローと違い、提出は既に所持している札を参照するだけなので照合先がある）。",
+      "record": {
+        "type": "object",
+        "required": ["themeDate", "cards", "createdAt"],
+        "properties": {
+          "themeDate": {
+            "type": "string",
+            "maxLength": 10,
+            "description": "この提出が答えるお題の日付。JST 4:00 始まりの \"YYYY-MM-DD\"。rkey と一致していなければならない。"
+          },
+          "cards": {
+            "type": "array",
+            "minLength": 1,
+            "maxLength": 3,
+            "items": { "type": "ref", "ref": "#cardRef" },
+            "description": "出した札。並びは意味を持つ（botたんの総評も順に読む）。同じ札を2枚以上入れることはできない。"
+          },
+          "createdAt": { "type": "string", "format": "datetime" }
+        }
+      }
+    },
+    "cardRef": {
+      "type": "object",
+      "description": "カードの指定。定義本体は shared-configs の cards_v{volume}.json が真実源で、(volume, id) の組がカードの同一性そのもの。",
+      "required": ["volume", "id"],
+      "properties": {
+        "volume": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "カード段。0 は記念日カードの段。"
+        },
+        "id": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "段内の通し番号。記念日カードでは 西暦*100 + slot。"
+        }
+      }
+    }
+  }
+}

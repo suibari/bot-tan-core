@@ -27,6 +27,7 @@ import {
   or,
   sql,
 } from "drizzle-orm";
+import { startWorkerLoop } from "./workerLoop.js";
 
 const ONE_HOUR_MS = 60 * 60 * 1_000;
 const SEVEN_DAYS_MS = 7 * 24 * ONE_HOUR_MS;
@@ -604,6 +605,10 @@ export function startNagiCommunityAffirmationWorker() {
     }
     await processOne(now);
   };
-  void tick().catch(console.error);
-  setInterval(() => void tick().catch(console.error), WORKER_INTERVAL_MS);
+  startWorkerLoop({
+    name: "NAGI_COMMUNITY_AFFIRMATION",
+    intervalMs: WORKER_INTERVAL_MS,
+    tick,
+    immediate: true,
+  });
 }

@@ -14,8 +14,12 @@ import {
   nagiAnalysisJobs,
   nagiCardCommentJobs,
   nagiCardDraws,
+  nagiCardGets,
   nagiGuestCardDraws,
   nagiCardInstances,
+  nagiZenkatsuCards,
+  nagiZenkatsuCommentJobs,
+  nagiZenkatsuSubmissions,
   nagiChannels,
   nagiChannelSubscriptions,
   nagiCommunityAffirmations,
@@ -241,6 +245,41 @@ export async function deleteAccountData(did: string) {
         .delete(nagiCardCommentJobs)
         .where(inArray(nagiCardCommentJobs.instanceId, cardInstanceIds));
     }
+    // ゼンカツの提出と、ドローの控え。提出は comment_jobs → cards → submissions の順で、
+    // submission_uri を引ける間に消す。
+    const zenkatsuUris = (
+      await tx
+        .select({ uri: nagiZenkatsuSubmissions.uri })
+        .from(nagiZenkatsuSubmissions)
+        .where(eq(nagiZenkatsuSubmissions.did, did))
+    ).map((row) => row.uri);
+    if (zenkatsuUris.length > 0) {
+      await tx
+        .delete(nagiZenkatsuCommentJobs)
+        .where(inArray(nagiZenkatsuCommentJobs.submissionUri, zenkatsuUris));
+      await tx
+        .delete(nagiZenkatsuCards)
+        .where(inArray(nagiZenkatsuCards.submissionUri, zenkatsuUris));
+      // この人へのリアクション通知は、subject がこれらの URI を指したまま残る。
+      await tx
+        .delete(nagiNotifications)
+        .where(inArray(nagiNotifications.subjectUri, zenkatsuUris));
+    }
+    await tx
+      .delete(nagiZenkatsuSubmissions)
+      .where(eq(nagiZenkatsuSubmissions.did, did));
+    const cardGetUris = (
+      await tx
+        .select({ uri: nagiCardGets.uri })
+        .from(nagiCardGets)
+        .where(eq(nagiCardGets.did, did))
+    ).map((row) => row.uri);
+    if (cardGetUris.length > 0)
+      await tx
+        .delete(nagiNotifications)
+        .where(inArray(nagiNotifications.subjectUri, cardGetUris));
+    await tx.delete(nagiCardGets).where(eq(nagiCardGets.did, did));
+
     await tx.delete(nagiCardDraws).where(eq(nagiCardDraws.did, did));
     await tx
       .delete(nagiGuestCardDraws)

@@ -30,6 +30,53 @@ export const CARD_ATTRIBUTES = [
 ] as const;
 export type CardAttribute = (typeof CARD_ATTRIBUTES)[number];
 
+/**
+ * カードの種族。属性と違い、定義側では長らく自由文字列だったのでここに正典を置く。
+ *
+ * お題（themes_v1.json）が「追い風の種族」を名前で指名するため、表記ゆれが入ると
+ * どのカードにも一致せず、エラーも出ないまま追い風が黙って無効になる。
+ * **一度リリースした種族名は変更しない**（カード定義とお題の双方から名前で参照される）。
+ */
+export const CARD_RACES = [
+  { ja: "応援族", en: "Cheer" },
+  { ja: "妖精族", en: "Fairy" },
+  { ja: "家事族", en: "Chore" },
+  { ja: "収集族", en: "Collector" },
+  { ja: "記録族", en: "Archivist" },
+  { ja: "冒険族", en: "Explorer" },
+  { ja: "機械族", en: "Machine" },
+  { ja: "粘体族", en: "Slime" },
+  { ja: "信奉族", en: "Devotee" },
+  { ja: "天候族", en: "Weather" },
+  { ja: "天使族", en: "Angel" },
+  { ja: "戦士族", en: "Warrior" },
+  { ja: "社畜族", en: "Wageworker" },
+  { ja: "創作族", en: "Creator" },
+  { ja: "獣族", en: "Beast" },
+  { ja: "魔法使い族", en: "Spellcaster" },
+  { ja: "猫又族", en: "Nekomata" },
+  { ja: "JK族", en: "JK" },
+  { ja: "不死族", en: "Undead" },
+  { ja: "幻蝶族", en: "Mythic Butterfly" },
+] as const;
+
+/** 種族の日本語名。お題はこれをキーに追い風の種族を指名する。 */
+export type CardRaceJa = (typeof CARD_RACES)[number]["ja"];
+
+const RACE_EN_BY_JA = new Map<string, string>(
+  CARD_RACES.map((r) => [r.ja, r.en]),
+);
+
+/** 種族の英語名を引く。未知の種族なら undefined。 */
+export function cardRaceEn(raceJa: string): string | undefined {
+  return RACE_EN_BY_JA.get(raceJa);
+}
+
+/** その種族が正典にあるか。お題定義の検証から使う。 */
+export function isCardRaceJa(value: unknown): value is CardRaceJa {
+  return typeof value === "string" && RACE_EN_BY_JA.has(value);
+}
+
 export interface CardDefinition {
   /** 段内の通し番号（1始まり）。図鑑の並び順＝コレクションでの表示位置。 */
   id: number;
@@ -115,6 +162,15 @@ function assertCardDefs(defs: CardDefinition[]): CardDefinition[] {
     }
     if (card.art !== undefined && !CARD_ART_PATTERN.test(card.art))
       throw new Error(`cards: invalid art "${card.art}" (${card.id})`);
+    // 種族は CARD_RACES が正典。ja/en の対応まで照合するので、
+    // 片方だけ直した中途半端な編集もここで落ちる。
+    const raceEn = RACE_EN_BY_JA.get(card.raceJa);
+    if (!raceEn)
+      throw new Error(`cards: unknown race "${card.raceJa}" (${card.id})`);
+    if (raceEn !== card.raceEn)
+      throw new Error(
+        `cards: race mismatch for "${card.raceJa}" (expected "${raceEn}", got "${card.raceEn}") (${card.id})`,
+      );
     counts[card.rarity] = (counts[card.rarity] ?? 0) + 1;
   });
 
@@ -207,6 +263,20 @@ const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
 const DAY_START_HOUR_JST = 4;
 const SHIFT_MS = JST_OFFSET_MS - DAY_START_HOUR_JST * 60 * 60 * 1000;
 
+/**
+ * 日付キー "YYYY-MM-DD" を 1970-01-01 からの日数へ。
+ *
+ * カードのおやすみ日数もお題のローテも「何日目か」で数えるので、両方ここを使う。
+ * 日付キー同士の引き算で済ませることで、タイムゾーンや時刻の混入を避けられる。
+ */
+export function dayIndexOfDateKey(dateKey: string): number {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey);
+  if (!m) throw new Error(`cards: invalid date key "${dateKey}"`);
+  const ms = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  if (Number.isNaN(ms)) throw new Error(`cards: invalid date key "${dateKey}"`);
+  return Math.floor(ms / 86_400_000);
+}
+
 export function cardDrawDate(now: Date = new Date()): string {
   return new Date(now.getTime() + SHIFT_MS).toISOString().slice(0, 10);
 }
@@ -220,4 +290,23 @@ export function nextCardDrawAt(now: Date = new Date()): Date {
     shifted.getUTCDate() + 1,
   );
   return new Date(nextShifted - SHIFT_MS);
+}
+
+/**
+ * ドローの控え（com.suibari.nagi.cardGet）の rkey。
+ *
+ * **決定論的にする。** card_draws の自然キー `(did, draw_date, draw_source)` に対応させれば、
+ * 再送しても上書きになるだけで重複しない。記念日は同じ日に複数ありうるので slot まで含める。
+ *
+ * クライアント（書く側）と AppView（照合する側）の双方がここを使う。片方だけで組み立てると、
+ * 綴りがズレた瞬間に「控えたのに索引されない」が静かに起きる。
+ */
+export function cardGetRkey(
+  drawDate: string,
+  source: "my_nagi" | "reaction" | "anniversary",
+  slot?: number,
+): string {
+  return source === "anniversary"
+    ? `${drawDate}-anniv-${slot ?? 0}`
+    : `${drawDate}-${source}`;
 }

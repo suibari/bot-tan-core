@@ -1,34 +1,47 @@
+import { startZenkatsuComment } from "../services/zenkatsuComment.js";
 import {
-  db,
   bot_memory_documents,
   botMemoryContentHash,
+  db,
   nagiActorAnalyses,
   nagiAnalysisJobs,
+  nagiCardGets,
   nagiChannels,
   nagiCommunityAffirmations,
   nagiDiaries,
   nagiEmojis,
   nagiIngestState,
   nagiModerationDecisions,
-  nagiNotifications,
   nagiNews,
   nagiNewsReviewJobs,
+  nagiNotifications,
   nagiPosts,
   nagiProcessedEvents,
   nagiProfiles,
   nagiReactions,
   nagiTranslations,
+  nagiZenkatsuCards,
+  nagiZenkatsuSubmissions,
 } from "@bsky-affirmative-bot/database";
 import {
   BLUEMOJI_ITEM,
   NAGI,
   appviewRecordUri,
 } from "@bsky-affirmative-bot/nagi-lexicon";
-import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { config } from "../config.js";
+import {
+  indexZenkatsuSubmission,
+  removeZenkatsuSubmission,
+} from "../queries/zenkatsu.js";
+import { indexCardGet, removeCardGet } from "../queries/cardNews.js";
 import { indexEmoji, resolveEmoji, type EmojiRow } from "../services/emoji.js";
 import { dispatchPushAll, type PushJob } from "../services/pushDispatch.js";
-import { postPushBody } from "../services/pushPayload.js";
+import {
+  getThemeDef,
+  resolveCardDef,
+} from "@bsky-affirmative-bot/shared-configs";
+import { cardSubjectPushBody, postPushBody } from "../services/pushPayload.js";
 import {
   mentionNotificationRecipients,
   shouldNotifyReply,
@@ -149,6 +162,8 @@ export async function applyMutation(
       NAGI.diary,
       NAGI.news,
       NAGI.channel,
+      NAGI.zenkatsu,
+      NAGI.cardGet,
     ].includes(collection)
   )
     return { cursorAdvanced: false };
@@ -232,6 +247,7 @@ export async function applyMutation(
   // fire-and-forget でプッシュ配信する（重複挿入時は returning が空なので送らない）。
   const pushJobs: PushJob[] = [];
   const englishPrewarmUris: string[] = [];
+  let zenkatsuCommentUri: string | undefined;
   await db.transaction(async (tx) => {
     let semanticRecordAccepted = true;
     const processed = id
@@ -352,6 +368,13 @@ export async function applyMutation(
           .update(nagiChannels)
           .set({ deletedAt: new Date() })
           .where(eq(nagiChannels.uri, uri));
+      if (collection === NAGI.zenkatsu)
+        // 本人のレコードなので削除は尊重するが、行は残す（論理削除）。
+        // 物理削除にすると、消して出し直せてしまう。
+        await removeZenkatsuSubmission(tx, uri);
+      if (collection === NAGI.cardGet)
+        // 所持そのものは card_instances が権威。控えを消しても手札は減らない。
+        await removeCardGet(tx, uri);
       if (collection === NAGI.profile)
         await tx.delete(nagiProfiles).where(eq(nagiProfiles.did, did));
       if (collection === BLUEMOJI_ITEM)
@@ -654,6 +677,37 @@ export async function applyMutation(
               embedding: sql`case when (${nagiChannels.name} is distinct from excluded.name) or (${nagiChannels.description} is distinct from excluded.description) then null else ${nagiChannels.embedding} end`,
             },
           });
+      }
+      if (collection === NAGI.zenkatsu) {
+        // 所持・おやすみ・当日かの照合はここが唯一の防御線。合わないレコードは索引しない
+        // （repo には残るが記録には出ない ＝ AT Protocol の通常の動作）。
+        const result = await indexZenkatsuSubmission(tx, {
+          uri,
+          cid: commit.cid,
+          did,
+          rkey: commit.rkey,
+          record: value,
+        });
+        if (result.indexed) zenkatsuCommentUri = uri;
+        if (!result.indexed)
+          console.info(
+            `[INFO] zenkatsu record rejected (${result.reason}): ${uri}`,
+          );
+      }
+      if (collection === NAGI.cardGet) {
+        // 「引いた」という申告を card_draws と突き合わせる。一致しなければ索引しない
+        // ＝ repo に書けても、引いていないカードをニュースに出すことはできない。
+        const result = await indexCardGet(tx, {
+          uri,
+          cid: commit.cid,
+          did,
+          rkey: commit.rkey,
+          record: value,
+        });
+        if (!result.indexed)
+          console.info(
+            `[INFO] cardGet record rejected (${result.reason}): ${uri}`,
+          );
       }
       if (collection === NAGI.reaction) {
         const emoji = bluemoji ? bluemoji.name : value.emoji.normalize("NFC");
@@ -1012,45 +1066,32 @@ export async function applyMutation(
         }
       }
       if (collection === NAGI.reaction && semanticRecordAccepted) {
-        const subject = await tx
-          .select()
-          .from(nagiPosts)
-          .where(
-            and(
-              eq(nagiPosts.uri, value.subject.uri),
-              isNull(nagiPosts.deletedAt),
-            ),
-          )
-          .limit(1);
-        if (subject[0] && subject[0].did !== did) {
+        // リアクションの宛先は、subject の collection で解決先が変わる。
+        // 以前は投稿テーブルしか見ていなかったので、ゼンカツやカードへのリアクションは
+        // subject が見つからず**黙って捨てられていた**（例外も出ないので気付けない）。
+        const target = await resolveReactionSubject(tx, value.subject.uri);
+        if (target && target.did !== did) {
           const inserted = await tx
             .insert(nagiNotifications)
             .values({
-              recipientDid: subject[0].did,
+              recipientDid: target.did,
               type: "reaction",
               actorDid: did,
-              subjectUri: subject[0].uri,
+              subjectUri: target.uri,
               reasonUri: uri,
             })
             .onConflictDoNothing()
             .returning({ id: nagiNotifications.id });
           if (inserted.length)
             pushJobs.push({
-              recipientDid: subject[0].did,
+              recipientDid: target.did,
               type: "reaction",
               actorDid: did,
               notificationId: inserted[0].id,
               actionText: bluemoji
                 ? `:${bluemoji.name}:`
                 : preview(value.emoji, 8),
-              contentText: postPushBody({
-                text: subject[0].text,
-                contentWarning: hasContentWarning(subject[0].text),
-                hasImages:
-                  Array.isArray(subject[0].embedImages) &&
-                  subject[0].embedImages.length > 0,
-                hasQuote: Boolean(subject[0].quoteUri),
-              }),
+              contentText: target.contentText,
             });
         }
       }
@@ -1072,10 +1113,101 @@ export async function applyMutation(
         });
     }
   });
+  if (zenkatsuCommentUri) void startZenkatsuComment(zenkatsuCommentUri);
   // コミット後に配信。送信失敗はイングェストに影響させない。
   if (emitPush && pushJobs.length) dispatchPushAll(pushJobs);
   for (const postUri of englishPrewarmUris) startEnglishPrewarm(postUri);
   // 判定待ちの行が増えたことだけ知らせる。await しない（判定を待たないのが要件）。
   if (moderated) wakeModerationWorker();
   return { cursorAdvanced: trackJetstream };
+}
+
+/**
+ * リアクションの宛先を解決する。
+ *
+ * subject は AT-URI なので collection で振り分ける。**ゼンカツもドローの控えも
+ * ユーザー自身の repo にあるので、宛先は常に「レコードの持ち主」で足りる。**
+ * botたん の repo に置いていたら、素直に持ち主へ通知すると botたん に届いてしまうところだった。
+ */
+async function resolveReactionSubject(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  subjectUri: string,
+): Promise<{ did: string; uri: string; contentText: string } | undefined> {
+  const collection = subjectUri.split("/")[3];
+
+  if (collection === NAGI.zenkatsu) {
+    const [row] = await tx
+      .select({
+        did: nagiZenkatsuSubmissions.did,
+        uri: nagiZenkatsuSubmissions.uri,
+        themeVolume: nagiZenkatsuSubmissions.themeVolume,
+        themeNumber: nagiZenkatsuSubmissions.themeNumber,
+      })
+      .from(nagiZenkatsuSubmissions)
+      .where(
+        and(
+          eq(nagiZenkatsuSubmissions.uri, subjectUri),
+          isNull(nagiZenkatsuSubmissions.deletedAt),
+        ),
+      )
+      .limit(1);
+    if (!row) return undefined;
+    const cards = await tx
+      .select({
+        cardVolume: nagiZenkatsuCards.cardVolume,
+        cardNumber: nagiZenkatsuCards.cardNumber,
+      })
+      .from(nagiZenkatsuCards)
+      .where(eq(nagiZenkatsuCards.submissionUri, subjectUri))
+      .orderBy(asc(nagiZenkatsuCards.position));
+    const theme = getThemeDef(row.themeVolume, row.themeNumber);
+    return {
+      did: row.did,
+      uri: row.uri,
+      contentText: cardSubjectPushBody({
+        kind: "zenkatsu",
+        ...(theme ? { themeJa: theme.textJa } : {}),
+        cardNames: cards.flatMap((c) => {
+          const def = resolveCardDef(c.cardVolume, c.cardNumber);
+          return def ? [def.nameJa] : [];
+        }),
+      }),
+    };
+  }
+
+  if (collection === NAGI.cardGet) {
+    const [row] = await tx
+      .select()
+      .from(nagiCardGets)
+      .where(and(eq(nagiCardGets.uri, subjectUri), isNull(nagiCardGets.deletedAt)))
+      .limit(1);
+    if (!row) return undefined;
+    const def = resolveCardDef(row.cardVolume, row.cardNumber);
+    if (!def) return undefined;
+    return {
+      did: row.did,
+      uri: row.uri,
+      contentText: cardSubjectPushBody({
+        kind: "cardGet",
+        cardNameJa: def.nameJa,
+      }),
+    };
+  }
+
+  const [post] = await tx
+    .select()
+    .from(nagiPosts)
+    .where(and(eq(nagiPosts.uri, subjectUri), isNull(nagiPosts.deletedAt)))
+    .limit(1);
+  if (!post) return undefined;
+  return {
+    did: post.did,
+    uri: post.uri,
+    contentText: postPushBody({
+      text: post.text,
+      contentWarning: hasContentWarning(post.text),
+      hasImages: Array.isArray(post.embedImages) && post.embedImages.length > 0,
+      hasQuote: Boolean(post.quoteUri),
+    }),
+  };
 }

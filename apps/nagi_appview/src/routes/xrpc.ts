@@ -77,6 +77,12 @@ import {
   drawGuestCard,
   getCards,
 } from "../queries/cards.js";
+import {
+  getZenkatsu,
+  getZenkatsuDeck,
+  resetZenkatsuForDev,
+} from "../queries/zenkatsu.js";
+import { getCardNews } from "../queries/cardNews.js";
 import { getCommunityAffirmations } from "../queries/communityAffirmations.js";
 import { loadPersonalizationContext } from "../queries/personalizedFeed.js";
 
@@ -1227,6 +1233,78 @@ xrpc.get(
     }
   },
 );
+// ゼンカツの記録は公開情報（未認証でも読める）なので optional 認証。
+// 認証したときだけ viewer（提出済みか・今日出せる札）が付くので、キャッシュは private。
+xrpc.get(
+  `/${NAGI.getZenkatsu}`,
+  optionalServiceAuth(NAGI.getZenkatsu),
+  async (req, res, next) => {
+    try {
+      const date = req.query.date ? String(req.query.date) : undefined;
+      const cursor = req.query.cursor ? String(req.query.cursor) : undefined;
+      const limit = Math.min(
+        100,
+        Math.max(1, Number(req.query.limit ?? 30) || 30),
+      );
+      res.set("Cache-Control", "private, no-store").json(
+        await getZenkatsu({
+          ...(date ? { date } : {}),
+          ...(cursor ? { cursor } : {}),
+          limit,
+          ...(req.viewerDid ? { viewerDid: req.viewerDid } : {}),
+        }),
+      );
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+/*
+ * 開発専用: 今日の提出を消して、もう一度ゼンカツを出せるようにする。
+ *
+ * config.dev が false のときは**ルート自体を登録しない**。フラグ判定をハンドラ内に置くと、
+ * 本番でも経路が存在してしまい、条件を1つ間違えるだけで開通する。存在しないほうが安全。
+ */
+if (config.dev)
+  xrpc.post(
+    `/${NAGI.resetZenkatsu}`,
+    requiredServiceAuth(NAGI.resetZenkatsu),
+    async (req, res, next) => {
+      try {
+        res
+          .set("Cache-Control", "private, no-store")
+          .json(await resetZenkatsuForDev(req.viewerDid!));
+      } catch (e) {
+        next(e);
+      }
+    },
+  );
+// マイデッキは自分のものだけ。未認証では返さない。
+xrpc.get(
+  `/${NAGI.getZenkatsuDeck}`,
+  requiredServiceAuth(NAGI.getZenkatsuDeck),
+  async (req, res, next) => {
+    try {
+      res
+        .set("Cache-Control", "private, no-store")
+        .json(await getZenkatsuDeck(req.viewerDid!));
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+// ニュースは公開情報。未認証でも読める。
+xrpc.get(`/${NAGI.getCardNews}`, async (req, res, next) => {
+  try {
+    const cursor = req.query.cursor ? String(req.query.cursor) : undefined;
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit ?? 30) || 30));
+    res
+      .set("Cache-Control", "public, max-age=30")
+      .json(await getCardNews({ ...(cursor ? { cursor } : {}), limit }));
+  } catch (e) {
+    next(e);
+  }
+});
 // DID をまだ持たない端末の通常枠。同じ端末秘密・同じ日付はDBの一意索引で同じ1枚へ収束する。
 xrpc.post(
   `/${NAGI.drawGuestCard}`,

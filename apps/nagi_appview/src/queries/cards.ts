@@ -39,6 +39,7 @@ import { and, eq, gt, isNull, lt, sql } from "drizzle-orm";
 import { ApiError } from "../middleware/errors.js";
 import { verifyReactionCardTrigger } from "../services/reactionCardEligibility.js";
 import { jstCalendarDate } from "../services/ageAssurance.js";
+import { listUnmirroredDraws } from "./cardNews.js";
 
 /**
  * 全肯定カード。カード定義そのもの（名前/フレーバー/ATK）は shared-configs の JSON が真実源で、
@@ -290,6 +291,8 @@ export async function drawGuestCard(input: unknown): Promise<GuestCardDrawResult
     alreadyDrawn: !created,
     isNew: true,
     commentPending: false,
+    // ゲストは DID を持たないので PDS へ控えは書けないが、型を揃えるため日付は返す。
+    drawDate,
     drawStatus: {
       ...drawStatusOf(
         [
@@ -321,10 +324,12 @@ export async function getCards(
 
   const now = new Date();
   const isSelf = !!viewerDid && viewerDid === actor;
-  const [owned, todayDraws, today] = await Promise.all([
+  const [owned, todayDraws, today, unmirrored] = await Promise.all([
     loadInstances(actor),
     isSelf ? loadTodayDraws(actor, now) : Promise.resolve([]),
     isSelf ? loadTodayAnniversaries(actor, now) : Promise.resolve([]),
+    // 本人にだけ、直近で控えを書き損ねたドローを返す（履歴の埋め戻しはしない）。
+    isSelf ? listUnmirroredDraws(actor, cardDrawDate(now)) : Promise.resolve([]),
   ]);
 
   // 並びは CARD_DEFS の順（= 図鑑の順）。所持状況で並べ替えないこと。
@@ -351,6 +356,9 @@ export async function getCards(
       : {}),
     ...(anniversaryCards.length ? { anniversaryCards } : {}),
     ...(isSelf ? { pendingAnniversary: pending.map(pendingView) } : {}),
+    ...(isSelf && unmirrored.length
+      ? { unmirroredDraws: unmirrored as CardCollectionView["unmirroredDraws"] }
+      : {}),
   };
 }
 
@@ -431,6 +439,7 @@ export async function claimAnniversaryCards(
     isNew: !!claimed.length,
     commentPending: cards.some((c) => !c.commentJa),
     drawStatus,
+    drawDate: cardDrawDate(now),
   };
 }
 
@@ -647,5 +656,8 @@ export async function drawCard(
     isNew: result.isNew,
     commentPending: !row?.commentJa,
     drawStatus: drawStatusOf(todayDraws, now),
+    // クライアントが PDS へ控えを書くときの rkey を組み立てるのに要る。
+    // 日付境界（JST 4:00）の計算をクライアントへ持ち出さないため、サーバが返す。
+    drawDate: cardDrawDate(now),
   };
 }

@@ -22,6 +22,7 @@ const {
   translatePosts,
   translationPrompt,
 } = await import("../src/services/translation.js");
+const { config } = await import("../src/config.js");
 
 const validUri = "at://did:plc:example/com.suibari.nagi.post/3mtranslation";
 const english = { code: "en", name: "English" } as any;
@@ -153,7 +154,11 @@ test("single-flight shares one task and removes failed requests for retry", asyn
 });
 
 test("sends the requested model and temperature, defaulting to the shared Gemma 4 at 0", async () => {
-  const model = "hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S";
+  // 既定はモデル名を焼き付けず設定から取る。ここに文字列を書くと、モデルを載せ替えるたびに
+  // テストだけが取り残される（実際 26B から 12B へ移した際に取り残されていた）。
+  const defaultModel = config.translationModel;
+  // 上書きが効いていることを見たいので、既定とは必ず違う名前を渡す。
+  const model = `${defaultModel}-override-for-test`;
   const bodies: any[] = [];
   const urls: string[] = [];
   const fetcher = (async (url: any, init: any) => {
@@ -168,7 +173,7 @@ test("sends the requested model and temperature, defaulting to the shared Gemma 
     model,
     temperature: 0.3,
   });
-  assert.equal(bodies[0].model, model);
+  assert.equal(bodies[0].model, defaultModel);
   assert.equal(bodies[0].options.temperature, 0);
   assert.equal(bodies[1].model, model);
   assert.equal(bodies[1].options.temperature, 0.3);

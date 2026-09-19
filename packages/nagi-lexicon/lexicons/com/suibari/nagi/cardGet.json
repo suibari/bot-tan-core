@@ -1,0 +1,30 @@
+{
+  "lexicon": 1,
+  "id": "com.suibari.nagi.cardGet",
+  "defs": {
+    "main": {
+      "type": "record",
+      "key": "any",
+      "description": "全肯定カードを引いたことの控え。**権威ではない。** ドローの結果を決めるのは AppView で、このレコードは「引いた」という申告にすぎず、card_draws / card_instances と突き合わせて一致しないものは索引しない。ユーザーの repo に置くのは、リアクションの subject が実在の PDS レコードを要求するため（本人の repo なら通知の宛先もそのまま本人になる）。rkey は \"{drawDate}-{source}\"、記念日は \"{drawDate}-anniv-{slot}\"。",
+      "record": {
+        "type": "object",
+        "required": ["card", "drawDate", "source", "createdAt"],
+        "properties": {
+          "card": { "type": "ref", "ref": "com.suibari.nagi.zenkatsu#cardRef" },
+          "drawDate": {
+            "type": "string",
+            "maxLength": 10,
+            "description": "引いた日。JST 4:00 始まりの \"YYYY-MM-DD\"。"
+          },
+          "source": {
+            "type": "string",
+            "knownValues": ["my_nagi", "reaction", "anniversary"],
+            "maxLength": 20,
+            "description": "取得枠。my Nagi の通常枠、他ユーザーへのリアクション枠、記念日の贈り物。"
+          },
+          "createdAt": { "type": "string", "format": "datetime" }
+        }
+      }
+    }
+  }
+}

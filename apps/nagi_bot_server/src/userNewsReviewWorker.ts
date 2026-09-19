@@ -14,6 +14,7 @@ import { getNewsMetadata, LinkMetadataError } from "@bsky-affirmative-bot/nagi-l
 import { httpsImageUrl } from "./newsImageUrl.js";
 import { createHash } from "node:crypto";
 import { and, asc, eq, isNull, lt, ne, or, sql } from "drizzle-orm";
+import { startWorkerLoop } from "./workerLoop.js";
 
 // News publication belongs to nagi_bot_server; biorhythm_server only owns bot-life state.
 const BATCH_SIZE = 5;
@@ -331,21 +332,13 @@ export async function runUserNewsReviewBatch(now = new Date()): Promise<number> 
 }
 
 export function scheduleUserNewsReviews() {
-  let running = false;
-  const run = async () => {
-    if (running) return;
-    running = true;
-    try {
-      // 1分に最大5件。失敗を同じtickで即時再試行せず、次回まで間を置く。
-      await runUserNewsReviewBatch();
-    } catch (error) {
-      console.error("[ERROR][USER_NEWS] Review worker failed", error);
-    } finally {
-      running = false;
-    }
-  };
-  void run();
-  const timer = setInterval(() => void run(), 60_000);
+  // 1分に最大5件。失敗を同じtickで即時再試行せず、次回まで間を置く。
+  const timer = startWorkerLoop({
+    name: "USER_NEWS",
+    intervalMs: 60_000,
+    tick: runUserNewsReviewBatch,
+    immediate: true,
+  });
   timer.unref();
   return timer;
 }

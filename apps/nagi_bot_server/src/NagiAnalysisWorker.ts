@@ -1,6 +1,7 @@
 import { and, asc, eq, lte, or } from "drizzle-orm";
 import { db, nagiAnalysisJobs } from "@bsky-affirmative-bot/database";
 import { runNagiAnalysis } from "./NagiAnalysisFeature.js";
+import { startWorkerLoop } from "./workerLoop.js";
 
 // 分析の機会は「初回登録 / Nagi投稿10件 / 100件ごと」しか無く、失敗すると次の機会まで
 // 名刺が出ない。バックオフは 2^attempts * 5s なので 10,20,40,80,160,320,640,1280,2560 秒 =
@@ -84,7 +85,9 @@ export function startNagiAnalysisWorker() {
     }
   };
 
-  setInterval(() => {
-    void run().catch(console.error);
-  }, WORKER_INTERVAL_MS);
+  startWorkerLoop({
+    name: "NAGI_ANALYSIS",
+    intervalMs: WORKER_INTERVAL_MS,
+    tick: run,
+  });
 }

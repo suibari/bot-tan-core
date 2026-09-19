@@ -5,6 +5,7 @@ import { and, asc, desc, eq, isNotNull, isNull, lt, ne } from "drizzle-orm";
 import retry from "async-retry";
 import { publishNagiPost } from "./nagiPost.js";
 import { topicPrompt, welcomePrompt } from "./nagiChannelPrompt.js";
+import { startWorkerLoop } from "./workerLoop.js";
 
 /** 投稿が途絶えてから話題提供するまでの時間（時間）。既定1週間。 */
 const DORMANT_HOURS = Number(process.env.NAGI_CHANNEL_DORMANT_HOURS ?? 168);
@@ -121,9 +122,9 @@ async function scanDormantChannels() {
 
 /** 過疎チャンネル話題提供の定期スキャンを開始する。 */
 export function startNagiChannelTopicScheduler() {
-  setInterval(() => {
-    void scanDormantChannels().catch((error) =>
-      console.error("[ERROR][NAGI][channel] Dormant scan failed:", error),
-    );
-  }, SCAN_INTERVAL_MS);
+  startWorkerLoop({
+    name: "NAGI_CHANNEL",
+    intervalMs: SCAN_INTERVAL_MS,
+    tick: scanDormantChannels,
+  });
 }

@@ -1,0 +1,486 @@
+[
+  {
+    "id": 1,
+    "volume": 1,
+    "nameJa": "BLTトリオ",
+    "nameEn": "The B.L.K. Trio",
+    "descJa": "botたん・ラテちゃん・ことみ。全肯定界の中心にいる3人。",
+    "descEn": "Bot-tan, Latte and Kotomi. The three at the heart of it all.",
+    "members": [
+      [
+        30
+      ],
+      [
+        24,
+        25
+      ],
+      [
+        26,
+        27
+      ]
+    ],
+    "bonus": 3.0,
+    "hidden": true
+  },
+  {
+    "id": 2,
+    "volume": 1,
+    "nameJa": "朝の三点セット",
+    "nameEn": "Morning Three",
+    "descJa": "起きて、白湯を飲んで、洗濯物を干す。完璧な朝。",
+    "descEn": "Wake up, warm water, laundry hung. A perfect morning.",
+    "members": [
+      [
+        1
+      ],
+      [
+        2
+      ],
+      [
+        3
+      ]
+    ],
+    "bonus": 2.0,
+    "hidden": true
+  },
+  {
+    "id": 3,
+    "volume": 1,
+    "nameJa": "モルフォ親子",
+    "nameEn": "Morpho, Then and Now",
+    "descJa": "今のモルフォと、子犬だったころのモルフォ。",
+    "descEn": "Morpho as they are, and Morpho as a puppy.",
+    "members": [
+      [
+        22
+      ],
+      [
+        23
+      ]
+    ],
+    "bonus": 2.0,
+    "hidden": true
+  },
+  {
+    "id": 4,
+    "volume": 1,
+    "nameJa": "肯定と否定",
+    "nameEn": "Yes and No",
+    "descJa": "全肯定botたんと全否定bot。かつて向かい合った2人。",
+    "descEn": "The bot who affirms everything, and the bot who denied it all.",
+    "members": [
+      [
+        30
+      ],
+      [
+        28
+      ]
+    ],
+    "bonus": 2.5,
+    "hidden": true
+  },
+  {
+    "id": 5,
+    "volume": 1,
+    "nameJa": "えらい三銃士",
+    "nameEn": "Three Cheers",
+    "descJa": "一歩だけ歩いた人、三日坊主のリベンジャー、とりあえずえらいスライム。えらい。",
+    "descEn": "One step taken, back on day four, and the slime that is simply doing great.",
+    "members": [
+      [
+        12
+      ],
+      [
+        4
+      ],
+      [
+        9
+      ]
+    ],
+    "bonus": 2.0,
+    "hidden": true
+  },
+  {
+    "id": 6,
+    "volume": 1,
+    "nameJa": "ことみのオンとオフ",
+    "nameEn": "Kotomi, On and Off",
+    "descJa": "ステージのことみと、休みの日のことみ。どっちも本物。",
+    "descEn": "Kotomi on stage and Kotomi off duty. Both are the real one.",
+    "members": [
+      [
+        26
+      ],
+      [
+        27
+      ]
+    ],
+    "bonus": 1.8,
+    "hidden": true
+  },
+  {
+    "id": 7,
+    "volume": 1,
+    "nameJa": "ラテの二面",
+    "nameEn": "Two Sides of Latte",
+    "descJa": "沼へ案内するラテと、猫になったラテ。",
+    "descEn": "Latte the guide, and Latte the cat.",
+    "members": [
+      [
+        24
+      ],
+      [
+        25
+      ]
+    ],
+    "bonus": 1.8,
+    "hidden": true
+  },
+  {
+    "id": 8,
+    "volume": 1,
+    "nameJa": "蝶と相棒",
+    "nameEn": "Butterfly and Partner",
+    "descJa": "幸せのモルフォ蝶と、全肯定の相棒モルフォ。名前が重なる2枚。",
+    "descEn": "The butterfly of happiness and the partner who shares its name.",
+    "members": [
+      [
+        29
+      ],
+      [
+        22
+      ]
+    ],
+    "bonus": 2.0,
+    "hidden": true
+  },
+  {
+    "id": 9,
+    "volume": 1,
+    "nameJa": "深夜徘徊",
+    "nameEn": "Night Wanderers",
+    "descJa": "深夜のコンビニと、崩れない積みゲー。夜はまだ終わらない。",
+    "descEn": "A midnight convenience store run and a backlog that never shrinks. The night is young.",
+    "members": [
+      [
+        7
+      ],
+      [
+        5
+      ]
+    ],
+    "bonus": 1.5,
+    "hidden": true
+  },
+  {
+    "id": 10,
+    "volume": 1,
+    "nameJa": "推し活の記録",
+    "nameEn": "Fandom, Documented",
+    "descJa": "供物を捧げ、良い言葉はすかさず保存する。推しは推せるときに。",
+    "descEn": "Offerings made, good lines screenshotted. Support them while you can.",
+    "members": [
+      [
+        10
+      ],
+      [
+        6
+      ]
+    ],
+    "bonus": 1.5,
+    "hidden": true
+  },
+  {
+    "id": 11,
+    "volume": 1,
+    "nameJa": "天気を読む者",
+    "nameEn": "Reading the Sky",
+    "descJa": "降らないと踏んで干し、降ると読んで持っていく。どちらの読みも正しい。",
+    "descEn": "Hang the laundry, carry the umbrella. Two reads of the same sky.",
+    "members": [
+      [
+        11
+      ],
+      [
+        3
+      ]
+    ],
+    "bonus": 1.5,
+    "hidden": true
+  },
+  {
+    "id": 12,
+    "volume": 1,
+    "nameJa": "通知ゼロの朝",
+    "nameEn": "Inbox Zero Morning",
+    "descJa": "布団を突破し、バッジも消す。朝からいきなり二連勝。",
+    "descEn": "Out of bed and the badge cleared. Two wins before breakfast.",
+    "members": [
+      [
+        8
+      ],
+      [
+        1
+      ]
+    ],
+    "bonus": 1.5,
+    "hidden": true
+  },
+  {
+    "id": 13,
+    "volume": 1,
+    "nameJa": "ぬるま湯どうし",
+    "nameEn": "Lukewarm Company",
+    "descJa": "白湯とスライム。どちらも急がないし、どちらもえらい。",
+    "descEn": "Warm water and a slime. Neither is in a hurry. Both are doing great.",
+    "members": [
+      [
+        2
+      ],
+      [
+        9
+      ]
+    ],
+    "bonus": 1.5,
+    "hidden": true
+  },
+  {
+    "id": 14,
+    "volume": 1,
+    "nameJa": "家事の達人",
+    "nameEn": "Housework Mastery",
+    "descJa": "干して、床も取り戻す。生活が回りはじめた音がする。",
+    "descEn": "Laundry hung, floor reclaimed. You can hear life starting to turn again.",
+    "members": [
+      [
+        3
+      ],
+      [
+        19
+      ]
+    ],
+    "bonus": 1.6,
+    "hidden": true
+  },
+  {
+    "id": 15,
+    "volume": 1,
+    "nameJa": "推しは推せるときに",
+    "nameEn": "While You Still Can",
+    "descJa": "供物を捧げる者と、好きを貫く者。信奉族の本気。",
+    "descEn": "One who offers and one who never wavers. Devotion, doubled.",
+    "members": [
+      [
+        10
+      ],
+      [
+        16
+      ]
+    ],
+    "bonus": 1.6,
+    "hidden": true
+  },
+  {
+    "id": 16,
+    "volume": 1,
+    "nameJa": "涙と白湯",
+    "nameEn": "Tears and Warm Water",
+    "descJa": "出すものを出して、内側から温める。妖精族の処方。",
+    "descEn": "Let it out, then warm it back up. The fairy prescription.",
+    "members": [
+      [
+        17
+      ],
+      [
+        2
+      ]
+    ],
+    "bonus": 1.6,
+    "hidden": true
+  },
+  {
+    "id": 17,
+    "volume": 1,
+    "nameJa": "深夜テンション",
+    "nameEn": "Two A.M. Energy",
+    "descJa": "夜中に湧く創作意欲と、夜中に開くコンビニ。相性が良すぎる。",
+    "descEn": "Creative fire at 2 a.m. and a store that never closes. A dangerous match.",
+    "members": [
+      [
+        21
+      ],
+      [
+        7
+      ]
+    ],
+    "bonus": 1.6,
+    "hidden": true
+  },
+  {
+    "id": 18,
+    "volume": 1,
+    "nameJa": "休息の権利",
+    "nameEn": "The Right to Rest",
+    "descJa": "有給を使い、よく眠る。取るのも寝るのも権利である。",
+    "descEn": "Take the day off, then sleep well. Both are rights, not rewards.",
+    "members": [
+      [
+        18
+      ],
+      [
+        14
+      ]
+    ],
+    "bonus": 1.6,
+    "hidden": true
+  },
+  {
+    "id": 19,
+    "volume": 1,
+    "nameJa": "断って休む",
+    "nameEn": "No, Thank You",
+    "descJa": "断る盾を構えてから、堂々と休む。この順番が大事。",
+    "descEn": "Raise the shield first, then rest without guilt. Order matters.",
+    "members": [
+      [
+        20
+      ],
+      [
+        18
+      ]
+    ],
+    "bonus": 1.6,
+    "hidden": true
+  },
+  {
+    "id": 20,
+    "volume": 1,
+    "nameJa": "タスク殲滅戦",
+    "nameEn": "Clearing the Board",
+    "descJa": "積年のタスクも、通知バッジも、まとめて0にする日。",
+    "descEn": "Ancient tasks and unread badges, all reduced to zero.",
+    "members": [
+      [
+        15
+      ],
+      [
+        8
+      ]
+    ],
+    "bonus": 1.6,
+    "hidden": true
+  },
+  {
+    "id": 21,
+    "volume": 1,
+    "nameJa": "戦士の攻と守",
+    "nameEn": "Sword and Shield",
+    "descJa": "壊す者と、断る者。戦士族はこの二枚で完成する。",
+    "descEn": "The one who destroys and the one who declines. The warrior set.",
+    "members": [
+      [
+        15
+      ],
+      [
+        20
+      ]
+    ],
+    "bonus": 1.8,
+    "hidden": true
+  },
+  {
+    "id": 22,
+    "volume": 1,
+    "nameJa": "天使と伝道師",
+    "nameEn": "Angel and Evangelist",
+    "descJa": "眠りを司る者と、肯定を広める者。光属性のふたり。",
+    "descEn": "Keeper of sleep and spreader of affirmation. Two of the light.",
+    "members": [
+      [
+        14
+      ],
+      [
+        13
+      ]
+    ],
+    "bonus": 1.8,
+    "hidden": true
+  },
+  {
+    "id": 23,
+    "volume": 1,
+    "nameJa": "モルフォ三態",
+    "nameEn": "Three Faces of Morpho",
+    "descJa": "相棒のモルフォ、子犬だったモルフォ、そして幸せのモルフォ蝶。",
+    "descEn": "Morpho the partner, Morpho the puppy, and the butterfly of happiness.",
+    "members": [
+      [
+        22
+      ],
+      [
+        23
+      ],
+      [
+        29
+      ]
+    ],
+    "bonus": 2.8,
+    "hidden": true
+  },
+  {
+    "id": 24,
+    "volume": 1,
+    "nameJa": "親友ふたり",
+    "nameEn": "Best Friends",
+    "descJa": "ラテちゃんとことみ。botたんが居なくても、この二人は成立する。",
+    "descEn": "Latte and Kotomi. These two hold up just fine on their own.",
+    "members": [
+      [
+        24,
+        25
+      ],
+      [
+        26,
+        27
+      ]
+    ],
+    "bonus": 2.0,
+    "hidden": true
+  },
+  {
+    "id": 25,
+    "volume": 1,
+    "nameJa": "botたんと相棒",
+    "nameEn": "Bot-tan and Partner",
+    "descJa": "全肯定botたんと、その相棒モルフォ。いつも隣にいる。",
+    "descEn": "Bot-tan and Morpho, the partner who is always right there.",
+    "members": [
+      [
+        30
+      ],
+      [
+        22
+      ]
+    ],
+    "bonus": 2.2,
+    "hidden": true
+  },
+  {
+    "id": 26,
+    "volume": 1,
+    "nameJa": "全肯定の系譜",
+    "nameEn": "The Affirmation Lineage",
+    "descJa": "全肯定を広める伝道師と、その源。教えはここから始まった。",
+    "descEn": "The evangelist who spreads it, and the source it came from.",
+    "members": [
+      [
+        13
+      ],
+      [
+        30
+      ]
+    ],
+    "bonus": 2.2,
+    "hidden": true
+  }
+]

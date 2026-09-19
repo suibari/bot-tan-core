@@ -4,6 +4,7 @@ import { getPositiveNewsCandidates, isNewsInterestGenre, judgePositiveNewsBatch,
 import { and, asc, eq, gt, inArray, isNull, lt, notInArray, or, sql } from "drizzle-orm";
 import { publishNews } from "./NagiNewsFeature.js";
 import { resolveNewsImageUrl } from "./newsImageUrl.js";
+import { startWorkerLoop } from "./workerLoop.js";
 import type { PositiveNewsCandidate } from "@bsky-affirmative-bot/bot-brain";
 
 const SIX_HOURS = 6 * 60 * 60 * 1000;
@@ -256,8 +257,12 @@ export async function updatePositiveNews(now = new Date()): Promise<number> {
 }
 
 export function schedulePositiveNewsUpdates() {
-  void updatePositiveNews();
-  const timer = setInterval(() => void updatePositiveNews(), 30 * 60 * 1000);
+  const timer = startWorkerLoop({
+    name: "NEWS_FEED",
+    intervalMs: 30 * 60 * 1000,
+    tick: updatePositiveNews,
+    immediate: true,
+  });
   timer.unref();
   return timer;
 }

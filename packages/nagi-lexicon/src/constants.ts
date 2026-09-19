@@ -107,6 +107,28 @@ export const NAGI = {
    */
   drawCard: "com.suibari.nagi.drawCard",
   /**
+   * ゼンカツ！の提出。**ユーザー自身の repo** に置く（rkey = themeDate なので1日1本）。
+   * ドローと違いガチャ結果を含まず、既に所持している札を参照するだけなので、
+   * 所持・おやすみ・当日かを AppView が取り込み時に照合できる＝偽レコードを索引しない。
+   */
+  zenkatsu: "com.suibari.nagi.zenkatsu",
+  /** ある1日のお題と全回答（新着順）。記録は公開情報なので未認証でも読める。 */
+  getZenkatsu: "com.suibari.nagi.getZenkatsu",
+  /**
+   * ドローの控え。**権威ではない**（結果を決めるのは AppView）。ユーザーの repo に置くのは、
+   * リアクションの subject が実在の PDS レコードを要るから。本人の repo なら通知の宛先も本人。
+   */
+  cardGet: "com.suibari.nagi.cardGet",
+  /** 全肯定カードのニュース（SR以上のドローと、ゼンカツのハイライト）。 */
+  getCardNews: "com.suibari.nagi.getCardNews",
+  /** マイデッキ。自分が成立させたコンボと、受け取ったトロフィー。要認証。 */
+  getZenkatsuDeck: "com.suibari.nagi.getZenkatsuDeck",
+  /**
+   * **開発専用**: 今日の提出を消して、もう一度ゼンカツを出せるようにする。
+   * AppView 側は config.dev が false のときルート自体を登録しない。
+   */
+  resetZenkatsu: "com.suibari.nagi.resetZenkatsu",
+  /**
    * 姉妹アプリ（botたんのお部屋など）へサインイン済みのまま移動するための、
    * 短命・単回使用の署名付きチケットを発行する。チケットは「この利用者は指定の DID
    * である」という主張だけを運び、アクセストークンや権限は一切含まない。
