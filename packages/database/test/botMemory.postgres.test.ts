@@ -264,6 +264,67 @@ test("migration-backed upsert, backfill, and reaction purge are idempotent", {
     `;
     assert.equal(publicImpressions[0].count, 1);
 
+    // --- おやすみポストの「今日覚えた言葉」 ---
+    // 会話の断片が入りがちな kind='word' は、この経路では使わない。
+    const wordDoc = await memory.upsertBotMemoryDocument({
+      sourceType: "nagi_received_reply",
+      sourceId: "learned-word",
+      sourceUri: "at://did:plc:teller/com.suibari.nagi.post/word",
+      authorId: "did:plc:teller",
+      content: "ありがとなんだな、と言われた",
+      occurredAt: new Date(),
+    });
+    assert.ok(wordDoc);
+    await memory.saveBotMemoryImpressions(
+      wordDoc.id,
+      wordDoc.content_hash,
+      [{ kind: "word", label: "ありがとなんだな", relation: "discussed" }],
+      50,
+    );
+
+    // 48時間前は bot 日（JST 4:00 始まり）がどこにあっても必ず前日より前になる。
+    const yesterdayDoc = await memory.upsertBotMemoryDocument({
+      sourceType: "bsky_received_reply",
+      sourceId: "learned-yesterday",
+      sourceUri: "at://did:plc:teller/app.bsky.feed.post/yesterday",
+      authorId: "did:plc:teller",
+      content: "『昨日の言葉』の話をした",
+      occurredAt: new Date(Date.now() - 48 * 60 * 60 * 1000),
+    });
+    assert.ok(yesterdayDoc);
+    await memory.saveBotMemoryImpressions(
+      yesterdayDoc.id,
+      yesterdayDoc.content_hash,
+      [{ kind: "word", label: "昨日の言葉", relation: "discussed" }],
+      40,
+    );
+
+    // 印象度が閾値（40）に届かない会話は、その日の固有名でも出さない。
+    const dullDoc = await memory.upsertBotMemoryDocument({
+      sourceType: "nagi_received_reply",
+      sourceId: "learned-dull",
+      sourceUri: "at://did:plc:teller/com.suibari.nagi.post/dull",
+      authorId: "did:plc:teller",
+      content: "『ダル作品』の話も出た",
+      occurredAt: new Date(),
+    });
+    assert.ok(dullDoc);
+    await memory.saveBotMemoryImpressions(
+      dullDoc.id,
+      dullDoc.content_hash,
+      [{ kind: "work", label: "ダル作品", relation: "discussed" }],
+      15,
+    );
+
+    // 今日の公開会話の固有名だけが出る。word・こっそり・前日・低印象度は混ざらない。
+    const todaysWorks = await memory.getTodaysLearnedWorks();
+    assert.deepEqual(
+      todaysWorks.map((work) => work.label),
+      ["葬送のフリーレン"],
+    );
+    assert.equal(todaysWorks[0].relation, "recommended");
+    assert.equal(todaysWorks[0].salience, 55);
+
     // 通常の検索ではこっそりが1件も出ない。
     const publicSearch = await memory.searchBotMemory(
       { query: "葬送のフリーレン", purpose: "reply_history" },

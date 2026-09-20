@@ -4,6 +4,7 @@ import {
   buildGoodNightPostTexts,
   buildWhimsicalPostTexts,
   getNagiThreadUrl,
+  selectGoodNightLearnedTerms,
 } from "../src/scheduledPostContent.js";
 
 test("ニュースURLはNagiだけに追加しBluesky本文は変えない", () => {
@@ -76,4 +77,34 @@ test("不正なAT URIからNagiスレッドURLを作らない", () => {
     undefined,
   );
   assert.equal(getNagiThreadUrl("https://example.com/post"), undefined);
+});
+
+test("今日覚えた言葉は件数と日本語文字数の両方で絞る", () => {
+  const selected = selectGoodNightLearnedTerms([
+    { label: "葬送のフリーレン" },
+    { label: "ぬいぐるみ" },
+    { label: "ブルアカ" },
+    { label: "4件目" },
+  ]);
+
+  assert.deepEqual(selected.map((term) => term.label), [
+    "葬送のフリーレン",
+    "ぬいぐるみ",
+    "ブルアカ",
+  ]);
+});
+
+test("長い言葉は飛ばして後続を拾い、日本語文字数の上限は超えない", () => {
+  // 1件目だけで textEn の日本語混入ガードを埋め切る長さ。ここで打ち切ると
+  // 「今日は何も覚えなかった」になってしまう。
+  const selected = selectGoodNightLearnedTerms([
+    { label: "とても長い名前のついた架空の作品タイトルその一" },
+    { label: "ブルアカ" },
+  ]);
+
+  assert.deepEqual(selected.map((term) => term.label), ["ブルアカ"]);
+});
+
+test("候補が無ければ空のまま返す", () => {
+  assert.deepEqual(selectGoodNightLearnedTerms([]), []);
 });
