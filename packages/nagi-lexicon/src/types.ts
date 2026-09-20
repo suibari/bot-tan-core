@@ -273,6 +273,63 @@ export type DiaryView = {
   createdAt: string;
   indexedAt: string;
 };
+/**
+ * 自分年表の1件。
+ *
+ * **固定文言の kind（nagi_joined など）は、サーバでは ja/en を作らない。** 表示文言は
+ * クライアントの i18n が持つので、閲覧者がいま選んでいる言語に追従する
+ * （サーバで作ると、その行を作った時点の言語で固まってしまう）。
+ * title/detail が入るのは LLM が書いた highlight と news_context だけ。
+ */
+export type ChronicleEventKind =
+  /** Nagi にやってきた日。年表の起点。 */
+  | "nagi_joined"
+  /** botたん（Bluesky側）と出会った日。Nagi 登録より前のこともある。 */
+  | "bot_met"
+  | "first_post"
+  | "first_diary"
+  | "first_card_ur"
+  | "first_card_aar"
+  /** 記念日カードを受け取った日。 */
+  | "anniversary_card"
+  /** 本人がリアクションしたニュース。 */
+  | "news_reaction"
+  /** 本人がブックマークしたニュース。 */
+  | "news_bookmark"
+  /** そのころ世の中では。月次ロールアップが選ぶ。 */
+  | "news_context"
+  /** 日記から抜いた、その月の大きな出来事。 */
+  | "highlight";
+
+export type ChronicleEventView = {
+  /**
+   * 決定論的に導出した安定キー。keyed each と、同日内の並び順の決定に使う。
+   * 同じ材料からは常に同じ値になること（ページをまたいで重複排除できる必要がある）。
+   */
+  id: string;
+  kind: ChronicleEventKind;
+  /** "YYYY-MM-DD"。timestamptz 由来のものは JST 4:00 始まりで丸めてある。 */
+  date: string;
+  /** highlight / news_context のときだけ入る。 */
+  titleJa?: string;
+  titleEn?: string;
+  detailJa?: string;
+  detailEn?: string;
+  /** highlight の由来。UI は /diary?date= へ飛ばす。 */
+  diaryDate?: string;
+  /** anniversary_card / first_card_* のとき。 */
+  card?: CardView;
+  /** news_reaction / news_bookmark / news_context のとき。 */
+  news?: NewsView;
+};
+
+export type ChroniclePage = {
+  items: ChronicleEventView[];
+  /** 次に返す年（"2025"）。これ以上さかのぼれないときは省略する。 */
+  cursor?: string;
+  hasMore: boolean;
+};
+
 export type NagiProfile = {
   $type: "com.suibari.nagi.profile";
   displayName: string;

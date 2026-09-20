@@ -83,7 +83,7 @@ export const cardView = (
     : {}),
 });
 
-const INSTANCE_COLUMNS = {
+export const INSTANCE_COLUMNS = {
   id: nagiCardInstances.id,
   cardVolume: nagiCardInstances.cardVolume,
   cardNumber: nagiCardInstances.cardNumber,
@@ -120,8 +120,12 @@ async function loadInstances(did: string): Promise<OwnedCards> {
   return { regular, anniversary };
 }
 
-/** 所持している記念日カードを CardView に起こす。定義が引けない行（将来の削除など）は落とす。 */
-function anniversaryViews(rows: InstanceRow[]): CardView[] {
+/**
+ * 所持している記念日カードを CardView に起こす。定義が引けない行（将来の削除など）は落とす。
+ * 年表（queries/chronicle.ts）も同じ変換を要るので export している。**向こうで組み直さないこと** —
+ * slot/year の解釈が2か所に分かれると、記念日を増やしたときに片方だけ古い名前を出す。
+ */
+export function anniversaryViews(rows: InstanceRow[]): CardView[] {
   const views: CardView[] = [];
   for (const row of rows) {
     const { year, slot } = parseAnniversaryCardNumber(row.cardNumber);

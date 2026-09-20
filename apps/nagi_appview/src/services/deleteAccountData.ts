@@ -21,6 +21,8 @@ import {
   nagiZenkatsuCommentJobs,
   nagiZenkatsuSubmissions,
   nagiChannels,
+  nagiChronicleEvents,
+  nagiChronicleJobs,
   nagiChannelSubscriptions,
   nagiCommunityAffirmations,
   nagiCommunityAffirmationDismissals,
@@ -208,6 +210,13 @@ export async function deleteAccountData(did: string) {
     // そのユーザーのデータなので残す。表示時は emoji のフォールバック文字列を使う。
     await tx.delete(nagiEmojis).where(eq(nagiEmojis.did, did));
     await tx.delete(nagiDiaries).where(eq(nagiDiaries.subjectDid, did));
+    // 年表。LLM が日記本文から抜いた出来事なので、日記と同じ扱いで必ず消す。
+    await tx
+      .delete(nagiChronicleEvents)
+      .where(eq(nagiChronicleEvents.subjectDid, did));
+    await tx
+      .delete(nagiChronicleJobs)
+      .where(eq(nagiChronicleJobs.subjectDid, did));
     await tx.delete(nagiNewsReviewJobs).where(eq(nagiNewsReviewJobs.did, did));
     await tx
       .delete(nagiNewsApprovals)

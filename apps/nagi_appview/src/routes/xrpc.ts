@@ -28,6 +28,7 @@ import {
   updateSeen,
 } from "../queries/notifications.js";
 import { getDiaries } from "../queries/diaries.js";
+import { getChronicle } from "../queries/chronicle.js";
 import {
   getPositiveNews,
   getRecommendedNews,
@@ -746,6 +747,31 @@ xrpc.get(
             to: String(req.query.to ?? "") || undefined,
             limit: limit(req.query.limit),
             cursor: String(req.query.cursor ?? "") || undefined,
+            viewerDid: req.viewerDid!,
+          }),
+        );
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+// 年表も日記と同じく本人だけが読む。getChronicle が actor !== viewerDid を 403 にする。
+xrpc.get(
+  `/${NAGI.getChronicle}`,
+  requiredServiceAuth(NAGI.getChronicle),
+  async (req, res, next) => {
+    try {
+      const lang = String(req.query.lang ?? "ja");
+      if (lang !== "ja" && lang !== "en")
+        throw new ApiError(400, "invalid_request", "lang must be ja or en");
+      res
+        .set("Cache-Control", "private, no-store")
+        .json(
+          await getChronicle({
+            actor: String(req.query.actor ?? ""),
+            limit: limit(req.query.limit),
+            cursor: String(req.query.cursor ?? "") || undefined,
+            lang,
             viewerDid: req.viewerDid!,
           }),
         );
