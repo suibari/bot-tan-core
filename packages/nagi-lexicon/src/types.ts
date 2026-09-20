@@ -284,22 +284,20 @@ export type DiaryView = {
 export type ChronicleEventKind =
   /** Nagi にやってきた日。年表の起点。 */
   | "nagi_joined"
-  /** botたん（Bluesky側）と出会った日。Nagi 登録より前のこともある。 */
+  /** botたん（Bluesky側）と関わりはじめた日。Nagi 登録より後のこともある。 */
   | "bot_met"
-  | "first_post"
   | "first_diary"
   | "first_card_ur"
   | "first_card_aar"
   /** 記念日カードを受け取った日。 */
   | "anniversary_card"
-  /** 本人がリアクションしたニュース。 */
-  | "news_reaction"
-  /** 本人がブックマークしたニュース。 */
-  | "news_bookmark"
-  /** そのころ世の中では。月次ロールアップが選ぶ。 */
-  | "news_context"
-  /** 日記から抜いた、その月の大きな出来事。 */
-  | "highlight";
+  /** 日記から抜いた、その月の出来事。**年表の主役。** */
+  | "highlight"
+  /**
+   * そのころ世の中では。月ごとに1件で全ユーザー共通。
+   * その月のまとめの**下に紐づけて**置くので、日付は月末に寄せてある。
+   */
+  | "news_context";
 
 export type ChronicleEventView = {
   /**

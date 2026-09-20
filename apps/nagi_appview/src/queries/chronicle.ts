@@ -59,15 +59,13 @@ const YEAR = /^\d{4}$/;
 const KIND_ORDER: Record<ChronicleEventKind, number> = {
   nagi_joined: 0,
   bot_met: 1,
-  first_post: 2,
-  first_diary: 3,
-  first_card_ur: 4,
-  first_card_aar: 5,
-  anniversary_card: 6,
-  news_reaction: 7,
-  news_bookmark: 8,
-  news_context: 9,
-  highlight: 10,
+  first_diary: 2,
+  first_card_ur: 3,
+  first_card_aar: 4,
+  anniversary_card: 5,
+  highlight: 6,
+  // その月のまとめの下に置くので、同じ日なら必ずいちばん後ろ。
+  news_context: 7,
 };
 
 export function parseChronicleCursor(cursor: string | undefined): number | undefined {
@@ -201,8 +199,6 @@ export function toDate(
 export type FirstsInput = {
   /** nagi.profiles.created_at。 */
   profileCreatedAt?: Date | string | null;
-  /** min(nagi.posts.record_created_at)。 */
-  firstPostAt?: Date | string | null;
   /** affirmative_bot.followers.created_at。 */
   followerCreatedAt?: Date | string | null;
   /** min(nagi.diaries.diary_date)。すでに "YYYY-MM-DD"。 */
@@ -242,8 +238,6 @@ export function buildFirstEvents(input: FirstsInput): ChronicleEventView[] {
   if (joinedAt) push("nagi_joined", chronicleDate(joinedAt));
   const metAt = toDate(input.followerCreatedAt);
   if (metAt) push("bot_met", chronicleDate(metAt));
-  const firstPostAt = toDate(input.firstPostAt);
-  if (firstPostAt) push("first_post", chronicleDate(firstPostAt));
   push("first_diary", input.firstDiaryDate);
   for (const row of input.rareCards ?? []) {
     const at = toDate(row.at);
@@ -266,7 +260,7 @@ export function buildFirstEvents(input: FirstsInput): ChronicleEventView[] {
 async function loadFirsts(
   did: string,
 ): Promise<{ events: ChronicleEventView[]; originYear?: number }> {
-  const [profile, follower, firstPost, firstDiary, rareCards] = await Promise.all([
+  const [profile, follower, firstDiary, rareCards] = await Promise.all([
     db
       .select({ createdAt: nagiProfiles.createdAt })
       .from(nagiProfiles)
@@ -277,10 +271,6 @@ async function loadFirsts(
       .from(followers)
       .where(eq(followers.did, did))
       .limit(1),
-    db
-      .select({ at: min(nagiPosts.recordCreatedAt) })
-      .from(nagiPosts)
-      .where(and(eq(nagiPosts.did, did), isNull(nagiPosts.deletedAt))),
     db
       .select({ date: min(nagiDiaries.diaryDate) })
       .from(nagiDiaries)
@@ -301,7 +291,6 @@ async function loadFirsts(
 
   const all = buildFirstEvents({
     profileCreatedAt: profile[0]?.createdAt,
-    firstPostAt: firstPost[0]?.at,
     followerCreatedAt: follower[0]?.createdAt,
     firstDiaryDate: firstDiary[0]?.date,
     rareCards,
@@ -312,52 +301,6 @@ async function loadFirsts(
     ? Math.min(...all.map((event) => Number(event.date.slice(0, 4))))
     : undefined;
   return { events: all, originYear };
-}
-
-type NewsTouch = { uri: string; at: Date; kind: "news_reaction" | "news_bookmark" };
-
-/**
- * 本人が手を動かしたニュース。全肯定ニュースは1日最大20件出るので、**素で並べたら
- * 年表がニュースで埋まる。** ここで拾うのは「本人がリアクションした／ブックマークした」
- * ものだけで、件数は本人のペースでしか増えない。
- */
-async function loadNewsTouches(
-  did: string,
-  w: ChronicleWindow,
-): Promise<NewsTouch[]> {
-  const from = new Date(`${w.from}T00:00:00.000Z`);
-  // 年窓は JST 4:00 始まりで丸めた日付で判定するので、UTC の窓は前後に1日ずつ広く取る。
-  const until = new Date(`${w.year + 1}-01-02T00:00:00.000Z`);
-  const lower = new Date(from.getTime() - 86_400_000);
-  const [reactions, bookmarks] = await Promise.all([
-    db
-      .select({ uri: nagiReactions.subjectUri, at: nagiReactions.createdAt })
-      .from(nagiReactions)
-      .innerJoin(nagiNews, eq(nagiNews.uri, nagiReactions.subjectUri))
-      .where(
-        and(
-          eq(nagiReactions.did, did),
-          isNull(nagiNews.deletedAt),
-          gte(nagiReactions.createdAt, lower),
-          lt(nagiReactions.createdAt, until),
-        ),
-      ),
-    db
-      .select({ uri: nagiBookmarks.subjectUri, at: nagiBookmarks.createdAt })
-      .from(nagiBookmarks)
-      .where(
-        and(
-          eq(nagiBookmarks.ownerDid, did),
-          eq(nagiBookmarks.subjectType, "news"),
-          gte(nagiBookmarks.createdAt, lower),
-          lt(nagiBookmarks.createdAt, until),
-        ),
-      ),
-  ]);
-  return [
-    ...reactions.map((r) => ({ ...r, kind: "news_reaction" as const })),
-    ...bookmarks.map((b) => ({ ...b, kind: "news_bookmark" as const })),
-  ];
 }
 
 /**
@@ -461,26 +404,14 @@ export async function getChronicle(opts: {
     throw new ApiError(400, "invalid_request", "Invalid chronicle cursor");
   const w = windowOf(year);
 
-  const [storedEvents, cards, touches, monthlyNews] = await Promise.all([
+  const [storedEvents, cards, monthlyNews] = await Promise.all([
     loadStoredEvents(opts.actor, w),
     loadAnniversaryCards(opts.actor, w),
-    loadNewsTouches(opts.actor, w),
     loadMonthlyNews(w),
   ]);
 
-  // 同じニュースにリアクションとブックマークの両方があることがある。1件にまとめる
-  // （ブックマークのほうが意志が強いのでそちらを採る）。
-  const touchByUri = new Map<string, NewsTouch>();
-  for (const touch of touches) {
-    const date = chronicleDate(touch.at);
-    if (!inWindow(date, w)) continue;
-    const held = touchByUri.get(touch.uri);
-    if (!held || (held.kind === "news_reaction" && touch.kind === "news_bookmark"))
-      touchByUri.set(touch.uri, touch);
-  }
-
   const news = await loadNewsViews(
-    [...new Set([...touchByUri.keys(), ...monthlyNews.newsUris])],
+    [...new Set(monthlyNews.newsUris)],
     opts.lang,
   );
 
@@ -496,25 +427,11 @@ export async function getChronicle(opts: {
     return view ? [{ ...event, news: view }] : [];
   });
 
-  const newsEvents: ChronicleEventView[] = [];
-  for (const [uri, touch] of touchByUri) {
-    const view = news.get(uri);
-    // 承認が外れた／消えたニュースは年表からも消す（一覧と同じ見え方にする）。
-    if (!view) continue;
-    newsEvents.push({
-      id: `${touch.kind}:${uri}`,
-      kind: touch.kind,
-      date: chronicleDate(touch.at),
-      news: view,
-    });
-  }
-
   const items = sortChronicleEvents([
     ...storedEvents,
     ...contextEvents,
     ...cards,
     ...firsts.events.filter((event) => inWindow(event.date, w)),
-    ...newsEvents,
   ])
     .flatMap((event) => chronicleEventView(opts.actor, opts.viewerDid, event) ?? [])
     .slice(0, opts.limit);

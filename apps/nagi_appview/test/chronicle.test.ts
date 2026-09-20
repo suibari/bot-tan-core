@@ -43,6 +43,7 @@ test("chronicle sorts oldest first, then fixed kind order, then id", () => {
   // 年表は「はじまりから今へ」読むので、一覧の新しい順とは逆向き。
   // 同じ日に複数載るのは普通なので、時刻ではなく kind の固定優先度で決める。
   const sorted = sortChronicleEvents([
+    event({ id: "news_context:2026-08", kind: "news_context", date: "2026-08-02" }),
     event({ id: "highlight:b", kind: "highlight", date: "2026-08-02" }),
     event({ id: "first:nagi_joined", kind: "nagi_joined", date: "2026-08-02" }),
     event({ id: "anniversary:z", kind: "anniversary_card", date: "2026-08-02" }),
@@ -56,6 +57,8 @@ test("chronicle sorts oldest first, then fixed kind order, then id", () => {
       "anniversary:a",
       "anniversary:z",
       "highlight:b",
+      // その月のまとめの下に付くので、同じ日なら必ずいちばん後ろ。
+      "news_context:2026-08",
       "first:first_diary",
     ],
   );
@@ -64,14 +67,14 @@ test("chronicle sorts oldest first, then fixed kind order, then id", () => {
 test("chronicle sort is stable across runs", () => {
   // ページをまたいだ重複排除と keyed each が、並びの安定に依存している。
   const items = [
-    event({ id: "news_bookmark:x", kind: "news_bookmark", date: "2026-05-05" }),
-    event({ id: "news_reaction:y", kind: "news_reaction", date: "2026-05-05" }),
-    event({ id: "news_context:z", kind: "news_context", date: "2026-05-05" }),
+    event({ id: "anniversary:b", kind: "anniversary_card", date: "2026-05-05" }),
+    event({ id: "anniversary:a", kind: "anniversary_card", date: "2026-05-05" }),
+    event({ id: "highlight:c", kind: "highlight", date: "2026-05-05" }),
   ];
   const once = sortChronicleEvents(items).map((item) => item.id);
   const twice = sortChronicleEvents([...items].reverse()).map((item) => item.id);
   assert.deepEqual(once, twice);
-  assert.deepEqual(once, ["news_reaction:y", "news_bookmark:x", "news_context:z"]);
+  assert.deepEqual(once, ["anniversary:a", "anniversary:b", "highlight:c"]);
 });
 
 
@@ -114,16 +117,31 @@ test("toDate は Date・文字列・欠損を扱う", () => {
 });
 
 test("起点は、それを名乗っている列をそのまま読む", () => {
-  // PDS が正本。AppView の索引（最古の投稿）で補正しない——索引が浅いと
-  // 「その人の初投稿」ではなく「DBが見始めた日」を起点にしてしまう。
+  // PDS が正本。AppView の索引（最古の投稿）で補正しない。
   const events = buildFirstEvents({
-    profileCreatedAt: "2026-09-05T03:13:17.470Z",
-    firstPostAt: "2026-07-18T15:02:49.648Z",
-    followerCreatedAt: "2026-09-19T02:26:37.351Z",
+    profileCreatedAt: "2026-07-18T22:48:35.103Z",
+    followerCreatedAt: "2024-08-25T02:26:37.351Z",
   });
-  assert.equal(events.find((e) => e.kind === "nagi_joined")?.date, "2026-09-05");
-  assert.equal(events.find((e) => e.kind === "bot_met")?.date, "2026-09-19");
-  assert.equal(events.find((e) => e.kind === "first_post")?.date, "2026-07-18");
+  assert.equal(events.find((e) => e.kind === "nagi_joined")?.date, "2026-07-19");
+  assert.equal(events.find((e) => e.kind === "bot_met")?.date, "2024-08-25");
+});
+
+test("「はじめての投稿」は年表に出さない", () => {
+  /*
+   * 本番実測: 本人の最古の投稿 2026-07-18 15:02（JST 7/19 00:02）に対して
+   * profiles.created_at は 2026-07-18 22:48（JST 7/19 07:48）。同じ JST 日だが、
+   * カードと同じ JST 4時境界を通すと 7/18 と 7/19 に割れ、
+   * 「はじめての投稿のほうが Nagi にやってきた日より前」という、ありえない並びになる。
+   *
+   * そもそも投稿は登録と実質同日で情報量が無く、逆転を生むだけなので載せない。
+   */
+  const events = buildFirstEvents({
+    profileCreatedAt: "2026-07-18T22:48:35.103Z",
+  });
+  assert.deepEqual(
+    events.map((e) => e.kind),
+    ["nagi_joined"],
+  );
 });
 
 test("bot_met が Nagi 登録より後に来るのは異常ではない", () => {
