@@ -46,6 +46,42 @@ export function buildGoodNightPostTexts(params: {
 }
 
 /**
+ * おやすみポストへ載せる「今日覚えた言葉」を絞る。
+ *
+ * 覚えた言葉は日本語の固有名詞がほとんどで、原語表記のまま textEn にも載る。
+ * parseGoodNightResponse の textEn 判定（checkPredominantLanguage）は日本語文字が
+ * max(12, ラテン文字数の10%) を超えると**投稿ごと捨てる**ので、候補を積みすぎると
+ * 「その日のおやすみポストが出ない」に直結する。件数だけでなく日本語文字数の合計でも
+ * 先に切っておく。
+ *
+ * 長すぎる1件で打ち切らず次を見るのは、40字まで許される label が1件混ざっただけで
+ * 「今日は何も覚えなかった」にならないようにするため。
+ */
+export const GOOD_NIGHT_LEARNED_TERM_MAX_COUNT = 3;
+export const GOOD_NIGHT_LEARNED_TERM_MAX_JA_CHARS = 20;
+
+/** checkPredominantLanguage が数えるのと同じ文字種。 */
+const countJapaneseChars = (text: string) =>
+  (text.match(/[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/gu) ?? []).length;
+
+export function selectGoodNightLearnedTerms<T extends { label: string }>(
+  candidates: T[],
+  maxCount = GOOD_NIGHT_LEARNED_TERM_MAX_COUNT,
+  maxJapaneseChars = GOOD_NIGHT_LEARNED_TERM_MAX_JA_CHARS,
+): T[] {
+  const selected: T[] = [];
+  let japanese = 0;
+  for (const candidate of candidates) {
+    if (selected.length >= maxCount) break;
+    const chars = countJapaneseChars(candidate.label);
+    if (japanese + chars > maxJapaneseChars) continue;
+    selected.push(candidate);
+    japanese += chars;
+  }
+  return selected;
+}
+
+/**
  * Bluesky は external embed が1件なのでニュースURLを増やさない。
  * 複数リンクカードを持てるNagiだけ、検証済みの記事URLを本文へ加える。
  */
