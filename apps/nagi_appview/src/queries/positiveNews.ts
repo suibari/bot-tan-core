@@ -47,7 +47,12 @@ const decodeOffset = (cursor?: string): number => {
   return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
 };
 
-function view(
+/**
+ * ニュース1件のビュー。年表（queries/chronicle.ts）も同じ変換を要るので export している。
+ * **向こうで組み直さないこと** — スナップショットと PDS 値のフォールバック規則が2か所に
+ * 分かれると、ユーザー投稿ニュースの編集が片方にだけ反映される。
+ */
+export function newsView(
   row: {
     news: typeof nagiNews.$inferSelect;
     approval: typeof nagiNewsApprovals.$inferSelect;
@@ -167,7 +172,7 @@ export async function getPositiveNews(opts: {
   ]);
   return {
     items: page.map((row) =>
-      view(row, opts.lang, reactions.get(row.news.uri) ?? []),
+      newsView(row, opts.lang, reactions.get(row.news.uri) ?? []),
     ),
     botActor,
     hasMore: rows.length > opts.limit,
@@ -268,7 +273,7 @@ export async function searchNews(opts: {
   ]);
   return {
     items: page.map((row) =>
-      view(row, opts.lang, reactions.get(row.news.uri) ?? []),
+      newsView(row, opts.lang, reactions.get(row.news.uri) ?? []),
     ),
     botActor,
     hasMore,
@@ -314,7 +319,7 @@ export async function getApprovedNewsViews(
   return new Map(
     rows.map((row) => [
       row.news.uri,
-      view(row, lang, reactions.get(row.news.uri) ?? []),
+      newsView(row, lang, reactions.get(row.news.uri) ?? []),
     ]),
   );
 }
@@ -367,7 +372,7 @@ export async function getNewsQuoteViews(
         unavailable: true,
       });
     } else if (row.news.cid === ref.cid)
-      out.set(key, view({ news: row.news, approval: row.approval }, "ja"));
+      out.set(key, newsView({ news: row.news, approval: row.approval }, "ja"));
     else if (
       row.approval.snapshotUrl &&
       row.approval.snapshotTitleJa &&
@@ -490,7 +495,7 @@ export async function getRecommendedNews(opts: {
     opts.viewerDid,
   );
   return page.map((row) => ({
-    ...view(row, opts.lang, reactions.get(row.news.uri) ?? []),
+    ...newsView(row, opts.lang, reactions.get(row.news.uri) ?? []),
     // uris は matched から作っているので、ここで必ずジャンルが取れる。
     reason: { genre: matched.get(row.news.uri)! },
   }));

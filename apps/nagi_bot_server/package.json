@@ -16,6 +16,8 @@
     "diary:backfill": "tsx --env-file=../../.env scripts/backfillNagiDiary.ts",
     "diary:activity:backfill": "tsx --env-file=../../.env scripts/backfillDiaryPostCounts.ts",
     "diary:migrate-appview": "tsx --env-file=../../.env scripts/migrateDiariesToAppview.ts",
+    "chronicle:backfill": "tsx --env-file=../../.env scripts/backfillNagiChronicle.ts",
+    "chronicle:preview": "tsx --env-file=../../.env scripts/previewChronicleMonth.mts",
     "news:feed:preview": "tsx --env-file=../../.env src/newsFeedAdmin.ts preview",
     "news:feed:list": "tsx --env-file=../../.env src/newsFeedAdmin.ts list",
     "news:feed:hide": "tsx --env-file=../../.env src/newsFeedAdmin.ts hide",

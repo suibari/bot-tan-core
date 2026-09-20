@@ -1,0 +1,69 @@
+{
+  "lexicon": 1,
+  "id": "com.suibari.nagi.getChronicle",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "自分年表。Nagi にやってきた日・botたんと出会った日・記念日カード・「はじめて」の記録・日記から抜いた出来事・そのころのニュースを、1本の時系列で返す。日記と同じく**本人だけが読む**ので、actor が認証した DID と一致しなければ 403（件数も日付も返さない）。",
+      "parameters": {
+        "type": "params",
+        "required": [
+          "actor"
+        ],
+        "properties": {
+          "actor": {
+            "type": "string",
+            "format": "did",
+            "description": "年表の持ち主。認証した DID と一致しなければならない。"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 50,
+            "description": "1ページの上限。年チャンクなので通常は効かず、1年が想定外に膨らんだときの安全弁として働く。"
+          },
+          "lang": {
+            "type": "string",
+            "enum": [
+              "ja",
+              "en"
+            ],
+            "default": "ja",
+            "description": "ニュースの表示言語。en は英訳が揃っているものだけ英語になる。"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "次に返す年（\"2025\"）。年表は年見出しでまとまるので、ページ境界を見出し境界に一致させている。将来1年の件数が有界でなくなったら、日付とイベントIDの複合カーソルへ移すこと。"
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "items",
+            "hasMore"
+          ],
+          "properties": {
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "unknown"
+              },
+              "description": "その年の節目。新しい順。同じ日に複数あるときは kind の固定優先度で決定論的に並ぶ。"
+            },
+            "cursor": {
+              "type": "string",
+              "description": "次の年。これ以上さかのぼれないときは省略する。"
+            },
+            "hasMore": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    }
+  }
+}

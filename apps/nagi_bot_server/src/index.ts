@@ -20,6 +20,8 @@ import { startNagiAnalysisWorker } from "./NagiAnalysisWorker.js";
 import { startNagiCardCommentWorker } from "./NagiCardCommentWorker.js";
 import { processNagiZenkatsuJob, startNagiZenkatsuWorker } from "./NagiZenkatsuWorker.js";
 import { startNagiZenkatsuAwardWorker } from "./NagiZenkatsuAwardWorker.js";
+import { startNagiChronicleWorker } from "./NagiChronicleWorker.js";
+import { processChronicleMonth } from "./NagiChronicleFeature.js";
 import { startNagiCommunityAffirmationWorker } from "./NagiCommunityAffirmationWorker.js";
 import { startNagiThemeWorker } from "./NagiThemeWorker.js";
 import { startNewsInterestWorker } from "./NewsInterestWorker.js";
@@ -96,6 +98,7 @@ async function start() {
   startNagiZenkatsuWorker();
   // 前日ぶんのトロフィー確定。JST 4:00 で日付が変わったぶんから順に処理する。
   startNagiZenkatsuAwardWorker();
+  startNagiChronicleWorker();
   // 右サイドバー「みんなで全肯定」の匿名要約。候補選出と生成を作者単位で行う。
   startNagiCommunityAffirmationWorker();
   // 動的枠の「おすすめの理由」を先に計算しておく（リクエスト経路でLLMを呼ばないため）。
@@ -184,6 +187,26 @@ async function start() {
       }
       await processNagiDiary(did);
       res.status(200).json({ ok: true });
+    } catch (error) {
+      res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+  // 月が閉じるのを待たずに年表を作る（動作確認・手動リカバリ・バックフィルの検証用）。
+  // **in-flight ガードは付けない。** 呼ぶのは人の手だけなので並列は暴れないし、
+  // ここで弾くと待っている本人の結果が次の tick まで遅れる（AGENTS.md）。
+  app.post("/chronicle/run", async (req, res) => {
+    try {
+      const did = String(req.body?.did ?? "");
+      const month = String(req.body?.month ?? "");
+      if (!did.startsWith("did:")) {
+        res.status(400).json({ error: "did is required" });
+        return;
+      }
+      if (!/^\d{4}-\d{2}$/.test(month)) {
+        res.status(400).json({ error: "month must be YYYY-MM" });
+        return;
+      }
+      res.status(200).json(await processChronicleMonth(did, month));
     } catch (error) {
       res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
     }

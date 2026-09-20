@@ -1,0 +1,315 @@
+# 自分年表（Chronicle） 設計メモ
+
+Nagi の `/diary` に「年表」タブを足した。Nagi で過ごしてきた日々の節目を1本の縦の時系列に集め、
+スクロールで遡れるようにするもの。
+
+本書は決定事項と**その理由**を残す。理由が消えると、後から「連続記録を出そう」
+「ニュースをもっと出そう」「達成演出を付けよう」と戻してしまうため
+（`docs/zenkatsu.md` と同じ位置づけ）。
+
+---
+
+## 1. なぜ作ったか
+
+`/diary` は GitHub の草グラフ風の「年間アクティビティ」1枚だけだった。密度は見えるが、
+**歩みが見えない。** Nagi にやってきた日も、はじめて UR を引いた日も、七夕も、同じ1マスになる。
+
+一方で節目の記録はすでに散らばって存在していた——記念日カード、Nagi 登録日、
+botたんと出会った日、全肯定ニュース。**足りなかったのは記録ではなく、並べ方**だった。
+
+## 2. 全肯定であることが、ここでも設計の制約になる
+
+`docs/zenkatsu.md` 3.4 と同じ。**数えた瞬間に義務になるものを数えない。**
+
+- **連続日数を出さない。** 「○日連続で日記がある」は書かない
+- **比較しない。** 「今年は去年より少ない」「今月は3件しか節目がない」は書かない
+- **空白を強調しない。** 節目の無い月は薄いグレーで埋めず、単に詰めて表示する
+- **達成演出をしない。** 紙吹雪は「いま受け取る」ための演出で、静かに読み返す場所には合わない
+
+年表は**積み上がったものだけを見せる媒体**にする。
+
+### 禁止をコードにも落とす
+
+プロンプトの禁止文だけでは確率的にしか守られない。`rejectChronicleTone()`
+（`packages/bot_brain/src/ai/generateChronicleMonth.ts`）が
+`連続` / `ストリーク` / `記録更新` / `ランキング` / `達成率` / `去年より` などを含む見出しを
+**そのイベントごと捨てる**。これで思想がテストできる形になる
+（`packages/bot_brain/test/chroniclePrompt.test.ts`）。
+
+`CardDetailDialog` に `draw` を渡さないことと、`Confetti` を使わないことも、
+`nagi_client/src/lib/components/chronicle-motion.test.ts` がソース文字列で固定している。
+
+## 3. 決定論イベントは materialize しない
+
+年表に並ぶもののうち、**行を持つのは LLM が書いたものだけ**（`nagi.chronicle_events`）。
+記念日カード・「はじめて」の記録・起点・本人が反応したニュースは、
+`getChronicle`（`apps/nagi_appview/src/queries/chronicle.ts`）が読み取り時に合流させる。
+
+| kind | 権威 |
+|---|---|
+| `nagi_joined` | `nagi.profiles.created_at`（PDS が正本） |
+| `bot_met` | `affirmative_bot.followers.created_at` |
+| `first_post` | `min(nagi.posts.record_created_at)` |
+| `first_diary` | `min(nagi.diaries.diary_date)` |
+| `first_card_ur` / `first_card_aar` | `min(nagi.card_gets.drawn_at)`（`rarity` は焼き付け済み） |
+| `anniversary_card` | `nagi.card_instances`（`card_volume = 0`） |
+| `news_reaction` / `news_bookmark` | `nagi.reactions` / `nagi.bookmarks` × `nagi.news` |
+| `highlight` / `news_context` | `nagi.chronicle_events`（LLM） |
+
+**コピーを作らない理由:** カードを交換して `owner_did` が動いたとき、過去の日記を
+バックフィルして MIN が動いたとき、**年表だけが古い事実を表示し続ける**。
+量も有界（1年で記念日最大19枚＋はじめて6件＋起点2件）で、索引付きの固定本数クエリで足りる。
+
+変換は既存コードを**export に上げて再利用**している。年表側で組み直すと、
+記念日を増やしたときやユーザー投稿ニュースを編集したときに片方だけ古い値を出す。
+
+- `anniversaryViews()`（`apps/nagi_appview/src/queries/cards.ts`）
+- `newsView()` と `hasTrustedSnapshot`（`apps/nagi_appview/src/queries/positiveNews.ts`）
+
+### 起点は、それを名乗っている列をそのまま読む
+
+| kind | 読む列 |
+|---|---|
+| `nagi_joined` | `nagi.profiles.created_at` |
+| `bot_met` | `affirmative_bot.followers.created_at` |
+
+**PDS が正本。** `nagi.profiles.created_at` は `com.suibari.nagi.profile` レコードの
+`createdAt` を焼いたもので、lexicon で required なので欠損は無く（`validateRecord` を
+通らない行は索引されない）、クライアントの `putProfile` も既存レコードの `createdAt` を
+引き継ぐので編集で飛ばない。
+
+**AppView の索引から推測して補正しないこと。**
+一度「最古の Nagi 投稿で下限を取る」clamp を入れたが、これは誤りだった。
+**AppView は自分が見始めるより前の投稿を知らない。** repo の巡回（`reconcileWorker`）が
+埋め戻すが、追いついている保証は無い。開発DBの実測（2026-09-20）:
+
+| 取得経路 | 件数 | 最古 |
+|---|---|---|
+| live 取得 | 4,371 | 2026-07-18 15:02:49 |
+| reconcile による埋め戻し | 25 | 2026-09-17 08:27 |
+
+`min(indexed_at)` も 2026-07-18 15:02:49 で、最古の投稿と**秒まで一致**していた。
+つまりこのDBは 7/18 に見始めただけで、それ以前を持っていない。それを clamp が拾い、
+**「Nagi にやってきた日 = DBの誕生日」**という表示になっていた。
+
+正本を読むほうが、派生物から推測するより常に正しい。索引が浅いのは**索引側の問題**で、
+年表のロジックで取り繕うものではない（`reconcileWorker` が追いつけば直る）。
+
+### `followers.created_at` は「出会った日」ではない
+
+`defaultNow()` で入るうえ、**Bluesky のフォロー以外でも行ができる**:
+
+- `apps/nagi_bot_server/src/createNagiReply.ts` の `upsertFollowerInteraction`（Nagi で会話したとき）
+- `packages/clients/src/TitleBadgeService.ts` の `ensureFollower`（Nagi の日記で称号が付いたとき）
+- `packages/clients/src/SuperPositiveBadgeService.ts`
+
+実際の意味は「`affirmative_bot` にこの DID の行が初めてできた日」で、Bluesky でフォローして
+いない Nagi 専用ユーザだと Nagi 登録より後になる。
+
+これは列の側を直す話ではなく、**ラベルの側を正確にする話**。
+「botたんと**関わりはじめた**日」にしてあるので、Nagi 登録より後に来ても嘘ではない。
+`nagi_joined` と前後しうるが、それが事実なので並べ替えも抑制もしない。
+
+**より正確にしたいなら**、Bluesky の follow レコードの `createdAt` が唯一の真実なので、
+`followers` に列を足して一度バックフィルする道がある。それでも Nagi 専用ユーザには
+follow レコードが無いので、上のラベルは併用が要る。
+
+## 4. ニュースをどう選ぶか
+
+年表のニュースは**2種類**あって、出どころも持ち方も違う。
+
+| kind | 何か | 持ち方 |
+|---|---|---|
+| `news_reaction` / `news_bookmark` | 本人が反応した／ブックマークした記事 | 利用者ごと（`nagi.reactions` / `nagi.bookmarks` を読み取り時に合流） |
+| `news_context` | **その月に世の中であったこと** | **月ごとに1行、全ユーザー共通**（`nagi.chronicle_news`） |
+
+### `news_context` は利用者ごとに持たない
+
+最初は「本人の関心ジャンル（`news_reasons`）に当たる記事から、日記と響き合うものを選ぶ」
+という個人化された作りにしていた。**これは意図の取り違えだった。**
+この欄は「その時期に何か大きい出来事があったか」を見るためのもので、
+**その人の日記と関係なくてよい**（むしろ関係を求めると出なくなる）。
+
+関係が要らないなら内容は全員同じになるので、
+
+- `nagi.chronicle_news` に**月ごとに1行**だけ持つ
+- LLM の呼び出しは【人数 × 月】ではなく**【月】だけ**
+- 日記が1件も無い月でも背景として出る
+
+`getChronicle` が年窓で読み、全員の年表へ月末の位置に差し込む。**1か月1件**。
+自分の節目が主役で、ニュースは背景なので、年に最大12行しか増えない。
+
+### 候補の絞り方
+
+1か月のニュースは最大620件（1日20件 × 31日）ある。全部は載せられないし、載せられても
+12B のモデルに600件から番号で1件選ばせるのは当てにならない。
+**反応の多い順**で 60件に絞ってから渡す（`CHRONICLE_NEWS_CANDIDATE_LIMIT`）。
+誰かが気に留めた記事、という弱いながら実在の信号。
+
+本番実測（2026-08、承認済み390件）では反応が付いているのは25件で最大2件と、信号はかなり薄い。
+それでも「甲子園」「熊本地震の病院船」などはこの25件に入っていたので、上位に埋もれてはいない。
+
+### 「選ばない」に逃げ道を作らない
+
+最初は `required: []` にして「キーごと省けば棄権」としていた。すると `{}` が文法上いちばん短い
+正解になり、**本番の7月・8月とも必ず棄権した。** 選ばせたいなら、選ばないほうを楽にしないこと。
+
+いまは3つとも required にして、棄権は `index: -1`（`CHRONICLE_NEWS_SKIP`）という
+**明示的な選択**にしてある。
+
+### 候補は明るい話題しか入っていない
+
+全肯定ニュースは承認制で、事件や事故はそもそも候補にならない。
+つまり**報道的な意味での「その月の最大の出来事」は取れない。** 取れるのは
+「その月に話題だった明るいこと」で、月の目印としてはそれで足りる。
+指示でも「災害・事故を優先」とは書かない（プールに無いものを優先させても歪むだけ）。
+
+本番データでの実測: 2026-07 →「銀河鉄道999の新作劇場アニメが製作決定」、
+2026-08 →「キングダムハーツ初のオリジナルアニメ化が決定」。
+広く知られた題材で、その月を思い出す手がかりにはなっている。
+
+## 5. 月次ロールアップ
+
+`NagiChronicleWorker`（`apps/nagi_bot_server/src/NagiChronicleWorker.ts`）が
+`startWorkerLoop` で60秒ごとに**1 tick 1件**。これがそのまま Ollama へのレート制御になる。
+
+**間隔を詰めない。** 年表は月が変わってから作るもので、待っているユーザーが居ない
+（AGENTS.md「間隔の決め方」）。詰めても体感は変わらず、並列だけが増える。
+`immediate: true` も付けない。
+
+**「月が閉じた」を cron ではなく条件で表現する。** 対象は `cardDrawDate()`（JST 4:00 始まり）で
+見た今月より前の月だけ。サーバのタイムゾーンにもワーカーの起動時刻にも依存せず、
+落ちていた間のぶんも起動後に古い月から自然に片付く（`NagiZenkatsuAwardWorker` と同じ形）。
+
+遅れて入った日記は、`chronicle_jobs.diary_count` と現在の件数の差で `pending` に戻す。
+タイムゾーンの厳密計算ではなく、**作り直しても安全であること**で回収を担保している。
+
+### 月ごと丸ごと置換
+
+`dedupe_key`（`llm:{YYYY-MM}:{n}` / `news:{YYYY-MM}`）で upsert したあと、
+**同じ `source_month` で今回の鍵に無い行を必ず消す。** `UNIQUE(subject_did, dedupe_key)` だけでは
+「前回3件・今回1件」のときに前回の2件目以降が残る。
+
+## 6. LLM の呼び方（ここは踏みやすい落とし穴が3つある）
+
+### (a) 指示は `systemInstruction`、材料は `contents` 1本
+
+`fitOllamaMessages`（`packages/bot_brain/src/ai/generationClient.ts`）は
+**中間メッセージを丸ごと落とし**、最終手段では `original.slice(-keep)` で**末尾を残して切る**。
+つまり `contents` を `[指示, 材料]` の2件にすると指示が最初に落ち、1本の長文にすると
+末尾残しで指示が消える。守られるのは `system` ロールと最後の user だけ。
+
+指示を `systemInstruction` に置けば、AGENTS.md の「ユーザの投稿はいちばん後ろ」も同時に満たせる。
+
+### (b) 予算は成立するが、素直に全文を載せると最悪月で溢れる
+
+日記は日本語350〜500字が目安だが、上限は `clipNagiPostText` の3000書記素。
+31日ぶんを素で載せると 93,000字になりうる。`chronicleDiaryCap()` が予算から逆算して
+1日あたりを丸め、**先頭を残して**切る（日記は中心の出来事を第1〜2段落に置く設計だから）。
+
+**日そのものは絶対に落とさない。** 落とすと月が歯抜けになって年表が嘘になる。
+
+`maxOutputTokens: 2048` を明示すること。省くと `maxTextLength: null` 側の
+`OLLAMA_LONG_OUTPUT_TOKENS`(4096) が載り、プロンプト予算が2,048トークンぶん無駄に狭まる。
+
+既定の `OLLAMA_CONTEXT_LENGTH`(32768) では逆算が上限(480字)に張り付く。効いてくるのは
+**VRAM が足りなくなって num_ctx を下げたとき**で、そこで歯抜けにせず薄く載せるための仕掛け。
+
+### (c) 日付とニュースの幻覚は、スキーマで止める
+
+プロンプトの禁止文は確率的にしか効かない。`responseSchema` は `/api/chat` の `format` へ渡る
+**文法拘束**なので、
+
+- `date` は**その月に実在する日記の日付だけの enum**にする
+- ニュースは**候補配列の添字**で選ばせる（URL も見出しも自由記述させない）
+
+これで「存在しない日付が年表に載った」はデコード時点で起こりえなくなる。
+
+さらに `evidence`（その日の日記から一字も変えずに抜いた12字以上）を必須にし、
+`validateChaosExcerpt()` で検証して**合わないイベントだけ捨てて続行**する。
+
+理由は AGENTS.md「プロンプトの並び順」に実例がある——26B の量子化モデルは主体や時制を
+取り違える（「子供のやってるポケモン」→「すいぱり、センスが最高」、
+「終わらせたら」→「クリアおめでとう」）。リプライなら流れて消えるが、
+**年表は本人がずっと見返す場所**なので、同じ誤りが居座る。
+
+### ローカルで回す理由
+
+`AI_FEATURES.NAGI_CHRONICLE_MONTH = "ollama-chat"`。`GROUNDING_RESEARCH` と同じで、
+**本人しか読まない私的な日記を、過去数か月ぶんまとめてもう一度、大量に外へ出す**処理だから。
+日記本文の初回生成が Gemini を通っているのとは性質が違う。バックフィルの総量
+（全ユーザー × 全月）から見ても自前が妥当。
+
+## 7. 本人専用
+
+日記と同じ守り。`requiredServiceAuth` で `viewerDid` を確定し、
+`actor !== viewerDid` なら 403、`Cache-Control: private, no-store`。
+さらに行整形関数（`chronicleEventView`）にも `viewerDid` を必須引数で渡す——
+新しい呼び出し元がうっかり渡し忘れたときに他人の年表が漏れないようにするため
+（`diaryView` と同じ設計）。
+
+`nagi.chronicle_events` は日記由来の私的な抽出なので、
+`apps/nagi_appview/src/services/deleteAccountData.ts` で必ず消す。
+
+## 8. 並びは古い順。カーソルは年チャンク
+
+**いちばん上が起点、下へ行くほど今に近づく。** 一覧やフィード（新しい順）とは逆向きで、
+スクロールを下げるほど時間が前へ進む。
+
+一覧の流儀に揃えて新しい順にもできるが、**それは「年表」ではない。**
+年表は「はじまりから今へ」読むもので、最初に目に入るべきは
+「botたんと関わりはじめた日」「Nagi にやってきた日」のほう。ここは実装の都合
+（既存の無限スクロールが下へ伸びること、1ページ目を「今年」から始められること）より、
+読み物としての向きを優先している。
+
+`cursor = "2025"` は「次は2025年ぶんを返す」で、**進む先はより新しい年**。
+
+- 年表は年見出しでまとまるので、**ページ境界と見出し境界が一致する**
+  （日付カーソルだと1年が2ページに割れて見出しが重複する）
+- 同じ日に複数イベントが載るので、日付カーソルだと `"日付|ID"` の複合キーが要る
+- `hasMore` は「今年まで来たか」だけで済み、無限スクロールが自然に終わる
+
+**1ページ目の年を決めるのに起点が要る**ので、`loadFirsts` だけ先に引いてから残りを並列で投げる
+（新しい順なら「今年」から始められるので、この1往復は要らなかった）。
+引いているのは索引付きの MIN が数本だけ。
+
+`limit` は1年が想定外に膨らんだときの**安全弁**。将来1年の件数が有界でなくなったら
+複合カーソルへ移すこと。
+
+**今の節目を見るのに全部スクロールすることになったら**、年の見出しへ飛ぶアンカーか
+「今へ」のボタンを足すこと。並びを新しい順へ戻して解決しないこと（上の理由が消えるわけではない）。
+
+## 9. 日付の物差し
+
+timestamptz のイベントは全部 `cardDrawDate()`（**JST 4:00 始まり**）で `"YYYY-MM-DD"` に直す。
+カード図鑑の境界と年表の境界がずれると「元旦カードが大晦日の欄に出る」。
+`apps/nagi_appview/test/chronicle.test.ts` が回帰テストを持っている。
+
+日付列を text の `"YYYY-MM-DD"` で持つのは、AGENTS.md の
+「raw SQL へ `Date` を補間しない」方針に揃えるため（`diaries.diary_date` と同じ）。
+
+## 10. 演出
+
+**要素の基底状態を `opacity: 0` にしてはいけない。**
+`base.css` の `prefers-reduced-motion` が全要素へ `animation: none !important` を当てるので、
+基底が透明だと演出を切っている人には**永久に見えない**。
+`opacity: 0` は `@keyframes chronicle-rise` の `from` の中にだけ書き、
+`IntersectionObserver` の起動自体を `matchMedia` で塞ぐ（`.feed-entering` と同じ約束）。
+
+`/dev/chronicle` で、API も DB も無しで演出だけ確認できる。
+
+## 11. バックフィル
+
+`pnpm --filter nagi-bot-server chronicle:backfill`。既定は preview で**何も書かない**。
+`--apply` でも `nagi.chronicle_jobs` に積むだけで、生成はワーカーが毎分1件ずつ消化する。
+
+**スクリプトから直接 Ollama を叩かないこと。** `startWorkerLoop` の直列性を迂回して、
+同じ Ollama を共用している別アプリまで巻き込む（AGENTS.md の 2026-09-02 の実測）。
+リース・バックオフ・再起動耐性も、ワーカーに任せればそのまま手に入る。
+
+## 12. まだやっていないこと
+
+- **ゼンカツのトロフィーとコンボ初発見。** `nagi.zenkatsu_trophies` と
+  `nagi.zenkatsu_combo_discoveries` は揃っている。`chronicle_events.kind` を enum ではなく
+  text にしてあるので、`kind` を足して `getChronicle` のマージに1本クエリを増やすだけで済む
+- **共有・OG画像。** 年表は日記本文の抜粋を含みうるので、外へ出す導線は別途設計が要る

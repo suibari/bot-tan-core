@@ -51,6 +51,8 @@ export const NAGI = {
   searchEmojis: "com.suibari.nagi.searchEmojis",
   getEmoji: "com.suibari.nagi.getEmoji",
   getDiaries: "com.suibari.nagi.getDiaries",
+  /** 自分年表。日記と同じく本人だけが読む（他人には件数も日付も返さない）。 */
+  getChronicle: "com.suibari.nagi.getChronicle",
   getPositiveNews: "com.suibari.nagi.getPositiveNews",
   getNewsSubmissionPreview: "com.suibari.nagi.getNewsSubmissionPreview",
   requestNewsReview: "com.suibari.nagi.requestNewsReview",

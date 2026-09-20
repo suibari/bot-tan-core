@@ -1688,3 +1688,150 @@ export const nagiZenkatsuAwardJobs = nagiSchema.table(
   },
   (t) => [index("nagi_zenkatsu_award_jobs_ready_idx").on(t.state, t.nextAttemptAt)],
 );
+
+/**
+ * 自分年表（Chronicle）のうち、**LLM が書いたものだけ**を持つ。
+ *
+ * 記念日カード・「はじめて」の記録・Nagi にやってきた日・botたんと出会った日・
+ * 本人が反応したニュースは、ここには入れない。あれらは card_instances / diaries /
+ * profiles / followers / reactions / bookmarks が権威で、コピーを作ると
+ * 「カードを交換して owner_did が動いた」「過去の日記をバックフィルして MIN が動いた」
+ * ときに年表だけが古い事実を表示し続ける。getChronicle が読み取り時に合流させる。
+ *
+ * 逆に LLM の出力だけは再現不可能でコストも乗るので、必ず行にする。
+ *
+ * **月ごと丸ごと置換できる形にしてある。** dedupe_key は月内で閉じた鍵
+ * （'llm:2026-08:0' / 'news:2026-08'）で、書き終わりに source_month が同じで
+ * 今回の鍵に無い行を消す。UNIQUE だけだと「前回3件・今回1件」で余りが残る。
+ */
+export const nagiChronicleEvents = nagiSchema.table(
+  "chronicle_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    subjectDid: text("subject_did").notNull(),
+    /**
+     * 年表に並ぶ日付。ユーザーのローカル日付 "YYYY-MM-DD"。
+     * diaries.diary_date と同じく text で持つ（AGENTS.md の Date 補間問題を避ける方針）。
+     */
+    eventDate: text("event_date").notNull(),
+    /**
+     * 'highlight'（日記から抜いた大きな出来事）/ 'news_context'（そのころ世の中では）。
+     * enum にしないのは、種別を足すたびに ALTER TYPE を挟みたくないため
+     * （card_gets.source と同じ割り切り）。将来ゼンカツのトロフィーを足すのもこれで済む。
+     */
+    kind: text("kind").notNull(),
+    /** どの月のロールアップが作ったか。"YYYY-MM"。 */
+    sourceMonth: text("source_month").notNull(),
+    /** 月内で閉じた置換キー。 */
+    dedupeKey: text("dedupe_key").notNull(),
+    titleJa: text("title_ja").notNull(),
+    titleEn: text("title_en").notNull(),
+    detailJa: text("detail_ja"),
+    detailEn: text("detail_en"),
+    /**
+     * 選んだ日記から一字も変えずに抜いた12字以上の逐語抜粋。**表示しない。**
+     * 取り込み時に diary.includes(evidence) を検証して幻覚を落とすためのもので、
+     * 行に残すのは後からプロンプトを変えたときに突き合わせられるようにするため。
+     */
+    evidence: text("evidence"),
+    /** highlight の由来。UI は /diary?date= へ飛ばす。 */
+    diaryUri: text("diary_uri"),
+    /** news_context の由来。 */
+    newsUri: text("news_uri"),
+    model: text("model"),
+    promptVersion: text("prompt_version"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    // 同じ月を作り直しても増えない。
+    uniqueIndex("nagi_chronicle_events_dedupe_idx").on(t.subjectDid, t.dedupeKey),
+    // 年表は年チャンクで引く。
+    index("nagi_chronicle_events_timeline_idx").on(t.subjectDid, t.eventDate),
+    // 月ごとの置換（source_month で消す）が乗る。
+    index("nagi_chronicle_events_month_idx").on(t.subjectDid, t.sourceMonth),
+  ],
+);
+
+/**
+ * 月次ロールアップのリースキュー（zenkatsu_comment_jobs と同型）。
+ *
+ * 「日記はあるが chronicle_events が無い (did, month)」を毎 tick 導出する方式にしないのは、
+ * **失敗の記憶が無い**から。常に失敗する月ができると、それを毎分 Ollama へ投げ続ける。
+ *
+ * diary_count はエンキュー時点の日記件数。現在件数と食い違ったら pending へ戻して
+ * 月ごと作り直す（遅れて入った日記の回収を、タイムゾーンの厳密計算ではなく
+ * 「再実行が安全であること」で担保する）。
+ */
+export const nagiChronicleJobs = nagiSchema.table(
+  "chronicle_jobs",
+  {
+    subjectDid: text("subject_did").notNull(),
+    /** 対象月。"YYYY-MM"。 */
+    month: text("month").notNull(),
+    diaryCount: integer("diary_count").notNull(),
+    state: botJobState("state").default("pending").notNull(),
+    attempts: integer("attempts").default(0).notNull(),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.subjectDid, t.month] }),
+    index("nagi_chronicle_jobs_ready_idx").on(t.state, t.nextAttemptAt),
+  ],
+);
+
+/**
+ * 年表の「そのころ世の中では」。**月ごとに1行で、全ユーザー共通。**
+ *
+ * 利用者ごとに持たない。これは「その月に世の中で何があったか」であって、その人に
+ * 関係のある話ではないので、同じ事実を人数分複製する理由が無い。LLM の呼び出しも
+ * 【人数 × 月】ではなく【月】だけで済む。
+ *
+ * **この表そのものがジョブでもある。** 月は高々12行/年しか増えないので、別のジョブ表を
+ * 立てずに state と再試行をここに持たせている。
+ * `news_uri` が NULL のまま state='posted' なら「その月は選ばなかった」＝正常。
+ */
+export const nagiChronicleNews = nagiSchema.table(
+  "chronicle_news",
+  {
+    /** 対象月。"YYYY-MM"。 */
+    month: text("month").primaryKey(),
+    /** 選んだニュース。NULL は「選ばなかった」。 */
+    newsUri: text("news_uri"),
+    /** 年表に出す見出し。ニュース本体の見出しとは別に botたんが書く。 */
+    titleJa: text("title_ja"),
+    titleEn: text("title_en"),
+    /** 候補に出した件数。あとから「選択肢が薄かった月」を見分けられるように残す。 */
+    candidateCount: integer("candidate_count").default(0).notNull(),
+    state: botJobState("state").default("pending").notNull(),
+    attempts: integer("attempts").default(0).notNull(),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    lastError: text("last_error"),
+    model: text("model"),
+    promptVersion: text("prompt_version"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [index("nagi_chronicle_news_ready_idx").on(t.state, t.nextAttemptAt)],
+);
