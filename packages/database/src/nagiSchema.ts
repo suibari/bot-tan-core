@@ -1805,6 +1805,10 @@ export const nagiChronicleJobs = nagiSchema.table(
  * **この表そのものがジョブでもある。** 月は高々12行/年しか増えないので、別のジョブ表を
  * 立てずに state と再試行をここに持たせている。
  * `news_uri` が NULL のまま state='posted' なら「その月は選ばなかった」＝正常。
+ *
+ * **見出しは持たない。** 年表には記事の原題をそのまま出すので、ここが持つのは
+ * 「どれを選んだか」だけ。botたんの言い換えを焼き付けると、記事が編集されたときに
+ * ずれるし、言い換えの揺れや字数超過の問題も抱え込むことになる。
  */
 export const nagiChronicleNews = nagiSchema.table(
   "chronicle_news",
@@ -1813,9 +1817,6 @@ export const nagiChronicleNews = nagiSchema.table(
     month: text("month").primaryKey(),
     /** 選んだニュース。NULL は「選ばなかった」。 */
     newsUri: text("news_uri"),
-    /** 年表に出す見出し。ニュース本体の見出しとは別に botたんが書く。 */
-    titleJa: text("title_ja"),
-    titleEn: text("title_en"),
     /** 候補に出した件数。あとから「選択肢が薄かった月」を見分けられるように残す。 */
     candidateCount: integer("candidate_count").default(0).notNull(),
     state: botJobState("state").default("pending").notNull(),
