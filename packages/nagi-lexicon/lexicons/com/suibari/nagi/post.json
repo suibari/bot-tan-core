@@ -22,6 +22,10 @@
           "labels": { "type": "ref", "ref": "com.atproto.label.defs#selfLabels" },
           "createdAt": { "type": "string", "format": "datetime" },
           "cwRestricted": { "type": "boolean" },
+          "article": {
+            "type": "boolean",
+            "description": "ブログとして書かれた投稿。本文先頭の見出しをタイトル、1枚目の画像をヘッダーとして記事の体裁で表示してよい、という印。"
+          },
           "kossori": { "type": "boolean" },
           "botSilent": { "type": "boolean" },
           "silentReply": {

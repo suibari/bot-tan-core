@@ -296,6 +296,8 @@ export function validateRecord(
       typeof value.cwRestricted !== "boolean"
     )
       return false;
+    if (value.article !== undefined && typeof value.article !== "boolean")
+      return false;
     if (value.channel !== undefined && !ref(value.channel)) return false;
     if (value.reply && (!ref(value.reply.root) || !ref(value.reply.parent)))
       return false;
