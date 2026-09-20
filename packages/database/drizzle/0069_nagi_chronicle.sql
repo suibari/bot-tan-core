@@ -88,3 +88,9 @@ CREATE TABLE IF NOT EXISTS "nagi"."chronicle_news" (
 
 CREATE INDEX IF NOT EXISTS "nagi_chronicle_news_ready_idx"
   ON "nagi"."chronicle_news" ("state", "next_attempt_at");
+
+-- 年表に出すニュースの見出しは、botたんの言い換えではなく**記事の原題**を使うことにした。
+-- 言い換えを焼き付けると、記事が編集されたときにずれるうえ、字数超過や言い回しの揺れも
+-- 抱え込む。chronicle_news が持つのは「どれを選んだか」（news_uri）だけでよい。
+ALTER TABLE "nagi"."chronicle_news" DROP COLUMN IF EXISTS "title_ja";
+ALTER TABLE "nagi"."chronicle_news" DROP COLUMN IF EXISTS "title_en";

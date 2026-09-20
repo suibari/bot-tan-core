@@ -346,8 +346,7 @@ async function loadMonthlyNews(
         kind: "news_context" as const,
         // その月の出来事なので月末に置く。
         date: monthEndOf(row.month),
-        ...(row.titleJa ? { titleJa: row.titleJa } : {}),
-        ...(row.titleEn ? { titleEn: row.titleEn } : {}),
+        // **見出しは付けない。** 表示側が news.title（記事の原題）をそのまま出す。
       },
       newsUri: row.newsUri!,
     })),

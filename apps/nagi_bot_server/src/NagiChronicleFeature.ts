@@ -125,8 +125,6 @@ export async function processChronicleNews(month: string): Promise<{
     .values({
       month,
       newsUri: picked ? uris[result.index!] : null,
-      titleJa: picked ? result.titleJa! : null,
-      titleEn: picked ? result.titleEn! : null,
       candidateCount: candidates.length,
       state: "posted",
       leaseExpiresAt: null,
@@ -137,8 +135,6 @@ export async function processChronicleNews(month: string): Promise<{
       target: nagiChronicleNews.month,
       set: {
         newsUri: sql`excluded.news_uri`,
-        titleJa: sql`excluded.title_ja`,
-        titleEn: sql`excluded.title_en`,
         candidateCount: sql`excluded.candidate_count`,
         state: sql`excluded.state`,
         leaseExpiresAt: null,
@@ -148,7 +144,7 @@ export async function processChronicleNews(month: string): Promise<{
       },
     });
   console.log(
-    `[INFO][NAGI][CHRONICLE][NEWS] ${month}: ${picked ? `picked "${result.titleJa}"` : "no pick"} from ${candidates.length} candidate(s)`,
+    `[INFO][NAGI][CHRONICLE][NEWS] ${month}: ${picked ? `picked #${result.index} ${candidates[result.index!].title}` : "no pick"} from ${candidates.length} candidate(s)`,
   );
   return { picked, candidateCount: candidates.length };
 }

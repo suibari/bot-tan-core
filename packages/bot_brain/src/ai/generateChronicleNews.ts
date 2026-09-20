@@ -1,10 +1,6 @@
 import { Type } from "@google/genai";
-import {
-  SYSTEM_INSTRUCTION,
-  TONE_RULES_JA,
-} from "@bsky-affirmative-bot/shared-configs";
+import { SYSTEM_INSTRUCTION } from "@bsky-affirmative-bot/shared-configs";
 import { generateContentWithRetry } from "./util.js";
-import { rejectChronicleTone } from "./generateChronicleMonth.js";
 
 /**
  * 年表の「そのころ世の中では」を、**その月に1件だけ**選ぶ。
@@ -13,14 +9,14 @@ import { rejectChronicleTone } from "./generateChronicleMonth.js";
  * **利用者の話とは関係なくてよい。** これは「その月に世の中で何があったか」を年表の
  * 背景として置くもので、その人の日記と響き合う必要はない。
  * したがって呼び出しは【人数 × 月】ではなく【月】だけで、結果は全員で共用する。
+ *
+ * **モデルがやるのは「選ぶ」ことだけ。見出しは書かせない。**
+ * 年表に出すのは記事の原題そのもので、botたんの言い換えではない。こうすると
+ * 言い換えによる揺れも、字数超過も、事実のねじれも起きようがない。
  */
 
 /** v1: 初版。 */
 export const NAGI_CHRONICLE_NEWS_PROMPT_VERSION = "nagi-chronicle-news-v1";
-
-// プロンプトに書く目安。**サーバでは切らない**（切った跡を年表に残さないため）。
-export const CHRONICLE_NEWS_TITLE_MAX_JA = 24;
-export const CHRONICLE_NEWS_TITLE_MAX_EN = 48;
 
 /**
  * 候補の上限。
@@ -47,15 +43,7 @@ export interface ChronicleNewsInput {
 export interface ChronicleNewsResult {
   /** 選んだ候補の添字。選ばなかったときは undefined。 */
   index?: number;
-  titleJa?: string;
-  titleEn?: string;
 }
-
-/** 前後の空白と改行だけ整える。**長さは切らない。** */
-const text = (value: unknown): string =>
-  String(value ?? "")
-    .trim()
-    .replace(/\s+/g, " ");
 
 /** 指示ブロック。SYSTEM_INSTRUCTION に続けて systemInstruction へ入れる。 */
 export function buildChronicleNewsInstruction(month: string): string {
@@ -76,12 +64,9 @@ ${month} の年表に「そのころ世の中では」として並べる出来�
   完璧な1件でなくて構いません。どうしても年表に残すに値する出来事が無い月だけ、
   index に ${CHRONICLE_NEWS_SKIP} を返してください。
 
-# 書き方
-* 見出しは候補の内容から外れないこと。**候補に書かれていないことを足さない。**
-* 日本語 ${CHRONICLE_NEWS_TITLE_MAX_JA} 字以内、英語 ${CHRONICLE_NEWS_TITLE_MAX_EN} 字以内。
-  目安なので多少超えても構いませんが、**文の途中で終わらせないこと。**
-* **URL や日付を自分で書かないこと。**
-${TONE_RULES_JA}`;
+# 出力
+* 選ぶだけです。**見出しは書きません**（年表には記事の原題をそのまま出します）。
+* 番号だけ返してください。`;
 }
 
 /** 候補ブロック。指示は混ぜない（fitOllamaMessages が末尾を残して切るため）。 */
@@ -95,7 +80,7 @@ export function buildChronicleNewsMaterial(input: ChronicleNewsInput): string {
 /**
  * 候補の添字でしか選べないようにする。見出しも URL も自由記述させない。
  *
- * **3つとも required にして、棄権は -1 という明示的な選択にしてある。**
+ * **index を required にして、棄権は -1 という明示的な選択にしてある。**
  * 以前は `required: []` で「キーごと省けば棄権」にしていたが、それだと `{}` が
  * 文法上いちばん短い正解になり、実測で**どの月も必ず棄権した**（本番の7月・8月とも）。
  * 選ばせたいなら、選ばないほうに逃げ道を作らないこと。
@@ -113,17 +98,9 @@ export function chronicleNewsSchema(candidateCount: number) {
         description:
           `年表に並べる出来事の番号。どうしても残すほどの出来事が無い月だけ ${CHRONICLE_NEWS_SKIP} を返す。`,
       },
-      titleJa: {
-        type: Type.STRING,
-        description: `年表に出す日本語の見出し（${CHRONICLE_NEWS_TITLE_MAX_JA}字以内）。`,
-      },
-      titleEn: {
-        type: Type.STRING,
-        description: `titleJa と同じ内容の自然な英語（${CHRONICLE_NEWS_TITLE_MAX_EN}字以内）。`,
-      },
     },
-    required: ["index", "titleJa", "titleEn"],
-    propertyOrdering: ["index", "titleJa", "titleEn"],
+    required: ["index"],
+    propertyOrdering: ["index"],
   };
 }
 
@@ -135,19 +112,9 @@ export function acceptChronicleNews(
   const raw = (json ?? {}) as Record<string, unknown>;
   const index = Number(raw.index);
   if (index === CHRONICLE_NEWS_SKIP) return {};
-  const titleJa = text(raw.titleJa);
-  const titleEn = text(raw.titleEn);
-  if (
-    !Number.isInteger(index) ||
-    index < 0 ||
-    index >= input.candidates.length ||
-    !titleJa ||
-    !titleEn ||
-    rejectChronicleTone(titleJa) ||
-    rejectChronicleTone(titleEn)
-  )
+  if (!Number.isInteger(index) || index < 0 || index >= input.candidates.length)
     return {};
-  return { index, titleJa, titleEn };
+  return { index };
 }
 
 export async function generateChronicleNews(
@@ -164,8 +131,8 @@ export async function generateChronicleNews(
         systemInstruction: `${SYSTEM_INSTRUCTION}\n${buildChronicleNewsInstruction(input.month)}`,
         responseMimeType: "application/json",
         responseSchema: chronicleNewsSchema(input.candidates.length),
-        // 番号と短い見出し2本だけ。
-        maxOutputTokens: 512,
+        // 番号ひとつだけ。
+        maxOutputTokens: 64,
         temperature: 0.4,
       },
     },

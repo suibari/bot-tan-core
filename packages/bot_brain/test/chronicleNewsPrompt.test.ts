@@ -41,34 +41,22 @@ test("選べるのは候補の添字だけ。棄権は明示的な -1", () => {
   assert.equal(schema.properties.index.minimum, CHRONICLE_NEWS_SKIP);
   assert.equal(schema.properties.index.maximum, 2);
   /*
-   * **3つとも required。** 以前は required: [] で「キーを省けば棄権」にしていたが、
+   * **index は required。** 以前は required: [] で「キーを省けば棄権」にしていたが、
    * それだと {} が文法上いちばん短い正解になり、本番の7月・8月とも必ず棄権した。
    * 選ばせたいなら、選ばないほうを楽にしないこと。
    */
-  assert.deepEqual(schema.required, ["index", "titleJa", "titleEn"]);
+  assert.deepEqual(schema.required, ["index"]);
+  // 見出しのフィールド自体が無い。年表には記事の原題をそのまま出す。
+  assert.equal(schema.properties.titleJa, undefined);
 });
 
 test("index が -1 なら棄権として扱う", () => {
-  assert.deepEqual(
-    acceptChronicleNews(input, { index: CHRONICLE_NEWS_SKIP, titleJa: "あ", titleEn: "a" }),
-    {},
-  );
+  assert.deepEqual(acceptChronicleNews(input, { index: CHRONICLE_NEWS_SKIP }), {});
 });
 
-test("範囲外・空・トーン違反は選ばなかったことにする", () => {
-  const ok = { index: 1, titleJa: "写ルンです再燃", titleEn: "Film cameras are back" };
-  assert.deepEqual(acceptChronicleNews(input, ok), {
-    index: 1,
-    titleJa: "写ルンです再燃",
-    titleEn: "Film cameras are back",
-  });
-  for (const bad of [
-    {},
-    { ...ok, index: 3 },
-    { ...ok, index: -1 },
-    { ...ok, titleJa: "" },
-    { ...ok, titleJa: "3か月連続で話題" },
-  ])
+test("範囲外は選ばなかったことにする", () => {
+  assert.deepEqual(acceptChronicleNews(input, { index: 1 }), { index: 1 });
+  for (const bad of [{}, { index: 3 }, { index: -1 }, { index: 1.5 }])
     assert.deepEqual(acceptChronicleNews(input, bad), {}, JSON.stringify(bad));
 });
 
