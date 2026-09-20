@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { aiModel } from "@bsky-affirmative-bot/shared-configs";
+import { aiModel, botDayRange } from "@bsky-affirmative-bot/shared-configs";
 import {
   and,
   desc,
@@ -231,6 +231,30 @@ export interface DailyPlanMemoryImpression extends BotMemoryImpressionInput {
   source: "bsky" | "nagi" | "youtube";
   occurredAt: Date;
 }
+
+/**
+ * おやすみポスト用。その bot 日に会話で覚えた固有名と、どう知ったか。
+ *
+ * daily plan 用（getDailyPlanMemoryImpressions）と違い、クールダウンも使用済み印も
+ * 見ない。「今日みんなから教えてもらった言葉」は、予定表で使ったかどうかと無関係に
+ * その日のおやすみで触れてよいため。
+ */
+export interface TodaysLearnedWork {
+  label: string;
+  relation: BotMemoryImpressionRelation;
+  /** 元になった会話の印象度 0-100。閾値未満と未評価は返さないので必ず数値。 */
+  salience: number;
+  occurredAt: Date;
+}
+
+/**
+ * 「今日覚えた言葉」として口に出す下限の印象度。
+ *
+ * 抽出プロンプト（buildBotMemoryImpressionPrompt）の帯そのまま。40 未満は
+ * 「挨拶、相槌、事実の共有、その場限りのやりとり」なので、おやすみで名前を出しても
+ * 誰の記憶にも引っかからない。未評価（null）も同じ扱いで落とす。
+ */
+export const LEARNED_WORK_MIN_SALIENCE = 40;
 
 /** bot-tan.com で公開する、最近の会話から抽出された話題と任意の読み。 */
 export interface RecentBotMemoryImpression {
@@ -705,6 +729,86 @@ export async function getDailyPlanMemoryImpressions(
     label: row.label,
     relation: row.relation as BotMemoryImpressionRelation,
     source: impressionSource(row.sourceType),
+    occurredAt: row.occurredAt,
+  }));
+}
+
+/**
+ * おやすみポスト用。その bot 日（JST 4:00 始まり）の公開会話から抽出された固有名を、
+ * label 単位に畳んで**印象度の高い順**で返す。
+ *
+ * **kind='work' だけを引く。** kind='word' は「会話の中心になった印象的な言葉」の枠だが、
+ * 実データでは会話の断片がそのまま入る（本番 2026-09-20: word 72件 / work 26件、
+ * word 側は「ありがとなんだな」「買えた。嬉しい」「明日の方がヤバい」など）。
+ * 「今日みんなから◯◯を教えてもらったよ」に並べると、教わった言葉に見えない。
+ * word 側の質は抽出プロンプト（BIORHYTHM_MEMORY_IMPRESSIONS）の問題なので、
+ * そちらが直るまではこの経路では使わない。
+ *
+ * **絞り込みは SQL 側で行う。** 件数上限は新しい順に効くので、呼び出し側で kind を
+ * 落とすと、数で勝る word に押し出されてその日の work が1件も残らない日が出る。
+ *
+ * **並びは印象度（salience）で、会話の新しさではない。** 新しい順にすると「たまたま
+ * 22時台に話題へ出た」だけの語が上位を占める。本番 2026-09-20 では、その日いちばん
+ * 印象度の高かった「MGSDデスティニー」（85・17:20）が、65 の語ふたつ（22:15）に
+ * 押し出されて limit から漏れていた。印象度は「後日その人に会ったとき、この会話に
+ * 触れられたら嬉しいか」で付いているので、おやすみで触れる語の順序そのもの。
+ *
+ * **日付の絞り込みは occurred_at（会話の時刻）で行う。** 抽出は非同期ワーカーが
+ * 5〜10分おきに回しているので、抽出時刻で切ると「23時の会話ぶんだけ間に合わない」
+ * ではなく「昨日の会話が今日の分として出る」が起きる。
+ *
+ * getDailyPlanMemoryImpressions と同じく、抽出後にこっそりへ変わった文書と、
+ * 本文が編集されて scan のハッシュが合わなくなった行は除く。
+ */
+export async function getTodaysLearnedWorks(
+  now = new Date(),
+  limit = 5,
+): Promise<TodaysLearnedWork[]> {
+  const range = botDayRange(now);
+  const labelKey = sql`lower(${bot_memory_impressions.label})`;
+  // desc() だけでは Postgres の既定（DESC = NULLS FIRST）で未評価が先頭に来る。
+  const salienceOrder = sql`${bot_memory_documents.salience} desc nulls last`;
+  const unique = db
+    .selectDistinctOn([labelKey], {
+      label: bot_memory_impressions.label,
+      relation: bot_memory_impressions.relation,
+      salience: bot_memory_documents.salience,
+      occurredAt: bot_memory_documents.occurred_at,
+    })
+    .from(bot_memory_impressions)
+    .innerJoin(
+      bot_memory_documents,
+      eq(bot_memory_documents.id, bot_memory_impressions.document_id),
+    )
+    .innerJoin(
+      bot_memory_impression_scans,
+      eq(bot_memory_impression_scans.document_id, bot_memory_documents.id),
+    )
+    .where(and(
+      eq(bot_memory_impressions.kind, "work"),
+      gte(bot_memory_documents.salience, LEARNED_WORK_MIN_SALIENCE),
+      isNull(bot_memory_documents.deleted_at),
+      eq(bot_memory_documents.visibility, "public"),
+      inArray(bot_memory_documents.source_type, IMPRESSION_SOURCE_TYPES),
+      eq(bot_memory_impression_scans.content_hash, bot_memory_documents.content_hash),
+      gte(bot_memory_documents.occurred_at, range.start),
+      lt(bot_memory_documents.occurred_at, range.end),
+    ))
+    // DISTINCT ON は先頭が畳む式でないと通らない。同じ語が何度も出た日は、
+    // いちばん印象の強かったときを代表にする（同点なら新しい方）。
+    .orderBy(labelKey, salienceOrder, desc(bot_memory_documents.occurred_at))
+    .as("todays_learned_works");
+
+  const rows = await db
+    .select()
+    .from(unique)
+    .orderBy(sql`${unique.salience} desc`, desc(unique.occurredAt))
+    .limit(Math.max(1, Math.min(20, limit)));
+  return rows.map((row) => ({
+    label: row.label,
+    relation: row.relation as BotMemoryImpressionRelation,
+    // 閾値で null を除いてあるので、ここに未評価は来ない。
+    salience: row.salience ?? LEARNED_WORK_MIN_SALIENCE,
     occurredAt: row.occurredAt,
   }));
 }

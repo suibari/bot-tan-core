@@ -22,6 +22,7 @@ import {
 import {
   claimDailyDrawing,
   drawingDay,
+  getTodaysLearnedWorks,
   recordBotMemoryUsages,
   releaseDailyDrawing,
 } from "@bsky-affirmative-bot/database";
@@ -32,7 +33,11 @@ import {
 import { fetchDisplayName } from "./displayName.js";
 import { jstDateString as jstDate } from "./jstDate.js";
 import { getRecentNewsArticleIds, recordRecentNewsArticle } from "./whimsicalPostNewsHistory.js";
-import { buildGoodNightPostTexts, buildWhimsicalPostTexts } from "./scheduledPostContent.js";
+import {
+  buildGoodNightPostTexts,
+  buildWhimsicalPostTexts,
+  selectGoodNightLearnedTerms,
+} from "./scheduledPostContent.js";
 import {
   buildBotMemoryTopicQuery,
   retrieveBotMemoryTopics,
@@ -363,6 +368,15 @@ export async function postGoodNight(currentMood: string, botContext?: BotContext
         })))
       : undefined;
 
+    // 今日みんなから教えてもらった言葉。抽出ワーカーが追いついていない日や、
+    // 会話が静かな日は0件になる。その日は触れずに済ませる（無理に埋めない）。
+    const learnedTerms = selectGoodNightLearnedTerms(
+      await getTodaysLearnedWorks().catch((error) => {
+        console.error("[ERROR][BIO] Failed to load today's learned works:", error);
+        return [];
+      }),
+    );
+
     // 日英の片方でも欠けたら投稿しない。textEn が空のまま通すと Nagi 側へ英訳が
     // seed されず、日英が分かれないまま公開されてしまう（2026-09-05 の事故）。
     // postWhimsical と同じく、3回とも駄目ならその日のおやすみポストは出さない。
@@ -374,6 +388,7 @@ export async function postGoodNight(currentMood: string, botContext?: BotContext
         currentMood,
         followerMilestone,
         giftCandidates,
+        learnedTerms: learnedTerms.length > 0 ? learnedTerms : undefined,
         botContext,
       });
       if (!result.textJa || !result.textEn) {

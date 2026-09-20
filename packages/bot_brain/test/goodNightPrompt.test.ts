@@ -49,6 +49,34 @@ test("botContext があれば今日の記憶を、無ければ何も足さない
   );
 });
 
+test("今日覚えた言葉があれば候補と言い回しを渡し、無ければ何も足さない", () => {
+  const prompt = buildGoodNightPrompt({
+    ...base,
+    topPostNetwork: "bsky",
+    learnedTerms: [
+      { label: "葬送のフリーレン", relation: "recommended" },
+      { label: "ぬい活", relation: "liked" },
+    ],
+  });
+
+  assert.match(prompt, /今日はみんなから〇〇と〇〇を教えてもらったよ/);
+  assert.match(prompt, /「葬送のフリーレン」（おすすめされた）/);
+  assert.match(prompt, /「ぬい活」（好きだと聞いた）/);
+  // 知ったばかりの言葉なので、説明も候補外の補完もさせない。
+  assert.match(prompt, /候補に無い言葉を足したり、表記を変えたり/);
+  // 教えてくれた人は「みんな」に畳む。
+  assert.match(prompt, /名前・投稿内容・URLは書かず/);
+
+  assert.doesNotMatch(
+    buildGoodNightPrompt({ ...base, topPostNetwork: "bsky" }),
+    /今日覚えた言葉/,
+  );
+  assert.doesNotMatch(
+    buildGoodNightPrompt({ ...base, topPostNetwork: "bsky", learnedTerms: [] }),
+    /今日覚えた言葉/,
+  );
+});
+
 test("片方の言語に両方を詰めないようプロンプトで明示する", () => {
   const prompt = buildGoodNightPrompt({ ...base, topPostNetwork: "bsky" });
 
