@@ -24,9 +24,8 @@ import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 /**
  * 前日ぶんのトロフィーを確定する。
  *
- * **賞は1つにしない。** 毎日1人だけにすると大多数が「取れなかった」を日次で積み上げることに
- * なり、全肯定と正面から衝突する。切り口を6つに分け、そのうち5つは決定論で、
- * 最後の「botたん賞」だけを botたん が選ぶ（docs/zenkatsu.md）。
+ * 6種類の賞のうち5つを決定論で、最後の「今日のナギカツ部長」を botたん が選ぶ。
+ * 保存する kind は旧データと同じ値のままなので、過去の受賞履歴も引き続き読める。
  *
  * 決定論のぶんの材料は提出時に計算済み（score / reading / combos）なので、
  * ここで数え直すことはしない。
@@ -151,9 +150,10 @@ export async function runNagiZenkatsuAward(themeDate: string): Promise<void> {
       )
       .onConflictDoNothing();
 
-  // botたん賞。候補が1人しか居ない日は選ばせる意味が無いので、そのまま贈る。
+  // 今日のナギカツ部長。候補が1人しか居ない日は選ばせず、そのまま贈る。
   const shortlist = shortlistForBotan(candidates);
-  if (!shortlist.length || !theme) return;
+  if (!shortlist.length) return;
+  if (!theme) throw new Error(`zenkatsu award: theme for ${themeDate} is missing`);
 
   const names = await db
     .select({ did: nagiProfiles.did, displayName: nagiProfiles.displayName })

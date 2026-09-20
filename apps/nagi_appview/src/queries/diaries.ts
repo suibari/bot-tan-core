@@ -23,6 +23,7 @@ import {
 import { alias } from "drizzle-orm/pg-core";
 import { ApiError } from "../middleware/errors.js";
 import { config } from "../config.js";
+import { getZenkatsuChiefDids } from "./zenkatsu.js";
 
 type DiaryRow = typeof nagiDiaries.$inferSelect;
 type DiaryInteractionEvent = { targetDid: string; eventAt: Date };
@@ -181,11 +182,13 @@ async function loadDiaryInteractions(
 async function loadActorViews(dids: string[]): Promise<Map<string, ActorView>> {
   const unique = [...new Set(dids)];
   if (!unique.length) return new Map();
-  const rows = await db
-    .select({ actor: nagiActors, profile: nagiProfiles })
-    .from(nagiActors)
-    .leftJoin(nagiProfiles, eq(nagiProfiles.did, nagiActors.did))
-    .where(inArray(nagiActors.did, unique));
+  const [rows, chiefs] = await Promise.all([
+    db.select({ actor: nagiActors, profile: nagiProfiles })
+      .from(nagiActors)
+      .leftJoin(nagiProfiles, eq(nagiProfiles.did, nagiActors.did))
+      .where(inArray(nagiActors.did, unique)),
+    getZenkatsuChiefDids(unique),
+  ]);
   return new Map(
     rows.map(({ actor, profile }) => [
       actor.did,
@@ -197,6 +200,7 @@ async function loadActorViews(dids: string[]): Promise<Map<string, ActorView>> {
           ? `/api/blob/${encodeURIComponent(actor.did)}/${profile.avatarCid}`
           : undefined,
         isBot: actor.did === config.botDid,
+        ...(chiefs.has(actor.did) ? { zenkatsuChief: true } : {}),
       },
     ]),
   );
