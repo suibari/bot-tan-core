@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { CARD_DEFS } from "@bsky-affirmative-bot/shared-configs";
-import { buildZenkatsuCommentPrompt } from "../src/ai/generateZenkatsuComment.js";
+import {
+  buildZenkatsuCommentPrompt,
+  normalizeZenkatsuCommentCardNames,
+} from "../src/ai/generateZenkatsuComment.js";
 
 const input = {
   displayName: "すいばり",
@@ -78,6 +81,30 @@ test("カードの英語名も渡す（英語出力で別言語が混ざるの�
     assert.ok(prompt.includes(card.nameJa), card.nameJa);
     assert.ok(prompt.includes(card.nameEn), card.nameEn);
   }
-  assert.match(prompt, /英語名をそのまま使ってください。自分で訳さないこと/);
+  assert.match(prompt, /下に書いてある英語名をそのまま使ってください。自分で訳さないこと/);
   assert.match(prompt, /commentEn は全体を英語だけで書いてください/);
+  assert.match(prompt, /日本語名をそのまま使ってください。英語名を混ぜないこと/);
+});
+
+test("保存前に日本語総評の英語カード名と英語総評の日本語カード名を揃える", () => {
+  const cards = CARD_DEFS.filter((card) =>
+    ["One Who Never Let Go", "Morpho, the Butterfly of Happiness", "Missionary of Total Affirmation"]
+      .includes(card.nameEn));
+  assert.equal(cards.length, 3);
+  const result = normalizeZenkatsuCommentCardNames({
+    commentJa: "One Who Never Let Go と Morpho, the Butterfly of Happiness を選んだのがいいね。Missionary of Total Affirmationまで添えるなんて！",
+    commentEn: "好きを貫く者 and 全肯定の伝道師 make a great pair.",
+  }, cards);
+  assert.equal(result.commentJa, "好きを貫く者 と 幸せのモルフォ蝶 を選んだのがいいね。全肯定の伝道師まで添えるなんて！");
+  assert.equal(result.commentEn, "One Who Never Let Go and Missionary of Total Affirmation make a great pair.");
+});
+
+test("提出していない札と英単語の一部は置き換えない", () => {
+  const card = CARD_DEFS.find((item) => item.nameEn === "One Who Never Let Go");
+  assert.ok(card);
+  const result = normalizeZenkatsuCommentCardNames({
+    commentJa: "One Who Never Let Goはいいね。XOne Who Never Let GoXとMissionary of Total Affirmationはそのまま。",
+    commentEn: "好きを貫く者 is great.",
+  }, [card]);
+  assert.equal(result.commentJa, "好きを貫く者はいいね。XOne Who Never Let GoXとMissionary of Total Affirmationはそのまま。");
 });

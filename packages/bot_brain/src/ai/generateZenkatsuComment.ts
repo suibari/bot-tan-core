@@ -28,12 +28,44 @@ export interface NagiZenkatsuCommentResult {
 }
 
 /**
- * v1: 初版。
+ * v2: 日英のカード名を出力欄に合わせて保存前に揃える。
  *
  * 設計の詳細は docs/zenkatsu.md の6章。要点は「肯定の対象を取り違えさせないこと」で、
  * ここには**肯定対象になりうる主体が3つ**ある。
  */
-export const NAGI_ZENKATSU_PROMPT_VERSION = "nagi-zenkatsu-v1";
+export const NAGI_ZENKATSU_PROMPT_VERSION = "nagi-zenkatsu-v2";
+
+const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** モデルがもう一方の言語の正式名を選んでも、保存前に提出カードの正式名へ揃える。 */
+export function normalizeZenkatsuCommentCardNames(
+  comment: NagiZenkatsuCommentResult,
+  cards: CardDefinition[],
+): NagiZenkatsuCommentResult {
+  const replaceNames = (text: string, locale: "ja" | "en") => {
+    const names = new Map<string, string>();
+    for (const card of cards) {
+      const source = locale === "ja" ? card.nameEn : card.nameJa;
+      const target = locale === "ja" ? card.nameJa : card.nameEn;
+      if (source && target && source !== target) names.set(source, target);
+    }
+    if (!names.size) return text;
+    const alternatives = [...names.keys()]
+      .sort((a, b) => b.length - a.length)
+      .map(escapeRegExp)
+      .join("|");
+    // 英語名が普通の英単語の一部に出た場合は触らず、和文との接続は許す。
+    const pattern = locale === "ja"
+      ? new RegExp(`(?<![A-Za-z0-9])(?:${alternatives})(?![A-Za-z0-9])`, "g")
+      : new RegExp(alternatives, "g");
+    return text.replace(pattern, (name) => names.get(name) ?? name);
+  };
+
+  return {
+    commentJa: replaceNames(comment.commentJa, "ja"),
+    commentEn: replaceNames(comment.commentEn, "en"),
+  };
+}
 
 /**
  * 答えの長さに返しの長さを合わせる。1枚で決めたなら短く、3枚で語ったなら関係を読む。
@@ -97,16 +129,19 @@ export async function generateZenkatsuComment(
     const json = JSON.parse(
       response.text || "{}",
     ) as NagiZenkatsuCommentResult;
-    return {
+    return normalizeZenkatsuCommentCardNames({
       commentJa: (json.commentJa || "").trim(),
       commentEn: (json.commentEn || "").trim(),
-    };
+    }, input.cards);
   } catch (e) {
     console.error(
       "[ERROR] Failed to parse Structured Outputs JSON in generateZenkatsuComment:",
       e,
     );
-    return { commentJa: (response.text || "").trim(), commentEn: "" };
+    return normalizeZenkatsuCommentCardNames(
+      { commentJa: (response.text || "").trim(), commentEn: "" },
+      input.cards,
+    );
   }
 }
 
@@ -153,8 +188,9 @@ export const buildZenkatsuCommentPrompt = (
 
 # 出力するもの
 * commentJa: ${format.ja}。
+  **札に触れるときは、下に書いてある日本語名をそのまま使ってください。英語名を混ぜないこと。**
 * commentEn: 同じ気持ちを伝える自然な${format.en}。直訳ではなく英語として自然に。
-  **札に触れるときは、上に書いてある英語名をそのまま使ってください。自分で訳さないこと。**
+  **札に触れるときは、下に書いてある英語名をそのまま使ってください。自分で訳さないこと。**
   **commentEn は全体を英語だけで書いてください。日本語や他の言語を混ぜないこと。**
 
 # ルール
