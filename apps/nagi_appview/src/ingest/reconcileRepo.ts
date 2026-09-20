@@ -1,5 +1,6 @@
 import {
   db,
+  nagiCardGets,
   nagiChannels,
   nagiEmojis,
   nagiNews,
@@ -55,6 +56,7 @@ const USER_COLLECTIONS = [
   NAGI.post,
   NAGI.reaction,
   NAGI.news,
+  NAGI.cardGet,
   // ゼンカツの提出。クライアントは createRecord 直後に ensureRecord を呼び、
   // Jetstream の到着を待たずに記録へ反映させる。
   NAGI.zenkatsu,
@@ -234,6 +236,26 @@ async function localRecords(
       })
       .from(nagiNews)
       .where(eq(nagiNews.did, did));
+    return new Map(
+      rows.map((row) => [
+        row.uri,
+        {
+          cid: row.cid,
+          active: row.deletedAt === null,
+          tombstoned: row.deletedAt !== null,
+        },
+      ]),
+    );
+  }
+  if (collection === NAGI.cardGet) {
+    const rows = await db
+      .select({
+        uri: nagiCardGets.uri,
+        cid: nagiCardGets.cid,
+        deletedAt: nagiCardGets.deletedAt,
+      })
+      .from(nagiCardGets)
+      .where(eq(nagiCardGets.did, did));
     return new Map(
       rows.map((row) => [
         row.uri,

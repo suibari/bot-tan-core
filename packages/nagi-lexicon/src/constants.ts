@@ -225,6 +225,7 @@ export const NAGI_INGEST_COLLECTIONS = [
   BLUEMOJI_ITEM,
   NAGI.news,
   NAGI.channel,
+  NAGI.cardGet,
 ] as const;
 export const NAGI_APPVIEW_DID =
   process.env.NAGI_APPVIEW_DID ?? "did:web:nagi-api.suibari.com";
