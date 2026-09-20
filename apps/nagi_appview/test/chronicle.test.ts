@@ -48,7 +48,7 @@ test("chronicle sorts oldest first, then fixed kind order, then id", () => {
     event({ id: "first:nagi_joined", kind: "nagi_joined", date: "2026-08-02" }),
     event({ id: "anniversary:z", kind: "anniversary_card", date: "2026-08-02" }),
     event({ id: "anniversary:a", kind: "anniversary_card", date: "2026-08-02" }),
-    event({ id: "first:first_diary", kind: "first_diary", date: "2026-09-01" }),
+    event({ id: "first:bot_met", kind: "bot_met", date: "2026-09-01" }),
   ]);
   assert.deepEqual(
     sorted.map((item) => item.id),
@@ -59,7 +59,7 @@ test("chronicle sorts oldest first, then fixed kind order, then id", () => {
       "highlight:b",
       // その月のまとめの下に付くので、同じ日なら必ずいちばん後ろ。
       "news_context:2026-08",
-      "first:first_diary",
+      "first:bot_met",
     ],
   );
 });
@@ -126,7 +126,7 @@ test("起点は、それを名乗っている列をそのまま読む", () => {
   assert.equal(events.find((e) => e.kind === "bot_met")?.date, "2024-08-25");
 });
 
-test("「はじめての投稿」は年表に出さない", () => {
+test("「はじめての投稿」も「はじめての日記」も年表に出さない", () => {
   /*
    * 本番実測: 本人の最古の投稿 2026-07-18 15:02（JST 7/19 00:02）に対して
    * profiles.created_at は 2026-07-18 22:48（JST 7/19 07:48）。同じ JST 日だが、
@@ -134,6 +134,7 @@ test("「はじめての投稿」は年表に出さない", () => {
    * 「はじめての投稿のほうが Nagi にやってきた日より前」という、ありえない並びになる。
    *
    * そもそも投稿は登録と実質同日で情報量が無く、逆転を生むだけなので載せない。
+   * 「はじめての日記」も同じ理由で載せない（日記は毎日書かれるので、登録の数日後にしかならない）。
    */
   const events = buildFirstEvents({
     profileCreatedAt: "2026-07-18T22:48:35.103Z",

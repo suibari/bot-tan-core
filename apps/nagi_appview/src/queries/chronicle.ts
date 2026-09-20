@@ -6,7 +6,6 @@ import {
   nagiCardInstances,
   nagiChronicleEvents,
   nagiChronicleNews,
-  nagiDiaries,
   nagiNews,
   nagiNewsApprovals,
   nagiPosts,
@@ -59,11 +58,10 @@ const YEAR = /^\d{4}$/;
 const KIND_ORDER: Record<ChronicleEventKind, number> = {
   nagi_joined: 0,
   bot_met: 1,
-  first_diary: 2,
-  first_card_ur: 3,
-  first_card_aar: 4,
-  anniversary_card: 5,
-  highlight: 6,
+  first_card_ur: 2,
+  first_card_aar: 3,
+  anniversary_card: 4,
+  highlight: 5,
   // その月のまとめの下に置くので、同じ日なら必ずいちばん後ろ。
   news_context: 7,
 };
@@ -201,8 +199,6 @@ export type FirstsInput = {
   profileCreatedAt?: Date | string | null;
   /** affirmative_bot.followers.created_at。 */
   followerCreatedAt?: Date | string | null;
-  /** min(nagi.diaries.diary_date)。すでに "YYYY-MM-DD"。 */
-  firstDiaryDate?: string | null;
   /** レアカードの初取得。rarity ごとの min(drawn_at)。 */
   rareCards?: Array<{ rarity: string; at?: Date | string | null }>;
 };
@@ -238,7 +234,6 @@ export function buildFirstEvents(input: FirstsInput): ChronicleEventView[] {
   if (joinedAt) push("nagi_joined", chronicleDate(joinedAt));
   const metAt = toDate(input.followerCreatedAt);
   if (metAt) push("bot_met", chronicleDate(metAt));
-  push("first_diary", input.firstDiaryDate);
   for (const row of input.rareCards ?? []) {
     const at = toDate(row.at);
     if (!at) continue;
@@ -260,7 +255,7 @@ export function buildFirstEvents(input: FirstsInput): ChronicleEventView[] {
 async function loadFirsts(
   did: string,
 ): Promise<{ events: ChronicleEventView[]; originYear?: number }> {
-  const [profile, follower, firstDiary, rareCards] = await Promise.all([
+  const [profile, follower, rareCards] = await Promise.all([
     db
       .select({ createdAt: nagiProfiles.createdAt })
       .from(nagiProfiles)
@@ -271,10 +266,6 @@ async function loadFirsts(
       .from(followers)
       .where(eq(followers.did, did))
       .limit(1),
-    db
-      .select({ date: min(nagiDiaries.diaryDate) })
-      .from(nagiDiaries)
-      .where(eq(nagiDiaries.subjectDid, did)),
     // rarity は card_gets に焼き付けてあるので、カード定義 JSON を読まずに SQL で絞れる。
     db
       .select({ rarity: nagiCardGets.rarity, at: min(nagiCardGets.drawnAt) })
@@ -292,7 +283,6 @@ async function loadFirsts(
   const all = buildFirstEvents({
     profileCreatedAt: profile[0]?.createdAt,
     followerCreatedAt: follower[0]?.createdAt,
-    firstDiaryDate: firstDiary[0]?.date,
     rareCards,
   });
 

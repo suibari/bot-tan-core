@@ -286,7 +286,6 @@ export type ChronicleEventKind =
   | "nagi_joined"
   /** botたん（Bluesky側）と関わりはじめた日。Nagi 登録より後のこともある。 */
   | "bot_met"
-  | "first_diary"
   | "first_card_ur"
   | "first_card_aar"
   /** 記念日カードを受け取った日。 */

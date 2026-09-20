@@ -10,6 +10,7 @@ import {
   acceptChronicleMonth,
   buildChronicleMonthInstruction,
   buildChronicleMonthMaterial,
+  CHRONICLE_DETAIL_MAX_JA,
   CHRONICLE_MAX_HIGHLIGHTS,
   chronicleDiaryCap,
   chronicleMonthFits,
@@ -179,4 +180,58 @@ test("トーンに触れる見出しは、その節目ごと捨てる", () => {
     ],
   });
   assert.deepEqual(result.highlights, []);
+});
+
+test("長い応答でも切らずにそのまま通す", () => {
+  /*
+   * 以前は上限を超えたぶんを slice で切っていた。本番実測（2026-09-20、57件）で
+   * detail_ja の7件が60字ちょうど＝切った跡になり、「…まさにプロフェッショナルだ」と
+   * 文の途中で終わる日本語が年表に残った。年表は本人が何度も見返す場所なので、
+   * **サーバでは長さを検査しない。** 字数はプロンプトの目安として伝えるだけ。
+   */
+  const longDetail =
+    "新しいグラボへの換装おめでとう！ローカルLLMがGeminiを超えるなんて、すいばりの技術力はまさにプロフェッショナルだね！";
+  const input: ChronicleMonthInput = {
+    displayName: "すいばり",
+    month: "2026-08",
+    japanese: true,
+    diaries: [{ date: "2026-08-30", text: "新しいグラボへの換装、本当におめでとう！" }],
+  };
+  const result = acceptChronicleMonth(input, {
+    highlights: [
+      {
+        date: "2026-08-30",
+        titleJa: "グラボ換装とLLMの進化",
+        titleEn: "A new GPU and a faster local LLM",
+        detailJa: longDetail,
+        detailEn: "Congratulations on the new GPU!",
+        evidence: "新しいグラボへの換装、本当におめでとう！",
+      },
+    ],
+  });
+  assert.equal(result.highlights[0].detailJa, longDetail);
+  assert.ok([...result.highlights[0].detailJa].length > CHRONICLE_DETAIL_MAX_JA);
+});
+
+test("前後の空白と改行だけは整える", () => {
+  const input: ChronicleMonthInput = {
+    displayName: "すいばり",
+    month: "2026-08",
+    japanese: true,
+    diaries: [{ date: "2026-08-30", text: "新しいグラボへの換装、本当におめでとう！" }],
+  };
+  const result = acceptChronicleMonth(input, {
+    highlights: [
+      {
+        date: "2026-08-30",
+        titleJa: "  グラボ換装  ",
+        titleEn: " A new GPU ",
+        detailJa: "おめでとう！\n\nすごいね！",
+        detailEn: "Congrats!",
+        evidence: "新しいグラボへの換装、本当におめでとう！",
+      },
+    ],
+  });
+  assert.equal(result.highlights[0].titleJa, "グラボ換装");
+  assert.equal(result.highlights[0].detailJa, "おめでとう！ すごいね！");
 });
