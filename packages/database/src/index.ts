@@ -135,22 +135,6 @@ export interface YoutubeLiveBroadcast {
   scheduledEndAt: Date;
 }
 
-const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
-
-export function getYoutubeLivePromotionBounds(now: Date) {
-  const shifted = new Date(now.getTime() + JST_OFFSET_MS);
-  const jstMidnight = Date.UTC(
-    shifted.getUTCFullYear(),
-    shifted.getUTCMonth(),
-    shifted.getUTCDate(),
-  ) - JST_OFFSET_MS;
-  return {
-    dayStart: new Date(jstMidnight),
-    nextDayStart: new Date(jstMidnight + 24 * 60 * 60 * 1000),
-    promotionStart: new Date(jstMidnight + 4 * 60 * 60 * 1000),
-  };
-}
-
 export function isYoutubeWatchUrl(value: string): boolean {
   try {
     const url = new URL(value);
@@ -230,17 +214,13 @@ export class MemoryService {
     };
   }
 
-  /** JST当日の気まぐれ投稿で紹介できる、終了10分前より前の配信枠。 */
-  static async getTodayYoutubeLiveBroadcast(
+  /** 次の配信機会。配信中の枠は終了10分前まで優先する。 */
+  static async getNextYoutubeLiveBroadcast(
     now = new Date(),
   ): Promise<YoutubeLiveBroadcast | null> {
-    const bounds = getYoutubeLivePromotionBounds(now);
-    if (now < bounds.promotionStart) return null;
     // bottan_live は Drizzle のスキーマ定義外なので、Date を raw sql へ直接渡さない。
     // postgres.js が型を推論できず ERR_INVALID_ARG_TYPE になるため、ISO 文字列を
     // timestamptz として明示する（詳細はリポジトリ直下の AGENTS.md を参照）。
-    const dayStart = bounds.dayStart.toISOString();
-    const nextDayStart = bounds.nextDayStart.toISOString();
     const currentTime = now.toISOString();
     try {
       const rows = await db.execute<{
@@ -252,13 +232,12 @@ export class MemoryService {
       }>(sql`
         SELECT broadcast_id, url, title, scheduled_start_at, scheduled_end_at
         FROM bottan_live.broadcasts
-        WHERE scheduled_start_at >= ${dayStart}::timestamptz
-          AND scheduled_start_at < ${nextDayStart}::timestamptz
+        WHERE scheduled_start_at IS NOT NULL
           AND scheduled_end_at IS NOT NULL
           AND ${currentTime}::timestamptz < scheduled_end_at - interval '10 minutes'
           AND ended_at IS NULL
-        ORDER BY prepared_at DESC NULLS LAST, created_at DESC
-        LIMIT 5
+        ORDER BY scheduled_start_at ASC, prepared_at DESC NULLS LAST, created_at DESC
+        LIMIT 20
       `);
       for (const row of rows) {
         if (!isYoutubeWatchUrl(row.url)) continue;
@@ -273,7 +252,7 @@ export class MemoryService {
       return null;
     } catch (error) {
       // youtuber側の先行デプロイ前やLAN DB障害でも、通常の定期投稿は継続する。
-      console.error('[WARN][YOUTUBE_LIVE] Failed to get today broadcast:', error);
+      console.error('[WARN][YOUTUBE_LIVE] Failed to get next broadcast:', error);
       return null;
     }
   }

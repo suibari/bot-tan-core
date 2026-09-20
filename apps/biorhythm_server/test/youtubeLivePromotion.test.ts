@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { getYoutubeLiveForWhimsical } from "../src/ScheduledPostCoordinator.js";
 
-test("当日配信がなければ通常投稿用にnullを返す", async () => {
+test("次の配信枠がなければ通常投稿用にnullを返す", async () => {
   assert.equal(await getYoutubeLiveForWhimsical(async () => null), null);
 });
 

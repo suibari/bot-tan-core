@@ -132,25 +132,33 @@ test("migration-backed upsert, backfill, and reaction purge are idempotent", {
       ('invalid-live', 'https://example.com/watch?v=invalid', '不正URL',
        '2026-08-22T12:00:00Z', '2026-08-22T13:00:00Z', '2026-08-21T20:00:00Z'),
       ('ended-live', 'https://www.youtube.com/watch?v=ended-live', '終了済み',
-       '2026-08-22T12:00:00Z', '2026-08-22T13:00:00Z', '2026-08-21T21:00:00Z')`;
+       '2026-08-22T12:00:00Z', '2026-08-22T13:00:00Z', '2026-08-21T21:00:00Z'),
+      ('next-live', 'https://www.youtube.com/watch?v=next-live', '次の土曜の配信',
+       '2026-08-29T12:00:00Z', '2026-08-29T13:00:00Z', '2026-08-21T19:00:00Z')`;
     await setup`update bottan_live.broadcasts set ended_at = '2026-08-22T13:00:00Z'
       where broadcast_id = 'ended-live'`;
 
-    const currentLive = await memory.MemoryService.getTodayYoutubeLiveBroadcast(
+    const currentLive = await memory.MemoryService.getNextYoutubeLiveBroadcast(
       new Date("2026-08-22T10:00:00Z"),
     );
     assert.equal(currentLive?.broadcastId, "valid-live");
     assert.equal(
-      (await memory.MemoryService.getTodayYoutubeLiveBroadcast(
+      (await memory.MemoryService.getNextYoutubeLiveBroadcast(
         new Date("2026-08-22T12:30:00Z"),
       ))?.broadcastId,
       "valid-live",
     );
     assert.equal(
-      await memory.MemoryService.getTodayYoutubeLiveBroadcast(
+      (await memory.MemoryService.getNextYoutubeLiveBroadcast(
         new Date("2026-08-22T12:50:00Z"),
-      ),
-      null,
+      ))?.broadcastId,
+      "next-live",
+    );
+    assert.equal(
+      (await memory.MemoryService.getNextYoutubeLiveBroadcast(
+        new Date("2026-08-24T03:00:00Z"),
+      ))?.broadcastId,
+      "next-live",
     );
 
     const first = await backfill.runBotMemoryBackfill(true);

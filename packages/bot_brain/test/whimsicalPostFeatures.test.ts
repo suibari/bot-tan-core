@@ -116,18 +116,20 @@ const youtubeLive = {
   scheduledEndAt: new Date("2026-08-22T13:00:00.000Z"),
 };
 
-test("YouTube Live候補はJST 4:00から21:50未満だけ有効", () => {
+test("YouTube Live候補は未来の配信日時を示し、配信中は21:50まで有効", () => {
   const featureAt = (iso: string) => buildYoutubeLiveFeature({
     langStr: "日本語",
     live: youtubeLive,
     now: new Date(iso),
   });
-  assert.equal(featureAt("2026-08-21T18:59:59.999Z"), undefined);
-  assert.match(featureAt("2026-08-21T19:00:00.000Z")!, /今日21:00〜22:00/);
-  assert.match(featureAt("2026-08-22T11:59:59.999Z")!, /今日21:00〜22:00/);
+  assert.match(featureAt("2026-08-17T03:00:00.000Z")!, /次のYouTubeライブは2026年8月22日\(土\) 21:00〜22:00/);
+  assert.match(featureAt("2026-08-22T11:59:59.999Z")!, /2026年8月22日\(土\) 21:00〜22:00/);
   assert.match(featureAt("2026-08-22T12:00:00.000Z")!, /いまYouTubeでライブ配信中/);
   assert.match(featureAt("2026-08-22T12:49:59.999Z")!, /22:00まで/);
   assert.equal(featureAt("2026-08-22T12:50:00.000Z"), undefined);
+  assert.match(buildYoutubeLiveFeature({
+    langStr: "English", live: youtubeLive, now: new Date("2026-08-17T03:00:00.000Z"),
+  })!, /next YouTube Live on Sat, Aug 22, 2026, 21:00–22:00 JST/);
 });
 
 test("YouTube Liveは通常プールへ1候補だけ入り、同日でも再選出できる", () => {

@@ -175,8 +175,8 @@ export async function recordScheduledPostMemoryUsage(
 }
 
 export async function getYoutubeLiveForWhimsical(
-  load: typeof MemoryService.getTodayYoutubeLiveBroadcast =
-    () => MemoryService.getTodayYoutubeLiveBroadcast(),
+  load: typeof MemoryService.getNextYoutubeLiveBroadcast =
+    () => MemoryService.getNextYoutubeLiveBroadcast(),
 ) {
   try {
     return await load();
