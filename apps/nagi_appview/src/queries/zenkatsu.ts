@@ -57,7 +57,7 @@ import { ApiError } from "../middleware/errors.js";
  * ゼンカツ！。設計の経緯と理由は docs/zenkatsu.md。
  *
  * 提出そのものは**ユーザー自身の PDS レコード**で、ここにあるのはその索引と検証。
- * ドローと違い、提出は「既に所持している札を参照するだけ」なので、所持・おやすみ・当日かを
+ * ドローと違い、提出は「既に所持している札を参照するだけ」なので、所持・クールダウン・当日かを
  * すべて AppView が照合できる。合わないレコードは索引しない＝記録には出ない。
  */
 
@@ -182,7 +182,7 @@ async function loadHoldings(
 }
 
 /**
- * 直近のおやすみ判定に要る提出履歴。
+ * 直近のクールダウン判定に要る提出履歴。
  *
  * **日付キー（"YYYY-MM-DD"）の文字列比較で範囲を取る。** timestamp と Date を使わないので、
  * AGENTS.md が禁じている「raw sql への Date 補間」を踏む余地がそもそも無い。
@@ -268,7 +268,7 @@ export type ZenkatsuDecision =
       reading: ZenkatsuReading;
       /** 成立したコンボ。リザルトと発見記録に使う。 */
       combos: ComboDefinition[];
-      /** 隠し得点。**表示には絶対に出さない**（botたん賞の候補を絞るためだけ）。 */
+      /** 隠し得点。**表示には絶対に出さない**（今日のナギカツ部長の候補を絞るためだけ）。 */
       score: ZenkatsuScore;
     }
   | { ok: false; reason: ZenkatsuRejection };
@@ -443,8 +443,8 @@ export async function indexZenkatsuSubmission(
  * 本人がレコードを消したときの取り消し。**論理削除にする。**
  *
  * 行ごと消すと、消して出し直せてしまう。しかも zenkatsu_cards まで消えるので出した札の
- * おやすみもリセットされ、気に入る総評が出るまで引き直せる。行を残せば
- * (did, theme_date) の一意索引が再提出を止め、おやすみも生き続ける。
+ * クールダウンもリセットされ、気に入る総評が出るまで引き直せる。行を残せば
+ * (did, theme_date) の一意索引が再提出を止め、クールダウンも生き続ける。
  * 記録から見えなくなるだけ、が正しい挙動。
  */
 export async function removeZenkatsuSubmission(
@@ -474,11 +474,13 @@ const decodeCursor = (cursor: string): { indexedAt: Date; uri: string } | undefi
 async function loadActorViews(dids: string[]): Promise<Map<string, ActorView>> {
   const unique = [...new Set(dids)];
   if (!unique.length) return new Map();
-  const rows = await db
-    .select({ actor: nagiActors, profile: nagiProfiles })
-    .from(nagiActors)
-    .leftJoin(nagiProfiles, eq(nagiProfiles.did, nagiActors.did))
-    .where(inArray(nagiActors.did, unique));
+  const [rows, chiefs] = await Promise.all([
+    db.select({ actor: nagiActors, profile: nagiProfiles })
+      .from(nagiActors)
+      .leftJoin(nagiProfiles, eq(nagiProfiles.did, nagiActors.did))
+      .where(inArray(nagiActors.did, unique)),
+    getZenkatsuChiefDids(unique),
+  ]);
   return new Map(
     rows.map(({ actor, profile }) => [
       actor.did,
@@ -490,6 +492,7 @@ async function loadActorViews(dids: string[]): Promise<Map<string, ActorView>> {
           ? `/api/blob/${encodeURIComponent(actor.did)}/${profile.avatarCid}`
           : undefined,
         isBot: actor.did === config.botDid,
+        ...(chiefs.has(actor.did) ? { zenkatsuChief: true } : {}),
       },
     ]),
   );
@@ -687,7 +690,7 @@ async function loadViewerState(
 }
 
 /**
- * 「今日のゼンカツ部長」＝ 直前に閉じた日の botたん賞の受賞者か。
+ * 「今日のナギカツ部長」＝ 直前に閉じた日の受賞者か。
  *
  * **バッジに出すのはこの1つだけで、しかも1日で消える。** 累積を出すと、
  * `badges.ts` が「競争や『ネガティブなことを言いづらい』という圧力につながる」として
@@ -701,18 +704,27 @@ export async function isZenkatsuChief(
   did: string,
   now: Date = new Date(),
 ): Promise<boolean> {
-  const [row] = await db
-    .select({ id: nagiZenkatsuTrophies.id })
+  return (await getZenkatsuChiefDids([did], now)).has(did);
+}
+
+/** フィードなどの投稿者に、直前に確定した部長バッジを一括で付ける。 */
+export async function getZenkatsuChiefDids(
+  dids: string[],
+  now: Date = new Date(),
+): Promise<Set<string>> {
+  const unique = [...new Set(dids)];
+  if (!unique.length) return new Set();
+  const rows = await db
+    .select({ did: nagiZenkatsuTrophies.did })
     .from(nagiZenkatsuTrophies)
     .where(
       and(
-        eq(nagiZenkatsuTrophies.did, did),
+        inArray(nagiZenkatsuTrophies.did, unique),
         eq(nagiZenkatsuTrophies.kind, "botan"),
         eq(nagiZenkatsuTrophies.themeDate, previousThemeDate(now)),
       ),
-    )
-    .limit(1);
-  return !!row;
+    );
+  return new Set(rows.map((row) => row.did));
 }
 
 /** 直前に閉じた日の日付キー。日付キーは "YYYY-MM-DD" なので日数で1引くだけ。 */
@@ -724,7 +736,7 @@ export function previousThemeDate(now: Date = new Date()): string {
 }
 
 /**
- * マイデッキ。**自分が成立させたことのあるコンボ**と、受け取ったトロフィー。
+ * レコード。**自分が成立させたことのあるコンボ**と、6種類のトロフィー。
  *
  * コンボは隠し要素なので、**まだ出していないコンボの中身は返さない**。総数だけ返して
  * 「26種のうち3種」と出せるようにする。未発見のぶんを名前入りで並べると、
@@ -746,7 +758,7 @@ export async function getZenkatsuDeck(did: string): Promise<ZenkatsuDeckView> {
       .select()
       .from(nagiZenkatsuTrophies)
       .where(eq(nagiZenkatsuTrophies.did, did))
-      .orderBy(desc(nagiZenkatsuTrophies.themeDate)),
+      .orderBy(desc(nagiZenkatsuTrophies.themeDate), asc(nagiZenkatsuTrophies.kind)),
     db.select().from(nagiZenkatsuComboDiscoveries),
   ]);
 
@@ -820,10 +832,10 @@ export async function getZenkatsuDeck(did: string): Promise<ZenkatsuDeckView> {
  *
  * ゼンカツは1日1回なので、そのままでは総評や演出を1日1度しか確かめられない。
  * 「1日1回のロックを env で外す」やり方もあるが、それだと**検証したい当の制約が
- * 効いていない状態**で試すことになる。消して出し直す形にすれば、所持・おやすみ・
+ * 効いていない状態**で試すことになる。消して出し直す形にすれば、所持・クールダウン・
  * 当日判定・採点・コンボ・総評まで、本物の経路を毎回まるごと通せる。
  *
- * zenkatsu_cards も一緒に消すので、出した札のおやすみも戻る。
+ * zenkatsu_cards も一緒に消すので、出した札のクールダウンも戻る。
  * 公開の記録からも消えるが、開発環境の話なので問題にならない。
  */
 export async function resetZenkatsuForDev(

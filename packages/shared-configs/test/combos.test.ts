@@ -37,7 +37,7 @@ test("id は連番で、指す札はすべて実在する", () => {
 });
 
 test("BLTトリオは ラテ・ことみ どちらのバージョンでも成立する", () => {
-  // おやすみが重なっても片方で組めるように、1スロットに複数の候補を許している。
+  // クールダウンが重なっても片方で組めるように、1スロットに複数の候補を許している。
   for (const latte of [24, 25])
     for (const kotomi of [26, 27]) {
       const hit = matchCombos([card(30), card(latte), card(kotomi)]);

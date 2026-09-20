@@ -5,7 +5,7 @@ import {
   TONE_RULES_JA,
 } from "@bsky-affirmative-bot/shared-configs";
 
-/** botたん賞の候補1件。隠し得点で上位に絞ったものだけが来る。 */
+/** 今日のナギカツ部長の候補1件。隠し得点で上位に絞ったものだけが来る。 */
 export interface ZenkatsuAwardCandidateView {
   displayName: string;
   /** 出した札（プレイヤーが置いた順）。 */
@@ -28,11 +28,11 @@ export interface NagiZenkatsuAwardResult {
   reasonEn: string;
 }
 
-/** v1: 初版。 */
-export const NAGI_ZENKATSU_AWARD_PROMPT_VERSION = "nagi-zenkatsu-award-v1";
+/** v2: 賞名を「今日のナギカツ部長」に変更。 */
+export const NAGI_ZENKATSU_AWARD_PROMPT_VERSION = "nagi-zenkatsu-award-v2";
 
 /**
- * 前日のゼンカツから「botたん賞」を1つ選ぶ。
+ * 前日のゼンカツから「今日のナギカツ部長」を1つ選ぶ。
  *
  * **候補はサーバが隠し得点で数件に絞ってから渡す。** 全員ぶんを読ませると入力が膨れる上に
  * 基準が日替わりで揺れるので、「計算はサーバ、読み解きと選択はモデル」という分担にしている
@@ -120,7 +120,7 @@ export const buildZenkatsuAwardPrompt = (
 
   return `あなたのアプリ「Nagi」の「ゼンカツ！」で、昨日のお題にみんなが答えました。
 その中から、あなた（botたん）が**いちばん心を動かされた答え**をひとつ選んで、
-「botたん賞」を贈ってください。
+「今日のナギカツ部長」を贈ってください。
 
 # 最重要（ここを間違えないこと）
 * お題は**架空のシチュエーション**です。この人たちに実際に起きた出来事ではありません。

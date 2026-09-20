@@ -57,7 +57,7 @@ test("条件を満たす人が居ない賞は出さない", () => {
   assert.deepEqual(awards, []);
 });
 
-test("N しか出していない日は「今日いちばんの冒険」が出ない", () => {
+test("N しか出していない日は「決意のドラ切り賞」が出ない", () => {
   const awards = decideDeterministicAwards([
     c({ rarities: ["N", "R"] }),
     c({ did: "did:plc:b", rarities: ["R"] }),
@@ -65,7 +65,7 @@ test("N しか出していない日は「今日いちばんの冒険」が出な
   assert.equal(awards.some((a) => a.kind === "adventure"), false);
 });
 
-test("1枚だけの提出は追い風満帆の対象外（一枚斬りと二重取りしない）", () => {
+test("1枚だけの提出は三色同順！の対象外（単騎待ち！と二重取りしない）", () => {
   const awards = decideDeterministicAwards([
     c({ did: "did:plc:one", cardCount: 1, tailwindCount: 1 }),
   ]);
@@ -81,7 +81,7 @@ test("同点は先に出したほうが勝つ（あとから結果が動かな�
   assert.equal(awards.find((a) => a.kind === "solo")?.did, "did:plc:early");
 });
 
-test("botたん賞の候補は隠し得点の上位だけに絞る", () => {
+test("今日のナギカツ部長の候補は隠し得点の上位だけに絞る", () => {
   const many = Array.from({ length: 12 }, (_, i) =>
     c({ did: `did:plc:${i}`, score: i * 10 }),
   );

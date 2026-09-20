@@ -40,7 +40,7 @@
             "cursor": { "type": "string" },
             "viewer": {
               "type": "unknown",
-              "description": "認証した本人のぶんだけ。提出済みか、今日出せる札とおやすみの残り日数。"
+              "description": "認証した本人のぶんだけ。提出済みか、今日出せる札とクールダウンの残り日数。"
             }
           }
         }

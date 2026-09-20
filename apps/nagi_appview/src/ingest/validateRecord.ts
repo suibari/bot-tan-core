@@ -410,7 +410,7 @@ export function validateRecord(
       value.card.id >= 1
     );
   if (collection === NAGI.zenkatsu)
-    // ここで見るのは**形だけ**。所持・おやすみ・当日かの照合は AppView が DB を見て行う
+    // ここで見るのは**形だけ**。所持・クールダウン・当日かの照合は AppView が DB を見て行う
     // （applyMutation 側）。形だけ通しても索引されないので、偽レコードは記録に出ない。
     return (
       DATE_KEY.test(value.themeDate) && isValidZenkatsuSelection(value.cards)

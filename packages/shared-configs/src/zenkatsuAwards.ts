@@ -6,23 +6,23 @@ import type { CardRarity } from "./cards.js";
  *
  * **賞は1つにしない。** 毎日1人だけにすると、大多数が「取れなかった」を日次で積み上げることに
  * なり、全肯定と正面から衝突する。切り口を複数に分けて「毎日誰かしらに何か当たる」ようにし、
- * そのうえで botたん賞の特別さを保つ。
+ * そのうえで「今日のナギカツ部長」の特別さを保つ。
  *
  * 判定材料は提出時に計算済み（reading / score / combos）なので、追加のコストはかからない。
  */
 
 export const ZENKATSU_AWARD_KINDS = [
-  /** 今日いちばんの冒険。いちばん長くおやすみする札を切った人。 */
+  /** 決意のドラ切り賞。いちばん長くクールダウンする札を切った人。 */
   "adventure",
-  /** 初登板賞。初めて出す札をいちばん多く入れた人。 */
+  /** 初登板！：初めて出す札をいちばん多く入れた人。 */
   "debut",
-  /** 一枚斬り。1枚だけで答えた人。 */
+  /** 単騎待ち！：1枚だけで答えた人。 */
   "solo",
-  /** 追い風満帆。出した札が全部その日の追い風だった人。 */
+  /** 三色同順！：出した札が全部その日の追い風だった人。 */
   "tailwind",
   /** コンボ発見賞。その日に誰も出したことのない組み合わせを最初に出した人。 */
   "combo",
-  /** botたん賞。隠し得点の上位から botたん が選ぶ。 */
+  /** 今日のナギカツ部長。隠し得点の上位から botたん が選ぶ。 */
   "botan",
 ] as const;
 export type ZenkatsuAwardKind = (typeof ZENKATSU_AWARD_KINDS)[number];
@@ -96,7 +96,7 @@ export function decideDeterministicAwards(
       awards.push({ kind, did: winner.did, submissionUri: winner.submissionUri });
   };
 
-  // SR 以上（おやすみ4日以上）を切った人のうち、いちばん重い1枚を出した人。
+  // SR 以上（クールダウン4日以上）を切った人のうち、いちばん重い1枚を出した人。
   add(
     "adventure",
     bestOf(candidates, (c) => {
@@ -122,7 +122,7 @@ export function decideDeterministicAwards(
 }
 
 /**
- * botたん賞の候補を絞る。
+ * 今日のナギカツ部長の候補を絞る。
  *
  * 全員の提出をモデルに読ませると入力が膨れるうえ、基準が日替わりで揺れる。
  * **サーバが隠し得点で上位を絞り、その中から botたん が選ぶ**という分担にする

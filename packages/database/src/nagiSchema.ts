@@ -1452,7 +1452,7 @@ export const nagiZenkatsuSubmissions = nagiSchema.table(
     isHighlight: boolean("is_highlight").default(false).notNull(),
     /**
      * 隠し得点（1.00 = 100 の整数）。**プレイヤーには絶対に見せない。**
-     * 用途は翌朝の「botたん賞」の候補を数件に絞ることだけで、合計点も順位も出さない。
+     * 用途は翌朝の「今日のナギカツ部長」の候補を数件に絞ることだけで、合計点も順位も出さない。
      * ATK/DEF は意図的に入れていない（入れると低レアが完全に死ぬ。docs/zenkatsu.md 5章）。
      */
     score: integer("score").default(100).notNull(),
@@ -1464,9 +1464,9 @@ export const nagiZenkatsuSubmissions = nagiSchema.table(
      * 本人がレコードを消した時刻。**行は消さない。**
      *
      * 物理削除にすると、消して出し直せてしまう（しかも zenkatsu_cards ごと消えるので
-     * おやすみまでリセットされ、気に入る総評が出るまで引き直せる）。
+     * クールダウンまでリセットされ、気に入る総評が出るまで引き直せる）。
      * 行を残すことで (did, theme_date) の一意索引が再提出を止め、
-     * 出した札のおやすみも生き続ける。記録から見えなくなるだけ。
+     * 出した札のクールダウンも生き続ける。記録から見えなくなるだけ。
      */
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
     /**
@@ -1630,11 +1630,9 @@ export const nagiZenkatsuComboDiscoveries = nagiSchema.table(
 );
 
 /**
- * 前日ぶんのトロフィー。JST 4:00 の切り替えで確定する。
+ * 前日ぶんの6種類のトロフィー。JST 4:00 の切り替えで確定する。
  *
- * **賞は1つにしない。** 毎日1人だけにすると、大多数が「取れなかった」を日次で積み上げる。
- * 全肯定と正面から衝突するので、切り口を複数に分けて「毎日誰かしらに何か当たる」ようにする。
- * 判定材料は提出時に計算済みの reading / score / combos で、追加のコストはかからない。
+ * 各賞の受賞者は毎日1人。kind は旧データと同じ値を使う。
  */
 export const nagiZenkatsuTrophies = nagiSchema.table(
   "zenkatsu_trophies",
@@ -1644,12 +1642,12 @@ export const nagiZenkatsuTrophies = nagiSchema.table(
     themeDate: text("theme_date").notNull(),
     did: text("did").notNull(),
     /**
-     * 賞の種類。'botan' だけが botたんの選出で、残りは決定論で決まる。
+     * 賞の種類。'botan' は「今日のナギカツ部長」。
      * 文字列で持つのは、賞を足すたびに enum の ALTER を挟みたくないため。
      */
     kind: text("kind").notNull(),
     submissionUri: text("submission_uri").notNull(),
-    /** botたん賞のときの、選んだ理由のひとこと。 */
+    /** 今日のナギカツ部長に選んだ理由のひとこと。 */
     commentJa: text("comment_ja"),
     commentEn: text("comment_en"),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -1657,6 +1655,8 @@ export const nagiZenkatsuTrophies = nagiSchema.table(
       .notNull(),
   },
   (t) => [
+    // 同じ日に同じ賞を複数人へ贈らない。再試行で選出が変わっても1人に収束する。
+    uniqueIndex("nagi_zenkatsu_trophies_day_kind_idx").on(t.themeDate, t.kind),
     // 同じ日・同じ賞・同じ人は1回まで（ジョブの再実行でも増えない）。
     uniqueIndex("nagi_zenkatsu_trophies_day_kind_did_idx").on(
       t.themeDate,
