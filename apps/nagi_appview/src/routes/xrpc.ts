@@ -30,8 +30,10 @@ import {
 import { getDiaries } from "../queries/diaries.js";
 import { getChronicle } from "../queries/chronicle.js";
 import {
+  getNewsItemByRkey,
   getPositiveNews,
   getRecommendedNews,
+  listIndexableNews,
   searchNews,
 } from "../queries/positiveNews.js";
 import {
@@ -117,6 +119,10 @@ import {
 export const xrpc = Router();
 const limit = (value: unknown) =>
   Math.min(100, Math.max(1, Number(value ?? 50) || 50));
+// 索引用の列挙だけは 200 件単位で回す。共有の limit() は上限 100 なので別に持つ
+// （ビルドが1回で舐める件数が倍になると、往復も倍の速さで減る）。
+const indexableNewsLimit = (value: unknown) =>
+  Math.min(200, Math.max(1, Number(value ?? 200) || 200));
 
 const pushSubscriptionInput = (body: any) => {
   const endpoint = body?.endpoint;
@@ -814,6 +820,57 @@ xrpc.get(
           req.viewerDid ? "private, no-store" : "public, max-age=60",
         )
         .json(recommended.length ? { ...page, recommended } : page);
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+// パーマリンク。プリレンダ済みでない記事（公開直後）へ直接来たときのクライアント描画用で、
+// ビルドは listIndexableNews が返す一覧から引くのでここを叩かない。
+xrpc.get(
+  `/${NAGI.getNewsItem}`,
+  optionalServiceAuth(NAGI.getNewsItem),
+  async (req, res, next) => {
+    try {
+      const lang = String(req.query.lang ?? "ja");
+      if (lang !== "ja" && lang !== "en")
+        throw new ApiError(400, "invalid_request", "lang must be ja or en");
+      const item = await getNewsItemByRkey({
+        rkey: String(req.query.rkey ?? ""),
+        lang,
+        viewerDid: req.viewerDid,
+      });
+      if (!item) throw new ApiError(404, "not_found", "News not found");
+      res
+        .set(
+          "Cache-Control",
+          req.viewerDid ? "private, no-store" : "public, max-age=300",
+        )
+        .json(item);
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+// 索引対象の列挙。ビルド（prerender の entries と sitemap）専用で、ビューアを見ない。
+xrpc.get(
+  `/${NAGI.listIndexableNews}`,
+  optionalServiceAuth(NAGI.listIndexableNews),
+  async (req, res, next) => {
+    try {
+      const lang = String(req.query.lang ?? "ja");
+      if (lang !== "ja" && lang !== "en")
+        throw new ApiError(400, "invalid_request", "lang must be ja or en");
+      res
+        // ビューアを一切見ないので、サインイン中でも同じ公開レスポンスを返してよい。
+        .set("Cache-Control", "public, max-age=300")
+        .json(
+          await listIndexableNews({
+            limit: indexableNewsLimit(req.query.limit),
+            cursor: String(req.query.cursor ?? "") || undefined,
+            lang,
+          }),
+        );
     } catch (e) {
       next(e);
     }
