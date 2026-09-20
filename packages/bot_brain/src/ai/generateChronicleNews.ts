@@ -18,6 +18,7 @@ import { rejectChronicleTone } from "./generateChronicleMonth.js";
 /** v1: 初版。 */
 export const NAGI_CHRONICLE_NEWS_PROMPT_VERSION = "nagi-chronicle-news-v1";
 
+// プロンプトに書く目安。**サーバでは切らない**（切った跡を年表に残さないため）。
 export const CHRONICLE_NEWS_TITLE_MAX_JA = 24;
 export const CHRONICLE_NEWS_TITLE_MAX_EN = 48;
 
@@ -50,8 +51,11 @@ export interface ChronicleNewsResult {
   titleEn?: string;
 }
 
-const clip = (value: unknown, max: number): string =>
-  [...String(value ?? "").trim().replace(/\s+/g, " ")].slice(0, max).join("");
+/** 前後の空白と改行だけ整える。**長さは切らない。** */
+const text = (value: unknown): string =>
+  String(value ?? "")
+    .trim()
+    .replace(/\s+/g, " ");
 
 /** 指示ブロック。SYSTEM_INSTRUCTION に続けて systemInstruction へ入れる。 */
 export function buildChronicleNewsInstruction(month: string): string {
@@ -75,6 +79,7 @@ ${month} の年表に「そのころ世の中では」として並べる出来�
 # 書き方
 * 見出しは候補の内容から外れないこと。**候補に書かれていないことを足さない。**
 * 日本語 ${CHRONICLE_NEWS_TITLE_MAX_JA} 字以内、英語 ${CHRONICLE_NEWS_TITLE_MAX_EN} 字以内。
+  目安なので多少超えても構いませんが、**文の途中で終わらせないこと。**
 * **URL や日付を自分で書かないこと。**
 ${TONE_RULES_JA}`;
 }
@@ -130,8 +135,8 @@ export function acceptChronicleNews(
   const raw = (json ?? {}) as Record<string, unknown>;
   const index = Number(raw.index);
   if (index === CHRONICLE_NEWS_SKIP) return {};
-  const titleJa = clip(raw.titleJa, CHRONICLE_NEWS_TITLE_MAX_JA);
-  const titleEn = clip(raw.titleEn, CHRONICLE_NEWS_TITLE_MAX_EN);
+  const titleJa = text(raw.titleJa);
+  const titleEn = text(raw.titleEn);
   if (
     !Number.isInteger(index) ||
     index < 0 ||

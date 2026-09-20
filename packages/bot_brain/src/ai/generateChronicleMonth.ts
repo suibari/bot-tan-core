@@ -26,6 +26,14 @@ import { validateChaosExcerpt } from "./generateUserDiary.js";
 export const NAGI_CHRONICLE_PROMPT_VERSION = "nagi-chronicle-v1";
 
 /** 見出し・ひとことの上限。年表は一覧で読むので、長いと軸が崩れる。 */
+/*
+ * 見出しとひとことの目安。**プロンプトに書くだけで、サーバでは切らない。**
+ *
+ * 以前は超過分を slice で切っていたが、本番実測（2026-09-20、57件）で detail_ja の7件が
+ * 60字ちょうど＝切った跡になり、「…まさにプロフェッショナルだ」と文の途中で終わる
+ * 日本語が年表に残っていた。年表は本人が何度も見返す場所なので、**切った跡を作らない。**
+ * 多少長くなっても、文として終わっているほうがよい。
+ */
 export const CHRONICLE_TITLE_MAX_JA = 20;
 export const CHRONICLE_TITLE_MAX_EN = 40;
 export const CHRONICLE_DETAIL_MAX_JA = 60;
@@ -107,8 +115,11 @@ export function rejectChronicleTone(text: string): boolean {
   return TONE_REJECT.some((pattern) => pattern.test(text));
 }
 
-const clip = (value: unknown, max: number): string =>
-  [...String(value ?? "").trim().replace(/\s+/g, " ")].slice(0, max).join("");
+/** 前後の空白と改行だけ整える。**長さは切らない。** */
+const text = (value: unknown): string =>
+  String(value ?? "")
+    .trim()
+    .replace(/\s+/g, " ");
 
 /**
  * 1件あたりに載せてよい本文の長さ。
@@ -199,6 +210,8 @@ ${input.displayName} さんの「自分年表」に載せる節目を、${input.
 # 書き方
 * title は ${lang} で、その日を指す短い見出し（日本語 ${CHRONICLE_TITLE_MAX_JA} 字以内 / 英語 ${CHRONICLE_TITLE_MAX_EN} 字以内）。
 * detail はひとこと（日本語 ${CHRONICLE_DETAIL_MAX_JA} 字以内 / 英語 ${CHRONICLE_DETAIL_MAX_EN} 字以内）。
+* 字数は目安です。**多少超えても構いませんが、文の途中で終わらせないこと。**
+  必ず「。」「！」などで言い切ってください。
 * evidence は、その日の日記から**一字も変えずに抜き出した ${EVIDENCE_MIN_CHARS} 文字以上の連続した部分**。
   要約や言い換えを入れてはいけません。ここが合わないとその節目は捨てられます。
 ${TONE_RULES_JA}
@@ -294,11 +307,11 @@ export function acceptChronicleMonth(
       continue;
     }
 
-    const titleJa = clip(row.titleJa, CHRONICLE_TITLE_MAX_JA);
-    const titleEn = clip(row.titleEn, CHRONICLE_TITLE_MAX_EN);
+    const titleJa = text(row.titleJa);
+    const titleEn = text(row.titleEn);
     if (!titleJa || !titleEn) continue;
-    const detailJa = clip(row.detailJa, CHRONICLE_DETAIL_MAX_JA);
-    const detailEn = clip(row.detailEn, CHRONICLE_DETAIL_MAX_EN);
+    const detailJa = text(row.detailJa);
+    const detailEn = text(row.detailEn);
     if ([titleJa, titleEn, detailJa, detailEn].some(rejectChronicleTone)) continue;
 
     seen.add(date);
