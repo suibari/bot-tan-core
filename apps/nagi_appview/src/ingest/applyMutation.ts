@@ -679,7 +679,7 @@ export async function applyMutation(
           });
       }
       if (collection === NAGI.zenkatsu) {
-        // 所持・おやすみ・当日かの照合はここが唯一の防御線。合わないレコードは索引しない
+        // 所持・クールダウン・当日かの照合はここが唯一の防御線。合わないレコードは索引しない
         // （repo には残るが記録には出ない ＝ AT Protocol の通常の動作）。
         const result = await indexZenkatsuSubmission(tx, {
           uri,

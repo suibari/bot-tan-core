@@ -271,7 +271,7 @@ export const AI_FEATURES = {
   // ゼンカツ！の総評。カードコメントと同じく、ユーザーは提出直後に結果を見ながら
   // 待っているので FLEX にしない。呼び出しは1人1日1回なので総量は誤差。
   NAGI_ZENKATSU: "lite-standard",
-  // 前日ぶんの「botたん賞」を1日1回選ぶ。候補はサーバが数件へ絞ってから渡す。
+  // 前日ぶんの「今日のナギカツ部長」を1日1回選ぶ。候補はサーバが数件へ絞ってから渡す。
   NAGI_ZENKATSU_AWARD: "lite-standard",
   NAGI_COMMUNITY_AFFIRMATION: "lite-flex", // コミュニティ全肯定
   NAGI_CHANNEL_WELCOME: "lite-flex", // チャンネル作成時の歓迎

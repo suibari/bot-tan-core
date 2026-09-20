@@ -266,7 +266,7 @@ const SHIFT_MS = JST_OFFSET_MS - DAY_START_HOUR_JST * 60 * 60 * 1000;
 /**
  * 日付キー "YYYY-MM-DD" を 1970-01-01 からの日数へ。
  *
- * カードのおやすみ日数もお題のローテも「何日目か」で数えるので、両方ここを使う。
+ * カードのクールダウン日数もお題のローテも「何日目か」で数えるので、両方ここを使う。
  * 日付キー同士の引き算で済ませることで、タイムゾーンや時刻の混入を避けられる。
  */
 export function dayIndexOfDateKey(dateKey: string): number {

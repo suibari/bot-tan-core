@@ -5,19 +5,19 @@ import {
 } from "./cards.js";
 
 /**
- * ゼンカツ！の回転設計（おやすみ＝クールタイムと提出枚数）。
+ * ゼンカツ！の回転設計（クールダウンと提出枚数）。
  * 数字の根拠と実測は docs/zenkatsu.md の3章。
  */
 
 /**
- * 一度出した札がおやすみする日数。レアリティが上がるほど長い。
+ * 一度出した札がクールダウンする日数。レアリティが上がるほど長い。
  *
- * 排出率とおやすみ日数が逆相関しているので在庫が自然に釣り合う。N は勝手に貯まるから
+ * 排出率とクールダウン日数が逆相関しているので在庫が自然に釣り合う。N は勝手に貯まるから
  * 毎日回せるが、UR は持っていても週1しか出せない。「レアを持っている人が毎日有利」に
  * ならないのがこの並びの狙い。
  *
  * 実測（供給1.5枚/日・90日）では、**持っている最高レアの札を出せる日が 100% → 約25%** になる。
- * おやすみが無いと「持っている最強の3枚を永久に出し続ける」ゲームになり、卓が固定化する。
+ * クールダウンが無いと「持っている最強の3枚を永久に出し続ける」ゲームになり、卓が固定化する。
  */
 export const ZENKATSU_REST_DAYS: Record<CardRarity, number> = {
   N: 2,
@@ -27,7 +27,7 @@ export const ZENKATSU_REST_DAYS: Record<CardRarity, number> = {
   AAR: 7,
 };
 
-/** 在庫を引くときに遡る日数。いちばん長いおやすみ（AAR）より前は必ず戻っている。 */
+/** 在庫を引くときに遡る日数。いちばん長いクールダウン（AAR）より前は必ず戻っている。 */
 export const ZENKATSU_MAX_REST_DAYS = Math.max(
   ...CARD_RARITIES.map((r) => ZENKATSU_REST_DAYS[r]),
 );
@@ -35,7 +35,7 @@ export const ZENKATSU_MAX_REST_DAYS = Math.max(
 /**
  * 1回に出せる最大枚数。**下限は無い**（1枚でもよい）。
  *
- * 3枚固定にすると序盤に詰む。必要在庫は `枚数 ×（おやすみ + 1）` なので常時12枚前後が要るが、
+ * 3枚固定にすると序盤に詰む。必要在庫は `枚数 ×（クールダウン + 1）` なので常時12枚前後が要るが、
  * 供給は1日最大2枚しかない。可変にすると、出せる枚数が 1→2→3 と増える過程が
  * そのまま進行度の可視化になる。
  */
@@ -62,7 +62,7 @@ export interface ZenkatsuPlay {
 export interface ZenkatsuAvailability {
   volume: number;
   id: number;
-  /** 在庫のうち、今日出せる枚数。0 なら全部おやすみ中。 */
+  /** 在庫のうち、今日出せる枚数。0 なら全部クールダウン中。 */
   available: number;
   /** available が 0 のとき、いちばん早く戻る1枚があと何日でおきるか。 */
   restingDays?: number;
@@ -71,12 +71,12 @@ export interface ZenkatsuAvailability {
 const cardKeyOf = (c: { volume: number; id: number }) => `${c.volume}:${c.id}`;
 
 /**
- * 在庫とおやすみから、今日出せる枚数を出す。
+ * 在庫とクールダウンから、今日出せる枚数を出す。
  *
  * 「同じ札を複数枚持っていれば、そのぶん別の1枚として使える」が要点で、これによって
  * `duplicate_count` が初めて意味を持つ（＝ガチャで被っても嬉しい）。
  *
- *     出せる = 所持枚数 − （おやすみ日数以内にその札を出した回数）
+ *     出せる = 所持枚数 − （クールダウン日数以内にその札を出した回数）
  *
  * 日付キーの差だけで数えるので、時刻もタイムゾーンも混ざらない。
  *
@@ -88,7 +88,7 @@ export function zenkatsuAvailability(
   today: string,
 ): ZenkatsuAvailability[] {
   const todayIndex = dayIndexOfDateKey(today);
-  // 札ごとに「おやすみが明ける日」を集める。
+  // 札ごとに「クールダウンが明ける日」を集める。
   const restingUntil = new Map<string, number[]>();
   for (const play of recentPlays) {
     const key = cardKeyOf(play);
@@ -101,7 +101,7 @@ export function zenkatsuAvailability(
   return holdings.map((holding) => {
     const rest = ZENKATSU_REST_DAYS[holding.rarity];
     const played = restingUntil.get(cardKeyOf(holding)) ?? [];
-    // 出した日から rest 日ぶんはおやすみ。rest + 1 日目に戻る。
+    // 出した日から rest 日ぶんはクールダウン。rest + 1 日目に戻る。
     // 未来日付（レコードを遡って書かれた場合）は数に入れない。
     const resting = played.filter(
       (playedIndex) =>
@@ -121,13 +121,13 @@ export function zenkatsuAvailability(
   });
 }
 
-/** 遡って引くべき最古の日付キー。クールタイム判定で使う範囲の下限。 */
+/** 遡って引くべき最古の日付キー。クールダウン判定で使う範囲の下限。 */
 export function zenkatsuRestWindowStart(today: string): string {
   const start = (dayIndexOfDateKey(today) - ZENKATSU_MAX_REST_DAYS) * 86_400_000;
   return new Date(start).toISOString().slice(0, 10);
 }
 
-/** 提出しようとしている札の組が、形として妥当か（所持とおやすみは別途照合する）。 */
+/** 提出しようとしている札の組が、形として妥当か（所持とクールダウンは別途照合する）。 */
 export function isValidZenkatsuSelection(
   cards: readonly { volume: number; id: number }[],
 ): boolean {
@@ -226,13 +226,13 @@ export function buildZenkatsuReading(
       `何度も引いている札: ${repeat.map((c) => `${c.nameJa}（${c.stock}枚目の在庫）`).join("、")}`,
     );
 
-  // いちばん重い1枚。「この1回のために何日おやすみさせるか」は肯定の材料として強い。
+  // いちばん重い1枚。「この1回で何日クールダウンするか」は肯定の材料として強い。
   const boldest = [...cards].sort(
     (a, b) => ZENKATSU_REST_DAYS[b.rarity] - ZENKATSU_REST_DAYS[a.rarity],
   )[0];
   if (boldest && ZENKATSU_REST_DAYS[boldest.rarity] >= ZENKATSU_REST_DAYS.SR) {
     labels.push(
-      `今日いちばんの冒険: ${boldest.nameJa}（${boldest.rarity}・これで${ZENKATSU_REST_DAYS[boldest.rarity]}日おやすみになる）`,
+      `大胆な一手: ${boldest.nameJa}（${boldest.rarity}・クールダウン${ZENKATSU_REST_DAYS[boldest.rarity]}日）`,
     );
     if (HIGHLIGHT_RARITIES.has(boldest.rarity)) highlight = true;
   }
@@ -259,7 +259,7 @@ export function buildZenkatsuReading(
  *
  * 見せるのは「追い風 x2」「コンボ成立」といった**出来事**だけで、合計点も順位も出さない。
  * 点数を見せた瞬間に上下が生まれ、下位を黙って否定することになる（docs/zenkatsu.md 1章）。
- * この数値の用途は、翌朝の「botたん賞」の候補を数件に絞ることだけ。
+ * この数値の用途は、翌朝の「今日のナギカツ部長」の候補を数件に絞ることだけ。
  *
  * **ATK/DEF を採点に入れていないのは意図的。** 高ATKのレアを出すのが得なゲームにすると、
  * 実測で60日かけて卓から消えていく N が完全に死ぬ（5章のレアリティ・インフレ）。
@@ -284,7 +284,7 @@ export interface ZenkatsuScoreInput {
 }
 
 export interface ZenkatsuScore {
-  /** 隠し得点。**表示してはいけない。** botたん賞の候補を絞るためだけに使う。 */
+  /** 隠し得点。**表示してはいけない。** 今日のナギカツ部長の候補を絞るためだけに使う。 */
   value: number;
   /** リザルトで見せる出来事。数値ではなく「何が起きたか」。 */
   tailwindCount: number;

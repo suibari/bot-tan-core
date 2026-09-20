@@ -30,6 +30,7 @@ import {
 } from "drizzle-orm";
 import { config } from "../config.js";
 import { getCurrentTitles, getSuperPositiveLevels } from "./badges.js";
+import { getZenkatsuChiefDids } from "./zenkatsu.js";
 import {
   EMPTY_MUTES,
   loadMutes,
@@ -214,9 +215,10 @@ export async function hydratePostViews(
   const uris = rows.map((r) => r.post.uri);
   const reactions = await getReactionViews(uris, viewerDid);
   const dids = rows.map((r) => r.post.did);
-  const [levels, titles] = await Promise.all([
+  const [levels, titles, chiefs] = await Promise.all([
     getSuperPositiveLevels(dids),
     getCurrentTitles(dids),
+    getZenkatsuChiefDids(dids),
   ]);
   const deletedUris = rows
     .filter(({ post }) => Boolean(post.deletedAt))
@@ -361,6 +363,7 @@ export async function hydratePostViews(
         isBot: post.did === config.botDid,
         superPositiveLevel: levels.get(post.did),
         currentTitle: titles.get(post.did),
+        ...(chiefs.has(post.did) ? { zenkatsuChief: true } : {}),
       },
       text: deleted ? "" : post.text,
       facets: (post.facets as PostView["facets"]) ?? undefined,

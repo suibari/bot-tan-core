@@ -30,7 +30,7 @@ import { and, desc, eq, gte, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { config } from "../config.js";
 import { ApiError } from "../middleware/errors.js";
 import { getReactionViews } from "./reactions.js";
-import type { DbLike } from "./zenkatsu.js";
+import { getZenkatsuChiefDids, type DbLike } from "./zenkatsu.js";
 
 /**
  * 全肯定カードのニュース。**R以上のドロー**と**ゼンカツのハイライト**が同じ列に並ぶ。
@@ -217,11 +217,13 @@ const decodeCursor = (cursor: string): { at: Date; uri: string } | undefined => 
 async function loadActorViews(dids: string[]): Promise<Map<string, ActorView>> {
   const unique = [...new Set(dids)];
   if (!unique.length) return new Map();
-  const rows = await db
-    .select({ actor: nagiActors, profile: nagiProfiles })
-    .from(nagiActors)
-    .leftJoin(nagiProfiles, eq(nagiProfiles.did, nagiActors.did))
-    .where(inArray(nagiActors.did, unique));
+  const [rows, chiefs] = await Promise.all([
+    db.select({ actor: nagiActors, profile: nagiProfiles })
+      .from(nagiActors)
+      .leftJoin(nagiProfiles, eq(nagiProfiles.did, nagiActors.did))
+      .where(inArray(nagiActors.did, unique)),
+    getZenkatsuChiefDids(unique),
+  ]);
   return new Map(
     rows.map(({ actor, profile }) => [
       actor.did,
@@ -233,6 +235,7 @@ async function loadActorViews(dids: string[]): Promise<Map<string, ActorView>> {
           ? `/api/blob/${encodeURIComponent(actor.did)}/${profile.avatarCid}`
           : undefined,
         isBot: actor.did === config.botDid,
+        ...(chiefs.has(actor.did) ? { zenkatsuChief: true } : {}),
       },
     ]),
   );

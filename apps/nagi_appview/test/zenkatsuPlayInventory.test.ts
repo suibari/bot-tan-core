@@ -3,7 +3,7 @@ import test from "node:test";
 import { CARD_DEFS, zenkatsuAvailability } from "@bsky-affirmative-bot/shared-configs";
 import { zenkatsuPlayInventory } from "../src/queries/zenkatsuPlayInventory.js";
 
-test("開発プレイは未所持もおやすみ中も全札を出せ、元の所持は変更しない", () => {
+test("開発プレイは未所持もクールダウン中も全札を出せ、元の所持は変更しない", () => {
   const card = CARD_DEFS[0];
   const holdings = [{ volume: card.volume, id: card.id, rarity: card.rarity, stock: 1 }];
   const plays = [{ volume: card.volume, id: card.id, themeDate: "2026-09-19" }];
@@ -15,7 +15,7 @@ test("開発プレイは未所持もおやすみ中も全札を出せ、元の�
   assert.equal(plays.length, 1);
 });
 
-test("本番は未所持を足さず、おやすみを維持する", () => {
+test("本番は未所持を足さず、クールダウンを維持する", () => {
   const card = CARD_DEFS[0];
   const holdings = [{ volume: card.volume, id: card.id, rarity: card.rarity, stock: 1 }];
   const plays = [{ volume: card.volume, id: card.id, themeDate: "2026-09-19" }];

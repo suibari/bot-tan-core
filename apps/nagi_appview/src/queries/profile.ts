@@ -97,7 +97,7 @@ export async function getActorProfile(
       .from(nagiAgeAssurance)
       .where(eq(nagiAgeAssurance.did, did))
       .limit(1),
-    // 「今日のゼンカツ部長」。プロフィール経路でだけ引く（フィードでは引かない）。
+    // 「今日のナギカツ部長」。
     isZenkatsuChief(did, now),
   ]);
   if (!actor && !profile && !stats?.postCount)
@@ -127,7 +127,7 @@ export async function getActorProfile(
     isBot: did === config.botDid,
     superPositiveLevel,
     currentTitle,
-    // バッジに出すのは「今日のゼンカツ部長」だけ。1日で消えるので梯子にならない。
+    // バッジに出すのは「今日のナギカツ部長」だけ。1日で消える。
     ...(zenkatsuChief ? { zenkatsuChief: true } : {}),
     postCount: stats?.postCount ?? 0,
     firstPostAt,

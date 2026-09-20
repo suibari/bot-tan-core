@@ -297,11 +297,11 @@ export type ActorView = {
    */
   currentTitle?: { ja: string; en: string };
   /**
-   * 「今日のゼンカツ部長」＝ 直前に閉じた日の botたん賞の受賞者。
+   * 「今日のナギカツ部長」＝ 直前に閉じた日の受賞者。
    *
    * **毎日ひとりだけが持ち、1日で消える。** 累積は出さない（累積表示は競争圧力になるとして
    * 超ポジティブLvが既に非表示にされている。docs/zenkatsu.md）。
-   * プロフィール取得の経路でだけ埋める。フィードでは引かない。
+   * プロフィールとフィードなどの投稿者情報に埋める。
    */
   zenkatsuChief?: boolean;
 };
@@ -928,7 +928,7 @@ export type GuestCardDrawResult = DrawCardResult & {
  * 提出レコード（ユーザー自身の repo・rkey = themeDate）。
  *
  * PDS 権威にできるのは、提出が「既に所持している札を参照するだけ」だから。
- * AppView は所持・おやすみ・当日かを照合して、合わないレコードを索引しない。
+ * AppView は所持・クールダウン・当日かを照合して、合わないレコードを索引しない。
  * ドローは乱数から価値を生むので照合先が無く、同じことはできない。
  */
 export type NagiZenkatsu = {
@@ -1003,7 +1003,7 @@ export type ZenkatsuSubmissionCombo = {
 export type ZenkatsuPlayableCard = {
   volume: number;
   id: number;
-  /** 在庫のうち、今日出せる枚数。0 なら全部おやすみ中。 */
+  /** 在庫のうち、今日出せる枚数。0 なら全部クールダウン中。 */
   available: number;
   /** available が 0 のとき、いちばん早く戻る1枚があと何日でおきるか。 */
   restingDays?: number;
@@ -1013,7 +1013,7 @@ export type ZenkatsuViewerState = {
   /** 今日すでに提出したか。提出は1日1回・確定。 */
   submitted: boolean;
   submissionUri?: string;
-  /** 所持している札の、今日の可否。おやすみ中のものも残り日数付きで含む。 */
+  /** 所持している札の、今日の可否。クールダウン中のものも残り日数付きで含む。 */
   playable: ZenkatsuPlayableCard[];
   /** 1回に出せる最大枚数。手持ちが少ないうちは少なく出してよい。 */
   maxCards: number;
@@ -1116,14 +1116,14 @@ export type ZenkatsuComboView = {
 };
 /** 受け取ったトロフィー1件。 */
 export type ZenkatsuTrophyView = {
-  /** ZENKATSU_AWARD_KINDS のいずれか。表示名はクライアントが持つ。 */
+  /** 6種類の賞。既存の kind 値を維持し、表示名はクライアントが持つ。 */
   kind: string;
   /** 対象の日（"YYYY-MM-DD"）。 */
   themeDate: string;
   themeJa?: string;
   themeEn?: string;
   submissionUri: string;
-  /** botたん賞のときの、選んだ理由。 */
+  /** 今日のナギカツ部長に選んだ理由。 */
   commentJa?: string;
   commentEn?: string;
 };
