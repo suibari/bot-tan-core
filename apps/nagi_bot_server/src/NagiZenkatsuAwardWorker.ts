@@ -13,7 +13,7 @@ const MAX_BACKOFF_MS = 900_000;
 let running = false;
 
 /**
- * ゼンカツ！のトロフィー確定ワーカー。
+ * ゼンカツ！の部長賞確定ワーカー。
  *
  * **JST 4:00 の発火を cron ではなく条件で表現する。** ジョブ行はその日の最初の提出で作られ、
  * 「theme_date がもう今日ではない」＝その日が閉じた、という条件でだけ処理する。
@@ -72,7 +72,7 @@ export function startNagiZenkatsuAwardWorker() {
     } catch (error) {
       const attempts = job.attempts + 1;
       const backoffMs = Math.min(MAX_BACKOFF_MS, 2 ** attempts * 10_000);
-      // 上限まで失敗しても、その日の記録そのものは残っている。トロフィーが付かないだけ。
+      // 上限まで失敗しても、その日の記録と即時の賞は残る。部長賞が付かないだけ。
       await db
         .update(nagiZenkatsuAwardJobs)
         .set({

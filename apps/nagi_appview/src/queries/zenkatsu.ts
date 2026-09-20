@@ -17,6 +17,7 @@ import {
   COMBO_TOTAL,
   dayIndexOfDateKey,
   getComboDef,
+  immediateZenkatsuAwards,
   matchCombos,
   scoreZenkatsu,
   type ComboDefinition,
@@ -28,6 +29,7 @@ import {
   zenkatsuAvailability,
   zenkatsuRestWindowStart,
   type CardDefinition,
+  type CardRarity,
   type ZenkatsuHolding,
   type ZenkatsuReading,
   type ZenkatsuReadingCard,
@@ -270,6 +272,7 @@ export type ZenkatsuDecision =
       combos: ComboDefinition[];
       /** 隠し得点。**表示には絶対に出さない**（今日のナギカツ部長の候補を絞るためだけ）。 */
       score: ZenkatsuScore;
+      rarities: CardRarity[];
     }
   | { ok: false; reason: ZenkatsuRejection };
 
@@ -345,7 +348,7 @@ export function decideZenkatsuSubmission(input: {
     cards: readingCards,
     comboBonuses: combos.map((c) => c.bonus),
   });
-  return { ok: true, reading, combos, score };
+  return { ok: true, reading, combos, score, rarities: readingCards.map((card) => card.rarity) };
 }
 
 /** 検証を通した提出を索引する。原子性は呼び出し側のトランザクションに委ねる（DbLike 参照）。 */
@@ -413,14 +416,34 @@ export async function indexZenkatsuSubmission(
     })),
   );
   // コンボの初回発見を記録する。既に誰かが出していれば何も起きない（発見者は不変）。
-  if (decision.combos.length)
+  const discoveries = decision.combos.length
+    ? await tx
+        .insert(nagiZenkatsuComboDiscoveries)
+        .values(
+          decision.combos.map((combo) => ({
+            comboVolume: combo.volume,
+            comboNumber: combo.id,
+            did,
+            submissionUri: input.uri,
+          })),
+        )
+        .onConflictDoNothing()
+        .returning({ comboVolume: nagiZenkatsuComboDiscoveries.comboVolume })
+    : [];
+
+  const immediateAwards = immediateZenkatsuAwards({
+    rarities: decision.rarities,
+    tailwindCount: decision.score.tailwindCount,
+    newComboCount: discoveries.length,
+  });
+  if (immediateAwards.length)
     await tx
-      .insert(nagiZenkatsuComboDiscoveries)
+      .insert(nagiZenkatsuTrophies)
       .values(
-        decision.combos.map((combo) => ({
-          comboVolume: combo.volume,
-          comboNumber: combo.id,
+        immediateAwards.map((kind) => ({
+          themeDate: record.themeDate,
           did,
+          kind,
           submissionUri: input.uri,
         })),
       )
@@ -430,7 +453,7 @@ export async function indexZenkatsuSubmission(
     .insert(nagiZenkatsuCommentJobs)
     .values({ submissionUri: input.uri })
     .onConflictDoNothing();
-  // 翌朝のトロフィー確定ジョブ。その日の最初の提出で作られ、以後は何もしない。
+  // 翌朝の部長賞ジョブ。その日の最初の提出で作られ、以後は何もしない。
   await tx
     .insert(nagiZenkatsuAwardJobs)
     .values({ themeDate: record.themeDate })

@@ -1630,9 +1630,8 @@ export const nagiZenkatsuComboDiscoveries = nagiSchema.table(
 );
 
 /**
- * 前日ぶんの6種類のトロフィー。JST 4:00 の切り替えで確定する。
- *
- * 各賞の受賞者は毎日1人。kind は旧データと同じ値を使う。
+ * ゼンカツ！のトロフィー。部長賞だけを翌朝確定し、ほかは提出時に付与する。
+ * kind は旧データと同じ値を使い、廃止した賞の履歴も読めるようにする。
  */
 export const nagiZenkatsuTrophies = nagiSchema.table(
   "zenkatsu_trophies",
@@ -1655,8 +1654,10 @@ export const nagiZenkatsuTrophies = nagiSchema.table(
       .notNull(),
   },
   (t) => [
-    // 同じ日に同じ賞を複数人へ贈らない。再試行で選出が変わっても1人に収束する。
-    uniqueIndex("nagi_zenkatsu_trophies_day_kind_idx").on(t.themeDate, t.kind),
+    // 部長賞だけは1日1人。再試行で選出が変わっても1人に収束する。
+    uniqueIndex("nagi_zenkatsu_trophies_botan_day_idx")
+      .on(t.themeDate)
+      .where(sql`${t.kind} = 'botan'`),
     // 同じ日・同じ賞・同じ人は1回まで（ジョブの再実行でも増えない）。
     uniqueIndex("nagi_zenkatsu_trophies_day_kind_did_idx").on(
       t.themeDate,
@@ -1667,7 +1668,7 @@ export const nagiZenkatsuTrophies = nagiSchema.table(
   ],
 );
 
-/** 日次のトロフィー確定ジョブ。1日1件で、二重確定を主キーで防ぐ。 */
+/** 日次の部長賞確定ジョブ。1日1件で、二重確定を主キーで防ぐ。 */
 export const nagiZenkatsuAwardJobs = nagiSchema.table(
   "zenkatsu_award_jobs",
   {
