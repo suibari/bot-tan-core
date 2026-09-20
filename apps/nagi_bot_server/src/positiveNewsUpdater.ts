@@ -6,6 +6,7 @@ import { publishNews } from "./NagiNewsFeature.js";
 import { resolveNewsImageUrl } from "./newsImageUrl.js";
 import { startWorkerLoop } from "./workerLoop.js";
 import type { PositiveNewsCandidate } from "@bsky-affirmative-bot/bot-brain";
+import { requestClientRebuild } from "./clientDeployHook.js";
 
 const SIX_HOURS = 6 * 60 * 60 * 1000;
 const RETRY_DELAY = 30 * 60 * 1000;
@@ -228,7 +229,8 @@ export async function updatePositiveNews(now = new Date()): Promise<number> {
           snapshotSourceName: candidate.sourceName ?? null, snapshotSourceUrl: candidate.sourceUrl ?? null,
           snapshotImageUrl: imageUrl ?? null,
           snapshotPublishedAt: candidate.publishedAt ? new Date(candidate.publishedAt) : null, snapshotCreatedAt: now };
-        await db.insert(nagiNewsApprovals).values({ newsUri: ref.uri, newsCid: ref.cid, status: "approved", reasonCode: decision.reasonCode, botCommentJa: decision.botCommentJa, titleEn: decision.titleEn, botCommentEn: decision.botCommentEn, model: positiveNewsModel(), promptVersion: POSITIVE_NEWS_PROMPT_VERSION, ...snapshot }).onConflictDoUpdate({ target: [nagiNewsApprovals.newsUri, nagiNewsApprovals.newsCid], set: { status: "approved", reasonCode: decision.reasonCode, botCommentJa: decision.botCommentJa, titleEn: decision.titleEn, botCommentEn: decision.botCommentEn, model: positiveNewsModel(), promptVersion: POSITIVE_NEWS_PROMPT_VERSION, hiddenAt: null, ...snapshot } });
+        // 再公開時に hiddenAt は戻さない。戻すと管理者が隠した記事が黙って復活する。
+        await db.insert(nagiNewsApprovals).values({ newsUri: ref.uri, newsCid: ref.cid, status: "approved", reasonCode: decision.reasonCode, botCommentJa: decision.botCommentJa, titleEn: decision.titleEn, botCommentEn: decision.botCommentEn, model: positiveNewsModel(), promptVersion: POSITIVE_NEWS_PROMPT_VERSION, ...snapshot }).onConflictDoUpdate({ target: [nagiNewsApprovals.newsUri, nagiNewsApprovals.newsCid], set: { status: "approved", reasonCode: decision.reasonCode, botCommentJa: decision.botCommentJa, titleEn: decision.titleEn, botCommentEn: decision.botCommentEn, model: positiveNewsModel(), promptVersion: POSITIVE_NEWS_PROMPT_VERSION, ...snapshot } });
         published++;
         // 在庫経由だった記事は消化済みにする（在庫から出続けないように）。
         await db.update(nagiNewsCandidates).set({ promotedNewsUri: ref.uri })
@@ -247,6 +249,9 @@ export async function updatePositiveNews(now = new Date()): Promise<number> {
     const stockLeft = await db.select({ n: sql<number>`count(*)::int` }).from(nagiNewsCandidates)
       .where(and(isNull(nagiNewsCandidates.promotedNewsUri), gt(nagiNewsCandidates.expiresAt, now)));
     console.log(`[INFO][NEWS_FEED] slot=${slot.toISOString()} published=${published} fromStock=${stocked.length} credits=${creditsUsed} topic=${usedTopic ?? "-"} stockLeft=${stockLeft[0]?.n ?? 0}`);
+    // 記事ページはビルド時にプリレンダされるので、公開しただけでは検索に出ない。
+    // 1日最大4回しか走らないので、Vercel のデプロイ上限には十分収まる。
+    if (published > 0) await requestClientRebuild(`news slot=${slot.toISOString()}`);
     return published;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

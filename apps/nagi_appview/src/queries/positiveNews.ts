@@ -6,13 +6,15 @@ import {
   nagiProfiles,
 } from "@bsky-affirmative-bot/database";
 import type {
+  FeedItem,
   NewsView,
   Page,
   RecommendedNewsView,
 } from "@bsky-affirmative-bot/nagi-lexicon";
-import { and, desc, eq, inArray, isNotNull, isNull, lt, notInArray, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, notInArray, or, sql, type SQL } from "drizzle-orm";
 import { config } from "../config.js";
-import { decodeCursor, encodeCursor, getBotActor } from "./timeline.js";
+import { ADULT_LABELS_ARRAY, decodeCursor, encodeCursor, getBotActor } from "./timeline.js";
+import { viewerIsAdult } from "../services/ageAssurance.js";
 import { getReactionViews } from "./reactions.js";
 import {
   embedQuery,
@@ -37,6 +39,53 @@ export const hasTrustedSnapshot = or(
     isNotNull(nagiNewsApprovals.snapshotCreatedAt),
   ),
 )!;
+
+/**
+ * 「公開してよい承認済みニュース」の条件。一覧・検索・プロフィール・パーマリンクが
+ * 同じ集合を指すための唯一の定義。
+ *
+ * 以前は同じ形の where が3か所へ散らばっていて、`hiddenAt` の扱いだけが揃っていなかった。
+ * 14日窓・ミュート・成人判定・並び順は呼び出し側ごとに違うのでここには入れない。
+ */
+export function approvedNewsConditions(opts: { actorJoined?: boolean } = {}): SQL[] {
+  return [
+    isNull(nagiNews.deletedAt),
+    eq(nagiNewsApprovals.status, "approved"),
+    // 管理者が隠した記事。hide は status も同時に落とすが、再公開時の onConflict が
+    // status を戻しうるので、「隠した」という事実そのものを見る。
+    isNull(nagiNewsApprovals.hiddenAt),
+    eq(nagiNewsApprovals.newsCid, nagiNews.cid),
+    hasTrustedSnapshot,
+    // 停止・削除された利用者のニュースを落とす。nagiActors を join している呼び出し側でしか
+    // 評価できないので、join しない索引経路は actorJoined:false で外す（あちらは bot 所有行
+    // しか見ないため、この条件は常に真になる）。
+    ...(opts.actorJoined === false
+      ? []
+      : [
+          or(
+            eq(nagiNews.did, config.botDid),
+            isNull(nagiActors.did),
+            eq(nagiActors.status, "active"),
+          )!,
+        ]),
+  ];
+}
+
+/**
+ * 未成年ビューアに見せない条件。投稿側の adultContentVisibility と同型で、
+ * ニュースには self_labels が無いぶんだけ短い。判定待ち（moderation_version is null）も落とす。
+ *
+ * **索引経路では必ず isAdult=false を渡すこと。** 未認証のビューアに対して
+ * viewerIsAdult は true を返す（ログイン前の公開閲覧を遅らせないための既定）ので、
+ * クローラをそのまま通すと成人向けラベルの記事が検索結果に出る。
+ */
+export function newsAdultVisibility(isAdult: boolean): SQL[] {
+  if (isAdult) return [];
+  return [
+    sql`${nagiNews.moderationVersion} is not null`,
+    sql`not (${nagiNews.moderationLabels} && ${ADULT_LABELS_ARRAY})`,
+  ];
+}
 
 // 検索は関連順のため offset ベースのページング（一覧の keyset とは別系統）。
 const encodeOffset = (offset: number) =>
@@ -135,14 +184,14 @@ export async function getPositiveNews(opts: {
   viewerDid?: string;
 }): Promise<Page<NewsView>> {
   const point = decodeCursor(opts.cursor);
-  const mutes = await loadMutes(opts.viewerDid);
+  const [mutes, isAdult] = await Promise.all([
+    loadMutes(opts.viewerDid),
+    viewerIsAdult(opts.viewerDid),
+  ]);
   const filters: any[] = [
-    isNull(nagiNews.deletedAt),
-    eq(nagiNewsApprovals.status, "approved"),
-    eq(nagiNewsApprovals.newsCid, nagiNews.cid),
-    hasTrustedSnapshot,
+    ...approvedNewsConditions(),
+    ...newsAdultVisibility(isAdult),
     sql`${nagiNews.indexedAt} >= now() - interval '14 days'`,
-    or(eq(nagiNews.did, config.botDid), isNull(nagiActors.did), eq(nagiActors.status, "active")),
   ];
   if (mutes.actors.length) filters.push(notInArray(nagiNews.did, mutes.actors));
   if (point)
@@ -248,11 +297,8 @@ export async function searchNews(opts: {
     .leftJoin(nagiProfiles, eq(nagiProfiles.did, nagiNews.did))
     .where(
       and(
-        isNull(nagiNews.deletedAt),
-        eq(nagiNewsApprovals.status, "approved"),
-        eq(nagiNewsApprovals.newsCid, nagiNews.cid),
-        hasTrustedSnapshot,
-        or(eq(nagiNews.did, config.botDid), isNull(nagiActors.did), eq(nagiActors.status, "active")),
+        ...approvedNewsConditions(),
+        ...newsAdultVisibility(await viewerIsAdult(opts.viewerDid)),
         ...(mutes.actors.length ? [notInArray(nagiNews.did, mutes.actors)] : []),
         conditions.match,
       ),
@@ -305,10 +351,8 @@ export async function getApprovedNewsViews(
     .where(
       and(
         inArray(nagiNews.uri, uniqueUris),
-        isNull(nagiNews.deletedAt),
-        eq(nagiNewsApprovals.status, "approved"),
-        hasTrustedSnapshot,
-        or(eq(nagiNews.did, config.botDid), isNull(nagiActors.did), eq(nagiActors.status, "active")),
+        ...approvedNewsConditions(),
+        ...newsAdultVisibility(await viewerIsAdult(viewerDid)),
         ...(mutes.actors.length ? [notInArray(nagiNews.did, mutes.actors)] : []),
       ),
     );
@@ -322,6 +366,115 @@ export async function getApprovedNewsViews(
       newsView(row, lang, reactions.get(row.news.uri) ?? []),
     ]),
   );
+}
+
+/**
+ * パーマリンクの rkey。`sha256(articleId).slice(0, 32)`（NagiNewsFeature.ts）なので
+ * 必ずこの形。DBを引く前に弾き、URLの形をそのままクエリへ通さない。
+ */
+const NEWS_RKEY = /^[0-9a-f]{32}$/;
+
+/**
+ * 記事1件。`/news/<rkey>` のパーマリンク用。
+ *
+ * 既存の2本は流用できない —— getPositiveNews は14日窓を持ち、searchNews は
+ * 既定の hybrid モードが Ollama の埋め込みに依存していて、落ちている間は空を返す。
+ * パーマリンクはどちらの都合でも 404 になってはいけない。
+ */
+export async function getNewsItemByRkey(opts: {
+  rkey: string;
+  lang: NewsLang;
+  viewerDid?: string;
+}): Promise<{ news: NewsView; botActor?: FeedItem["author"] } | null> {
+  if (!NEWS_RKEY.test(opts.rkey)) return null;
+  const [mutes, isAdult] = await Promise.all([
+    loadMutes(opts.viewerDid),
+    viewerIsAdult(opts.viewerDid),
+  ]);
+  const rows = await db
+    .select({ news: nagiNews, approval: nagiNewsApprovals, actor: nagiActors, profile: nagiProfiles })
+    .from(nagiNews)
+    .innerJoin(nagiNewsApprovals, eq(nagiNewsApprovals.newsUri, nagiNews.uri))
+    .leftJoin(nagiActors, eq(nagiActors.did, nagiNews.did))
+    .leftJoin(nagiProfiles, eq(nagiProfiles.did, nagiNews.did))
+    .where(
+      and(
+        eq(nagiNews.rkey, opts.rkey),
+        ...approvedNewsConditions(),
+        ...newsAdultVisibility(isAdult),
+        ...(mutes.actors.length ? [notInArray(nagiNews.did, mutes.actors)] : []),
+      ),
+    )
+    // rkey は articleId のハッシュなので、同じ記事を bot と利用者の双方が持ちうる。
+    // 並びを固定して、一度索引された URL が後から別の行を指さないようにする。
+    .orderBy(asc(nagiNews.indexedAt), asc(nagiNews.uri))
+    .limit(1);
+  const row = rows[0];
+  if (!row) return null;
+  const [reactions, botActor] = await Promise.all([
+    getReactionViews([row.news.uri], opts.viewerDid),
+    getBotActor(),
+  ]);
+  return {
+    news: newsView(row, opts.lang, reactions.get(row.news.uri) ?? []),
+    botActor,
+  };
+}
+
+/**
+ * 索引してよいニュースの列挙。クライアントのビルドが prerender の entries() と
+ * sitemap を作るために使う。
+ *
+ * getPositiveNews との違いは意図的:
+ * - **14日窓なし**。パーマリンクは公開し続ける
+ * - **成人向けラベルを無条件で除外**。クローラに年齢確認は無い
+ * - **botたん所有のみ**。利用者投稿のニュースには submittedBy（handle・表示名・アイコン）が
+ *   付き、それは本人のPDS由来の識別情報なので、検索公開のオプトイン（Stage 6）の対象
+ * - **ミュートもビューアも見ない**。索引対象は誰から見ても同じ集合
+ * - **リアクションを引かない**。ビルド時点の数はすぐ古くなるうえ、
+ *   実際の表示はハイドレーション後にクライアントが取り直す
+ */
+export async function listIndexableNews(opts: {
+  limit: number;
+  cursor?: string;
+  lang: NewsLang;
+}): Promise<Page<NewsView>> {
+  const point = decodeCursor(opts.cursor);
+  const rows = await db
+    .select({ news: nagiNews, approval: nagiNewsApprovals })
+    .from(nagiNews)
+    .innerJoin(nagiNewsApprovals, eq(nagiNewsApprovals.newsUri, nagiNews.uri))
+    .where(
+      and(
+        eq(nagiNews.did, config.botDid),
+        ...approvedNewsConditions({ actorJoined: false }),
+        ...newsAdultVisibility(false),
+        ...(point
+          ? [
+              or(
+                lt(nagiNews.indexedAt, point[0]),
+                and(eq(nagiNews.indexedAt, point[0]), lt(nagiNews.uri, point[1])),
+              )!,
+            ]
+          : []),
+      ),
+    )
+    .orderBy(desc(nagiNews.indexedAt), desc(nagiNews.uri))
+    .limit(opts.limit + 1);
+  const page = rows.slice(0, opts.limit);
+  const last = page.at(-1)?.news;
+  // プリレンダした HTML でも botたんのアイコンと表示名が出るように添える。
+  // 無いと newsBotPost のフォールバック（アイコン無し）が静的HTMLへ焼き付く。
+  const botActor = await getBotActor();
+  return {
+    items: page.map((row) => newsView(row, opts.lang, [])),
+    botActor,
+    hasMore: rows.length > opts.limit,
+    cursor:
+      rows.length > opts.limit && last
+        ? encodeCursor(last.indexedAt, last.uri)
+        : undefined,
+  };
 }
 
 /** 引用は14日を過ぎても表示する。非表示・削除・CID不一致なら掲載終了プレースホルダー。 */
