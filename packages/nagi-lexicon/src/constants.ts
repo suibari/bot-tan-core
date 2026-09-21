@@ -55,6 +55,16 @@ export const NAGI = {
   getChronicle: "com.suibari.nagi.getChronicle",
   getPositiveNews: "com.suibari.nagi.getPositiveNews",
   listIndexableBlogs: "com.suibari.nagi.listIndexableBlogs",
+  /**
+   * ニュース1件。`/news/<rkey>` のパーマリンク用。一覧の14日窓にも、
+   * 検索の埋め込み依存にも縛られない読み出し口。
+   */
+  getNewsItem: "com.suibari.nagi.getNewsItem",
+  /**
+   * 索引してよいニュースの列挙。クライアントのビルドが prerender の entries() と
+   * sitemap.xml を作るために使う。botたん所有・成人向けラベル除外・期間無制限。
+   */
+  listIndexableNews: "com.suibari.nagi.listIndexableNews",
   getNewsSubmissionPreview: "com.suibari.nagi.getNewsSubmissionPreview",
   requestNewsReview: "com.suibari.nagi.requestNewsReview",
   getMyNewsSubmissions: "com.suibari.nagi.getMyNewsSubmissions",

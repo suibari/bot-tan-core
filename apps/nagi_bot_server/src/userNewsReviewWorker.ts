@@ -311,7 +311,8 @@ export async function runUserNewsReviewBatch(now = new Date()): Promise<number> 
             botCommentEn: decision.botCommentEn,
             model: positiveNewsModel(),
             promptVersion: POSITIVE_NEWS_PROMPT_VERSION,
-            hiddenAt: null,
+            // hiddenAt はここで戻さない。同じ (uri, cid) を再承認しても、管理者が
+            // 隠した事実は残す（null に戻すと非表示の記事が黙って復活する）。
             ...snapshot,
           },
         });

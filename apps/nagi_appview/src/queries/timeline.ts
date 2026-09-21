@@ -150,8 +150,8 @@ export function adultContentVisibility(isAdult: boolean): SQL[] {
   ];
 }
 
-/** 上の式で使う text[] リテラル。 */
-const ADULT_LABELS_ARRAY = sql`${sql.raw(
+/** 上の式で使う text[] リテラル。ニュース側（positiveNews.ts）も同じ配列を使う。 */
+export const ADULT_LABELS_ARRAY = sql`${sql.raw(
   `array[${ADULT_LABELS.map((label) => `'${label}'`).join(",")}]::text[]`,
 )}`;
 
