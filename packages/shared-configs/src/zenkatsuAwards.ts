@@ -39,7 +39,22 @@ export interface ZenkatsuBotanCandidate {
 /** 部長賞は候補を5人までに絞り、botたんが選ぶ。 */
 export const ZENKATSU_BOTAN_SHORTLIST = 5;
 
-export function shortlistForBotan<T extends ZenkatsuBotanCandidate>(
+/**
+ * 前日の部長は、ほかに提出者がいる場合だけ候補から外す。
+ * 1人しか提出がない日は部長賞そのものを失わせないため、その人を残す。
+ */
+export function candidatesForBottan<T extends ZenkatsuBotanCandidate>(
+  candidates: readonly T[],
+  previousWinnerDid?: string,
+): T[] {
+  if (!previousWinnerDid) return [...candidates];
+  const alternatives = candidates.filter(
+    (candidate) => candidate.did !== previousWinnerDid,
+  );
+  return alternatives.length ? alternatives : [...candidates];
+}
+
+export function shortlistForBottan<T extends ZenkatsuBotanCandidate>(
   candidates: readonly T[],
   limit = ZENKATSU_BOTAN_SHORTLIST,
 ): T[] {

@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  candidatesForBottan,
   immediateZenkatsuAwards,
-  shortlistForBotan,
+  shortlistForBottan,
   type ZenkatsuBotanCandidate,
 } from "../src/zenkatsuAwards.js";
 
@@ -44,5 +45,30 @@ test("部長賞は翌朝の候補から1人を選ぶため、候補を5人まで
     score: i * 10,
     indexedAt: i,
   }));
-  assert.deepEqual(shortlistForBotan(candidates).map((candidate) => candidate.score), [110, 100, 90, 80, 70]);
+  assert.deepEqual(shortlistForBottan(candidates).map((candidate) => candidate.score), [110, 100, 90, 80, 70]);
+});
+
+test("前日の部長は他の提出者がいれば、得点にかかわらず候補から外す", () => {
+  const candidates: ZenkatsuBotanCandidate[] = [
+    { submissionUri: "at://previous", did: "did:plc:previous", score: 200, indexedAt: 1 },
+    { submissionUri: "at://other", did: "did:plc:other", score: 100, indexedAt: 2 },
+  ];
+
+  assert.deepEqual(
+    candidatesForBottan(candidates, "did:plc:previous").map(
+      (candidate) => candidate.did,
+    ),
+    ["did:plc:other"],
+  );
+});
+
+test("前日の部長しか提出していない日は、再選の候補に残す", () => {
+  const candidates: ZenkatsuBotanCandidate[] = [
+    { submissionUri: "at://previous", did: "did:plc:previous", score: 100, indexedAt: 1 },
+  ];
+
+  assert.deepEqual(
+    candidatesForBottan(candidates, "did:plc:previous"),
+    candidates,
+  );
 });

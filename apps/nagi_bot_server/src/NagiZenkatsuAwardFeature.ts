@@ -13,7 +13,8 @@ import {
 import {
   getThemeDef,
   resolveCardDef,
-  shortlistForBotan,
+  candidatesForBottan,
+  shortlistForBottan,
   type ZenkatsuBotanCandidate,
 } from "@bsky-affirmative-bot/shared-configs";
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
@@ -92,8 +93,25 @@ export async function runNagiZenkatsuAward(themeDate: string): Promise<void> {
     indexedAt: row.indexedAt.getTime(),
   }));
 
-  // 今日のナギカツ部長。候補が1人しか居ない日は選ばせず、そのまま贈る。
-  const shortlist = shortlistForBotan(candidates);
+  const [year, month, day] = themeDate.split("-").map(Number);
+  const previousThemeDate = new Date(Date.UTC(year, month - 1, day - 1))
+    .toISOString()
+    .slice(0, 10);
+  const [previousTrophy] = await db
+    .select({ did: nagiZenkatsuTrophies.did })
+    .from(nagiZenkatsuTrophies)
+    .where(
+      and(
+        eq(nagiZenkatsuTrophies.themeDate, previousThemeDate),
+        eq(nagiZenkatsuTrophies.kind, "botan"),
+      ),
+    )
+    .limit(1);
+
+  // 前日の部長を外してから上位候補を選ぶ。ほかに提出者がいなければ再選を許可する。
+  const shortlist = shortlistForBottan(
+    candidatesForBottan(candidates, previousTrophy?.did),
+  );
   if (!shortlist.length) return;
   if (!theme) throw new Error(`zenkatsu award: theme for ${themeDate} is missing`);
 
