@@ -22,6 +22,7 @@ import {
 import { getActorProfile, getReactedFeed } from "../queries/profile.js";
 import { resolveActorDid, searchActors } from "../queries/actors.js";
 import { getThread } from "../queries/thread.js";
+import { listIndexableBlogs } from "../queries/indexableBlogs.js";
 import {
   getNotifications,
   getUnreadCount,
@@ -432,6 +433,17 @@ xrpc.get(
     }
   },
 );
+xrpc.get(`/${NAGI.listIndexableBlogs}`, async (req, res, next) => {
+  try {
+    const page = await listIndexableBlogs({
+      limit: Math.min(200, Math.max(1, Number(req.query.limit ?? 200) || 200)),
+      cursor: String(req.query.cursor ?? "") || undefined,
+    });
+    res.set("Cache-Control", "public, max-age=60").json(page);
+  } catch (e) {
+    next(e);
+  }
+});
 xrpc.get(
   `/${NAGI.getProfile}`,
   optionalServiceAuth(NAGI.getProfile),

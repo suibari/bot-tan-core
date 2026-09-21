@@ -54,6 +54,7 @@ export const NAGI = {
   /** 自分年表。日記と同じく本人だけが読む（他人には件数も日付も返さない）。 */
   getChronicle: "com.suibari.nagi.getChronicle",
   getPositiveNews: "com.suibari.nagi.getPositiveNews",
+  listIndexableBlogs: "com.suibari.nagi.listIndexableBlogs",
   getNewsSubmissionPreview: "com.suibari.nagi.getNewsSubmissionPreview",
   requestNewsReview: "com.suibari.nagi.requestNewsReview",
   getMyNewsSubmissions: "com.suibari.nagi.getMyNewsSubmissions",
