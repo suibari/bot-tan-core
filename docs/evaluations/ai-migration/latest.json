@@ -249,7 +249,7 @@
       "id": "mood-song-grounded",
       "title": "気分ソング（実在確認Grounding）",
       "covers": [
-        "BSKY_MY_MOOD_SONG"
+        "COMMON_MOOD_SONG"
       ],
       "model": "hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S",
       "provider": "ollama",

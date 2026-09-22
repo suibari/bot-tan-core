@@ -208,6 +208,7 @@ export const AI_FEATURES = {
   COMMON_DIARY_ATTEMPT_EARLY: "35-lite-flex", // 日記 1〜2回目
   COMMON_DIARY_ATTEMPT_MID: "35-lite-standard", // 日記 3〜4回目
   COMMON_DIARY_ATTEMPT_LATE: "35-lite-standard", // 日記 5回目以降
+  COMMON_MOOD_SONG: "lite-flex", // 定期ポスト・DJの実在曲候補（本番は明示routeでGeminiへ）
 
   // ══════ Bluesky 全肯定botたん（bsky_bot_server のみ） ══════════════
   //
@@ -229,7 +230,6 @@ export const AI_FEATURES = {
   BSKY_ANNIVERSARY: "lite-flex", // 記念日
   BSKY_RECAP: "lite-flex", // 1年のまとめ
   BSKY_ROOM_WELCOME: "lite-flex", // お部屋招待のお出迎えメッセージ
-  BSKY_MY_MOOD_SONG: "lite-flex", // 今日の気分ソング（※現在は呼び出し元なし）
   // 画像生成用: 日本語の情景文 → booru タグ。**必ずローカルで回す。**
   // 拡散モデルの CLIP は日本語をほぼ読まないので変換層が要るが、これは抽出作業で
   // Gemini を使う理由が無く、しかも1日1回しか走らない。
@@ -431,7 +431,9 @@ function resolveUncached(feature: AiFeatureKey): ResolvedAiRoute {
   // 以前はここに `spec.alias !== "gemini-image"` という例外があった。画像生成だけは
   // モデル能力と API 契約が違うので巻き込めなかったため。画像は下の第2レジストリへ
   // 移したので、この表にはもうテキストしか無く、例外は要らなくなった。
-  if (spec.provider === "gemini" && aiTextProvider() === "ollama") {
+  // AI_TEXT_PROVIDER は未指定機能の一括既定。AI_ROUTE_<feature> が明示された
+  // 場合はそちらを優先し、grounding が必要な一機能だけ Gemini へ戻せるようにする。
+  if (spec.provider === "gemini" && aiTextProvider() === "ollama" && source !== "env") {
     spec = AI_ROUTES["ollama-chat"];
   }
 

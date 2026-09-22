@@ -20,6 +20,7 @@ export * from './generateImage.js';
 export * from './imageGenClient.js';
 export * from './buildImagePrompt.js';
 export * from './generateMyMoodSong.js';
+export * from './memorySong.js';
 export * from './generateOmikuji.js';
 export * from './generateQuestion.js';
 export * from './generateQuestionsAnswer.js';

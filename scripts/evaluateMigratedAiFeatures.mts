@@ -249,8 +249,8 @@ const cases: Case[] = [
   {
     id: "mood-song-grounded",
     title: "気分ソング（実在確認Grounding）",
-    covers: ["BSKY_MY_MOOD_SONG"],
-    feature: "BSKY_MY_MOOD_SONG",
+    covers: ["COMMON_MOOD_SONG"],
+    feature: "COMMON_MOOD_SONG",
     persona: true,
     prompt: personaPrompt("静かに前向きになりたい夜に合う実在曲を調べ、title、artist、commentのJSONで返して。"),
     schema: objectSchema({ title: string, artist: string, comment: string }, ["title", "artist", "comment"]),

@@ -13,17 +13,21 @@ OLLAMA_MODEL=hf.co/unsloth/gemma-4-12B-it-qat-GGUF:UD-Q4_K_XL
 SEARXNG_BASE_URL=http://127.0.0.1:8080
 ```
 
-`AI_TEXT_PROVIDER=ollama` では、画像を除く全テキスト機能を上記Ollamaモデルへ集約する。
+`AI_TEXT_PROVIDER=ollama` では、原則として画像を除くテキスト機能を上記Ollamaモデルへ集約する。
 `AI_FEATURES` に残るlite/flash/tierの表は、`AI_TEXT_PROVIDER=gemini` に変えたとき
 従来のGemini構成へ一括で戻すための設定である。
 
-**Groundingに Gemini は使わない。** 検索は bot 機に同居させた自前の SearXNG
+`AI_ROUTE_<機能キー>` を明示した場合は全体既定より優先される。現在は
+`AI_ROUTE_COMMON_MOOD_SONG=lite-standard` だけを例外として、実在曲候補を
+Google Search grounding付きGeminiから得る。
+
+**通常のGroundingに Gemini は使わない。** 検索は bot 機に同居させた自前の SearXNG
 （`searxng/compose.yml`、loopback 固定）で行い、本文取得も自前（`nagi-linkcard` の
 `fetchReadableText`）で行う。利用者が第三者AIサービスの規約に同意する関係が生まれない
 ことが採用理由で、これにより18歳以上要件の根拠が外れる。
 
-外部へ出るのは検索語と、投稿に含まれた URL だけ。元投稿・会話履歴・DID・
-`SYSTEM_INSTRUCTION` は渡さない。
+曲選びの例外では定期ポストまたはDJリクエスト本文をGeminiへ送り、返された候補を
+YouTube APIで検証する。DIDや会話履歴全体は送らない。
 
 構成は**用途によって非対称**である。
 
@@ -183,7 +187,7 @@ Ollama既定とGemini切り戻しの両方を全機能ぶんピン留めして�
 | `BSKY_ANNIVERSARY` | `lite-flex` | 記念日 |
 | `BSKY_RECAP` | `lite-flex` | 1年のまとめ |
 | `BSKY_ROOM_WELCOME` | `lite-flex` | お部屋招待のお出迎え |
-| `BSKY_MY_MOOD_SONG` | `lite-flex` | 今日の気分ソング（**現在は呼び出し元なし**） |
+| `COMMON_MOOD_SONG` | `lite-flex` | 定期ポスト・DJの実在曲候補 |
 | `BSKY_IMAGE_PROMPT` | `ollama-chat` | 画像生成用に日本語の情景文を booru タグへ直す（必ずローカル） |
 | `BSKY_DRAWING_REQUEST` | `ollama-chat` | お絵描き: botたんに絵を頼んでいるか・題材・描いてよい依頼かの判定（Nagi の依頼も共用） |
 

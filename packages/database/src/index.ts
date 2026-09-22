@@ -30,6 +30,7 @@ import {
   bot_memory_pronunciations,
   bot_memory_pronunciation_scans,
   bot_memory_usages,
+  bot_song_selections,
 } from './db.js';
 import { eq, desc, sql, gte, lte, and, gt, inArray, lt, isNull } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
@@ -52,6 +53,7 @@ export {
   bot_memory_pronunciations,
   bot_memory_pronunciation_scans,
   bot_memory_usages,
+  bot_song_selections,
 };
 export * from './nagiSchema.js';
 export * from './health.js';
@@ -61,6 +63,7 @@ export * from './newsInterestTopics.js';
 export * from './botMemoryPronunciation.js';
 export * from './researchJobs.js';
 export * from './drawingClaims.js';
+export * from './songSelections.js';
 export { embedSearchQuery, filterRelatedHistory, generateEmbedding, generateEmbeddings, searchQueryPrefix } from './ollamaEmbed.js';
 export { expandSearchQuery, filterAliases, queryExpansionEnabled, resetQueryExpansionState } from './queryExpansion.js';
 export { embeddingProfile, resetEmbeddingProfileWarnings, KNOWN_EMBEDDING_MODELS, type EmbeddingProfile } from './embeddingProfiles.js';

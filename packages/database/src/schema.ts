@@ -298,6 +298,27 @@ export const bot_memory_usages = affirmativeBotSchema.table(
   ],
 );
 
+/** botたんが実際に紹介した曲。選曲経路をまたいだ再選防止に使う。 */
+export const bot_song_selections = affirmativeBotSchema.table(
+  "bot_song_selections",
+  {
+    id: serial("id").primaryKey(),
+    video_id: text("video_id").notNull(),
+    song_key: text("song_key").notNull(),
+    title: text("title").notNull(),
+    artist: text("artist").notNull(),
+    source: text("source").notNull(),
+    output_ref: text("output_ref"),
+    selected_at: timestamp("selected_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    check("bot_song_selection_source_check", sql`${table.source} in ('scheduled_post', 'dj')`),
+    index("bot_song_selection_video_selected_idx").on(table.video_id, table.selected_at),
+    index("bot_song_selection_key_selected_idx").on(table.song_key, table.selected_at),
+    index("bot_song_selection_selected_idx").on(table.selected_at),
+  ],
+);
+
 /**
  * 短期記憶。直近の出来事を1日1行にまとめたダイジェスト。
  *

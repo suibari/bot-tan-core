@@ -54,7 +54,7 @@ const DEFERRED_FEATURES = new Set<AiFeatureKey>([
  */
 const REQUIRED_FEATURES = new Set<AiFeatureKey>([
   "BIORHYTHM_SEASONAL_WORKS",
-  "BSKY_MY_MOOD_SONG",
+  "COMMON_MOOD_SONG",
 ]);
 
 const PREFERRED_FEATURES = new Set<AiFeatureKey>(["NEWS_POSITIVE_COMMENT"]);

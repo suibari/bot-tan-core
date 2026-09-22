@@ -9,8 +9,7 @@ import {
   generateGoodNight,
   generateImage,
   generateQuestion,
-  MyMoodSongGenerator,
-  searchYoutubeLink,
+  MoodSongResolver,
   WhimsicalPostGenerator,
 } from "@bsky-affirmative-bot/bot-brain";
 import retry from "async-retry";
@@ -24,6 +23,7 @@ import {
   drawingDay,
   getTodaysLearnedWorks,
   recordBotMemoryUsages,
+  recordBotSongSelection,
   releaseDailyDrawing,
 } from "@bsky-affirmative-bot/database";
 import {
@@ -153,7 +153,7 @@ async function buildGoodNightImage(
 }
 
 const whimsicalPostGenerator = new WhimsicalPostGenerator();
-const moodSongGenerator = new MyMoodSongGenerator();
+const moodSongResolver = new MoodSongResolver();
 let isJapanesePost = true;
 
 async function publish(request: ScheduledPostPublishRequest) {
@@ -272,21 +272,19 @@ export async function postWhimsical(currentMood: string, botContext?: BotContext
     return result;
   }, { retries: 3 });
 
-  let song = { title: "Unknown", artist: "Unknown" };
-  let songUrl: string | undefined;
+  let song: Awaited<ReturnType<MoodSongResolver["resolve"]>> = null;
   try {
-    songUrl = await retry(async () => {
-      song = await moodSongGenerator.generate(currentMood, langStr);
-      const url = await searchYoutubeLink(`${song.artist} ${song.title}`);
-      if (!url) throw new Error("Youtube URL not found");
-      return url;
-    }, { retries: 3 });
+    song = await moodSongResolver.resolve(
+      isJapanesePost ? generated.textJa : generated.textEn,
+      langStr,
+    );
   } catch (error) {
     console.error("[ERROR] Failed to resolve mood song:", error);
   }
 
-  const songSuffix = songUrl ? songUrl : "(Not found in Youtube...)";
-  const moodSong = `MyMoodSong:\n${song.title} - ${song.artist}\n${songSuffix}`;
+  const moodSong = song
+    ? `MyMoodSong:\n${song.title} - ${song.artist}\n${song.url}`
+    : "";
   const texts = buildWhimsicalPostTexts({
     textJa: generated.textJa,
     textEn: generated.textEn,
@@ -314,10 +312,29 @@ export async function postWhimsical(currentMood: string, botContext?: BotContext
     }
     await recordScheduledPostMemoryUsage(
       results,
-      generated.selectedMemoryDocumentIds,
+      [
+        ...generated.selectedMemoryDocumentIds,
+        ...(song?.documentId ? [song.documentId] : []),
+      ],
     ).catch((error) =>
       console.error("[WARN][BOT_MEMORY] Failed to record scheduled-post usage", error),
     );
+    if (song) {
+      try {
+        await recordBotSongSelection({
+          videoId: song.videoId,
+          songKey: song.songKey,
+          title: song.title,
+          artist: song.artist,
+          source: "scheduled_post",
+          outputRef: results.bsky?.uri ?? results.nagi?.uri,
+        });
+      } catch (error) {
+        console.error("[WARN][MOOD_SONG] Failed to record scheduled-post song", error);
+      } finally {
+        moodSongResolver.remember(song);
+      }
+    }
   }
 
   // 未読リプライの消費・言語カウント・言語トグルはいずれも Bluesky 投稿に紐づくため、
