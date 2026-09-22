@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { NAGI } from "@bsky-affirmative-bot/nagi-lexicon";
+import { NAGI, STANDARD_SITE_DOCUMENT } from "@bsky-affirmative-bot/nagi-lexicon";
 import { isEligibleReactionCardTrigger } from "../src/services/reactionCardEligibility.js";
 
 const viewerDid = "did:plc:abcde234567";
@@ -20,6 +20,21 @@ const record = (
 });
 
 test("当日の他ユーザー宛てリアクションだけがカード枠を解放する", () => {
+  assert.equal(
+    isEligibleReactionCardTrigger(
+      viewerDid,
+      reactionUri,
+      {
+        ...record(),
+        subject: {
+          uri: `at://did:plc:bcdef234567/${STANDARD_SITE_DOCUMENT}/3blog`,
+          cid: "bafyreicid",
+        },
+      },
+      now,
+    ),
+    true,
+  );
   assert.equal(
     isEligibleReactionCardTrigger(viewerDid, reactionUri, record(), now),
     true,

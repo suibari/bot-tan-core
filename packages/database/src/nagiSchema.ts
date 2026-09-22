@@ -1641,7 +1641,7 @@ export const nagiZenkatsuTrophies = nagiSchema.table(
     themeDate: text("theme_date").notNull(),
     did: text("did").notNull(),
     /**
-     * 賞の種類。'botan' は「今日のナギカツ部長」。
+     * 賞の種類。'bottan' は「今日のナギカツ部長」。
      * 文字列で持つのは、賞を足すたびに enum の ALTER を挟みたくないため。
      */
     kind: text("kind").notNull(),
@@ -1655,9 +1655,9 @@ export const nagiZenkatsuTrophies = nagiSchema.table(
   },
   (t) => [
     // 部長賞だけは1日1人。再試行で選出が変わっても1人に収束する。
-    uniqueIndex("nagi_zenkatsu_trophies_botan_day_idx")
+    uniqueIndex("nagi_zenkatsu_trophies_bottan_day_idx")
       .on(t.themeDate)
-      .where(sql`${t.kind} = 'botan'`),
+      .where(sql`${t.kind} = 'bottan'`),
     // 同じ日・同じ賞・同じ人は1回まで（ジョブの再実行でも増えない）。
     uniqueIndex("nagi_zenkatsu_trophies_day_kind_did_idx").on(
       t.themeDate,

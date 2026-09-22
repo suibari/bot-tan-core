@@ -9,7 +9,8 @@ import {
   nagiReactions,
 } from "@bsky-affirmative-bot/database";
 import { BLUEMOJI_ITEM, NAGI } from "@bsky-affirmative-bot/nagi-lexicon";
-import { and, eq } from "drizzle-orm";
+import { and, eq, like } from "drizzle-orm";
+import { STANDARD_DOCUMENT } from "./standardDocument.js";
 import { config } from "../config.js";
 import { resolvePdsUrl } from "../util/pds.js";
 import { applyMutation } from "./applyMutation.js";
@@ -54,6 +55,9 @@ const USER_COLLECTIONS = [
   NAGI.channel,
   BLUEMOJI_ITEM,
   NAGI.post,
+  // 旧世代の「Nagi post + standard.site コピー」を先に post として確定し、
+  // 同じ rkey の document を二重索引しない。
+  STANDARD_DOCUMENT,
   NAGI.reaction,
   NAGI.news,
   NAGI.cardGet,
@@ -160,7 +164,7 @@ async function localRecords(
       ),
     );
   }
-  if (collection === NAGI.post) {
+  if (collection === NAGI.post || collection === STANDARD_DOCUMENT) {
     const rows = await db
       .select({
         uri: nagiPosts.uri,
@@ -170,7 +174,8 @@ async function localRecords(
       .from(nagiPosts)
       // こっそり投稿は PDS に正本が無い。ここへ混ぜると listRecords に出てこない行として
       // 毎回「PDS から消えた」と判定され、reconcile のたびに全部消える。
-      .where(and(eq(nagiPosts.did, did), eq(nagiPosts.appviewOnly, false)));
+      .where(and(eq(nagiPosts.did, did), eq(nagiPosts.appviewOnly, false),
+        like(nagiPosts.uri, `at://${did}/${collection}/%`)));
     return new Map(
       rows.map((row) => [
         row.uri,

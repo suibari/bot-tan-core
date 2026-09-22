@@ -26,7 +26,7 @@
       "required": ["id", "text", "linkCardCount", "createdAt", "updatedAt"],
       "properties": {
         "id": { "type": "string", "maxLength": 36 },
-        "text": { "type": "string", "maxLength": 30000, "maxGraphemes": 3000 },
+        "text": { "type": "string" },
         "linkCardCount": { "type": "integer", "minimum": 0, "maximum": 4 },
         "createdAt": { "type": "string", "format": "datetime" },
         "updatedAt": { "type": "string", "format": "datetime" }

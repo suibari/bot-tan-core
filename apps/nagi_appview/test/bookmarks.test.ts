@@ -6,7 +6,11 @@ import {
   normalizeBookmarkFolderName,
 } from "../src/queries/bookmarks.js";
 
-test("bookmark subject accepts exactly the three Nagi record collections", () => {
+test("bookmark subject accepts Nagi posts, standard.site blogs, news, and diaries", () => {
+  assert.equal(
+    bookmarkSubjectType("at://did:plc:alice/site.standard.document/blog"),
+    "post",
+  );
   assert.equal(
     bookmarkSubjectType("at://did:plc:alice/com.suibari.nagi.post/one"),
     "post",

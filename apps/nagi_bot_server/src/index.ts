@@ -4,7 +4,7 @@ import {
   reportHealthFailure,
   reportHeartbeat,
 } from "@bsky-affirmative-bot/clients";
-import { NAGI } from "@bsky-affirmative-bot/nagi-lexicon";
+import { NAGI, STANDARD_SITE_DOCUMENT } from "@bsky-affirmative-bot/nagi-lexicon";
 import { initAgent } from "./agent.js";
 import {
   assertNagiBotIdentity,
@@ -63,9 +63,10 @@ async function start() {
   startBotJetstream({
     endpoint: process.env.URL_JETSTREAM,
     // Phase 2 の「創設時の盛り上げ投稿」に備え、CH 作成イベントも購読しておく（ハンドラは現状スタブ）。
-    wantedCollections: [NAGI.post, NAGI.channel],
+    wantedCollections: [NAGI.post, STANDARD_SITE_DOCUMENT, NAGI.channel],
     onCreate: {
       [NAGI.post]: onNagiPost,
+      [STANDARD_SITE_DOCUMENT]: onNagiPost,
       [NAGI.channel]: onNagiChannel,
     },
     onHealth: (event) => {

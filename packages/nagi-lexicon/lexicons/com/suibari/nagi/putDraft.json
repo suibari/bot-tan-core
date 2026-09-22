@@ -39,7 +39,7 @@
         "dismissedUrls"
       ],
       "properties": {
-        "text": { "type": "string", "maxLength": 30000, "maxGraphemes": 3000 },
+        "text": { "type": "string" },
         "mentions": {
           "type": "array",
           "maxLength": 100,
@@ -121,7 +121,7 @@
       ],
       "properties": {
         "id": { "type": "string", "maxLength": 36 },
-        "text": { "type": "string", "maxLength": 30000, "maxGraphemes": 3000 },
+        "text": { "type": "string" },
         "mentions": {
           "type": "array",
           "maxLength": 100,

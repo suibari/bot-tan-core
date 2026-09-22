@@ -4,7 +4,11 @@ import {
   nagiPosts,
   nagiTranslations,
 } from "@bsky-affirmative-bot/database";
-import { NAGI, NAGI_LANGUAGES } from "@bsky-affirmative-bot/nagi-lexicon";
+import {
+  NAGI,
+  NAGI_LANGUAGES,
+  STANDARD_SITE_DOCUMENT,
+} from "@bsky-affirmative-bot/nagi-lexicon";
 import {
   BOT_VOICE_BRIEF_EN,
   OLLAMA_BUDGET_SAFETY_MARGIN,
@@ -81,11 +85,13 @@ function targetLanguage(value: unknown): Language {
   throw new ApiError(400, "invalid_request", "Unsupported target language");
 }
 
-/** Nagi 投稿の AT URI か。内部APIの入力検証と postUri() で同じ規則を使う。 */
+/** Nagi 投稿（standard.site のブログを含む）の AT URI か。 */
 export function isNagiPostUri(value: unknown): value is string {
   return (
     typeof value === "string" &&
-    new RegExp(`^at://did:(?:plc|web):[^/]+/${NAGI.post}/[^/]+$`).test(value)
+    new RegExp(
+      `^at://did:(?:plc|web):[^/]+/(?:${NAGI.post}|${STANDARD_SITE_DOCUMENT})/[^/]+$`,
+    ).test(value)
   );
 }
 

@@ -223,6 +223,7 @@ export const NAGI_COLLECTIONS = [
   NAGI.bluemoji,
   BLUEMOJI_ITEM,
 ] as const;
+export const STANDARD_SITE_DOCUMENT = "site.standard.document";
 /**
  * jetstream で購読するコレクション。
  * 日記は本人だけが読むもので PDS には置かず、AppView の internal ルーターでだけ作るので含めない。
@@ -230,6 +231,7 @@ export const NAGI_COLLECTIONS = [
  * AppView では使わない。よって NAGI_COLLECTIONS を spread せず明示列挙する。
  */
 export const NAGI_INGEST_COLLECTIONS = [
+  STANDARD_SITE_DOCUMENT,
   NAGI.post,
   NAGI.reaction,
   NAGI.profile,
@@ -269,11 +271,16 @@ export const NAGI_PERMISSION_SET = "com.suibari.nagi.appviewAccess";
 /** Nagi のプロフィール設定で app.bsky.actor.profile.website を更新する。 */
 export const NAGI_BLUESKY_PROFILE_SCOPE =
   "repo:app.bsky.actor.profile?action=create&action=update";
+/** Nagi のブログを standard.site レコードとして作成・編集・削除する。 */
+export const NAGI_STANDARD_SITE_SCOPES = [
+  "repo:site.standard.publication",
+  "repo:site.standard.document",
+];
 
 /**
  * Nagi の OAuth スコープ（真実源はこの1箇所）。Nagi namespace の repo/rpc 権限は permission
  * set(appviewAccess) に集約し、公開済み lexicon 側を真実源にする。blob と別 namespace の
- * Bluemoji repo 権限は permission set に入れられないため、直接スコープで残す。
+ * Bluemoji / standard.site の repo 権限は permission set に入れられないため、直接スコープで残す。
  * client.ts / client-metadata.json はこのバンドル参照形を使う。
  *
  * rpc の aud は permission set 側で `"aud": "*"`（wildcard）にハードコードしている。fragment 固定だと
@@ -291,25 +298,17 @@ export const NAGI_OAUTH_SCOPE = [
   `include:${NAGI_PERMISSION_SET}`,
   `repo:${BLUEMOJI_ITEM}`,
   NAGI_BLUESKY_PROFILE_SCOPE,
+  ...NAGI_STANDARD_SITE_SCOPES,
 ].join(" ");
 
 /**
- * オプトイン時にだけ追加で要求するスコープ。通常のサインインでは付けない。
- *
- * どちらも別 namespace なので appviewAccess(permission set) には入れられず、直接スコープで持つ。
- * standard.site 側にも site.standard.authFull という permission set があるが、
- * subscription / recommend まで含む過剰な束なので採らない。
- * Nagi は記事の作成・編集・削除を投稿に追従させるため、standard.site 側は action を絞らない。
+ * Bluesky クロスポストを有効にしたときだけ追加で要求するスコープ。
+ * standard.site は Nagi ブログの正本なので、通常ログインのスコープに含める。
  */
 export const NAGI_CROSSPOST_SCOPE = "repo:app.bsky.feed.post?action=create";
-export const NAGI_STANDARD_SITE_SCOPES = [
-  "repo:site.standard.publication",
-  "repo:site.standard.document",
-];
 
-/** client-metadata.json に宣言する最大集合（実際に要求するのはオプトインの分だけ）。 */
+/** client-metadata.json に宣言する最大集合（クロスポスト権限を含む）。 */
 export const NAGI_OAUTH_SCOPE_FULL = [
   NAGI_OAUTH_SCOPE,
   NAGI_CROSSPOST_SCOPE,
-  ...NAGI_STANDARD_SITE_SCOPES,
 ].join(" ");
