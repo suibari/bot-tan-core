@@ -3,3 +3,4 @@ export * from "./jetstream.js";
 export * from "./media.js";
 export * from "./botContext.js";
 export * from "./postTargeting.js";
+export * from "./clientDeployHook.js";
