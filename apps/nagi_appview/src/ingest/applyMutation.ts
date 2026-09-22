@@ -28,7 +28,6 @@ import {
   NAGI,
   appviewRecordUri,
 } from "@bsky-affirmative-bot/nagi-lexicon";
-import { requestClientRebuild } from "@bsky-affirmative-bot/bot-runtime";
 import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { config } from "../config.js";
 import {
@@ -51,6 +50,7 @@ import {
   shouldStartEnglishPrewarm,
   startEnglishPrewarm,
 } from "../services/translation.js";
+import { requestArticleClientRebuild } from "../services/clientRebuildScheduler.js";
 import { reconciledIndexedAt } from "./reconcileOrder.js";
 import { shouldAcceptSemanticRecord } from "./semanticRecord.js";
 import { validateRecord } from "./validateRecord.js";
@@ -1144,7 +1144,7 @@ export async function applyMutation(
   });
   if (zenkatsuCommentUri) void startZenkatsuComment(zenkatsuCommentUri);
   if (articleChanged)
-    await requestClientRebuild(`blog article=${uri}`);
+    await requestArticleClientRebuild(`blog article=${uri}`);
   // コミット後に配信。送信失敗はイングェストに影響させない。
   if (emitPush && pushJobs.length) dispatchPushAll(pushJobs);
   for (const postUri of englishPrewarmUris) startEnglishPrewarm(postUri);
