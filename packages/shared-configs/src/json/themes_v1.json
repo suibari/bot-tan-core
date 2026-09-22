@@ -122,7 +122,7 @@
   {
     "id": 15,
     "volume": 1,
-    "textJa": "深夜2時。冷蔵庫に、何もない",
+    "textJa": "深夜2時に空腹。冷蔵庫に、何もない",
     "textEn": "2 a.m. The fridge is empty.",
     "attribute": "dark",
     "raceJa": "冒険族",
@@ -182,7 +182,7 @@
   {
     "id": 22,
     "volume": 1,
-    "textJa": "告白する。3秒後に",
+    "textJa": "好きな人の目の前。告白する。3秒後に",
     "textEn": "You are going to confess. In three seconds.",
     "attribute": "fire",
     "raceJa": "信奉族",
@@ -302,8 +302,8 @@
   {
     "id": 36,
     "volume": 1,
-    "textJa": "階段で盛大に転んだ。誰も見ていない、はず",
-    "textEn": "You went down the stairs the hard way. Nobody saw. Probably.",
+    "textJa": "道端で盛大に転んだ。誰も見ていない、はず",
+    "textEn": "You felt down on the street hard. Nobody saw. Probably.",
     "attribute": "earth",
     "tone": "neta"
   },
@@ -318,7 +318,7 @@
   {
     "id": 38,
     "volume": 1,
-    "textJa": "部屋の床が、また見えなくなった",
+    "textJa": "忙しくて掃除を先延ばし。部屋の床が、また見えなくなった",
     "textEn": "The floor of your room has disappeared again.",
     "attribute": "earth",
     "raceJa": "家事族",
@@ -344,7 +344,7 @@
   {
     "id": 41,
     "volume": 1,
-    "textJa": "一歩だけ、外に出てみた",
+    "textJa": "しんどい日、一歩だけ外に出てみた",
     "textEn": "You stepped outside. Just one step.",
     "attribute": "earth",
     "raceJa": "応援族",
@@ -353,7 +353,7 @@
   {
     "id": 42,
     "volume": 1,
-    "textJa": "やろうと思っていたことを、やった",
+    "textJa": "ずっとやろうと思っていたことを、やれた",
     "textEn": "You did the thing you'd been meaning to do.",
     "attribute": "earth",
     "tone": "sunao"
