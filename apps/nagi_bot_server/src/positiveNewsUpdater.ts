@@ -1,12 +1,12 @@
 import { createHash } from "node:crypto";
 import { db, nagiNews, nagiNewsApprovals, nagiNewsCandidates, nagiNewsScreening, nagiNewsUpdateRuns, pickNewsInterestTopic, recordNewsInterestTopicYield } from "@bsky-affirmative-bot/database";
 import { getPositiveNewsCandidates, isNewsInterestGenre, judgePositiveNewsBatch, POSITIVE_NEWS_PROMPT_VERSION, positiveNewsModel } from "@bsky-affirmative-bot/bot-brain";
+import { requestClientRebuild } from "@bsky-affirmative-bot/bot-runtime";
 import { and, asc, eq, gt, inArray, isNull, lt, notInArray, or, sql } from "drizzle-orm";
 import { publishNews } from "./NagiNewsFeature.js";
 import { resolveNewsImageUrl } from "./newsImageUrl.js";
 import { startWorkerLoop } from "./workerLoop.js";
 import type { PositiveNewsCandidate } from "@bsky-affirmative-bot/bot-brain";
-import { requestClientRebuild } from "./clientDeployHook.js";
 
 const SIX_HOURS = 6 * 60 * 60 * 1000;
 const RETRY_DELAY = 30 * 60 * 1000;
