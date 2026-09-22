@@ -25,6 +25,7 @@ import {
   recordBotMemoryUsages,
   recordBotSongSelection,
   releaseDailyDrawing,
+  SCHEDULED_POST_SONG_SCOPE,
 } from "@bsky-affirmative-bot/database";
 import {
   getDailyTopPostCandidate,
@@ -277,13 +278,16 @@ export async function postWhimsical(currentMood: string, botContext?: BotContext
     song = await moodSongResolver.resolve(
       isJapanesePost ? generated.textJa : generated.textEn,
       langStr,
+      SCHEDULED_POST_SONG_SCOPE,
     );
   } catch (error) {
     console.error("[ERROR] Failed to resolve mood song:", error);
   }
 
   const moodSong = song
-    ? `MyMoodSong:\n${song.title} - ${song.artist}\n${song.url}`
+    ? `MyMoodSong:\n${song.title} - ${song.artist}` +
+      (song.lastFmUrl ? `\nSource: Last.fm ${song.lastFmUrl}` : "") +
+      `\n${song.url}`
     : "";
   const texts = buildWhimsicalPostTexts({
     textJa: generated.textJa,
@@ -326,13 +330,13 @@ export async function postWhimsical(currentMood: string, botContext?: BotContext
           songKey: song.songKey,
           title: song.title,
           artist: song.artist,
-          source: "scheduled_post",
+          scope: SCHEDULED_POST_SONG_SCOPE,
           outputRef: results.bsky?.uri ?? results.nagi?.uri,
         });
       } catch (error) {
         console.error("[WARN][MOOD_SONG] Failed to record scheduled-post song", error);
       } finally {
-        moodSongResolver.remember(song);
+        moodSongResolver.remember(SCHEDULED_POST_SONG_SCOPE, song);
       }
     }
   }

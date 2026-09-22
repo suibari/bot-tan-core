@@ -208,7 +208,8 @@ export const AI_FEATURES = {
   COMMON_DIARY_ATTEMPT_EARLY: "35-lite-flex", // 日記 1〜2回目
   COMMON_DIARY_ATTEMPT_MID: "35-lite-standard", // 日記 3〜4回目
   COMMON_DIARY_ATTEMPT_LATE: "35-lite-standard", // 日記 5回目以降
-  COMMON_MOOD_SONG: "lite-flex", // 定期ポスト・DJの実在曲候補（本番は明示routeでGeminiへ）
+  // Last.fm候補のタグ分類・安全確認・紹介文。外部知識はAPIから得るため必ずローカル。
+  COMMON_MOOD_SONG_LOCAL: "ollama-chat",
 
   // ══════ Bluesky 全肯定botたん（bsky_bot_server のみ） ══════════════
   //

@@ -17,17 +17,19 @@ SEARXNG_BASE_URL=http://127.0.0.1:8080
 `AI_FEATURES` に残るlite/flash/tierの表は、`AI_TEXT_PROVIDER=gemini` に変えたとき
 従来のGemini構成へ一括で戻すための設定である。
 
-`AI_ROUTE_<機能キー>` を明示した場合は全体既定より優先される。現在は
-`AI_ROUTE_COMMON_MOOD_SONG=lite-standard` だけを例外として、実在曲候補を
-Google Search grounding付きGeminiから得る。
+`AI_ROUTE_<機能キー>` を明示した場合は全体既定より優先される。曲選出はローカルLLMで
+気分タグを抽出し、Last.fm候補をコード側で抽選する。`COMMON_MOOD_SONG_LOCAL`は分類・
+安全確認・紹介文に使うローカル専用経路である。Last.fm経路が失敗してもGeminiへは戻らず、
+ローカル検査を通ったbot memory候補だけを試す。
 
 **通常のGroundingに Gemini は使わない。** 検索は bot 機に同居させた自前の SearXNG
 （`searxng/compose.yml`、loopback 固定）で行い、本文取得も自前（`nagi-linkcard` の
 `fetchReadableText`）で行う。利用者が第三者AIサービスの規約に同意する関係が生まれない
 ことが採用理由で、これにより18歳以上要件の根拠が外れる。
 
-曲選びの例外では定期ポストまたはDJリクエスト本文をGeminiへ送り、返された候補を
-YouTube APIで検証する。DIDや会話履歴全体は送らない。
+通常時は定期ポストまたはDJリクエスト本文をローカルLLMだけに渡す。Last.fmが返した候補を
+ローカルで安全確認し、コード側で抽選した後、YouTube APIで検証する。この経路からGeminiを
+呼ぶコードとルートは置かない。Last.fm経路を有効にするには`LASTFM_API_KEY`が必要。
 
 構成は**用途によって非対称**である。
 
@@ -187,7 +189,7 @@ Ollama既定とGemini切り戻しの両方を全機能ぶんピン留めして�
 | `BSKY_ANNIVERSARY` | `lite-flex` | 記念日 |
 | `BSKY_RECAP` | `lite-flex` | 1年のまとめ |
 | `BSKY_ROOM_WELCOME` | `lite-flex` | お部屋招待のお出迎え |
-| `COMMON_MOOD_SONG` | `lite-flex` | 定期ポスト・DJの実在曲候補 |
+| `COMMON_MOOD_SONG_LOCAL` | `ollama-chat` | Last.fm候補のタグ分類・安全確認・紹介文 |
 | `BSKY_IMAGE_PROMPT` | `ollama-chat` | 画像生成用に日本語の情景文を booru タグへ直す（必ずローカル） |
 | `BSKY_DRAWING_REQUEST` | `ollama-chat` | お絵描き: botたんに絵を頼んでいるか・題材・描いてよい依頼かの判定（Nagi の依頼も共用） |
 

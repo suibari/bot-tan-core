@@ -9,7 +9,10 @@ import {
     MoodSongResolver,
     type GroundedMoodSong,
 } from "@bsky-affirmative-bot/bot-brain";
-import { recordBotSongSelection } from "@bsky-affirmative-bot/database";
+import {
+    djSongSelectionScope,
+    recordBotSongSelection,
+} from "@bsky-affirmative-bot/database";
 import { getLangStr } from "../bsky/util.js";
 import { UserInfoGemini, GeminiResponseResult } from "@bsky-affirmative-bot/shared-configs";
 import { agent } from "../bsky/agent.js";
@@ -51,11 +54,12 @@ export class DJFeature implements BotFeature {
         }
 
         let selectedSong: GroundedMoodSong | undefined;
+        const songSelectionScope = djSongSelectionScope(follower.did);
         const result = await handleMode(event, {
             dbColumn: "last_dj_at",
             dbValue: new Date(),
             generateText: async (userinfo) => {
-                const generated = await this.getSongLink(userinfo);
+                const generated = await this.getSongLink(userinfo, songSelectionScope);
                 selectedSong = generated.song;
                 return generated.text;
             },
@@ -76,13 +80,13 @@ export class DJFeature implements BotFeature {
                         songKey: song.songKey,
                         title: song.title,
                         artist: song.artist,
-                        source: "dj",
+                        scope: songSelectionScope,
                         outputRef: requestUri,
                     });
                 } catch (error) {
                     console.error("[WARN][MOOD_SONG] Failed to record DJ song", error);
                 } finally {
-                    moodSongResolver.remember(song);
+                    moodSongResolver.remember(songSelectionScope, song);
                 }
             }
             await MemoryService.logUsage('dj', follower.did);
@@ -90,13 +94,16 @@ export class DJFeature implements BotFeature {
         }
     }
 
-    private async getSongLink(userinfo: UserInfoGemini): Promise<{
+    private async getSongLink(
+        userinfo: UserInfoGemini,
+        songSelectionScope: ReturnType<typeof djSongSelectionScope>,
+    ): Promise<{
         text: GeminiResponseResult;
         song?: GroundedMoodSong;
     }> {
         const query = (userinfo.posts?.[0] ?? "").slice(0, 1_000);
         const langStr = userinfo.langStr ?? "日本語";
-        const groundedSong = await moodSongResolver.resolve(query, langStr);
+        const groundedSong = await moodSongResolver.resolve(query, langStr, songSelectionScope);
         if (!groundedSong) {
             return {
                 text: langStr === "日本語"
@@ -107,7 +114,7 @@ export class DJFeature implements BotFeature {
         const text = `${groundedSong.comment}
 title: ${groundedSong.title}
 artist: ${groundedSong.artist}
-
+${groundedSong.lastFmUrl ? `Source: Last.fm ${groundedSong.lastFmUrl}\n` : ""}
 ${groundedSong.url}`;
         return { text, song: groundedSong };
     }

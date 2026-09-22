@@ -247,16 +247,6 @@ const cases: Case[] = [
     prompt: personaPrompt("botたんのお部屋へ来た人を、1文であたたかく迎えて。"),
   },
   {
-    id: "mood-song-grounded",
-    title: "気分ソング（実在確認Grounding）",
-    covers: ["COMMON_MOOD_SONG"],
-    feature: "COMMON_MOOD_SONG",
-    persona: true,
-    prompt: personaPrompt("静かに前向きになりたい夜に合う実在曲を調べ、title、artist、commentのJSONで返して。"),
-    schema: objectSchema({ title: string, artist: string, comment: string }, ["title", "artist", "comment"]),
-    tools: [{ googleSearch: {} }],
-  },
-  {
     id: "seasonal-works-grounded",
     title: "今期作品（必須Grounding）",
     covers: ["BIORHYTHM_SEASONAL_WORKS"],

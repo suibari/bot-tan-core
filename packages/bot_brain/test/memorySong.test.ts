@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { BotMemorySearchResult } from "@bsky-affirmative-bot/database";
 import {
+  SCHEDULED_POST_SONG_SCOPE,
+  djSongSelectionScope,
+} from "@bsky-affirmative-bot/database";
+import {
   buildMoodSongMemoryQuery,
   extractMemorySongCandidates,
   findMoodSongCandidates,
@@ -56,13 +60,16 @@ test("記憶検索は web_research に限定し、気分をクエリへ含める
 
 test("YouTubeで曲名と作者を確認できた候補まで順に進む", async () => {
   const searched: string[] = [];
-  const result = await resolveMoodSong("気分", "日本語", {
-    getRecentSelections: async () => [],
-    generateCandidates: async () => [
-      { title: "見つからない曲", artist: "作者A", comment: "候補A" },
-      { title: "This game", artist: "鈴木このみ", comment: "候補B" },
+  const result = await resolveMoodSong("気分", "日本語", SCHEDULED_POST_SONG_SCOPE, {
+    getRecentSelections: async (scope) => {
+      assert.deepEqual(scope, SCHEDULED_POST_SONG_SCOPE);
+      return [];
+    },
+    findCandidates: async () => [
+      { documentId: 1, title: "見つからない曲", artist: "作者A" },
+      { documentId: 2, title: "This game", artist: "鈴木このみ" },
     ],
-    findCandidates: async () => [],
+    screenMemory: async (_post, _lang, candidates) => candidates,
     searchYoutube: async (title) => {
       searched.push(title);
       return title === "This game"
@@ -76,29 +83,63 @@ test("YouTubeで曲名と作者を確認できた候補まで順に進む", asyn
     },
   });
   assert.deepEqual(searched, ["見つからない曲", "This game"]);
-  assert.equal(result?.comment, "候補B");
+  assert.match(result?.comment ?? "", /記憶に残っていた曲/);
   assert.equal(result?.url, "https://www.youtube.com/watch?v=verified");
+});
+
+test("Last.fm経路が成功すればbot memoryフォールバックを呼ばない", async () => {
+  let memorySearched = false;
+  const result = await resolveMoodSong("晴れた日の散歩", "日本語", SCHEDULED_POST_SONG_SCOPE, {
+    getRecentSelections: async () => [],
+    resolveLastFm: async (_post, _lang, options) => {
+      assert.deepEqual([...options.excludedSongKeys ?? []], []);
+      return {
+        title: "Mr. Blue Sky",
+        artist: "Electric Light Orchestra",
+        comment: "明るい空気に合いそう！",
+        tags: ["happy"],
+        lastFmUrl: "https://www.last.fm/music/Electric+Light+Orchestra/_/Mr.+Blue+Sky",
+        screenedOutCount: 1,
+        videoId: "blue-sky",
+        url: "https://www.youtube.com/watch?v=blue-sky",
+        videoTitle: "Mr. Blue Sky",
+        channelTitle: "ELO",
+      };
+    },
+    findCandidates: async () => {
+      memorySearched = true;
+      return [];
+    },
+  });
+  assert.equal(memorySearched, false);
+  assert.equal(result?.videoId, "blue-sky");
+  assert.equal(result?.lastFmUrl, "https://www.last.fm/music/Electric+Light+Orchestra/_/Mr.+Blue+Sky");
+  assert.equal(result?.songKey, songKey({ title: "Mr. Blue Sky", artist: "Electric Light Orchestra" }));
 });
 
 test("直近の同一曲を除外し、YouTube検索は3候補までに制限する", async () => {
   const searched: string[] = [];
-  const candidates = ["Ａ", "B", "C", "D", "E"].map((title) => ({
+  const candidates = ["Ａ", "B", "C", "D", "E"].map((title, index) => ({
+    documentId: index + 1,
     title,
     artist: `artist-${title}`,
-    comment: title,
   }));
-  const result = await resolveMoodSong("気分", "日本語", {
-    getRecentSelections: async () => [{
-      videoId: "old-a",
-      songKey: songKey({ title: "A", artist: "artist-A" }),
-      title: "A",
-      artist: "artist-A",
-      source: "dj",
-      outputRef: null,
-      selectedAt: new Date(),
-    }],
-    generateCandidates: async () => candidates,
-    findCandidates: async () => [],
+  const result = await resolveMoodSong("気分", "日本語", djSongSelectionScope("did:plc:alice"), {
+    getRecentSelections: async (scope) => {
+      assert.deepEqual(scope, { purpose: "dj", subjectDid: "did:plc:alice" });
+      return [{
+        videoId: "old-a",
+        songKey: songKey({ title: "A", artist: "artist-A" }),
+        title: "A",
+        artist: "artist-A",
+        purpose: "dj",
+        subjectDid: "did:plc:alice",
+        outputRef: null,
+        selectedAt: new Date(),
+      }];
+    },
+    findCandidates: async () => candidates,
+    screenMemory: async (_post, _lang, values) => values,
     searchYoutube: async (title) => {
       searched.push(title);
       return null;
@@ -109,22 +150,23 @@ test("直近の同一曲を除外し、YouTube検索は3候補までに制限す
 });
 
 test("同じ曲の別動画もsongKeyで、同じ動画の別表記もvideoIdで除外する", async () => {
-  const result = await resolveMoodSong("気分", "日本語", {
+  const result = await resolveMoodSong("気分", "日本語", SCHEDULED_POST_SONG_SCOPE, {
     getRecentSelections: async () => [{
       videoId: "used-video",
       songKey: songKey({ title: "SUN", artist: "星野源" }),
       title: "SUN",
       artist: "星野源",
-      source: "scheduled_post",
+      purpose: "scheduled_post",
+      subjectDid: null,
       outputRef: null,
       selectedAt: new Date(),
     }],
-    generateCandidates: async () => [
-      { title: "ＳＵＮ", artist: "星野 源", comment: "同じ曲" },
-      { title: "別の曲", artist: "別の人", comment: "同じ動画" },
-      { title: "新しい曲", artist: "新しい人", comment: "採用" },
+    findCandidates: async () => [
+      { documentId: 1, title: "ＳＵＮ", artist: "星野 源" },
+      { documentId: 2, title: "別の曲", artist: "別の人" },
+      { documentId: 3, title: "新しい曲", artist: "新しい人" },
     ],
-    findCandidates: async () => [],
+    screenMemory: async (_post, _lang, candidates) => candidates,
     searchYoutube: async (title) => ({
       videoId: title === "別の曲" ? "used-video" : "new-video",
       url: `https://www.youtube.com/watch?v=${title === "別の曲" ? "used-video" : "new-video"}`,

@@ -298,7 +298,7 @@ export const bot_memory_usages = affirmativeBotSchema.table(
   ],
 );
 
-/** botたんが実際に紹介した曲。選曲経路をまたいだ再選防止に使う。 */
+/** botたんが実際に紹介した曲。定期ポスト単位・DJ利用者DID単位の再選防止に使う。 */
 export const bot_song_selections = affirmativeBotSchema.table(
   "bot_song_selections",
   {
@@ -307,14 +307,19 @@ export const bot_song_selections = affirmativeBotSchema.table(
     song_key: text("song_key").notNull(),
     title: text("title").notNull(),
     artist: text("artist").notNull(),
-    source: text("source").notNull(),
+    purpose: text("purpose").notNull(),
+    subject_did: text("subject_did"),
     output_ref: text("output_ref"),
     selected_at: timestamp("selected_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
-    check("bot_song_selection_source_check", sql`${table.source} in ('scheduled_post', 'dj')`),
-    index("bot_song_selection_video_selected_idx").on(table.video_id, table.selected_at),
-    index("bot_song_selection_key_selected_idx").on(table.song_key, table.selected_at),
+    check("bot_song_selection_purpose_check", sql`${table.purpose} in ('scheduled_post', 'dj')`),
+    check(
+      "bot_song_selection_scope_check",
+      sql`(${table.purpose} = 'scheduled_post' and ${table.subject_did} is null) or (${table.purpose} = 'dj' and ${table.subject_did} is not null)`,
+    ),
+    index("bot_song_selection_video_selected_idx").on(table.purpose, table.subject_did, table.video_id, table.selected_at),
+    index("bot_song_selection_key_selected_idx").on(table.purpose, table.subject_did, table.song_key, table.selected_at),
     index("bot_song_selection_selected_idx").on(table.selected_at),
   ],
 );

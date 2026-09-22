@@ -1,18 +1,21 @@
 import {
   botSongSelectionCutoff,
+  botSongSelectionScopeKey,
   getRecentBotSongSelections,
   searchBotMemory,
   type BotMemorySearchResult,
+  type BotSongSelectionScope,
 } from "@bsky-affirmative-bot/database";
 import type { LanguageName } from "@bsky-affirmative-bot/shared-configs";
 import {
   searchYoutubeSong,
   type YoutubeSongMatch,
 } from "../api/youtube/index.js";
+import { isOllamaConfigured } from "../ollamaChat.js";
 import {
-  MyMoodSongGenerator,
-  type MoodSongCandidate,
-} from "./generateMyMoodSong.js";
+  resolveLastFmMoodSong,
+  screenLastFmMoodSongCandidates,
+} from "./lastFmMoodSong.js";
 
 export interface MemorySongCandidate {
   documentId: number;
@@ -20,7 +23,12 @@ export interface MemorySongCandidate {
   artist: string;
 }
 
-type SongCandidate = MoodSongCandidate & { documentId?: number };
+type SongCandidate = {
+  title: string;
+  artist: string;
+  comment: string;
+  documentId?: number;
+};
 
 export interface GroundedMoodSong extends YoutubeSongMatch {
   documentId?: number;
@@ -28,6 +36,8 @@ export interface GroundedMoodSong extends YoutubeSongMatch {
   artist: string;
   comment: string;
   songKey: string;
+  /** Last.fm由来の候補では、API利用条件に沿って出典リンクを併記する。 */
+  lastFmUrl?: string;
 }
 
 const normalizeSongIdentityPart = (value: string) => value
@@ -96,8 +106,6 @@ export async function findMoodSongCandidates(
   return extractMemorySongCandidates(rows);
 }
 
-const generator = new MyMoodSongGenerator();
-
 async function verifyCandidates(
   candidates: SongCandidate[],
   excludedSongKeys: ReadonlySet<string>,
@@ -119,22 +127,41 @@ async function verifyCandidates(
   return null;
 }
 
-/** Geminiで候補を作り、YouTubeで検証する。失敗時だけbot memoryへフォールバックする。 */
+async function screenMemorySongCandidates(
+  postText: string,
+  langStr: LanguageName,
+  candidates: SongCandidate[],
+) {
+  const pool = candidates.slice(0, 12).map((candidate, index) => ({
+    ...candidate,
+    lastFmUrl: "",
+    rank: index + 1,
+    tags: ["bot-memory"],
+    weight: 1 / (index + 1),
+  }));
+  const assessment = await screenLastFmMoodSongCandidates(postText, pool, langStr);
+  const allowed = new Set(assessment.allowedIndices);
+  return candidates.filter((_, index) => allowed.has(index));
+}
+
+/** Last.fm候補を優先し、失敗時はローカル検査済みbot memoryだけへフォールバックする。 */
 export async function resolveMoodSong(
   postText: string,
   langStr: LanguageName,
+  scope: BotSongSelectionScope,
   deps: {
-    generateCandidates?: MyMoodSongGenerator["generateCandidates"];
     findCandidates?: typeof findMoodSongCandidates;
     getRecentSelections?: typeof getRecentBotSongSelections;
     searchYoutube?: typeof searchYoutubeSong;
     excludeSongKeys?: ReadonlySet<string>;
     excludeVideoIds?: ReadonlySet<string>;
     now?: Date;
+    resolveLastFm?: typeof resolveLastFmMoodSong;
+    screenMemory?: typeof screenMemorySongCandidates;
   } = {},
 ): Promise<GroundedMoodSong | null> {
   const getRecent = deps.getRecentSelections ?? getRecentBotSongSelections;
-  const recent = await getRecent(botSongSelectionCutoff(deps.now));
+  const recent = await getRecent(scope, botSongSelectionCutoff(deps.now));
   const excludedSongKeys = new Set([
     ...recent.map((item) => item.songKey),
     ...(deps.excludeSongKeys ?? []),
@@ -143,31 +170,41 @@ export async function resolveMoodSong(
     ...recent.map((item) => item.videoId),
     ...(deps.excludeVideoIds ?? []),
   ]);
-  const history = recent.map(({ title, artist }) => ({ title, artist }));
   const searchYoutube = deps.searchYoutube ?? searchYoutubeSong;
 
-  try {
-    const generate = deps.generateCandidates ?? generator.generateCandidates.bind(generator);
-    const generated = await generate(postText, langStr, history);
-    const verified = await verifyCandidates(
-      generated,
-      excludedSongKeys,
-      excludedVideoIds,
-      searchYoutube,
-    );
-    if (verified) return verified;
-  } catch (error) {
-    console.error("[WARN][MOOD_SONG] Gemini candidate generation failed", error);
+  if (deps.resolveLastFm || (process.env.LASTFM_API_KEY && isOllamaConfigured())) {
+    try {
+      const lastFm = await (deps.resolveLastFm ?? resolveLastFmMoodSong)(postText, langStr, {
+        excludedSongKeys,
+        excludedVideoIds,
+        searchYoutube,
+      });
+      if (lastFm) return { ...lastFm, songKey: songKey(lastFm) };
+    } catch (error) {
+      console.error("[WARN][MOOD_SONG] Last.fm candidate selection failed", error);
+    }
   }
 
   const memories = await (deps.findCandidates ?? findMoodSongCandidates)(postText, langStr);
+  const memoryCandidates = memories.map((item) => ({
+    ...item,
+    comment: langStr === "日本語"
+      ? "記憶に残っていた曲から、今の投稿に合いそうな一曲を選んだよ！"
+      : "I picked a verified song from my memory that fits this post!",
+  }));
+  let screenedMemories: SongCandidate[];
+  try {
+    screenedMemories = await (deps.screenMemory ?? screenMemorySongCandidates)(
+      postText,
+      langStr,
+      memoryCandidates,
+    );
+  } catch (error) {
+    console.warn("[WARN][MOOD_SONG] Local bot-memory song screening failed", error);
+    return null;
+  }
   return verifyCandidates(
-    memories.map((item) => ({
-      ...item,
-      comment: langStr === "日本語"
-        ? "記憶に残っていた曲から、今の投稿に合いそうな一曲を選んだよ！"
-        : "I picked a verified song from my memory that fits this post!",
-    })),
+    screenedMemories,
     excludedSongKeys,
     excludedVideoIds,
     searchYoutube,
@@ -176,20 +213,27 @@ export async function resolveMoodSong(
 
 /** DB反映までの短い隙間でも同一プロセス内の再選を避ける。 */
 export class MoodSongResolver {
-  private recent: GroundedMoodSong[] = [];
+  private recent = new Map<string, GroundedMoodSong[]>();
 
   constructor(private maxHistory = 30) {}
 
-  async resolve(postText: string, langStr: LanguageName) {
-    return resolveMoodSong(postText, langStr, {
-      excludeSongKeys: new Set(this.recent.map((item) => item.songKey)),
-      excludeVideoIds: new Set(this.recent.map((item) => item.videoId)),
+  async resolve(
+    postText: string,
+    langStr: LanguageName,
+    scope: BotSongSelectionScope,
+  ) {
+    const recent = this.recent.get(botSongSelectionScopeKey(scope)) ?? [];
+    return resolveMoodSong(postText, langStr, scope, {
+      excludeSongKeys: new Set(recent.map((item) => item.songKey)),
+      excludeVideoIds: new Set(recent.map((item) => item.videoId)),
     });
   }
 
-  remember(song: GroundedMoodSong) {
-    this.recent = [song, ...this.recent.filter((item) =>
+  remember(scope: BotSongSelectionScope, song: GroundedMoodSong) {
+    const scopeKey = botSongSelectionScopeKey(scope);
+    const recent = this.recent.get(scopeKey) ?? [];
+    this.recent.set(scopeKey, [song, ...recent.filter((item) =>
       item.videoId !== song.videoId && item.songKey !== song.songKey
-    )].slice(0, this.maxHistory);
+    )].slice(0, this.maxHistory));
   }
 }

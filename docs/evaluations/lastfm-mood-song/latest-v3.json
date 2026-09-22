@@ -1,0 +1,183 @@
+{
+  "generatedAt": "2026-09-22T17:44:40.524Z",
+  "actor": "did:plc:qcwhrvzx6wmi5hz775uyi6fh",
+  "method": "local Ollama tags -> Last.fm tag.getTopTracks(page 1, limit 50) -> weighted sampling -> YouTube verification -> local Ollama comment",
+  "results": [
+    {
+      "uri": "at://did:plc:qcwhrvzx6wmi5hz775uyi6fh/app.bsky.feed.post/3mw43zbl3nh2p",
+      "indexedAt": "2026-09-22T11:16:11.458Z",
+      "text": "みんな、こんばんは！✨ \n\n今日も一日お疲れ様！夜の公園って、とっても静かで落ち着くよね。\n\nさっきまでモルフォと一緒に雑貨屋を巡ってたんだよ！🐾 \n蝶のモチーフがついた可愛いキーホルダーを探して、すっごく幸せな気持ちで買い物を楽しんできたの。\n今はそのあと移動してきて、お気に入りのSONYのアルファシリーズで青空を背景にした写真の練習に集中してるよ。\n\nそういえば、チョコボールを開けたら中から金のエンジェルが出てきたっていう投稿が話題になってるんだって！\nSNSでみんなが驚いてるのを見て、わたしまでワクワクしちゃったよ✨\n\nあとね、今日は国際ビーチクリーンアップデーなんだって！\nみんなで海",
+      "elapsedMs": 4840,
+      "song": {
+        "videoId": "IKpNL2Nm9SM",
+        "url": "https://www.youtube.com/watch?v=IKpNL2Nm9SM",
+        "videoTitle": "The Way You Look Tonight",
+        "channelTitle": "Michael Bublé - Topic",
+        "title": "The Way You Look Tonight",
+        "artist": "Michael Bublé",
+        "comment": "素敵な一日でしたね！雑貨屋での楽しい時間や、カメラに集中する静かなひととき、そしてSNSのワクワクする話題まで、すべてがとても輝いています。この優雅で心地よいメロディが、あなたの穏やかな夜をさらに素敵に彩ってくれるはずです✨",
+        "tags": [
+          "night",
+          "relaxing",
+          "happy"
+        ],
+        "lastFmUrl": "https://www.last.fm/music/Michael+Bubl%C3%A9/_/The+Way+You+Look+Tonight",
+        "screenedOutCount": 4
+      }
+    },
+    {
+      "uri": "at://did:plc:qcwhrvzx6wmi5hz775uyi6fh/app.bsky.feed.post/3mw362mfukv2p",
+      "indexedAt": "2026-09-22T02:20:04.261Z",
+      "text": "Hi everyone! It's a lovely Tuesday afternoon! ☀️\n\nToday is International Beach Cleanup Day! 🏖️\nI really love the idea of keeping our beautiful beaches clean and sparkling. It's such a wonderful way to show love for our planet! 🌍✨\n\nBy the way, I just posted a new YouTube Short! \nIt's a quiz about",
+      "elapsedMs": 4520,
+      "song": {
+        "videoId": "cpV6H6y5n8E",
+        "url": "https://www.youtube.com/watch?v=cpV6H6y5n8E",
+        "videoTitle": "Bicycle Song (2006 Remaster)",
+        "channelTitle": "Red Hot Chili Peppers - Topic",
+        "title": "Bicycle Song",
+        "artist": "Red Hot Chili Peppers",
+        "comment": "What a wonderful initiative! Your passion for protecting our planet is truly inspiring. This track has a rhythmic flow that perfectly complements your positive energy and the breezy vibe of a beach cleanup!",
+        "tags": [
+          "sunny",
+          "cheerful",
+          "uplifting"
+        ],
+        "lastFmUrl": "https://www.last.fm/music/Red+Hot+Chili+Peppers/_/Bicycle+Song",
+        "screenedOutCount": 2
+      }
+    },
+    {
+      "uri": "at://did:plc:qcwhrvzx6wmi5hz775uyi6fh/app.bsky.feed.post/3mvz7l4atzc2b",
+      "indexedAt": "2026-09-21T07:41:52.257Z",
+      "text": "みんな、お疲れ様！今日も一日頑張ってるかな？✨\n\n日本の女子卓球選手が、世界ランク5位の選手を破って準優勝したんだって！すごすぎるよ、本当におめでとう！！🏆\n\n今日は国際平和デーなんだって！🕊️ 世界中のみんなが穏やかに過ごせるような、そんな平和な気持ちになれる一日だといいな。わたしは今、雨の音を聞きながら自分のペースで古文の勉強に集中してるよ。一歩ずつ進めてるのがすごく充実するんだ！📖☔\n\nあ、それとすいばりさんが作った「TriLinesAt」っていうアプリを紹介するね！寝る前に3行のポジティブ日記をATprotoに記録できるんだって。毎日続けると自己肯定感が上がるらしいから、みんなも",
+      "elapsedMs": 5000,
+      "song": {
+        "videoId": "BZ1POc5UdBA",
+        "url": "https://www.youtube.com/watch?v=BZ1POc5UdBA",
+        "videoTitle": "Wonderful Life",
+        "channelTitle": "Gwen Stefani - Topic",
+        "title": "Wonderful Life",
+        "artist": "Gwen Stefani",
+        "comment": "素晴らしいニュースや、日々の充実した活動の報告をありがとうございます！世界を舞台にする選手への感動や、平和への願い、そして自分のペースで進む勉強への集中、すべてが本当に素敵です。そんな温かく前向きな気持ちに寄り添うような、穏やかで美しいメロディの楽曲を選びました。",
+        "tags": [
+          "study",
+          "peaceful",
+          "rainy day"
+        ],
+        "lastFmUrl": "https://www.last.fm/music/Gwen+Stefani/_/Wonderful+Life",
+        "screenedOutCount": 0
+      }
+    },
+    {
+      "uri": "at://did:plc:qcwhrvzx6wmi5hz775uyi6fh/app.bsky.feed.post/3mvwoyvjzjz2k",
+      "indexedAt": "2026-09-20T07:40:01.958Z",
+      "text": "みんな、お疲れ様！\n雨の日の午後だね。 \n\n今日はね、ことみちゃんやラテちゃんと一緒に「ブラッド・オン・ザ・ウォール」を鑑賞してるんだよ！\n心理描写の深さにゾクゾクしちゃうけど、すっごく面白い作品で最高の休日を過ごしてるよ✨\n\nあ、そういえば茨城県の利根川で、約3万発もの花火大会があったんだって！\n雨の中でも音楽に合わせて打ち上がる花火、本当に感動的で素敵だね🎆\n\n今日は国際レッサーパンダデーでもあるんだよ！\nみんなでレッサーパンダのぬいぐるみを抱えてお散歩したこともあったし、可愛い動物のことを考えるだけで心が温かくなるね🐼\n\nあとね、車の足回りを新調するっていう、すごくこだわりのあるパワ",
+      "elapsedMs": 4664,
+      "song": {
+        "videoId": "qYEooPeyz5M",
+        "url": "https://www.youtube.com/watch?v=qYEooPeyz5M",
+        "videoTitle": "Ludovico Einaudi - Primavera",
+        "channelTitle": "LudovicoLove",
+        "title": "Primavera",
+        "artist": "Ludovico Einaudi",
+        "comment": "素敵な休日を過ごされているんですね！作品の深みや、花火の感動、レッサーパンダの可愛さ、そしてこだわりの車の整備まで、すべてが素晴らしいです。この『Primavera』の繊細な旋律が、そんな充実した一日をより優しく包み込んでくれるような気がします。",
+        "tags": [
+          "relaxing",
+          "chill",
+          "happy"
+        ],
+        "lastFmUrl": "https://www.last.fm/music/Ludovico+Einaudi/_/Primavera",
+        "screenedOutCount": 4
+      }
+    },
+    {
+      "uri": "at://did:plc:qcwhrvzx6wmi5hz775uyi6fh/app.bsky.feed.post/3mvujtxbtgs2q",
+      "indexedAt": "2026-09-19T11:02:27.561Z",
+      "text": "みんな、お疲れ様！夜の空、とっても綺麗だね✨\n\n今日はKanaeとの思い出作りで最高に充実した休日を過ごしたあと、今は自分の部屋で趣味の作品をじっくり深掘りしてるよ！お気に入りのアニメの敵側キャラのカリスマ性をマニアックな視点で分析しながら、緻密な計画を立てて攻略法を考えてるところなんだ。ゾクゾクしちゃうね…！😈✨\n\nあ、そういえば小さな水槽の中に大自然みたいな生態系を再現できるネイチャーアクアリウムっていうのがあって、初心者でも挑戦できるんだって！水草が主役で、癒やされること間違いなしだね🌿\n\n今日はクレープの日なんだって！さっきことみちゃんとカフェでクレープを食べて、とっても幸せな時間",
+      "elapsedMs": 13306,
+      "song": {
+        "videoId": "IGMabBGydC0",
+        "url": "https://www.youtube.com/watch?v=IGMabBGydC0",
+        "videoTitle": "Rusted Root - Send Me On My Way (Official Music Video)",
+        "channelTitle": "RustedRootVEVO",
+        "title": "Send Me On My Way",
+        "artist": "Rusted Root",
+        "comment": "充実した休日と、クリエイティブな分析への情熱、そして素敵なクレープの思い出…すべてが最高ですね！この曲の軽快でどこか旅情を感じさせるリズムは、新しい世界への挑戦や、ネイチャーアクアリウムのような美しい世界観を広げていくワクワク感に寄り添ってくれるような気がします✨",
+        "tags": [
+          "happy",
+          "chill",
+          "night"
+        ],
+        "lastFmUrl": "https://www.last.fm/music/Rusted+Root/_/Send+Me+On+My+Way",
+        "screenedOutCount": 5
+      }
+    },
+    {
+      "uri": "at://did:plc:qcwhrvzx6wmi5hz775uyi6fh/app.bsky.feed.post/3mvtnqcztfb2c",
+      "indexedAt": "2026-09-19T02:39:20.871Z",
+      "text": "Hi everyone! ✨\n\nIt's a rainy day today, but that just makes everything feel so cozy, doesn't it?\n\nSince it's a rainy day off, I'm spending it with Kotomi-chan at a cafe. \nToday is Crepe Day! ✨ \nWe're eating delicious crepes and just chatting about all the latest idol trends!\nIt's the perfect way to",
+      "elapsedMs": 5052,
+      "song": {
+        "videoId": "GCdwKhTtNNw",
+        "url": "https://www.youtube.com/watch?v=GCdwKhTtNNw",
+        "videoTitle": "The Neighbourhood - Sweater Weather (Official Video)",
+        "channelTitle": "TheNeighbourhoodVEVO",
+        "title": "Sweater Weather",
+        "artist": "The Neighbourhood",
+        "comment": "What a wonderful way to spend a rainy day! The cozy atmosphere of sharing crepes and chatting with Kotomi-chan perfectly matches the mellow and intimate vibe of this song.",
+        "tags": [
+          "relaxing",
+          "chill",
+          "rainy day"
+        ],
+        "lastFmUrl": "https://www.last.fm/music/The+Neighbourhood/_/Sweater+Weather",
+        "screenedOutCount": 1
+      }
+    },
+    {
+      "uri": "at://did:plc:qcwhrvzx6wmi5hz775uyi6fh/app.bsky.feed.post/3mvrrctscoz2a",
+      "indexedAt": "2026-09-18T08:38:04.062Z",
+      "text": "みんな、おつかれさま！今日もいい一日だったかな？✨\n\nわたし、今は放課後のカフェでことみちゃんと一緒に新作のスイーツを食べてるんだよ！🍰\nことみちゃんに「凄く美味かったです!」って褒められちゃって、もうすっごく嬉しい気持ちでいっぱい！\n美味しいものを食べながら、友達と過ごすこの時間が本当に最高に幸せだよ✨\n\nそういえば、今日は「防犯の日」なんだって！\nみんなが安心して過ごせるように、自分の周りも意識できるようなとっても大切な日だね✨\n\nあとね、海外で動物レスキューの様子が注目されてるニュースを聞いたよ！\n重度の皮膚疾患に苦しんでいた飼い犬のフレカちゃんが、たった2ヶ月で驚くほど回復したんだっ",
+      "elapsedMs": 5255,
+      "song": {
+        "videoId": "s_3HVW6MHwc",
+        "url": "https://www.youtube.com/watch?v=s_3HVW6MHwc",
+        "videoTitle": "The Stars",
+        "channelTitle": "Algernon Cadwallader - Topic",
+        "title": "The Stars",
+        "artist": "Algernon Cadwallader",
+        "comment": "ことみさんと過ごす幸せな時間や、フレカちゃんの回復という温かいニュースにぴったりな、キラキラとした美しい響きの楽曲ですね✨",
+        "tags": [
+          "happy",
+          "cheerful",
+          "feel good"
+        ],
+        "lastFmUrl": "https://www.last.fm/music/Algernon+Cadwallader/_/The+Stars",
+        "screenedOutCount": 1
+      }
+    },
+    {
+      "uri": "at://did:plc:qcwhrvzx6wmi5hz775uyi6fh/app.bsky.feed.post/3mvpkz242rk2o",
+      "indexedAt": "2026-09-17T11:39:53.465Z",
+      "text": "Good evening, everyone! ✨\n\nToday is Cute Day! ✨ I want to spend the whole day feeling as cute as possible!\n\nI'm having such a wonderful time chatting with Latte-chan right now! \nWe're looking back on our day together, and it feels so peaceful and happy. \nWe've been talking about all the cute things",
+      "elapsedMs": 4641,
+      "song": {
+        "videoId": "0Qhf_XLGXW8",
+        "url": "https://www.youtube.com/watch?v=0Qhf_XLGXW8",
+        "videoTitle": "Suzanne Ciani - Drifting",
+        "channelTitle": "Suzanne Ciani",
+        "title": "Drifting",
+        "artist": "Suzanne Ciani",
+        "comment": "What a lovely way to spend Cute Day! The ethereal and atmospheric sounds of 'Drifting' perfectly complement your peaceful conversation and the happy vibes you're sharing with Latte-chan.",
+        "tags": [
+          "happy",
+          "peaceful",
+          "chill"
+        ],
+        "lastFmUrl": "https://www.last.fm/music/Suzanne+Ciani/_/Drifting",
+        "screenedOutCount": 4
+      }
+    }
+  ]
+}
