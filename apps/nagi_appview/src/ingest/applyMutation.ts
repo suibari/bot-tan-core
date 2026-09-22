@@ -28,6 +28,7 @@ import {
   NAGI,
   appviewRecordUri,
 } from "@bsky-affirmative-bot/nagi-lexicon";
+import { requestClientRebuild } from "@bsky-affirmative-bot/bot-runtime";
 import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { config } from "../config.js";
 import {
@@ -274,6 +275,7 @@ export async function applyMutation(
   const pushJobs: PushJob[] = [];
   const englishPrewarmUris: string[] = [];
   let zenkatsuCommentUri: string | undefined;
+  let articleChanged = false;
   await db.transaction(async (tx) => {
     let semanticRecordAccepted = true;
     const processed = id
@@ -415,6 +417,7 @@ export async function applyMutation(
       if (collection === NAGI.post) {
         // 既存投稿 かつ cid が変わった＝投稿後編集。翻訳キャッシュ破棄と edited フラグ立てに使う。
         const isEdit = !!existingPost[0] && existingPost[0].cid !== commit.cid;
+        articleChanged = isArticle && (!existingPost[0] || isEdit);
         // 所属チャンネルはこっそりと同じくスレッドルートが所有する。返信は自分のレコードの
         // channel を見ない（旧クライアントが複製した値が残っていても無視する）ことで、
         // ルートの編集で所属が変わってもスレッド全体が必ず一致する。ルート未取り込みの
@@ -1140,6 +1143,8 @@ export async function applyMutation(
     }
   });
   if (zenkatsuCommentUri) void startZenkatsuComment(zenkatsuCommentUri);
+  if (articleChanged)
+    await requestClientRebuild(`blog article=${uri}`);
   // コミット後に配信。送信失敗はイングェストに影響させない。
   if (emitPush && pushJobs.length) dispatchPushAll(pushJobs);
   for (const postUri of englishPrewarmUris) startEnglishPrewarm(postUri);
