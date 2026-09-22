@@ -10,6 +10,7 @@ import {
 } from "@bsky-affirmative-bot/database";
 import {
   NAGI,
+  STANDARD_SITE_DOCUMENT,
   type BookmarkFolderView,
   type BookmarkFoldersView,
   type BookmarkItemView,
@@ -58,7 +59,10 @@ export function bookmarkSubjectType(uri: unknown): BookmarkSubjectType {
   const parsed = parseRecordUri(uri);
   if (!parsed)
     throw new ApiError(400, "invalid_request", "subjectUri must be an AT URI");
-  if (parsed.collection === NAGI.post) return "post";
+  if (
+    parsed.collection === NAGI.post ||
+    parsed.collection === STANDARD_SITE_DOCUMENT
+  ) return "post";
   if (parsed.collection === NAGI.news) return "news";
   if (parsed.collection === NAGI.diary) return "diary";
   throw new ApiError(

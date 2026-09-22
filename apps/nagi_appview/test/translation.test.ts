@@ -354,6 +354,10 @@ test("seed entries keep only supported languages with non-empty text", () => {
 
 test("only Nagi post URIs may be seeded", () => {
   assert.equal(isNagiPostUri(validUri), true);
+  assert.equal(
+    isNagiPostUri("at://did:plc:example/site.standard.document/3m"),
+    true,
+  );
   assert.equal(isNagiPostUri("at://did:plc:example/app.bsky.feed.post/3m"), false);
   assert.equal(isNagiPostUri("https://example.com/post"), false);
   assert.equal(isNagiPostUri(undefined), false);

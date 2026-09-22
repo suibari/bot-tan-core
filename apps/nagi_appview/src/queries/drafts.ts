@@ -74,11 +74,7 @@ export function parseDraftContent(input: unknown): DraftContent {
   const raw = input as Record<string, unknown>;
   if (containsBinaryRepresentation(raw))
     invalid("content (binary fields are not supported)");
-  if (
-    typeof raw.text !== "string" ||
-    [...raw.text].length > 3000 ||
-    raw.text.length > 30_000
-  )
+  if (typeof raw.text !== "string")
     invalid("content.text");
   for (const key of ["mentions", "channels", "emojis"]) {
     if (!Array.isArray(raw[key]) || (raw[key] as unknown[]).length > 100)

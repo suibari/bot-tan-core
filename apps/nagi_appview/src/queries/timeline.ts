@@ -400,7 +400,6 @@ export async function hydratePostViews(
       isBot: post.did === config.botDid,
       isAffirmation: (score ?? -1) >= config.affirmationThreshold,
       ...(record?.cwRestricted === true ? { cwRestricted: true } : {}),
-      // ブログとして書かれた投稿。中身の解釈はクライアントに任せ、印だけ通す。
       ...(record?.article === true ? { article: true } : {}),
       kossori: post.kossori || undefined,
       threadKossori: threadKossori || undefined,

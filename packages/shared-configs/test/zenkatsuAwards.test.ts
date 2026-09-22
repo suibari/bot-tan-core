@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  ZENKATSU_AWARD_KINDS,
   candidatesForBottan,
   immediateZenkatsuAwards,
   shortlistForBottan,
-  type ZenkatsuBotanCandidate,
+  type ZenkatsuBottanCandidate,
 } from "../src/zenkatsuAwards.js";
 
 const awards = (
@@ -12,6 +13,11 @@ const awards = (
   tailwindCount = 0,
   newComboCount = 0,
 ) => immediateZenkatsuAwards({ rarities, tailwindCount, newComboCount });
+
+test("botたん由来の賞識別子は bottan に統一する", () => {
+  assert.equal(ZENKATSU_AWARD_KINDS.includes("bottan"), true);
+  assert.equal((ZENKATSU_AWARD_KINDS as readonly string[]).includes("botan"), false);
+});
 
 test("SR以上を出した本人へ決意のドラ切り賞を贈る", () => {
   assert.deepEqual(awards(["N", "SR"]), ["adventure"]);
@@ -39,7 +45,7 @@ test("1回の提出で複数の賞を受け取れる", () => {
 });
 
 test("部長賞は翌朝の候補から1人を選ぶため、候補を5人までに絞る", () => {
-  const candidates: ZenkatsuBotanCandidate[] = Array.from({ length: 12 }, (_, i) => ({
+  const candidates: ZenkatsuBottanCandidate[] = Array.from({ length: 12 }, (_, i) => ({
     submissionUri: `at://did:plc:${i}/submission`,
     did: `did:plc:${i}`,
     score: i * 10,
@@ -49,7 +55,7 @@ test("部長賞は翌朝の候補から1人を選ぶため、候補を5人まで
 });
 
 test("前日の部長は他の提出者がいれば、得点にかかわらず候補から外す", () => {
-  const candidates: ZenkatsuBotanCandidate[] = [
+  const candidates: ZenkatsuBottanCandidate[] = [
     { submissionUri: "at://previous", did: "did:plc:previous", score: 200, indexedAt: 1 },
     { submissionUri: "at://other", did: "did:plc:other", score: 100, indexedAt: 2 },
   ];
@@ -63,7 +69,7 @@ test("前日の部長は他の提出者がいれば、得点にかかわらず�
 });
 
 test("前日の部長しか提出していない日は、再選の候補に残す", () => {
-  const candidates: ZenkatsuBotanCandidate[] = [
+  const candidates: ZenkatsuBottanCandidate[] = [
     { submissionUri: "at://previous", did: "did:plc:previous", score: 100, indexedAt: 1 },
   ];
 

@@ -7,10 +7,10 @@ export const ZENKATSU_AWARD_KINDS = [
   "solo",
   "tailwind",
   "combo",
-  "botan",
+  "bottan",
 ] as const;
 export type ZenkatsuAwardKind = (typeof ZENKATSU_AWARD_KINDS)[number];
-export type ZenkatsuImmediateAwardKind = Exclude<ZenkatsuAwardKind, "botan">;
+export type ZenkatsuImmediateAwardKind = Exclude<ZenkatsuAwardKind, "bottan">;
 
 /** 1回の提出から、本人へすぐ贈る賞を判定する。 */
 export function immediateZenkatsuAwards(input: {
@@ -29,7 +29,7 @@ export function immediateZenkatsuAwards(input: {
 }
 
 /** 翌朝の部長賞候補。点数は選考専用で、ユーザーには表示しない。 */
-export interface ZenkatsuBotanCandidate {
+export interface ZenkatsuBottanCandidate {
   submissionUri: string;
   did: string;
   score: number;
@@ -37,13 +37,13 @@ export interface ZenkatsuBotanCandidate {
 }
 
 /** 部長賞は候補を5人までに絞り、botたんが選ぶ。 */
-export const ZENKATSU_BOTAN_SHORTLIST = 5;
+export const ZENKATSU_BOTTAN_SHORTLIST = 5;
 
 /**
  * 前日の部長は、ほかに提出者がいる場合だけ候補から外す。
  * 1人しか提出がない日は部長賞そのものを失わせないため、その人を残す。
  */
-export function candidatesForBottan<T extends ZenkatsuBotanCandidate>(
+export function candidatesForBottan<T extends ZenkatsuBottanCandidate>(
   candidates: readonly T[],
   previousWinnerDid?: string,
 ): T[] {
@@ -54,9 +54,9 @@ export function candidatesForBottan<T extends ZenkatsuBotanCandidate>(
   return alternatives.length ? alternatives : [...candidates];
 }
 
-export function shortlistForBottan<T extends ZenkatsuBotanCandidate>(
+export function shortlistForBottan<T extends ZenkatsuBottanCandidate>(
   candidates: readonly T[],
-  limit = ZENKATSU_BOTAN_SHORTLIST,
+  limit = ZENKATSU_BOTTAN_SHORTLIST,
 ): T[] {
   return [...candidates]
     .sort((a, b) => b.score - a.score || a.indexedAt - b.indexedAt)

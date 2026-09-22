@@ -43,3 +43,8 @@ test("下書きはバイナリを持たずテキスト参照だけを受理す�
   ])
     assert.throws(() => parseDraftContent({ ...valid(), ...extra }));
 });
+
+test("ブログ用の長い下書きは3,000文字を超えても受理する", () => {
+  const content = { ...valid(), text: "長".repeat(3_001) };
+  assert.deepEqual(parseDraftContent(content), content);
+});

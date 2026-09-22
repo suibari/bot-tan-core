@@ -743,7 +743,7 @@ export async function getZenkatsuChiefDids(
     .where(
       and(
         inArray(nagiZenkatsuTrophies.did, unique),
-        eq(nagiZenkatsuTrophies.kind, "botan"),
+        eq(nagiZenkatsuTrophies.kind, "bottan"),
         eq(nagiZenkatsuTrophies.themeDate, previousThemeDate(now)),
       ),
     );

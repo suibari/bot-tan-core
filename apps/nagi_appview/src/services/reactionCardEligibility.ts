@@ -1,4 +1,8 @@
-import { NAGI, type NagiReaction } from "@bsky-affirmative-bot/nagi-lexicon";
+import {
+  NAGI,
+  STANDARD_SITE_DOCUMENT,
+  type NagiReaction,
+} from "@bsky-affirmative-bot/nagi-lexicon";
 import { cardDrawDate } from "@bsky-affirmative-bot/shared-configs";
 import { validateRecord } from "../ingest/validateRecord.js";
 import { ApiError } from "../middleware/errors.js";
@@ -30,7 +34,9 @@ export function isEligibleReactionCardTrigger(
     !!subjectDid &&
     DID.test(subjectDid) &&
     subjectDid !== viewerDid &&
-    (subjectCollection === NAGI.post || subjectCollection === NAGI.news) &&
+    (subjectCollection === NAGI.post ||
+      subjectCollection === STANDARD_SITE_DOCUMENT ||
+      subjectCollection === NAGI.news) &&
     cardDrawDate(new Date(reaction.createdAt)) === cardDrawDate(now)
   );
 }

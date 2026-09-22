@@ -15,7 +15,7 @@ import {
   resolveCardDef,
   candidatesForBottan,
   shortlistForBottan,
-  type ZenkatsuBotanCandidate,
+  type ZenkatsuBottanCandidate,
 } from "@bsky-affirmative-bot/shared-configs";
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 
@@ -86,7 +86,7 @@ export async function runNagiZenkatsuAward(themeDate: string): Promise<void> {
   const labelsOf = (reading: unknown): string[] =>
     Array.isArray(reading) ? (reading as string[]) : [];
 
-  const candidates: ZenkatsuBotanCandidate[] = rows.map((row) => ({
+  const candidates: ZenkatsuBottanCandidate[] = rows.map((row) => ({
     submissionUri: row.uri,
     did: row.did,
     score: row.score,
@@ -103,7 +103,7 @@ export async function runNagiZenkatsuAward(themeDate: string): Promise<void> {
     .where(
       and(
         eq(nagiZenkatsuTrophies.themeDate, previousThemeDate),
-        eq(nagiZenkatsuTrophies.kind, "botan"),
+        eq(nagiZenkatsuTrophies.kind, "bottan"),
       ),
     )
     .limit(1);
@@ -147,7 +147,7 @@ export async function runNagiZenkatsuAward(themeDate: string): Promise<void> {
     .values({
       themeDate,
       did: winner.did,
-      kind: "botan",
+      kind: "bottan",
       submissionUri: winner.submissionUri,
       commentJa: reasonJa || null,
       commentEn: reasonEn || null,

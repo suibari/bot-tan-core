@@ -15,6 +15,7 @@ import {
   type NagiCardGet,
 } from "@bsky-affirmative-bot/nagi-lexicon";
 import { isValidZenkatsuSelection } from "@bsky-affirmative-bot/shared-configs";
+import { STANDARD_DOCUMENT, standardDocumentPost } from "./standardDocument.js";
 /** "YYYY-MM-DD"。実在する日付かどうかまでは見ない（範囲の照合は取り込み側で行う）。 */
 const DATE_KEY = /^\d{4}-\d{2}-\d{2}$/;
 const graphemes = (value: string) =>
@@ -260,6 +261,7 @@ const bannerBlob = (value: any) =>
 export function validateRecord(
   collection: string,
   value: any,
+  longArticle = false,
 ): value is
   | NagiPost
   | NagiReaction
@@ -270,13 +272,17 @@ export function validateRecord(
   | NagiChannel
   | NagiZenkatsu
   | NagiCardGet {
+  if (collection === STANDARD_DOCUMENT) {
+    const post = standardDocumentPost(value);
+    return !!post && validateRecord(NAGI.post, post, true);
+  }
   if (!value || value.$type !== collection || !date(value.createdAt))
     return false;
   if (collection === NAGI.post) {
     if (
       typeof value.text !== "string" ||
-      graphemes(value.text) > 3000 ||
-      Buffer.byteLength(value.text) > 30000
+      (!longArticle && (graphemes(value.text) > 3000 ||
+      Buffer.byteLength(value.text) > 30000))
     )
       return false;
     if (value.facets !== undefined && !facets(value.facets, value.text))
@@ -295,8 +301,6 @@ export function validateRecord(
       value.cwRestricted !== undefined &&
       typeof value.cwRestricted !== "boolean"
     )
-      return false;
-    if (value.article !== undefined && typeof value.article !== "boolean")
       return false;
     if (value.channel !== undefined && !ref(value.channel)) return false;
     if (value.reply && (!ref(value.reply.root) || !ref(value.reply.parent)))

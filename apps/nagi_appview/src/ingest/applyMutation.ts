@@ -141,6 +141,12 @@ export type ApplyMutationOptions = {
   appviewOnly?: boolean;
 };
 
+import {
+  isNagiStandardDocument,
+  STANDARD_DOCUMENT,
+  standardDocumentPost,
+} from "./standardDocument.js";
+
 export async function applyMutation(
   evt: any,
   {
@@ -150,9 +156,29 @@ export async function applyMutation(
     appviewOnly = false,
   }: ApplyMutationOptions = {},
 ): Promise<{ cursorAdvanced: boolean }> {
-  const commit = evt.commit;
+  let commit = evt.commit;
   if (!commit) return { cursorAdvanced: false };
-  const collection = commit.collection;
+  const sourceCollection = commit.collection;
+  const isArticle = sourceCollection === STANDARD_DOCUMENT;
+  if (isArticle && commit.operation !== "delete") {
+    if (!validateRecord(STANDARD_DOCUMENT, commit.record))
+      return { cursorAdvanced: false };
+    // 旧クライアントは同じ rkey の Nagi post と standard.site コピーを両方作る。
+    // その世代は旧URIを正本として維持し、記事とbot返信を二重にしない。
+    const legacyUri = `at://${evt.did}/${NAGI.post}/${commit.rkey}`;
+    const legacy = await db
+      .select({ uri: nagiPosts.uri })
+      .from(nagiPosts)
+      .where(
+        and(eq(nagiPosts.uri, legacyUri), isNull(nagiPosts.deletedAt)),
+      )
+      .limit(1);
+    if (legacy[0]) return { cursorAdvanced: false };
+    if (!(await isNagiStandardDocument(evt.did, commit.rkey, commit.record)))
+      return { cursorAdvanced: false };
+    commit = { ...commit, record: standardDocumentPost(commit.record) };
+  }
+  const collection = isArticle ? NAGI.post : sourceCollection;
   if (
     ![
       NAGI.post,
@@ -177,7 +203,7 @@ export async function applyMutation(
   // 行の did（＝著者）は分けて持つので、プロフィールや通知の宛先解決はこれまでどおり効く。
   const uri = appviewOnly
     ? appviewRecordUri(collection, commit.rkey)
-    : `at://${did}/${collection}/${commit.rkey}`;
+    : `at://${did}/${sourceCollection}/${commit.rkey}`;
   if (
     collection === NAGI.post &&
     commit.operation !== "delete" &&
@@ -201,7 +227,7 @@ export async function applyMutation(
     !isKossoriSubject(uri, commit.record, appviewOnly);
   const moderationVersion = moderated ? null : MODERATION_SKIPPED;
   const id = trackJetstream
-    ? `${did}:${evt.time_us}:${commit.rev ?? ""}:${collection}:${commit.rkey}`
+    ? `${did}:${evt.time_us}:${commit.rev ?? ""}:${sourceCollection}:${commit.rkey}`
     : undefined;
   // カスタム絵文字の解決は元 PDS への fetch を伴うことがあるので、トランザクションの外で行う。
   // 自己申告の値は使わず、インデックス済みの item だけを信頼する。
@@ -209,7 +235,7 @@ export async function applyMutation(
   if (
     collection === NAGI.reaction &&
     commit.operation !== "delete" &&
-    validateRecord(collection, commit.record) &&
+    validateRecord(collection, commit.record, isArticle) &&
     (commit.record as any).bluemoji
   ) {
     bluemoji = await resolveEmoji((commit.record as any).bluemoji.uri);
@@ -218,7 +244,7 @@ export async function applyMutation(
   if (
     collection === NAGI.post &&
     commit.operation !== "delete" &&
-    validateRecord(collection, commit.record)
+    validateRecord(collection, commit.record, isArticle)
   ) {
     const refs = new Map<string, { cid: string; name: string; did: string }>();
     for (const facet of (commit.record as any).facets ?? []) {
@@ -379,7 +405,7 @@ export async function applyMutation(
         await tx.delete(nagiProfiles).where(eq(nagiProfiles.did, did));
       if (collection === BLUEMOJI_ITEM)
         await tx.delete(nagiEmojis).where(eq(nagiEmojis.uri, uri));
-    } else if (validateRecord(collection, commit.record)) {
+    } else if (validateRecord(collection, commit.record, isArticle)) {
       const value: any = commit.record;
       const createdAt = new Date(value.createdAt);
       const reconciledPostIndexedAt =

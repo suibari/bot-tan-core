@@ -4,13 +4,18 @@ import {
   nagiPosts,
   MemoryService,
 } from "@bsky-affirmative-bot/database";
-import { NAGI } from "@bsky-affirmative-bot/nagi-lexicon";
+import {
+  NAGI,
+  nagiPostFromStandardDocument,
+  STANDARD_SITE_DOCUMENT,
+} from "@bsky-affirmative-bot/nagi-lexicon";
 import {
   classifyPostThread,
   didFromAtUri,
   mentionsDid,
 } from "@bsky-affirmative-bot/bot-runtime";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
+import { isNagiStandardDocument } from "./NagiStandardSite.js";
 
 /** 本文中に bot への mention facet があるか。 */
 export function mentionsBot(record: any, botDid: string) {
@@ -61,13 +66,30 @@ export async function onNagiPost(evt: any) {
   }
 
   const did = evt.did;
-  const record = evt.commit.record;
+  const sourceRecord = evt.commit.record;
+  const collection = evt.commit.collection;
+  if (collection === STANDARD_SITE_DOCUMENT) {
+    const legacyUri = `at://${did}/${NAGI.post}/${evt.commit.rkey}`;
+    const legacy = await db
+      .select({ uri: nagiPosts.uri })
+      .from(nagiPosts)
+      .where(and(eq(nagiPosts.uri, legacyUri), isNull(nagiPosts.deletedAt)))
+      .limit(1);
+    if (
+      legacy[0] ||
+      !(await isNagiStandardDocument(did, evt.commit.rkey, sourceRecord))
+    )
+      return;
+  }
+  const record =
+    collection === STANDARD_SITE_DOCUMENT
+      ? nagiPostFromStandardDocument(sourceRecord)
+      : sourceRecord;
   const botDid = process.env.NAGI_BOT_DID;
 
-  if (!botDid || did === botDid || record.$type !== NAGI.post) {
+  if (!botDid || did === botDid || record?.$type !== NAGI.post) {
     return;
   }
-
   // botたんサイレント機能がONの投稿には返信しない。
   if (record.botSilent) {
     console.log(`[INFO][NAGI][${did}] Skipping reply: botSilent flag enabled`);
@@ -87,7 +109,7 @@ export async function onNagiPost(evt: any) {
     return;
   }
 
-  const uri = `at://${did}/${NAGI.post}/${evt.commit.rkey}`;
+  const uri = `at://${did}/${collection}/${evt.commit.rkey}`;
 
   if (toBot) {
     // bot 宛リプライは Bluesky 側と同じく Gemini を使う前に記憶・計上しておく。
