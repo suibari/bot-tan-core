@@ -224,7 +224,14 @@ export async function analyzeSongDiscovery(
     .replace(/\s+/gu, "").includes(value.normalize("NFKC").toLocaleLowerCase().replace(/\s+/gu, ""));
   for (const [signals, source] of [[analysis.request, postText], [analysis.history, history]] as const) {
     for (const kind of ["anime", "artist", "topic"] as const) {
-      if (signals[kind] && !groundedIn(source, signals[kind].mentionedName)) signals[kind] = null;
+      if (!signals[kind]) continue;
+      if (!groundedIn(source, signals[kind].mentionedName)) {
+        signals[kind] = null;
+        continue;
+      }
+      if (!groundedIn(source, signals[kind].searchQuery)) {
+        signals[kind].searchQuery = signals[kind].mentionedName;
+      }
     }
   }
   if (analysis.titleQuery && !groundedIn(postText, analysis.titleQuery)) analysis.titleQuery = null;

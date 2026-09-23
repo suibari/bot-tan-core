@@ -231,6 +231,25 @@ test("解析が投稿にない題材を創作した場合は破棄する", async
   assert.equal(analysis.history.artist?.mentionedName, "Perfume");
 });
 
+test("解析のsearchQueryが投稿にない場合はmentionedNameへ寄せる", async () => {
+  const analysis = await analyzeSongDiscovery({
+    postText: "DJお願い、Perfumeの曲がいい",
+    recentPosts: [],
+  }, "日本語", {
+    chat: async () => JSON.stringify({
+      request: {
+        anime: null,
+        artist: { mentionedName: "Perfume", searchQuery: "Taylor Swift", genericFranchise: false },
+        topic: null,
+      },
+      history: { anime: null, artist: null, topic: null },
+      tags: ["dance"],
+      titleQuery: null,
+    }),
+  });
+  assert.equal(analysis.request.artist?.searchQuery, "Perfume");
+});
+
 test("タグ分類は許可リストだけを重複なしで採用する", () => {
   assert.deepEqual(
     parseMoodTagClassification('{"tags":["Chill","chill","not-a-tag","dreamy"]}'),
