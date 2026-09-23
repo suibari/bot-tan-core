@@ -45,6 +45,23 @@ test("DJ予約はDIDごとに分離する", { skip: !databaseUrl }, async () => 
   assert.ok(bob);
 });
 
+test("曲キーとDJロックキーにNULを含めず実ドライバで予約する", { skip: !databaseUrl }, async () => {
+  await setup!`truncate affirmative_bot.bot_song_selections restart identity`;
+  const scope = database!.djSongSelectionScope("did:plc:null-byte-regression");
+  const song = {
+    videoId: "cMsGcW-xaYU",
+    songKey: "ワンルームディスコ:perfume",
+    title: "ワンルーム・ディスコ",
+    artist: "Perfume",
+    scope,
+  };
+  const now = new Date("2026-09-23T05:38:36.609Z");
+  const reservation = await database!.reserveBotSongSelection(song, { now });
+  assert.ok(reservation);
+  assert.equal(await database!.reserveBotSongSelection(song, { now }), null);
+  await database!.releaseBotSongSelection(reservation!);
+});
+
 test("予約は解放直後または15分失効後に取り直せる", { skip: !databaseUrl }, async () => {
   await setup!`truncate affirmative_bot.bot_song_selections restart identity`;
   const scope = database!.SCHEDULED_POST_SONG_SCOPE;

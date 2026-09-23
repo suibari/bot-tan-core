@@ -17,6 +17,8 @@ import { isOllamaConfigured } from "../ollamaChat.js";
 import {
   resolveLastFmMoodSong,
   screenLastFmMoodSongCandidates,
+  normalizeMoodSongInput,
+  type MoodSongInput,
 } from "./lastFmMoodSong.js";
 
 export interface MemorySongCandidate {
@@ -50,7 +52,7 @@ const normalizeSongIdentityPart = (value: string) => value
 export const songKey = (song: Pick<MemorySongCandidate, "title" | "artist">) => {
   const title = normalizeSongIdentityPart(song.title);
   const artist = normalizeSongIdentityPart(song.artist);
-  return title && artist ? `${title}\u0000${artist}` : "";
+  return title && artist ? `${title}:${artist}` : "";
 };
 
 const cleanArtist = (value: string) => value
@@ -148,7 +150,7 @@ async function screenMemorySongCandidates(
 
 /** Last.fm候補を優先し、失敗時はローカル検査済みbot memoryだけへフォールバックする。 */
 export async function resolveMoodSong(
-  postText: string,
+  input: MoodSongInput,
   langStr: LanguageName,
   scope: BotSongSelectionScope,
   deps: {
@@ -162,6 +164,7 @@ export async function resolveMoodSong(
     screenMemory?: typeof screenMemorySongCandidates;
   } = {},
 ): Promise<GroundedMoodSong | null> {
+  const { postText } = normalizeMoodSongInput(input);
   const getRecent = deps.getRecentSelections ?? getRecentBotSongSelections;
   const recent = await getRecent(scope, deps.now ?? new Date());
   const excludedSongKeys = new Set([
@@ -176,7 +179,7 @@ export async function resolveMoodSong(
 
   if (deps.resolveLastFm || (process.env.LASTFM_API_KEY && isOllamaConfigured())) {
     try {
-      const lastFm = await (deps.resolveLastFm ?? resolveLastFmMoodSong)(postText, langStr, {
+      const lastFm = await (deps.resolveLastFm ?? resolveLastFmMoodSong)(input, langStr, {
         excludedSongKeys,
         excludedVideoIds,
         searchYoutube,
@@ -248,13 +251,13 @@ export class MoodSongResolver {
   }
 
   async resolve(
-    postText: string,
+    input: MoodSongInput,
     langStr: LanguageName,
     scope: BotSongSelectionScope,
   ) {
     const now = this.currentTime();
     const recent = this.activeRecent(scope, now);
-    return (this.dependencies.resolve ?? resolveMoodSong)(postText, langStr, scope, {
+    return (this.dependencies.resolve ?? resolveMoodSong)(input, langStr, scope, {
       now,
       excludeSongKeys: new Set(recent.map((item) => item.song.songKey)),
       excludeVideoIds: new Set(recent.map((item) => item.song.videoId)),
@@ -262,14 +265,14 @@ export class MoodSongResolver {
   }
 
   async resolveAndReserve(
-    postText: string,
+    input: MoodSongInput,
     langStr: LanguageName,
     scope: BotSongSelectionScope,
     maxAttempts = 3,
   ): Promise<ReservedMoodSong | null> {
     const reserve = this.dependencies.reserve ?? reserveBotSongSelection;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      const song = await this.resolve(postText, langStr, scope);
+      const song = await this.resolve(input, langStr, scope);
       if (!song) return null;
       const reservation = await reserve({
         videoId: song.videoId,

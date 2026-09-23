@@ -11,6 +11,7 @@
     "local-model:evaluate": "tsx --env-file=.env scripts/evaluateLocalModels.mts",
     "ai-migration:evaluate": "tsx --env-file=.env scripts/evaluateMigratedAiFeatures.mts",
     "mood-song:lastfm:evaluate": "tsx --env-file=.env scripts/evaluateLastFmMoodSongs.mts",
+    "mood-song:discovery:evaluate": "tsx --env-file=.env scripts/evaluateMoodSongDiscovery.mts",
     "embedding:evaluate": "tsx --env-file=.env scripts/evaluateEmbeddingModels.mts",
     "test:embedding": "tsx --test scripts/test/embeddingEvaluation.test.ts",
     "searxng:probe": "tsx --env-file=.env scripts/probeSearxng.mts",

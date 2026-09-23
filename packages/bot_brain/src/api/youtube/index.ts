@@ -64,8 +64,12 @@ export function selectYoutubeSongMatch(
 ): YoutubeSongMatch | null {
   const expectedTitle = normalized(title);
   const expectedTitleParts = distinctiveTitleParts(title);
-  const expectedContextTerms = contextTerms.map(normalized).filter((value) => value.length >= 3);
   const expectedArtists = artistAliases(artist);
+  const expectedContextTerms = contextTerms.map(normalized).filter((value) =>
+    value.length >= 3 &&
+    !expectedTitle.includes(value) &&
+    !value.includes(expectedTitle) &&
+    !expectedArtists.some((alias) => alias.includes(value) || value.includes(alias)));
   if (!expectedTitle || expectedArtists.length === 0) return null;
 
   for (const item of items) {
@@ -73,13 +77,15 @@ export function selectYoutubeSongMatch(
     const videoTitle = item.snippet?.title ?? '';
     const channelTitle = item.snippet?.channelTitle ?? '';
     const normalizedTitle = normalized(videoTitle);
-    const normalizedEvidence = normalized(`${videoTitle} ${channelTitle}`);
+    const normalizedChannel = normalized(channelTitle);
+    const titlePosition = normalizedTitle.indexOf(expectedTitle);
     if (
       videoId &&
       (normalizedTitle.includes(expectedTitle) ||
         expectedTitleParts.some((part) => normalizedTitle.includes(part)) ||
         expectedContextTerms.some((term) => normalizedTitle.includes(term))) &&
-      expectedArtists.some((value) => normalizedEvidence.includes(value))
+      expectedArtists.some((value) => normalizedChannel.includes(value) ||
+        (titlePosition >= 0 && normalizedTitle.slice(0, titlePosition).includes(value)))
     ) {
       return {
         videoId,
@@ -105,6 +111,7 @@ export async function searchYoutubeSong(
         q: `${artist} ${title}`,
         maxResults: 5,
         type: 'video',
+        videoCategoryId: '10',
       },
       signal,
     })

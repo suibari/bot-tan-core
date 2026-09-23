@@ -18,7 +18,7 @@ export function djSongSelectionScope(subjectDid: string): BotSongSelectionScope 
 }
 
 export function botSongSelectionScopeKey(scope: BotSongSelectionScope) {
-  return scope.purpose === "dj" ? `dj\u0000${scope.subjectDid}` : "scheduled_post";
+  return scope.purpose === "dj" ? `dj:${scope.subjectDid}` : "scheduled_post";
 }
 
 export interface BotSongSelection {
