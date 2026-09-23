@@ -16,11 +16,11 @@ export async function selectNagiRadioCandidate(
     try {
       candidate = await resolve(attempt, excludedSongKeys, excludedVideoIds);
     } catch (error) {
-      if (!fallback) throw error;
-      console.warn("[WARN][NAGI][RADIO] Later song selection failed; keeping verified fallback", error);
-      break;
+      console.warn("[WARN][NAGI][RADIO] Song selection attempt failed", { attempt: attempt + 1, error });
+      continue;
     }
-    if (!candidate) break;
+    // 候補順は毎回変わる。1回空でも別の候補群を引き直す。
+    if (!candidate) continue;
     excludedSongKeys.add(candidate.songKey);
     excludedVideoIds.add(candidate.videoId);
     if (!VIDEO_ID.test(candidate.videoId)) continue;

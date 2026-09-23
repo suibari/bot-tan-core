@@ -12,7 +12,7 @@ import {
   reserveBotSongSelection,
   type BotSongReservation,
 } from "@bsky-affirmative-bot/database";
-import { generateNagiRadioComment, researchNagiRadioSong, resolveMoodSong, selectNagiRadioCandidate, selectNagiRadioPostContext, type NagiRadioSong } from "@bsky-affirmative-bot/bot-brain";
+import { generateNagiRadioComment, researchNagiRadioSong, resolveMoodSong, searchYoutubeSong, selectNagiRadioCandidate, selectNagiRadioPostContext, type NagiRadioSong } from "@bsky-affirmative-bot/bot-brain";
 import { getLangStr } from "@bsky-affirmative-bot/clients";
 import { currentRadioSlotKey } from "@bsky-affirmative-bot/nagi-lexicon";
 import { startWorkerLoop } from "./workerLoop.js";
@@ -70,19 +70,33 @@ export async function generateNagiRadioForUser(
     const language = commentPost ? detectLanguage(commentPost.text,
       Array.isArray(commentPost.langs) ? commentPost.langs as string[] : undefined) : initialLanguage;
     const scope = djSongSelectionScope(did);
+    // 候補群を引き直しても同じ動画検索を繰り返さない。
+    const youtubeCache = new Map<string, ReturnType<typeof searchYoutubeSong>>();
+    const searchYoutube: typeof searchYoutubeSong = (title, artist, contextTerms) => {
+      const key = JSON.stringify([title, artist, contextTerms ?? []]);
+      const cached = youtubeCache.get(key);
+      if (cached) return cached;
+      const search = searchYoutubeSong(title, artist, contextTerms).catch((error) => {
+        youtubeCache.delete(key);
+        throw error;
+      });
+      youtubeCache.set(key, search);
+      return search;
+    };
     const selected = await selectNagiRadioCandidate(
       async (attempt, excludedSongKeys, excludedVideoIds) => {
         const candidate = attempt === 0 && options.preferredSong ? options.preferredSong : await resolveMoodSong(songText, language, scope, {
           excludeSongKeys: excludedSongKeys,
           excludeVideoIds: excludedVideoIds,
           memoryQueryText: context?.memoryQueryContext,
+          searchYoutube,
         });
         if (candidate) console.info(`[INFO][NAGI][RADIO] Candidate ${attempt + 1} for ${did}: ${candidate.artist} - ${candidate.title}`);
         return candidate;
       },
       (candidate) => researchNagiRadioSong(candidate, language),
     );
-    if (!selected) throw new Error("No verified radio video among three candidates");
+    if (!selected) throw new Error("No eligible radio video after three selection attempts");
     const { song, fact } = selected;
     if (!fact) console.warn(`[WARN][NAGI][RADIO] Publishing without a song background fact for ${did} ${slotKey}`);
     const [actor, profile, preferred] = await Promise.all([

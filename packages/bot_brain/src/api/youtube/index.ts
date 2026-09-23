@@ -120,7 +120,7 @@ export async function searchYoutubeSong(
         key: YOUTUBE_API_KEY,
         part: 'snippet',
         q: `${artist} ${title}`,
-        maxResults: 5,
+        maxResults: 10,
         type: 'video',
       },
       signal,
