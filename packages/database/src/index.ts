@@ -32,7 +32,7 @@ import {
   bot_memory_usages,
   bot_song_selections,
 } from './db.js';
-import { eq, desc, sql, gte, lte, and, gt, inArray, lt, isNull } from 'drizzle-orm';
+import { eq, desc, sql, gte, lte, and, gt, inArray, lt, isNull, exists, or } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { generateEmbedding } from './ollamaEmbed.js';
 import { tryUpsertBotMemoryDocument } from './botMemory.js';
@@ -471,6 +471,50 @@ export class MemoryService {
         and(isNull(nagiPosts.deletedAt), gte(nagiPosts.recordCreatedAt, since)),
       );
     return rows.map((row) => row.did);
+  }
+
+  /** ラジオは新規投稿がない利用者にも、過去の記憶から届ける。 */
+  static async getNagiRadioAudience(): Promise<string[]> {
+    const rows = await db.select({ did: nagiActors.did }).from(nagiActors)
+      .where(and(eq(nagiActors.status, "active"), or(
+        exists(db.select({ uri: nagiPosts.uri }).from(nagiPosts).where(and(
+          eq(nagiPosts.did, nagiActors.did), isNull(nagiPosts.deletedAt),
+          sql`length(trim(${nagiPosts.text})) > 0`,
+        ))),
+        exists(db.select({ id: bot_memory_documents.id }).from(bot_memory_documents).where(and(
+          eq(bot_memory_documents.author_id, nagiActors.did),
+          inArray(bot_memory_documents.source_type, ["nagi_affirmed_post", "bsky_affirmed_post"]),
+          isNull(bot_memory_documents.deleted_at),
+          sql`length(trim(${bot_memory_documents.content})) > 0`,
+        ))),
+      )));
+    return rows.map((row) => row.did);
+  }
+
+  /** 本人が以前に書いた内容をランダムに1件選ぶ。記憶化前のNagi投稿にも戻れる。 */
+  static async getRandomNagiRadioMemory(did: string): Promise<{
+    text: string; kossori: boolean; langs?: string[];
+  } | null> {
+    const [memory] = await db.select({
+      text: bot_memory_documents.content,
+      visibility: bot_memory_documents.visibility,
+    }).from(bot_memory_documents).where(and(
+      eq(bot_memory_documents.author_id, did),
+      inArray(bot_memory_documents.source_type, ["nagi_affirmed_post", "bsky_affirmed_post"]),
+      isNull(bot_memory_documents.deleted_at),
+      sql`length(trim(${bot_memory_documents.content})) > 0`,
+    )).orderBy(sql`random()`).limit(1);
+    if (memory) return { text: memory.text, kossori: memory.visibility === "kossori" };
+
+    const [post] = await db.select({
+      text: nagiPosts.text, kossori: nagiPosts.kossori, langs: nagiPosts.langs,
+    }).from(nagiPosts).where(and(
+      eq(nagiPosts.did, did), isNull(nagiPosts.deletedAt),
+      sql`length(trim(${nagiPosts.text})) > 0`,
+    )).orderBy(sql`random()`).limit(1);
+    if (!post) return null;
+    return { text: post.text, kossori: post.kossori,
+      langs: Array.isArray(post.langs) ? post.langs as string[] : undefined };
   }
 
 static async getPost(did: string): Promise<any> {

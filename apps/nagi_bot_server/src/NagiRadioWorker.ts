@@ -1,7 +1,6 @@
-import { and, eq, gt, lte } from "drizzle-orm";
+import { and, desc, eq, gt, lt, lte } from "drizzle-orm";
 import {
   bot_song_selections,
-  buildMemoryContext,
   db,
   djSongSelectionScope,
   MemoryService,
@@ -13,7 +12,7 @@ import {
   reserveBotSongSelection,
   type BotSongReservation,
 } from "@bsky-affirmative-bot/database";
-import { generateNagiRadioComment, researchNagiRadioSong, resolveMoodSong, selectNagiRadioCandidate, type NagiRadioSong } from "@bsky-affirmative-bot/bot-brain";
+import { generateNagiRadioComment, researchNagiRadioSong, resolveMoodSong, selectNagiRadioCandidate, selectNagiRadioPostContext, type NagiRadioSong } from "@bsky-affirmative-bot/bot-brain";
 import { getLangStr } from "@bsky-affirmative-bot/clients";
 import { currentRadioSlotKey } from "@bsky-affirmative-bot/nagi-lexicon";
 import { startWorkerLoop } from "./workerLoop.js";
@@ -43,22 +42,40 @@ export async function generateNagiRadioForUser(
 
   let reservation: BotSongReservation | null = null;
   try {
-    const posts = (await MemoryService.getNagiPostsSince(did, new Date(now.getTime() - WEEK_MS)))
-      .filter((post) => post.text.trim()).slice(-8);
-    if (!posts.length) return false;
-    const latest = posts.at(-1)!;
+    const [previous] = await db.select({ claimedAt: nagiRadioTracks.claimedAt })
+      .from(nagiRadioTracks).where(and(eq(nagiRadioTracks.subjectDid, did),
+        eq(nagiRadioTracks.status, "ready"), lt(nagiRadioTracks.slotKey, slotKey)))
+      .orderBy(desc(nagiRadioTracks.slotKey)).limit(1);
+    // 初回だけ過去7日。2回目以降は直前の成功した実行開始時刻から全件を見る。
+    const since = previous?.claimedAt ?? new Date(now.getTime() - WEEK_MS);
+    const posts = (await MemoryService.getNagiPostsSince(did, since))
+      .filter((post) => post.text.trim() && post.recordCreatedAt.getTime() <= now.getTime() &&
+        (!previous || post.recordCreatedAt.getTime() > since.getTime()));
+    const recalled = posts.length ? null : await MemoryService.getRandomNagiRadioMemory(did);
+    if (!posts.length && !recalled) return false;
+    const latest = posts.at(-1);
     const latestLangs = [...posts].reverse().find((post) =>
       Array.isArray(post.langs) && post.langs.length)?.langs as string[] | undefined;
-    const language = latestLangs?.length
-      ? (getLangStr(latestLangs) === "日本語" ? "日本語" : "English")
-      : (/[\p{Script=Hiragana}\p{Script=Katakana}]/u.test(latest.text) ? "日本語" : "English");
-    const postText = posts.slice(-3).map((post) => post.text.slice(0, 1_000)).join("\n");
+    const contextLangs = latestLangs?.length ? latestLangs : recalled?.langs;
+    const detectLanguage = (text: string, langs?: string[]): "日本語" | "English" =>
+      langs?.length ? (getLangStr(langs) === "日本語" ? "日本語" : "English")
+        : (/[\p{Script=Hiragana}\p{Script=Katakana}]/u.test(text) ||
+          (/[\p{Script=Han}]/u.test(text) && !/[a-z]/i.test(text)) ? "日本語" : "English");
+    const initialLanguage = detectLanguage(latest?.text ?? recalled!.text, contextLangs);
+    const context = posts.length
+      ? await selectNagiRadioPostContext(posts.map((post) => post.text), initialLanguage)
+      : null;
+    const songText = context?.songContext ?? recalled!.text.slice(0, 3_400);
+    const commentPost = context ? posts[context.commentPostIndex] : null;
+    const language = commentPost ? detectLanguage(commentPost.text,
+      Array.isArray(commentPost.langs) ? commentPost.langs as string[] : undefined) : initialLanguage;
     const scope = djSongSelectionScope(did);
     const selected = await selectNagiRadioCandidate(
       async (attempt, excludedSongKeys, excludedVideoIds) => {
-        const candidate = attempt === 0 && options.preferredSong ? options.preferredSong : await resolveMoodSong(postText, language, scope, {
+        const candidate = attempt === 0 && options.preferredSong ? options.preferredSong : await resolveMoodSong(songText, language, scope, {
           excludeSongKeys: excludedSongKeys,
           excludeVideoIds: excludedVideoIds,
+          memoryQueryText: context?.memoryQueryContext,
         });
         if (candidate) console.info(`[INFO][NAGI][RADIO] Candidate ${attempt + 1} for ${did}: ${candidate.artist} - ${candidate.title}`);
         return candidate;
@@ -68,21 +85,17 @@ export async function generateNagiRadioForUser(
     if (!selected) throw new Error("No verified radio video among three candidates");
     const { song, fact } = selected;
     if (!fact) console.warn(`[WARN][NAGI][RADIO] Publishing without a song background fact for ${did} ${slotKey}`);
-    const [actor, profile, preferred, memory] = await Promise.all([
+    const [actor, profile, preferred] = await Promise.all([
       db.select({ handle: nagiActors.handle }).from(nagiActors).where(eq(nagiActors.did, did)).limit(1),
       db.select({ displayName: nagiProfiles.displayName }).from(nagiProfiles).where(eq(nagiProfiles.did, did)).limit(1),
       db.select({ name: nagiPreferredNames.name }).from(nagiPreferredNames).where(eq(nagiPreferredNames.did, did)).limit(1),
-      buildMemoryContext({
-        query: latest.text.slice(0, 1_000), purpose: "reply_history", subjectKey: did,
-        kossoriSubjectKey: did, limit: 6, researchLimit: 0, digestDays: 0,
-      }).catch(() => ({ own: [], related: [] })),
     ]);
-    const ownMemory = [...memory.own, ...memory.related]
-      .filter((row) => row.authorId === did).slice(0, 3).map((row) => row.content);
     const comment = await generateNagiRadioComment({
       did, name: preferred[0]?.name || profile[0]?.displayName || actor[0]?.handle || null,
-      slotKey, posts: posts.map((post) => post.text), memory: ownMemory,
-      hasPrivatePost: posts.some((post) => post.kossori), language, song, fact,
+      slotKey, posts: commentPost ? [context!.commentPostText] : [],
+      memory: recalled ? [recalled.text] : [],
+      hasPrivatePost: commentPost?.kossori ?? recalled?.kossori ?? false,
+      language, song, fact,
     });
     reservation = await reserveBotSongSelection({
       videoId: song.videoId, songKey: song.songKey,
@@ -120,7 +133,7 @@ export async function generateNagiRadioForUser(
 
 export async function updateNagiRadio(now = new Date()): Promise<void> {
   const slotKey = currentRadioSlotKey(now);
-  const dids = await MemoryService.getNagiActiveAuthorsSince(new Date(now.getTime() - WEEK_MS));
+  const dids = await MemoryService.getNagiRadioAudience();
   // 1件ずつでは利用者数に比例して放送枠が遅れる。ローカル推論への負荷を抑えつつ2並列で進める。
   let cursor = 0;
   await Promise.all(Array.from({ length: Math.min(2, dids.length) }, async () => {

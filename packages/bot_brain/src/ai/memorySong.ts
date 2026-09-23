@@ -154,6 +154,8 @@ export async function resolveMoodSong(
     now?: Date;
     resolveLastFm?: typeof resolveLastFmMoodSong;
     screenMemory?: typeof screenMemorySongCandidates;
+    /** 長い投稿群は全件から作った要約を検索に使う。 */
+    memoryQueryText?: string;
   } = {},
 ): Promise<GroundedMoodSong | null> {
   const getRecent = deps.getRecentSelections ?? getRecentBotSongSelections;
@@ -181,7 +183,8 @@ export async function resolveMoodSong(
     }
   }
 
-  const memories = await (deps.findCandidates ?? findMoodSongCandidates)(postText, langStr);
+  const memories = await (deps.findCandidates ?? findMoodSongCandidates)(
+    deps.memoryQueryText ?? postText, langStr);
   const memoryCandidates = memories.map((item) => ({
     ...item,
     comment: langStr === "日本語"

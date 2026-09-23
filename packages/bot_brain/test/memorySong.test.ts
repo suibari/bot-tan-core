@@ -97,6 +97,18 @@ test("YouTubeで曲名と作者を確認できた候補まで順に進む", asyn
   assert.equal(result?.url, "https://www.youtube.com/watch?v=verified");
 });
 
+test("選曲候補を記憶から探すときは全投稿の要約を検索へ渡す", async () => {
+  let queried = "";
+  await resolveMoodSong("先頭の投稿だけでは分からない文脈", "日本語", SCHEDULED_POST_SONG_SCOPE, {
+    memoryQueryText: "投稿期間の全件から作った要約",
+    resolveLastFm: async () => null,
+    getRecentSelections: async () => [],
+    findCandidates: async (query) => { queried = query; return []; },
+    screenMemory: async (_post, _lang, candidates) => candidates,
+  });
+  assert.equal(queried, "投稿期間の全件から作った要約");
+});
+
 test("Last.fm経路が成功すればbot memoryフォールバックを呼ばない", async () => {
   let memorySearched = false;
   const result = await resolveMoodSong("晴れた日の散歩", "日本語", SCHEDULED_POST_SONG_SCOPE, {
