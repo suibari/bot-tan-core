@@ -88,7 +88,7 @@ export function selectGoodNightLearnedTerms<T extends { label: string }>(
 export function buildWhimsicalPostTexts(params: {
   textJa: string;
   textEn: string;
-  moodSong: string;
+  moodSong?: string;
   selectedNewsUrl?: string;
 }): WhimsicalPostTexts {
   return {

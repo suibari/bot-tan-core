@@ -67,6 +67,7 @@ const EXPECTED: Record<AiFeatureKey, [model: string, tier: "flex" | "standard" |
   COMMON_DIARY_ATTEMPT_EARLY: [FLASH_35_LITE, "flex"],
   COMMON_DIARY_ATTEMPT_MID: [FLASH_35_LITE, "standard"],
   COMMON_DIARY_ATTEMPT_LATE: [FLASH_35_LITE, "standard"],
+  COMMON_MOOD_SONG_LOCAL: [DEFAULT_OLLAMA_TEXT_MODEL, undefined],
   // bsky_bot_server（肯定返信/会話は Nagi が requestOptions で上書きするので実質 bsky 専用）
   BSKY_AFFIRMATIVE_REPLY: [LITE, "standard"],
   BSKY_CONVERSATION: [LITE, "standard"],
@@ -82,7 +83,6 @@ const EXPECTED: Record<AiFeatureKey, [model: string, tier: "flex" | "standard" |
   BSKY_ANNIVERSARY: [LITE, "flex"],
   BSKY_RECAP: [LITE, "flex"],
   BSKY_ROOM_WELCOME: [LITE, "flex"],
-  BSKY_MY_MOOD_SONG: [LITE, "flex"],
   // 画像そのもののルーティングは AI_IMAGE_FEATURES 側（この表はテキスト専用）。
   // ここに残るのは、日本語の情景文を booru タグへ直す変換だけ。必ずローカルで回す。
   BSKY_IMAGE_PROMPT: [DEFAULT_OLLAMA_TEXT_MODEL, undefined],
@@ -213,6 +213,21 @@ test("AI_ROUTE_<機能> でその機能だけルートを差し替えられる",
 
     // 隣の機能は既定のまま
     assert.equal(resolveAiRoute("BIORHYTHM_WHIMSICAL_POST_PLAN").model, FLASH);
+  });
+});
+
+test("明示した機能ルートは全体のOllama既定より優先される", () => {
+  withCleanEnv(() => {
+    process.env.AI_TEXT_PROVIDER = "ollama";
+    process.env.AI_ROUTE_BSKY_FORTUNE = "lite-standard";
+    resetAiRouteCache();
+
+    const fortune = resolveAiRoute("BSKY_FORTUNE");
+    assert.equal(fortune.provider, "gemini");
+    assert.equal(fortune.model, LITE);
+    assert.equal(fortune.serviceTier, "standard");
+    assert.equal(fortune.source, "env");
+    assert.equal(resolveAiRoute("BSKY_ANALYZE").provider, "ollama");
   });
 });
 

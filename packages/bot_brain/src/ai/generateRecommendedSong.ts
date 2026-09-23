@@ -1,5 +1,6 @@
 import { UserInfoGemini } from "@bsky-affirmative-bot/shared-configs";
 import { extractJSON, generateSingleResponseJSON } from "./util.js";
+import type { MemorySongCandidate } from "./memorySong.js";
 
 type GeminiRecommendation = [
   {
@@ -9,8 +10,11 @@ type GeminiRecommendation = [
   }
 ]
 
-export async function generateRecommendedSong(userinfo: UserInfoGemini) {
-  const prompt = PROMPT_DJ(userinfo);
+export async function generateRecommendedSong(
+  userinfo: UserInfoGemini,
+  groundedSong?: Pick<MemorySongCandidate, "title" | "artist">,
+) {
+  const prompt = PROMPT_DJ(userinfo, groundedSong);
 
   try {
     return await generateSingleResponseJSON<{ title: string; artist: string; comment: string }>(
@@ -23,8 +27,9 @@ export async function generateRecommendedSong(userinfo: UserInfoGemini) {
           throw new Error("Invalid DJ song recommendation JSON structure");
         }
         return {
-          title: song.title,
-          artist: song.artist,
+          // 記憶と YouTube で確認済みの曲があるとき、LLM の表記で上書きしない。
+          title: groundedSong?.title ?? song.title,
+          artist: groundedSong?.artist ?? song.artist,
           comment: song.comment || "お気に入りの曲を選んだよ！"
         };
       },
@@ -32,17 +37,33 @@ export async function generateRecommendedSong(userinfo: UserInfoGemini) {
     );
   } catch (e) {
     console.error("[ERROR] Failed to generate recommended song after retries:", e);
-    return {
-      title: "青空のシンフォニー",
-      artist: "全肯定応援団",
-      comment: "ごめんね、うまく選曲できなかったみたい…！でも、この曲を聴いて元気を出してね！"
-    };
+    return groundedSong
+      ? {
+          ...groundedSong,
+          comment: userinfo.langStr === "日本語"
+            ? "記憶に残っていた曲から、今のリクエストに合いそうな一曲を選んだよ！"
+            : "I picked a verified song from my memory that fits your request!",
+        }
+      : {
+          title: "",
+          artist: "",
+          comment: "ごめんね、実在を確認できる曲を見つけられなかったよ。",
+        };
   }
 }
 
-const PROMPT_DJ = (userinfo: UserInfoGemini) => {
+const PROMPT_DJ = (
+  userinfo: UserInfoGemini,
+  groundedSong?: Pick<MemorySongCandidate, "title" | "artist">,
+) => {
   const requestPost = userinfo.posts?.[0];
   const pastPosts = (userinfo.posts && userinfo.posts.length > 1) ? userinfo.posts?.slice(1) : undefined;
+  const groundedRuleJa = groundedSong
+    ? `\n* 選曲は検証済みの「${groundedSong.title}」/ ${groundedSong.artist} に固定し、titleとartistを一字も変えないでください。`
+    : "";
+  const groundedRuleEn = groundedSong
+    ? `\n* Use the verified song "${groundedSong.title}" by ${groundedSong.artist}. Copy title and artist exactly.`
+    : "";
 
   return userinfo.langStr === "日本語" ?
     `以下のユーザが流す曲をリクエストしています。
@@ -63,6 +84,7 @@ const PROMPT_DJ = (userinfo: UserInfoGemini) => {
 * titleに曲名、artistにアーティスト名を、正確に出力してください
 * commentには選曲に関するあなたのコメントを出力してください
 * 選曲の際には過去のユーザのポストも参考にしてください: ${pastPosts}
+${groundedRuleJa}
 -----この下がユーザからのリクエストです-----
 ユーザ名: ${userinfo.follower.displayName}
 リクエスト: ${requestPost}
@@ -85,6 +107,7 @@ If the user mentions any anime or game references, please choose a song related 
 Do not suggest any songs that do not actually exist.
 When choosing songs, please refer to past user posts: ${pastPosts}
 The output should be in ${userinfo.langStr}.
+${groundedRuleEn}
 -----Below is the user's request-----  
 Username: ${userinfo.follower.displayName}  
 Request: ${requestPost}

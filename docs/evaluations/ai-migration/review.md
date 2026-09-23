@@ -278,7 +278,7 @@ Nagi使い始めて1周年なんだね！本当におめでとう！！✨
 
 ## 気分ソング（実在確認Grounding） (mood-song-grounded)
 
-- covers: BSKY_MY_MOOD_SONG
+- covers: COMMON_MOOD_SONG
 - provider/model: ollama / hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ3_S
 - latency: 11678 ms
 - automatic: PASS
@@ -699,4 +699,3 @@ You took another step forward today, and that's so impressive! ✨
 ```text
 dimensions=1024
 ```
-

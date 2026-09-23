@@ -9,8 +9,8 @@ import {
   generateGoodNight,
   generateImage,
   generateQuestion,
-  MyMoodSongGenerator,
-  searchYoutubeLink,
+  MoodSongResolver,
+  type ReservedMoodSong,
   WhimsicalPostGenerator,
 } from "@bsky-affirmative-bot/bot-brain";
 import retry from "async-retry";
@@ -23,8 +23,12 @@ import {
   claimDailyDrawing,
   drawingDay,
   getTodaysLearnedWorks,
+  finalizeBotSongSelection,
+  protectBotSongSelectionForPublish,
   recordBotMemoryUsages,
+  releaseBotSongSelection,
   releaseDailyDrawing,
+  SCHEDULED_POST_SONG_SCOPE,
 } from "@bsky-affirmative-bot/database";
 import {
   getDailyTopPostCandidate,
@@ -153,11 +157,46 @@ async function buildGoodNightImage(
 }
 
 const whimsicalPostGenerator = new WhimsicalPostGenerator();
-const moodSongGenerator = new MyMoodSongGenerator();
+const moodSongResolver = new MoodSongResolver();
 let isJapanesePost = true;
 
 async function publish(request: ScheduledPostPublishRequest) {
   return ScheduledPostService.publish(request);
+}
+
+export async function settleScheduledSongReservation(
+  reservedSong: ReservedMoodSong,
+  results: Partial<Record<"bsky" | "nagi", ScheduledPostResult>>,
+  dependencies: {
+    finalize?: typeof finalizeBotSongSelection;
+    release?: typeof releaseBotSongSelection;
+    remember?: MoodSongResolver["remember"];
+    reportFinalizeError?: (error: unknown) => void;
+  } = {},
+) {
+  const published = Boolean(results.bsky || results.nagi);
+  if (!published) {
+    await (dependencies.release ?? releaseBotSongSelection)(reservedSong.reservation);
+    return false;
+  }
+
+  try {
+    const finalize = dependencies.finalize ?? finalizeBotSongSelection;
+    await retry(() => finalize(
+      reservedSong.reservation,
+      results.bsky?.uri ?? results.nagi?.uri,
+    ), { retries: 2 });
+  } catch (error) {
+    (dependencies.reportFinalizeError ?? ((cause) =>
+      console.error("[ERROR][MOOD_SONG] Failed to finalize scheduled-post reservation", cause)
+    ))(error);
+  }
+  (dependencies.remember ?? moodSongResolver.remember.bind(moodSongResolver))(
+    SCHEDULED_POST_SONG_SCOPE,
+    reservedSong.song,
+    reservedSong.reservation.selectedAt,
+  );
+  return true;
 }
 
 export async function recordScheduledPostMemoryUsage(
@@ -272,39 +311,64 @@ export async function postWhimsical(currentMood: string, botContext?: BotContext
     return result;
   }, { retries: 3 });
 
-  let song = { title: "Unknown", artist: "Unknown" };
-  let songUrl: string | undefined;
+  let reservedSong: Awaited<ReturnType<MoodSongResolver["resolveAndReserve"]>> = null;
   try {
-    songUrl = await retry(async () => {
-      song = await moodSongGenerator.generate(currentMood, langStr);
-      const url = await searchYoutubeLink(`${song.artist} ${song.title}`);
-      if (!url) throw new Error("Youtube URL not found");
-      return url;
-    }, { retries: 3 });
+    reservedSong = await moodSongResolver.resolveAndReserve(
+      isJapanesePost ? generated.textJa : generated.textEn,
+      langStr,
+      SCHEDULED_POST_SONG_SCOPE,
+    );
   } catch (error) {
     console.error("[ERROR] Failed to resolve mood song:", error);
   }
+  if (reservedSong) {
+    try {
+      await protectBotSongSelectionForPublish(reservedSong.reservation);
+    } catch (error) {
+      console.error("[ERROR][MOOD_SONG] Failed to protect scheduled-post song before publishing", error);
+      await releaseBotSongSelection(reservedSong.reservation).catch((releaseError) =>
+        console.error("[ERROR][MOOD_SONG] Failed to release unprotected scheduled-post reservation", releaseError)
+      );
+      reservedSong = null;
+    }
+  }
+  const song = reservedSong?.song ?? null;
 
-  const songSuffix = songUrl ? songUrl : "(Not found in Youtube...)";
-  const moodSong = `MyMoodSong:\n${song.title} - ${song.artist}\n${songSuffix}`;
+  const moodSong = song
+    ? `MyMoodSong:\n${song.title} - ${song.artist}` +
+      (song.lastFmUrl ? `\nSource: Last.fm ${song.lastFmUrl}` : "") +
+      `\n${song.url}`
+    : "";
   const texts = buildWhimsicalPostTexts({
     textJa: generated.textJa,
     textEn: generated.textEn,
     moodSong,
     selectedNewsUrl: generated.selectedNewsUrl,
   });
-  const results = await publish({
-    kind: "whimsical",
-    contentByTarget: {
-      bsky: { text: isJapanesePost ? texts.bskyJa : texts.bskyEn },
-      nagi: {
-        text: texts.nagiJa,
-        langs: ["ja"],
-        translations: [{ lang: "en", text: texts.nagiEn }],
+  let results: Partial<Record<"bsky" | "nagi", ScheduledPostResult>>;
+  try {
+    results = await publish({
+      kind: "whimsical",
+      contentByTarget: {
+        bsky: { text: isJapanesePost ? texts.bskyJa : texts.bskyEn },
+        nagi: {
+          text: texts.nagiJa,
+          langs: ["ja"],
+          translations: [{ lang: "en", text: texts.nagiEn }],
+        },
       },
-    },
-  });
-  const published = Object.keys(results).length > 0;
+    });
+  } catch (error) {
+    // 外部投稿の成否を断定できないため、publishing の30日保護を残す。
+    throw error;
+  }
+  const published = Boolean(results.bsky || results.nagi);
+
+  if (reservedSong) {
+    await settleScheduledSongReservation(reservedSong, results).catch((error) =>
+      console.error("[ERROR][MOOD_SONG] Failed to settle scheduled-post reservation", error)
+    );
+  }
 
   if (published) {
     if (giftIdToUpdate !== undefined) await MemoryService.updateGiftStatus(giftIdToUpdate, "used");
@@ -314,7 +378,10 @@ export async function postWhimsical(currentMood: string, botContext?: BotContext
     }
     await recordScheduledPostMemoryUsage(
       results,
-      generated.selectedMemoryDocumentIds,
+      [
+        ...generated.selectedMemoryDocumentIds,
+        ...(song?.documentId ? [song.documentId] : []),
+      ],
     ).catch((error) =>
       console.error("[WARN][BOT_MEMORY] Failed to record scheduled-post usage", error),
     );

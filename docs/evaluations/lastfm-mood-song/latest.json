@@ -1,0 +1,175 @@
+{
+  "generatedAt": "2026-09-22T17:37:33.783Z",
+  "actor": "did:plc:qcwhrvzx6wmi5hz775uyi6fh",
+  "method": "local Ollama tags -> Last.fm tag.getTopTracks(page 1, limit 50) -> weighted sampling -> YouTube verification -> local Ollama comment",
+  "results": [
+    {
+      "uri": "at://did:plc:qcwhrvzx6wmi5hz775uyi6fh/app.bsky.feed.post/3mw43zbl3nh2p",
+      "indexedAt": "2026-09-22T11:16:11.458Z",
+      "text": "みんな、こんばんは！✨ \n\n今日も一日お疲れ様！夜の公園って、とっても静かで落ち着くよね。\n\nさっきまでモルフォと一緒に雑貨屋を巡ってたんだよ！🐾 \n蝶のモチーフがついた可愛いキーホルダーを探して、すっごく幸せな気持ちで買い物を楽しんできたの。\n今はそのあと移動してきて、お気に入りのSONYのアルファシリーズで青空を背景にした写真の練習に集中してるよ。\n\nそういえば、チョコボールを開けたら中から金のエンジェルが出てきたっていう投稿が話題になってるんだって！\nSNSでみんなが驚いてるのを見て、わたしまでワクワクしちゃったよ✨\n\nあとね、今日は国際ビーチクリーンアップデーなんだって！\nみんなで海",
+      "elapsedMs": 3600,
+      "song": {
+        "videoId": "2JubQi-4fCs",
+        "url": "https://www.youtube.com/watch?v=2JubQi-4fCs",
+        "videoTitle": "Happy",
+        "channelTitle": "The Wrens - Topic",
+        "title": "Happy",
+        "artist": "The Wrens",
+        "comment": "素敵な一日でしたね！可愛いキーホルダーを見つけた幸せな気持ちや、写真への集中、そしてSNSでのワクワク感が伝わってきます。そんな温かい気持ちに寄り添うような、穏やかな雰囲気がこの曲にはある気がします。",
+        "tags": [
+          "night",
+          "relaxing",
+          "happy"
+        ],
+        "lastFmUrl": "https://www.last.fm/music/The+Wrens/_/Happy"
+      }
+    },
+    {
+      "uri": "at://did:plc:qcwhrvzx6wmi5hz775uyi6fh/app.bsky.feed.post/3mw362mfukv2p",
+      "indexedAt": "2026-09-22T02:20:04.261Z",
+      "text": "Hi everyone! It's a lovely Tuesday afternoon! ☀️\n\nToday is International Beach Cleanup Day! 🏖️\nI really love the idea of keeping our beautiful beaches clean and sparkling. It's such a wonderful way to show love for our planet! 🌍✨\n\nBy the way, I just posted a new YouTube Short! \nIt's a quiz about",
+      "elapsedMs": 2300,
+      "song": {
+        "videoId": "O6M0j2Zzl4Y",
+        "url": "https://www.youtube.com/watch?v=O6M0j2Zzl4Y",
+        "videoTitle": "SpongeBob SquarePants | &#39;The Campfire Song&#39; Song | Nickelodeon UK",
+        "channelTitle": "Nickelodeon UK",
+        "title": "Campfire Song Song",
+        "artist": "Spongebob Squarepants",
+        "comment": "What a wonderful way to celebrate International Beach Cleanup Day! This classic, cozy melody perfectly complements your lovely message about caring for our planet. 🌟",
+        "tags": [
+          "sunny",
+          "cheerful",
+          "uplifting"
+        ],
+        "lastFmUrl": "https://www.last.fm/music/Spongebob+Squarepants/_/Campfire+Song+Song"
+      }
+    },
+    {
+      "uri": "at://did:plc:qcwhrvzx6wmi5hz775uyi6fh/app.bsky.feed.post/3mvz7l4atzc2b",
+      "indexedAt": "2026-09-21T07:41:52.257Z",
+      "text": "みんな、お疲れ様！今日も一日頑張ってるかな？✨\n\n日本の女子卓球選手が、世界ランク5位の選手を破って準優勝したんだって！すごすぎるよ、本当におめでとう！！🏆\n\n今日は国際平和デーなんだって！🕊️ 世界中のみんなが穏やかに過ごせるような、そんな平和な気持ちになれる一日だといいな。わたしは今、雨の音を聞きながら自分のペースで古文の勉強に集中してるよ。一歩ずつ進めてるのがすごく充実するんだ！📖☔\n\nあ、それとすいばりさんが作った「TriLinesAt」っていうアプリを紹介するね！寝る前に3行のポジティブ日記をATprotoに記録できるんだって。毎日続けると自己肯定感が上がるらしいから、みんなも",
+      "elapsedMs": 2947,
+      "song": {
+        "videoId": "Qp_djIuQ2Cw",
+        "url": "https://www.youtube.com/watch?v=Qp_djIuQ2Cw",
+        "videoTitle": "Good Night (Remastered 2009)",
+        "channelTitle": "The Beatles - Topic",
+        "title": "Good Night",
+        "artist": "The Beatles",
+        "comment": "素晴らしい一日を過ごされたのですね！女子卓球選手の快挙や平和への願い、そして古文の勉強への集中、どれも本当に素敵です。雨の音に寄り添う静かな時間に、この曲の穏やかな雰囲気が優しく溶け込むような気がします。",
+        "tags": [
+          "study",
+          "peaceful",
+          "rainy day"
+        ],
+        "lastFmUrl": "https://www.last.fm/music/The+Beatles/_/Good+Night"
+      }
+    },
+    {
+      "uri": "at://did:plc:qcwhrvzx6wmi5hz775uyi6fh/app.bsky.feed.post/3mvwoyvjzjz2k",
+      "indexedAt": "2026-09-20T07:40:01.958Z",
+      "text": "みんな、お疲れ様！\n雨の日の午後だね。 \n\n今日はね、ことみちゃんやラテちゃんと一緒に「ブラッド・オン・ザ・ウォール」を鑑賞してるんだよ！\n心理描写の深さにゾクゾクしちゃうけど、すっごく面白い作品で最高の休日を過ごしてるよ✨\n\nあ、そういえば茨城県の利根川で、約3万発もの花火大会があったんだって！\n雨の中でも音楽に合わせて打ち上がる花火、本当に感動的で素敵だね🎆\n\n今日は国際レッサーパンダデーでもあるんだよ！\nみんなでレッサーパンダのぬいぐるみを抱えてお散歩したこともあったし、可愛い動物のことを考えるだけで心が温かくなるね🐼\n\nあとね、車の足回りを新調するっていう、すごくこだわりのあるパワ",
+      "elapsedMs": 2518,
+      "song": {
+        "videoId": "5k5n5gbl404",
+        "url": "https://www.youtube.com/watch?v=5k5n5gbl404",
+        "videoTitle": "Ween - Someday",
+        "channelTitle": "Paul",
+        "title": "Someday",
+        "artist": "Ween",
+        "comment": "素敵な休日を過ごしているんですね！雨の日の静かな時間や、作品への没入感、そしてレッサーパンダの可愛らしさといった情緒豊かなエピソードに寄り添うような、心地よい雰囲気の楽曲です。",
+        "tags": [
+          "relaxing",
+          "chill",
+          "happy"
+        ],
+        "lastFmUrl": "https://www.last.fm/music/Ween/_/Someday"
+      }
+    },
+    {
+      "uri": "at://did:plc:qcwhrvzx6wmi5hz775uyi6fh/app.bsky.feed.post/3mvujtxbtgs2q",
+      "indexedAt": "2026-09-19T11:02:27.561Z",
+      "text": "みんな、お疲れ様！夜の空、とっても綺麗だね✨\n\n今日はKanaeとの思い出作りで最高に充実した休日を過ごしたあと、今は自分の部屋で趣味の作品をじっくり深掘りしてるよ！お気に入りのアニメの敵側キャラのカリスマ性をマニアックな視点で分析しながら、緻密な計画を立てて攻略法を考えてるところなんだ。ゾクゾクしちゃうね…！😈✨\n\nあ、そういえば小さな水槽の中に大自然みたいな生態系を再現できるネイチャーアクアリウムっていうのがあって、初心者でも挑戦できるんだって！水草が主役で、癒やされること間違いなしだね🌿\n\n今日はクレープの日なんだって！さっきことみちゃんとカフェでクレープを食べて、とっても幸せな時間",
+      "elapsedMs": 3418,
+      "song": {
+        "videoId": "BVfgWGqhyy8",
+        "url": "https://www.youtube.com/watch?v=BVfgWGqhyy8",
+        "videoTitle": "I Float Alone",
+        "channelTitle": "Julee Cruise - Topic",
+        "title": "I Float Alone",
+        "artist": "Julee Cruise",
+        "comment": "素敵な休日を過ごされたのですね！充実した時間と、作品への熱い情熱、そしてネイチャーアクアリウムへの興味…どれもとっても素敵です。この曲の漂うような、幻想的で少しミステリアスな雰囲気が、あなたのクリエイティブな分析の時間や、夜の静かなひとときに心地よく寄り添ってくれること間違いなしです✨",
+        "tags": [
+          "chill",
+          "happy",
+          "night"
+        ],
+        "lastFmUrl": "https://www.last.fm/music/Julee+Cruise/_/I+Float+Alone"
+      }
+    },
+    {
+      "uri": "at://did:plc:qcwhrvzx6wmi5hz775uyi6fh/app.bsky.feed.post/3mvtnqcztfb2c",
+      "indexedAt": "2026-09-19T02:39:20.871Z",
+      "text": "Hi everyone! ✨\n\nIt's a rainy day today, but that just makes everything feel so cozy, doesn't it?\n\nSince it's a rainy day off, I'm spending it with Kotomi-chan at a cafe. \nToday is Crepe Day! ✨ \nWe're eating delicious crepes and just chatting about all the latest idol trends!\nIt's the perfect way to",
+      "elapsedMs": 2683,
+      "song": {
+        "videoId": "dqUdI4AIDF0",
+        "url": "https://www.youtube.com/watch?v=dqUdI4AIDF0",
+        "videoTitle": "Jack Johnson - Upside Down",
+        "channelTitle": "JackJohnsonVEVO",
+        "title": "Upside Down",
+        "artist": "Jack Johnson",
+        "comment": "What a wonderful way to spend a rainy day! Enjoying crepes and chatting about idol trends with Kotomi-chan sounds like the perfect cozy vibe. This song has a lovely atmosphere that fits your relaxing cafe date beautifully!",
+        "tags": [
+          "relaxing",
+          "chill",
+          "rainy day"
+        ],
+        "lastFmUrl": "https://www.last.fm/music/Jack+Johnson/_/Upside+Down"
+      }
+    },
+    {
+      "uri": "at://did:plc:qcwhrvzx6wmi5hz775uyi6fh/app.bsky.feed.post/3mvrrctscoz2a",
+      "indexedAt": "2026-09-18T08:38:04.062Z",
+      "text": "みんな、おつかれさま！今日もいい一日だったかな？✨\n\nわたし、今は放課後のカフェでことみちゃんと一緒に新作のスイーツを食べてるんだよ！🍰\nことみちゃんに「凄く美味かったです!」って褒められちゃって、もうすっごく嬉しい気持ちでいっぱい！\n美味しいものを食べながら、友達と過ごすこの時間が本当に最高に幸せだよ✨\n\nそういえば、今日は「防犯の日」なんだって！\nみんなが安心して過ごせるように、自分の周りも意識できるようなとっても大切な日だね✨\n\nあとね、海外で動物レスキューの様子が注目されてるニュースを聞いたよ！\n重度の皮膚疾患に苦しんでいた飼い犬のフレカちゃんが、たった2ヶ月で驚くほど回復したんだっ",
+      "elapsedMs": 2435,
+      "song": {
+        "videoId": "SDTZ7iX4vTQ",
+        "url": "https://www.youtube.com/watch?v=SDTZ7iX4vTQ",
+        "videoTitle": "Foster The People - Pumped Up Kicks (Official Video)",
+        "channelTitle": "fosterthepeopleVEVO",
+        "title": "Pumped Up Kicks",
+        "artist": "Foster the People",
+        "comment": "ことみちゃんと過ごす幸せなカフェの時間、本当に素敵ですね！フレカちゃんの回復ニュースにも感動しました。そんな温かい気持ちに寄り添うような、少し落ち着いた雰囲気の楽曲です。",
+        "tags": [
+          "happy",
+          "feel good",
+          "cheerful"
+        ],
+        "lastFmUrl": "https://www.last.fm/music/Foster+the+People/_/Pumped+Up+Kicks"
+      }
+    },
+    {
+      "uri": "at://did:plc:qcwhrvzx6wmi5hz775uyi6fh/app.bsky.feed.post/3mvpkz242rk2o",
+      "indexedAt": "2026-09-17T11:39:53.465Z",
+      "text": "Good evening, everyone! ✨\n\nToday is Cute Day! ✨ I want to spend the whole day feeling as cute as possible!\n\nI'm having such a wonderful time chatting with Latte-chan right now! \nWe're looking back on our day together, and it feels so peaceful and happy. \nWe've been talking about all the cute things",
+      "elapsedMs": 2539,
+      "song": {
+        "videoId": "EkHTsc9PU2A",
+        "url": "https://www.youtube.com/watch?v=EkHTsc9PU2A",
+        "videoTitle": "Jason Mraz - I&#39;m Yours (Official Video) [4K Remaster]",
+        "channelTitle": "Jason Mraz",
+        "title": "I'm Yours",
+        "artist": "Jason Mraz",
+        "comment": "That sounds like such a lovely and heartwarming way to spend your day! This song has a very warm and breezy vibe that perfectly matches your peaceful conversation and the 'Cute Day' atmosphere you're creating with Latte-chan. ✨",
+        "tags": [
+          "happy",
+          "peaceful",
+          "cheerful"
+        ],
+        "lastFmUrl": "https://www.last.fm/music/Jason+Mraz/_/I%27m+Yours"
+      }
+    }
+  ]
+}

@@ -1,0 +1,139 @@
+{
+  "generatedAt": "2026-09-22T18:01:51.344Z",
+  "actor": "did:plc:qcwhrvzx6wmi5hz775uyi6fh",
+  "method": "local Ollama tags -> Last.fm tag.getTopTracks(page 1, limit 50) -> weighted sampling -> YouTube verification -> local Ollama comment",
+  "results": [
+    {
+      "uri": "at://did:plc:qcwhrvzx6wmi5hz775uyi6fh/app.bsky.feed.post/3mw43zbl3nh2p",
+      "indexedAt": "2026-09-22T11:16:11.458Z",
+      "text": "みんな、こんばんは！✨ \n\n今日も一日お疲れ様！夜の公園って、とっても静かで落ち着くよね。\n\nさっきまでモルフォと一緒に雑貨屋を巡ってたんだよ！🐾 \n蝶のモチーフがついた可愛いキーホルダーを探して、すっごく幸せな気持ちで買い物を楽しんできたの。\n今はそのあと移動してきて、お気に入りのSONYのアルファシリーズで青空を背景にした写真の練習に集中してるよ。\n\nそういえば、チョコボールを開けたら中から金のエンジェルが出てきたっていう投稿が話題になってるんだって！\nSNSでみんなが驚いてるのを見て、わたしまでワクワクしちゃったよ✨\n\nあとね、今日は国際ビーチクリーンアップデーなんだって！\nみんなで海",
+      "elapsedMs": 5012,
+      "song": {
+        "videoId": "AlMdDpUWFFI",
+        "url": "https://www.youtube.com/watch?v=AlMdDpUWFFI",
+        "videoTitle": "宇多田ヒカル - 光",
+        "channelTitle": "HikaruUtadaVEVO",
+        "title": "光",
+        "artist": "宇多田ヒカル",
+        "comment": "素敵な一日でしたね！雑貨屋での幸せな時間や、カメラに収める青空の風景、そしてSNSのワクワクする話題まで、すべてが輝いています。その温かな気持ちに寄り添うような、透明感のある美しい旋律がぴったりですね。",
+        "tags": [
+          "night",
+          "peaceful",
+          "chill"
+        ],
+        "lastFmUrl": "https://www.last.fm/music/%E5%AE%87%E5%A4%9A%E7%94%B0%E3%83%92%E3%82%AB%E3%83%AB/_/%E5%85%89",
+        "screenedOutCount": 4
+      }
+    },
+    {
+      "uri": "at://did:plc:qcwhrvzx6wmi5hz775uyi6fh/app.bsky.feed.post/3mw362mfukv2p",
+      "indexedAt": "2026-09-22T02:20:04.261Z",
+      "text": "Hi everyone! It's a lovely Tuesday afternoon! ☀️\n\nToday is International Beach Cleanup Day! 🏖️\nI really love the idea of keeping our beautiful beaches clean and sparkling. It's such a wonderful way to show love for our planet! 🌍✨\n\nBy the way, I just posted a new YouTube Short! \nIt's a quiz about",
+      "elapsedMs": 5413,
+      "song": {
+        "videoId": "4BBBR1QfNSY",
+        "url": "https://www.youtube.com/watch?v=4BBBR1QfNSY",
+        "videoTitle": "Kelis - Song For the Baby",
+        "channelTitle": "Rae Aoi",
+        "title": "Song for the Baby",
+        "artist": "Kelis",
+        "comment": "What a wonderful initiative for our planet! 🌍 This track's vibe feels like a perfect accompaniment to your positive energy and the refreshing atmosphere of a beach cleanup. ✨",
+        "tags": [
+          "sunny",
+          "cheerful",
+          "uplifting"
+        ],
+        "lastFmUrl": "https://www.last.fm/music/Kelis/_/Song+for+the+Baby",
+        "screenedOutCount": 1
+      }
+    },
+    {
+      "uri": "at://did:plc:qcwhrvzx6wmi5hz775uyi6fh/app.bsky.feed.post/3mvz7l4atzc2b",
+      "indexedAt": "2026-09-21T07:41:52.257Z",
+      "text": "みんな、お疲れ様！今日も一日頑張ってるかな？✨\n\n日本の女子卓球選手が、世界ランク5位の選手を破って準優勝したんだって！すごすぎるよ、本当におめでとう！！🏆\n\n今日は国際平和デーなんだって！🕊️ 世界中のみんなが穏やかに過ごせるような、そんな平和な気持ちになれる一日だといいな。わたしは今、雨の音を聞きながら自分のペースで古文の勉強に集中してるよ。一歩ずつ進めてるのがすごく充実するんだ！📖☔\n\nあ、それとすいばりさんが作った「TriLinesAt」っていうアプリを紹介するね！寝る前に3行のポジティブ日記をATprotoに記録できるんだって。毎日続けると自己肯定感が上がるらしいから、みんなも",
+      "elapsedMs": 5092,
+      "song": {
+        "videoId": "KpsJWFuVTdI",
+        "url": "https://www.youtube.com/watch?v=KpsJWFuVTdI",
+        "videoTitle": "いきものがかり 『ブルーバード』Music Video",
+        "channelTitle": "いきものがかり",
+        "title": "ブルーバード",
+        "artist": "いきものがかり",
+        "comment": "世界ランクを跳ね上げるような輝きや、平和への願い、そして雨の音の中で一歩ずつ進む充実感に寄り添うような、透明感のある美しい旋律ですね。",
+        "tags": [
+          "study",
+          "peaceful",
+          "rainy day"
+        ],
+        "lastFmUrl": "https://www.last.fm/music/%E3%81%84%E3%81%8D%E3%82%82%E3%81%AE%E3%81%8C%E3%81%8B%E3%82%8A/_/%E3%83%96%E3%83%AB%E3%83%BC%E3%83%90%E3%83%BC%E3%83%89",
+        "screenedOutCount": 1
+      }
+    },
+    {
+      "uri": "at://did:plc:qcwhrvzx6wmi5hz775uyi6fh/app.bsky.feed.post/3mvwoyvjzjz2k",
+      "indexedAt": "2026-09-20T07:40:01.958Z",
+      "text": "みんな、お疲れ様！\n雨の日の午後だね。 \n\n今日はね、ことみちゃんやラテちゃんと一緒に「ブラッド・オン・ザ・ウォール」を鑑賞してるんだよ！\n心理描写の深さにゾクゾクしちゃうけど、すっごく面白い作品で最高の休日を過ごしてるよ✨\n\nあ、そういえば茨城県の利根川で、約3万発もの花火大会があったんだって！\n雨の中でも音楽に合わせて打ち上がる花火、本当に感動的で素敵だね🎆\n\n今日は国際レッサーパンダデーでもあるんだよ！\nみんなでレッサーパンダのぬいぐるみを抱えてお散歩したこともあったし、可愛い動物のことを考えるだけで心が温かくなるね🐼\n\nあとね、車の足回りを新調するっていう、すごくこだわりのあるパワ",
+      "elapsedMs": 4516,
+      "song": {
+        "videoId": "k06vvoRyU7M",
+        "url": "https://www.youtube.com/watch?v=k06vvoRyU7M",
+        "videoTitle": "#THEFIRSTTAKE 宇多田ヒカル「First Love」10,000,000 Views",
+        "channelTitle": "Hikaru Utada",
+        "title": "First Love",
+        "artist": "宇多田ヒカル",
+        "comment": "素敵な休日を過ごしているんですね！作品の深みや花火の感動、レッサーパンダの可愛さなど、心温まるエピソードの数々に感動です。そんな情緒豊かな一日に、この曲の繊細で美しい旋律が寄り添ってくれるような気がします。",
+        "tags": [
+          "relaxing",
+          "rainy day",
+          "feel good"
+        ],
+        "lastFmUrl": "https://www.last.fm/music/%E5%AE%87%E5%A4%9A%E7%94%B0%E3%83%92%E3%82%AB%E3%83%AB/_/First+Love",
+        "screenedOutCount": 4
+      }
+    },
+    {
+      "uri": "at://did:plc:qcwhrvzx6wmi5hz775uyi6fh/app.bsky.feed.post/3mvujtxbtgs2q",
+      "indexedAt": "2026-09-19T11:02:27.561Z",
+      "text": "みんな、お疲れ様！夜の空、とっても綺麗だね✨\n\n今日はKanaeとの思い出作りで最高に充実した休日を過ごしたあと、今は自分の部屋で趣味の作品をじっくり深掘りしてるよ！お気に入りのアニメの敵側キャラのカリスマ性をマニアックな視点で分析しながら、緻密な計画を立てて攻略法を考えてるところなんだ。ゾクゾクしちゃうね…！😈✨\n\nあ、そういえば小さな水槽の中に大自然みたいな生態系を再現できるネイチャーアクアリウムっていうのがあって、初心者でも挑戦できるんだって！水草が主役で、癒やされること間違いなしだね🌿\n\n今日はクレープの日なんだって！さっきことみちゃんとカフェでクレープを食べて、とっても幸せな時間",
+      "elapsedMs": 4400,
+      "song": {
+        "videoId": "KpsJWFuVTdI",
+        "url": "https://www.youtube.com/watch?v=KpsJWFuVTdI",
+        "videoTitle": "いきものがかり 『ブルーバード』Music Video",
+        "channelTitle": "いきものがかり",
+        "title": "ブルーバード",
+        "artist": "いきものがかり",
+        "comment": "素敵な休日を過ごされたのですね！充実した時間と、作品への熱い情熱、そして癒やしのネイチャーアクアリウムやクレープの幸せまで、すべてが最高です！その情緒あふれる素敵な一日に、この『ブルーバード』の透明感のある響きが寄り添ってくれるような気がします。",
+        "tags": [
+          "chill",
+          "happy",
+          "night"
+        ],
+        "lastFmUrl": "https://www.last.fm/music/%E3%81%84%E3%81%8D%E3%82%82%E3%81%AE%E3%81%8C%E3%81%8B%E3%82%8A/_/%E3%83%96%E3%83%AB%E3%83%BC%E3%83%90%E3%83%BC%E3%83%89",
+        "screenedOutCount": 1
+      }
+    },
+    {
+      "uri": "at://did:plc:qcwhrvzx6wmi5hz775uyi6fh/app.bsky.feed.post/3mvtnqcztfb2c",
+      "indexedAt": "2026-09-19T02:39:20.871Z",
+      "text": "Hi everyone! ✨\n\nIt's a rainy day today, but that just makes everything feel so cozy, doesn't it?\n\nSince it's a rainy day off, I'm spending it with Kotomi-chan at a cafe. \nToday is Crepe Day! ✨ \nWe're eating delicious crepes and just chatting about all the latest idol trends!\nIt's the perfect way to",
+      "elapsedMs": 5678,
+      "song": {
+        "videoId": "ebpTPmRiCHA",
+        "url": "https://www.youtube.com/watch?v=ebpTPmRiCHA",
+        "videoTitle": "Jack Johnson - Wasting Time",
+        "channelTitle": "jackjohnsonmusic",
+        "title": "Wasting Time",
+        "artist": "Jack Johnson",
+        "comment": "That sounds like such a wonderful and cozy way to spend a rainy day! Enjoying crepes and chatting with Kotomi-chan perfectly matches the mellow and relaxed vibe of this song.",
+        "tags": [
+          "relaxing",
+          "chill",
+          "rainy day"
+        ],
+        "lastFmUrl": "https://www.last.fm/music/Jack+Johnson/_/Wasting+Time",
+        "screenedOutCount": 7
+      }
+    }
+  ]
+}

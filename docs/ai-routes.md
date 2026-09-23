@@ -13,17 +13,37 @@ OLLAMA_MODEL=hf.co/unsloth/gemma-4-12B-it-qat-GGUF:UD-Q4_K_XL
 SEARXNG_BASE_URL=http://127.0.0.1:8080
 ```
 
-`AI_TEXT_PROVIDER=ollama` では、画像を除く全テキスト機能を上記Ollamaモデルへ集約する。
+`AI_TEXT_PROVIDER=ollama` では、原則として画像を除くテキスト機能を上記Ollamaモデルへ集約する。
 `AI_FEATURES` に残るlite/flash/tierの表は、`AI_TEXT_PROVIDER=gemini` に変えたとき
 従来のGemini構成へ一括で戻すための設定である。
 
-**Groundingに Gemini は使わない。** 検索は bot 機に同居させた自前の SearXNG
+`AI_ROUTE_<機能キー>` を明示した場合は全体既定より優先される。曲選出はローカルLLMで
+投稿に明示されたアニメ作品を先に検出し、AnimeThemesの公式OP/EDを候補にする。該当作品が
+ない場合は気分タグを抽出し、Last.fm候補をコード側で抽選する。`COMMON_MOOD_SONG_LOCAL`は
+作品名抽出・分類・安全確認・紹介文に使うローカル専用経路である。AnimeThemes / Last.fm
+経路が失敗してもGeminiへは戻らず、ローカル検査を通ったbot memory候補だけを試す。
+
+**通常のGroundingに Gemini は使わない。** 検索は bot 機に同居させた自前の SearXNG
 （`searxng/compose.yml`、loopback 固定）で行い、本文取得も自前（`nagi-linkcard` の
 `fetchReadableText`）で行う。利用者が第三者AIサービスの規約に同意する関係が生まれない
 ことが採用理由で、これにより18歳以上要件の根拠が外れる。
 
-外部へ出るのは検索語と、投稿に含まれた URL だけ。元投稿・会話履歴・DID・
-`SYSTEM_INSTRUCTION` は渡さない。
+通常時は定期ポストまたはDJリクエスト本文をローカルLLMだけに渡す。Last.fmが返した候補を
+ローカルで安全確認し、コード側で抽選した後、YouTube APIで検証する。この経路からGeminiを
+呼ぶコードとルートは置かない。作品名がある場合も、AnimeThemesの登録曲をLast.fmで補完し、
+同じ言語・安全性・YouTube・選出履歴の検査を通す。Last.fm経路を有効にするには
+`LASTFM_API_KEY`が必要。AnimeThemesはAPIキー不要。
+
+曲の再選除外はUTCの時刻を基準にしたローリング30日で、ちょうど30日前の選出も含む。
+定期ポストは全体で1スコープ、DJはDIDごとに別スコープとする。選曲後は投稿前にDB予約を取り、
+同じスコープの並行処理が同じ`videoId`または曲名・アーティストを投稿するのを防ぐ。通常予約は
+15分で失効するが、外部投稿の直前に`publishing`へ昇格して30日保護する。投稿先が一つでも成功すれば
+確定へ進み、確定DB更新だけが失敗しても`publishing`のまま30日間再選させない。全投稿先の失敗を
+確認できた場合だけ解放し、成否不明の例外では重複防止を優先して保護を残す。
+
+Last.fm、AnimeThemes、YouTubeの実通信は`MOOD_SONG_API_TIMEOUT_MS`（既定15秒）で打ち切り、
+サービス・操作・成否・所要時間だけを`[MOOD_SONG_API]`ログへ残す。投稿本文、検索語、APIキーは
+ログへ出さない。Ollamaは既存の`OLLAMA_TEXT_TIMEOUT_MS`とは別管理である。
 
 構成は**用途によって非対称**である。
 
@@ -183,7 +203,7 @@ Ollama既定とGemini切り戻しの両方を全機能ぶんピン留めして�
 | `BSKY_ANNIVERSARY` | `lite-flex` | 記念日 |
 | `BSKY_RECAP` | `lite-flex` | 1年のまとめ |
 | `BSKY_ROOM_WELCOME` | `lite-flex` | お部屋招待のお出迎え |
-| `BSKY_MY_MOOD_SONG` | `lite-flex` | 今日の気分ソング（**現在は呼び出し元なし**） |
+| `COMMON_MOOD_SONG_LOCAL` | `ollama-chat` | 作品名抽出・気分タグ分類・候補の安全確認・紹介文 |
 | `BSKY_IMAGE_PROMPT` | `ollama-chat` | 画像生成用に日本語の情景文を booru タグへ直す（必ずローカル） |
 | `BSKY_DRAWING_REQUEST` | `ollama-chat` | お絵描き: botたんに絵を頼んでいるか・題材・描いてよい依頼かの判定（Nagi の依頼も共用） |
 

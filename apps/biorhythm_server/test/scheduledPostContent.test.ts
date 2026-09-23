@@ -25,13 +25,14 @@ test("ニュースURLはNagiだけに追加しBluesky本文は変えない", () 
   assert.match(result.nagiEn, /https:\/\/news\.example\/article/);
 });
 
-test("ニュースが選ばれなければNagi本文にもURLを追加しない", () => {
+test("曲を確認できなければMyMoodSongを省略し、ニュースURLも増やさない", () => {
   const result = buildWhimsicalPostTexts({
     textJa: "今日はのんびりだよ",
     textEn: "Taking it easy today",
-    moodSong: "MyMoodSong:\nSong - Artist\n(Not found in Youtube...)",
   });
 
+  assert.equal(result.bskyJa, "今日はのんびりだよ");
+  assert.doesNotMatch(result.bskyJa, /MyMoodSong|Not found/);
   assert.equal(result.nagiJa, result.bskyJa);
   assert.equal(result.nagiEn, result.bskyEn);
 });
