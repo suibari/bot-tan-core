@@ -1,0 +1,27 @@
+{
+  "lexicon": 1,
+  "id": "com.suibari.nagi.markRadioSeen",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "本人が画面へ表示した最新のラジオ枠をAppViewで既読にする。",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["slotKey"],
+          "properties": { "slotKey": { "type": "string" } }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["lastSeenSlotKey"],
+          "properties": { "lastSeenSlotKey": { "type": "string" } }
+        }
+      },
+      "errors": [{ "name": "AuthRequired" }, { "name": "InvalidRequest" }]
+    }
+  }
+}

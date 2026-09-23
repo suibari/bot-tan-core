@@ -29,7 +29,7 @@ import {
   updateSeen,
 } from "../queries/notifications.js";
 import { getDiaries } from "../queries/diaries.js";
-import { getRadioTrack } from "../queries/radio.js";
+import { getRadioHistory, getRadioTrack, markRadioSeen } from "../queries/radio.js";
 import { getChronicle } from "../queries/chronicle.js";
 import {
   getNewsItemByRkey,
@@ -781,6 +781,33 @@ xrpc.get(
   async (req, res, next) => {
     try {
       res.set("Cache-Control", "private, no-store").json(await getRadioTrack(req.viewerDid!));
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+xrpc.get(
+  `/${NAGI.getRadioHistory}`,
+  requiredServiceAuth(NAGI.getRadioHistory),
+  async (req, res, next) => {
+    try {
+      res.set("Cache-Control", "private, no-store").json(await getRadioHistory(req.viewerDid!, {
+        cursor: String(req.query.cursor ?? "") || undefined,
+        limit: req.query.limit ? Number(req.query.limit) : undefined,
+      }));
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+xrpc.post(
+  `/${NAGI.markRadioSeen}`,
+  requiredServiceAuth(NAGI.markRadioSeen),
+  async (req, res, next) => {
+    try {
+      res.set("Cache-Control", "private, no-store").json(
+        await markRadioSeen(req.viewerDid!, String(req.body?.slotKey ?? "")),
+      );
     } catch (error) {
       next(error);
     }

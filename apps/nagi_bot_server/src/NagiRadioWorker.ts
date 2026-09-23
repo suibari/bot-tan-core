@@ -1,5 +1,6 @@
-import { and, eq, lt, lte, or } from "drizzle-orm";
+import { and, eq, gt, lte } from "drizzle-orm";
 import {
+  bot_song_selections,
   buildMemoryContext,
   db,
   djSongSelectionScope,
@@ -8,7 +9,9 @@ import {
   nagiPreferredNames,
   nagiProfiles,
   nagiRadioTracks,
-  recordBotSongSelection,
+  releaseBotSongSelection,
+  reserveBotSongSelection,
+  type BotSongReservation,
 } from "@bsky-affirmative-bot/database";
 import { generateNagiRadioComment, researchNagiRadioSong, resolveMoodSong, type NagiRadioSong } from "@bsky-affirmative-bot/bot-brain";
 import { getLangStr } from "@bsky-affirmative-bot/clients";
@@ -25,19 +28,17 @@ export async function generateNagiRadioForUser(did: string, now = new Date()): P
   const [claim] = await db.insert(nagiRadioTracks).values({
     subjectDid: did, slotKey, status: "pending", claimedAt: now,
   }).onConflictDoUpdate({
-    target: nagiRadioTracks.subjectDid,
+    target: [nagiRadioTracks.subjectDid, nagiRadioTracks.slotKey],
     set: {
-      slotKey, status: "pending", claimedAt: now,
+      status: "pending", claimedAt: now,
       title: null, artist: null, comment: null, videoId: null,
       videoTitle: null, sourceUrl: null, publishedAt: null,
     },
-    setWhere: or(
-      lt(nagiRadioTracks.slotKey, slotKey),
-      and(eq(nagiRadioTracks.slotKey, slotKey), eq(nagiRadioTracks.status, "pending"), lte(nagiRadioTracks.claimedAt, stale)),
-    ),
+    setWhere: and(eq(nagiRadioTracks.status, "pending"), lte(nagiRadioTracks.claimedAt, stale)),
   }).returning({ subjectDid: nagiRadioTracks.subjectDid });
   if (!claim) return false;
 
+  let reservation: BotSongReservation | null = null;
   try {
     const posts = (await MemoryService.getNagiPostsSince(did, new Date(now.getTime() - WEEK_MS)))
       .filter((post) => post.text.trim()).slice(-8);
@@ -88,19 +89,34 @@ export async function generateNagiRadioForUser(did: string, now = new Date()): P
       slotKey, posts: posts.map((post) => post.text), memory: ownMemory,
       hasPrivatePost: posts.some((post) => post.kossori), language, song, fact,
     });
-    const [published] = await db.update(nagiRadioTracks).set({
-      status: "ready", title: song.title, artist: song.artist, comment,
-      videoId: song.videoId, videoTitle: song.videoTitle,
-      sourceUrl: fact?.sourceUrl ?? null, publishedAt: new Date(),
-    }).where(and(eq(nagiRadioTracks.subjectDid, did), eq(nagiRadioTracks.slotKey, slotKey),
-      eq(nagiRadioTracks.status, "pending"), eq(nagiRadioTracks.claimedAt, now)))
-      .returning({ subjectDid: nagiRadioTracks.subjectDid });
-    if (published) await recordBotSongSelection({
+    reservation = await reserveBotSongSelection({
       videoId: song.videoId, songKey: song.songKey,
-      title: song.title, artist: song.artist, scope, outputRef: slotKey,
-    }).catch((error) => console.error(`[ERROR][NAGI][RADIO] Failed to record song selection for ${did}`, error));
-    return Boolean(published);
+      title: song.title, artist: song.artist, scope,
+    });
+    if (!reservation) throw new Error("Radio song already selected during generation");
+    const held = reservation;
+    await db.transaction(async (tx) => {
+      const [published] = await tx.update(nagiRadioTracks).set({
+        status: "ready", title: song.title, artist: song.artist, comment,
+        videoId: song.videoId, videoTitle: song.videoTitle,
+        sourceUrl: fact.sourceUrl, publishedAt: new Date(),
+      }).where(and(eq(nagiRadioTracks.subjectDid, did), eq(nagiRadioTracks.slotKey, slotKey),
+        eq(nagiRadioTracks.status, "pending"), eq(nagiRadioTracks.claimedAt, now)))
+        .returning({ subjectDid: nagiRadioTracks.subjectDid });
+      if (!published) throw new Error("Radio slot claim was lost before publishing");
+      const [selected] = await tx.update(bot_song_selections).set({
+        status: "published", reservation_expires_at: null, output_ref: slotKey,
+      }).where(and(eq(bot_song_selections.id, held.id),
+        eq(bot_song_selections.status, "reserved"),
+        gt(bot_song_selections.reservation_expires_at, new Date())))
+        .returning({ id: bot_song_selections.id });
+      if (!selected) throw new Error("Radio song reservation expired before publishing");
+    });
+    reservation = null;
+    return true;
   } catch (error) {
+    if (reservation) await releaseBotSongSelection(reservation).catch((releaseError) =>
+      console.error(`[ERROR][NAGI][RADIO] Failed to release reservation for ${did}`, releaseError));
     console.error(`[ERROR][NAGI][RADIO] Failed for ${did} ${slotKey}:`, error);
     // リース期限後に同じ枠を再試行する。途中の出力を公開しない。
     return false;

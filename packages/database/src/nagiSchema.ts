@@ -563,9 +563,9 @@ export const nagiDiaries = nagiSchema.table(
   ],
 );
 
-/** 本人だけに届ける現在のDJ曲。次の枠で上書きし、過去曲は保持しない。 */
+/** 本人だけに届けるDJ履歴。放送枠ごとに保持する。 */
 export const nagiRadioTracks = nagiSchema.table("radio_tracks", {
-  subjectDid: text("subject_did").primaryKey(),
+  subjectDid: text("subject_did").notNull(),
   /** JST の YYYY-MM-DD-HH（08/14/20）。文字列順が時刻順になる。 */
   slotKey: text("slot_key").notNull(),
   status: text("status").notNull(),
@@ -578,8 +578,14 @@ export const nagiRadioTracks = nagiSchema.table("radio_tracks", {
   sourceUrl: text("source_url"),
   publishedAt: timestamp("published_at", { withTimezone: true }),
 }, (t) => [
+  primaryKey({ columns: [t.subjectDid, t.slotKey] }),
+  index("nagi_radio_tracks_history_idx").on(t.subjectDid, t.slotKey),
   check("nagi_radio_tracks_status_check", sql`${t.status} IN ('pending', 'ready')`),
 ]);
+export const nagiRadioReadStates = nagiSchema.table("radio_read_states", {
+  subjectDid: text("subject_did").primaryKey(),
+  lastSeenSlotKey: text("last_seen_slot_key").notNull(),
+});
 export const nagiNotifications = nagiSchema.table(
   "notifications",
   {

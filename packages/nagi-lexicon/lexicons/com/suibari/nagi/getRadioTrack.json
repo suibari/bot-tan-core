@@ -4,17 +4,19 @@
   "defs": {
     "main": {
       "type": "query",
-      "description": "認証した本人の現在のbotたんラジオ曲。過去曲は返さない。",
+      "description": "認証した本人の現在のbotたんラジオ曲と未読状態。",
       "output": {
         "encoding": "application/json",
         "schema": {
           "type": "object",
           "properties": {
+            "hasUnread": { "type": "boolean" },
             "track": {
               "type": "ref",
               "ref": "#track"
             }
-          }
+          },
+          "required": ["hasUnread"]
         }
       }
     },

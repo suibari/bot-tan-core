@@ -1,0 +1,29 @@
+{
+  "lexicon": 1,
+  "id": "com.suibari.nagi.getRadioHistory",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "認証した本人だけが取得できるbotたんラジオ履歴。AppViewにのみ保存する。",
+      "parameters": {
+        "type": "params",
+        "properties": {
+          "cursor": { "type": "string" },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 30 }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["tracks"],
+          "properties": {
+            "tracks": { "type": "array", "items": { "type": "ref", "ref": "com.suibari.nagi.getRadioTrack#track" } },
+            "cursor": { "type": "string" }
+          }
+        }
+      },
+      "errors": [{ "name": "AuthRequired" }, { "name": "InvalidRequest" }]
+    }
+  }
+}

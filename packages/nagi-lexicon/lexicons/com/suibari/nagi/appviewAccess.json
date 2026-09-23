@@ -78,6 +78,8 @@
             "com.suibari.nagi.putPreferences",
             "com.suibari.nagi.getDiaries",
             "com.suibari.nagi.getRadioTrack",
+            "com.suibari.nagi.getRadioHistory",
+            "com.suibari.nagi.markRadioSeen",
             "com.suibari.nagi.getChronicle",
             "com.suibari.nagi.createKossoriPost",
             "com.suibari.nagi.deleteKossoriPost",

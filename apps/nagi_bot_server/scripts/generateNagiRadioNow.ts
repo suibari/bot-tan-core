@@ -25,6 +25,9 @@ const [track] = await db.select({
   status: nagiRadioTracks.status,
   title: nagiRadioTracks.title,
   artist: nagiRadioTracks.artist,
-}).from(nagiRadioTracks).where(eq(nagiRadioTracks.subjectDid, actor.did)).limit(1);
+}).from(nagiRadioTracks).where(and(
+  eq(nagiRadioTracks.subjectDid, actor.did),
+  eq(nagiRadioTracks.slotKey, currentRadioSlotKey()),
+)).limit(1);
 console.log(JSON.stringify({ handle, slot: currentRadioSlotKey(), generated, track: track ?? null }));
 process.exit(track?.status === "ready" && track.slotKey === currentRadioSlotKey() ? 0 : 1);
