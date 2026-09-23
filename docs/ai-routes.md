@@ -17,11 +17,12 @@ SEARXNG_BASE_URL=http://127.0.0.1:8080
 `AI_FEATURES` に残るlite/flash/tierの表は、`AI_TEXT_PROVIDER=gemini` に変えたとき
 従来のGemini構成へ一括で戻すための設定である。
 
-`AI_ROUTE_<機能キー>` を明示した場合は全体既定より優先される。曲選出はローカルLLMで
-投稿に明示されたアニメ作品を先に検出し、AnimeThemesの公式OP/EDを候補にする。該当作品が
-ない場合は気分タグを抽出し、Last.fm候補をコード側で抽選する。`COMMON_MOOD_SONG_LOCAL`は
-作品名抽出・分類・安全確認・紹介文に使うローカル専用経路である。AnimeThemes / Last.fm
-経路が失敗してもGeminiへは戻らず、ローカル検査を通ったbot memory候補だけを試す。
+`AI_ROUTE_<機能キー>` を明示した場合は全体既定より優先される。曲選出はローカルLLMの1回の
+構造化解析で、投稿に明示されたアニメ作品・アーティスト・題材と気分タグをまとめて抽出する。
+アニメはAnimeThemesの公式OP/ED、アーティストはLast.fmの代表曲、題材はLast.fmとSearXNG、
+それ以外は気分タグから候補を作る。DJでは今回の依頼を優先しつつ直近20件も解析へ渡す。
+`COMMON_MOOD_SONG_LOCAL`は統合解析・安全確認・紹介文に使うローカル専用経路である。
+AnimeThemes / Last.fm経路が失敗してもGeminiへは戻らず、ローカル検査を通ったbot memory候補だけを試す。
 
 **通常のGroundingに Gemini は使わない。** 検索は bot 機に同居させた自前の SearXNG
 （`searxng/compose.yml`、loopback 固定）で行い、本文取得も自前（`nagi-linkcard` の

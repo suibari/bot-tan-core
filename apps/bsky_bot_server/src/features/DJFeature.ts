@@ -41,11 +41,12 @@ export class DJFeature implements BotFeature {
         // ポスト収集
         const response = await agent.getAuthorFeed({
             actor: follower.did,
-            limit: 100,
+            limit: 21,
             filter: "posts_with_replies",
         });
+        const requestUri = `at://${event.did}/${event.commit.collection}/${event.commit.rkey}`;
         const posts = response.data.feed
-            .filter(post => !post.reason) // リポスト除外
+            .filter(post => !post.reason && post.post.uri !== requestUri) // リポストと今回の依頼の重複を除外
             .map(post => (post.post.record as Record).text);
 
         // 0要素目にDJリクエストポスト、1要素目以降に過去ポストをセット
@@ -123,8 +124,19 @@ export class DJFeature implements BotFeature {
         song?: ReservedMoodSong;
     }> {
         const query = (userinfo.posts?.[0] ?? "").slice(0, 1_000);
+        const recentPosts = (userinfo.posts?.slice(1, 21) ?? []).reduce<string[]>((selected, post) => {
+            const used = selected.reduce((sum, value) => sum + value.length, 0);
+            const remaining = 4_000 - used;
+            if (remaining <= 0) return selected;
+            selected.push(post.slice(0, remaining));
+            return selected;
+        }, []);
         const langStr = userinfo.langStr ?? "日本語";
-        const reservedSong = await moodSongResolver.resolveAndReserve(query, langStr, songSelectionScope);
+        const reservedSong = await moodSongResolver.resolveAndReserve(
+            { postText: query, recentPosts },
+            langStr,
+            songSelectionScope,
+        );
         if (!reservedSong) {
             return {
                 text: langStr === "日本語"
