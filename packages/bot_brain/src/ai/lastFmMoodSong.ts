@@ -332,8 +332,11 @@ const identityPart = (value: string) => value
   .toLocaleLowerCase()
   .replace(/[^\p{Letter}\p{Number}]+/gu, "");
 
-export const lastFmTrackKey = (track: Pick<LastFmTrack, "title" | "artist">) =>
-  `${identityPart(track.title)}\u0000${identityPart(track.artist)}`;
+export const lastFmTrackKey = (track: Pick<LastFmTrack, "title" | "artist">) => {
+  const title = identityPart(track.title);
+  const artist = identityPart(track.artist);
+  return title && artist ? `${title}:${artist}` : "";
+};
 
 /** 複数タグをANDにはせず、主タグを強くした和集合から重み付きで順序を作る。 */
 export function rankLastFmTrackPools(

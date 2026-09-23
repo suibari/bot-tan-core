@@ -52,7 +52,7 @@ const normalizeSongIdentityPart = (value: string) => value
 export const songKey = (song: Pick<MemorySongCandidate, "title" | "artist">) => {
   const title = normalizeSongIdentityPart(song.title);
   const artist = normalizeSongIdentityPart(song.artist);
-  return title && artist ? `${title}\u0000${artist}` : "";
+  return title && artist ? `${title}:${artist}` : "";
 };
 
 const cleanArtist = (value: string) => value

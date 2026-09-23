@@ -13,6 +13,14 @@ import {
   resolveMoodSong,
   songKey,
 } from "../src/ai/memorySong.js";
+import { lastFmTrackKey } from "../src/ai/lastFmMoodSong.js";
+
+test("DBへ渡す曲キーはNULを含まず、Last.fm候補のキーと一致する", () => {
+  const song = { title: "ワンルーム・ディスコ", artist: "Perfume" };
+  assert.equal(songKey(song), "ワンルームディスコ:perfume");
+  assert.equal(lastFmTrackKey(song), songKey(song));
+  assert.equal(songKey(song).includes("\u0000"), false);
+});
 
 const row = (id: number, content: string): BotMemorySearchResult => ({
   id,
