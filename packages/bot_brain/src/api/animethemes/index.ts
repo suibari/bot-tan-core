@@ -26,6 +26,7 @@ export interface AnimeThemeAnime {
 
 export interface AnimeThemeSong {
   animeName: string;
+  animeSlug?: string;
   type: "OP" | "ED";
   sequence: number | null;
   title: string;
@@ -46,6 +47,7 @@ interface SearchResponse {
 interface AnimeResponse {
   anime?: Array<{
     name?: string;
+    slug?: string;
     animethemes?: Array<{
       type?: string;
       sequence?: number | null;
@@ -130,6 +132,7 @@ export async function getAnimeThemeSongs(
     if (!type || !title) return [];
     return [{
       animeName: normalizedName,
+      ...(exactAnime?.slug ? { animeSlug: exactAnime.slug } : {}),
       type,
       sequence: typeof theme.sequence === "number" ? theme.sequence : null,
       title,

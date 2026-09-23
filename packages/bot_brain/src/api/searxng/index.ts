@@ -112,14 +112,17 @@ const text = (value: unknown): string => (typeof value === "string" ? value.trim
  * 「検索したが何も無かった」を区別できるよう、ここでは throw せず空配列を返す。
  * required 機能の throw 判定は上位（全クエリ全滅かどうか）で行う。
  */
-export async function searxngSearch(query: string): Promise<SearxngResponse> {
+export async function searxngSearch(
+  query: string,
+  options: { language?: "ja" | "en" } = {},
+): Promise<SearxngResponse> {
   const trimmed = query.trim();
   if (!trimmed) return { hits: [], infoboxes: [], unresponsiveEngines: [] };
 
   const url = new URL(`${searxngBaseUrl()}/search`);
   url.searchParams.set("q", trimmed);
   url.searchParams.set("format", "json");
-  url.searchParams.set("language", "ja");
+  url.searchParams.set("language", options.language ?? "ja");
   url.searchParams.set("categories", "general");
   url.searchParams.set("safesearch", "1");
   url.searchParams.set("engines", searxngEngines());

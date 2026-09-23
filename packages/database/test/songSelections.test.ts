@@ -43,6 +43,7 @@ test("履歴検索のtimestampパラメータはDrizzleの列エンコーダを�
 test("定期ポストとDJ、DJ利用者ごとに履歴スコープを分ける", () => {
   const alice = djSongSelectionScope("did:plc:alice");
   const bob = djSongSelectionScope("did:plc:bob");
+  assert.ok(!botSongSelectionScopeKey(alice).includes("\0"));
   assert.notEqual(botSongSelectionScopeKey(SCHEDULED_POST_SONG_SCOPE), botSongSelectionScopeKey(alice));
   assert.notEqual(botSongSelectionScopeKey(alice), botSongSelectionScopeKey(bob));
 

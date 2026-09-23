@@ -18,6 +18,7 @@ import {
   resolveLastFmMoodSong,
   screenLastFmMoodSongCandidates,
 } from "./lastFmMoodSong.js";
+import { songIdentityKey } from "./songIdentity.js";
 
 export interface MemorySongCandidate {
   documentId: number;
@@ -40,18 +41,11 @@ export interface GroundedMoodSong extends YoutubeSongMatch {
   songKey: string;
   /** Last.fm由来の候補では、API利用条件に沿って出典リンクを併記する。 */
   lastFmUrl?: string;
+  /** AnimeThemes で作品とのOP/ED関係を確認した候補。 */
+  animeTheme?: { animeName: string; type: "OP" | "ED"; sequence: number | null; slug?: string };
 }
 
-const normalizeSongIdentityPart = (value: string) => value
-  .normalize("NFKC")
-  .toLocaleLowerCase()
-  .replace(/[^\p{Letter}\p{Number}]+/gu, "");
-
-export const songKey = (song: Pick<MemorySongCandidate, "title" | "artist">) => {
-  const title = normalizeSongIdentityPart(song.title);
-  const artist = normalizeSongIdentityPart(song.artist);
-  return title && artist ? `${title}\u0000${artist}` : "";
-};
+export const songKey = songIdentityKey;
 
 const cleanArtist = (value: string) => value
   .replace(/^(?:日本|海外|アメリカ|イギリス|韓国)の/u, "")

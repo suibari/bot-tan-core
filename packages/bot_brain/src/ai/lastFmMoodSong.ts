@@ -14,6 +14,7 @@ import {
 } from "../api/animethemes/index.js";
 import { ollamaChat } from "../ollamaChat.js";
 import { searchYoutubeSong, type YoutubeSongMatch } from "../api/youtube/index.js";
+import { songIdentityKey, songIdentityPart } from "./songIdentity.js";
 
 export const LASTFM_MOOD_TAGS = [
   "acoustic", "ambient", "autumn", "calm", "cheerful", "chill", "dance",
@@ -34,7 +35,7 @@ export interface RankedLastFmTrack extends LastFmTrack {
   tags: string[];
   weight: number;
   info?: LastFmTrackInfo;
-  animeTheme?: Pick<AnimeThemeSong, "animeName" | "type" | "sequence">;
+  animeTheme?: Pick<AnimeThemeSong, "animeName" | "type" | "sequence"> & { slug?: string };
 }
 
 export interface LastFmMoodSongResult extends YoutubeSongMatch {
@@ -44,7 +45,7 @@ export interface LastFmMoodSongResult extends YoutubeSongMatch {
   tags: LastFmMoodTag[];
   lastFmUrl: string;
   screenedOutCount: number;
-  animeTheme?: Pick<AnimeThemeSong, "animeName" | "type" | "sequence">;
+  animeTheme?: Pick<AnimeThemeSong, "animeName" | "type" | "sequence"> & { slug?: string };
 }
 
 export interface AnimeWorkMention {
@@ -151,13 +152,9 @@ ${LASTFM_MOOD_TAGS.join(", ")}`,
   return parseMoodTagClassification(content);
 }
 
-const identityPart = (value: string) => value
-  .normalize("NFKC")
-  .toLocaleLowerCase()
-  .replace(/[^\p{Letter}\p{Number}]+/gu, "");
+const identityPart = songIdentityPart;
 
-export const lastFmTrackKey = (track: Pick<LastFmTrack, "title" | "artist">) =>
-  `${identityPart(track.title)}\u0000${identityPart(track.artist)}`;
+export const lastFmTrackKey = songIdentityKey;
 
 /** 複数タグをANDにはせず、主タグを強くした和集合から重み付きで順序を作る。 */
 export function rankLastFmTrackPools(
@@ -386,6 +383,7 @@ async function resolveAnimeThemeMoodSong(
         animeName: theme.animeName,
         type: theme.type,
         sequence: theme.sequence,
+        ...(theme.animeSlug ? { slug: theme.animeSlug } : {}),
       },
     };
   }))).filter((candidate): candidate is RankedLastFmTrack => candidate !== null)

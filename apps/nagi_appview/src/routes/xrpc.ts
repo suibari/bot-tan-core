@@ -29,6 +29,7 @@ import {
   updateSeen,
 } from "../queries/notifications.js";
 import { getDiaries } from "../queries/diaries.js";
+import { getRadioTrack } from "../queries/radio.js";
 import { getChronicle } from "../queries/chronicle.js";
 import {
   getNewsItemByRkey,
@@ -770,6 +771,18 @@ xrpc.get(
         );
     } catch (e) {
       next(e);
+    }
+  },
+);
+// DJはこっそり投稿を材料にする可能性があるため、匿名・他人への取得を許さない。
+xrpc.get(
+  `/${NAGI.getRadioTrack}`,
+  requiredServiceAuth(NAGI.getRadioTrack),
+  async (req, res, next) => {
+    try {
+      res.set("Cache-Control", "private, no-store").json(await getRadioTrack(req.viewerDid!));
+    } catch (error) {
+      next(error);
     }
   },
 );

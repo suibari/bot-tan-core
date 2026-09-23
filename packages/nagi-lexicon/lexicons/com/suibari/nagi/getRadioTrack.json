@@ -1,0 +1,35 @@
+{
+  "lexicon": 1,
+  "id": "com.suibari.nagi.getRadioTrack",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "認証した本人の現在のbotたんラジオ曲。過去曲は返さない。",
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "track": {
+              "type": "ref",
+              "ref": "#track"
+            }
+          }
+        }
+      }
+    },
+    "track": {
+      "type": "object",
+      "required": ["slotKey", "title", "artist", "comment", "videoId", "publishedAt"],
+      "properties": {
+        "slotKey": { "type": "string" },
+        "title": { "type": "string" },
+        "artist": { "type": "string" },
+        "comment": { "type": "string" },
+        "videoId": { "type": "string" },
+        "publishedAt": { "type": "string", "format": "datetime" },
+        "sourceUrl": { "type": "string", "format": "uri" }
+      }
+    }
+  }
+}

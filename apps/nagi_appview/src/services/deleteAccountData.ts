@@ -27,6 +27,7 @@ import {
   nagiCommunityAffirmations,
   nagiCommunityAffirmationDismissals,
   nagiDiaries,
+  nagiRadioTracks,
   nagiBotReplyJobs,
   nagiEmojis,
   nagiEmojiFavorites,
@@ -210,6 +211,7 @@ export async function deleteAccountData(did: string) {
     // そのユーザーのデータなので残す。表示時は emoji のフォールバック文字列を使う。
     await tx.delete(nagiEmojis).where(eq(nagiEmojis.did, did));
     await tx.delete(nagiDiaries).where(eq(nagiDiaries.subjectDid, did));
+    await tx.delete(nagiRadioTracks).where(eq(nagiRadioTracks.subjectDid, did));
     // 年表。LLM が日記本文から抜いた出来事なので、日記と同じ扱いで必ず消す。
     await tx
       .delete(nagiChronicleEvents)

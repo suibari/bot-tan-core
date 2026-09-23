@@ -562,6 +562,24 @@ export const nagiDiaries = nagiSchema.table(
     index("nagi_diary_subject_idx").on(t.subjectDid, t.diaryDate),
   ],
 );
+
+/** 本人だけに届ける現在のDJ曲。次の枠で上書きし、過去曲は保持しない。 */
+export const nagiRadioTracks = nagiSchema.table("radio_tracks", {
+  subjectDid: text("subject_did").primaryKey(),
+  /** JST の YYYY-MM-DD-HH（08/14/20）。文字列順が時刻順になる。 */
+  slotKey: text("slot_key").notNull(),
+  status: text("status").notNull(),
+  claimedAt: timestamp("claimed_at", { withTimezone: true }).notNull(),
+  title: text("title"),
+  artist: text("artist"),
+  comment: text("comment"),
+  videoId: text("video_id"),
+  videoTitle: text("video_title"),
+  sourceUrl: text("source_url"),
+  publishedAt: timestamp("published_at", { withTimezone: true }),
+}, (t) => [
+  check("nagi_radio_tracks_status_check", sql`${t.status} IN ('pending', 'ready')`),
+]);
 export const nagiNotifications = nagiSchema.table(
   "notifications",
   {

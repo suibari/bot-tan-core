@@ -13,6 +13,14 @@ import {
   resolveMoodSong,
   songKey,
 } from "../src/ai/memorySong.js";
+import { lastFmTrackKey } from "../src/ai/lastFmMoodSong.js";
+
+test("Bluesky DJ と Nagi ラジオの曲キーは共通でPostgresへ保存できる", () => {
+  const song = { title: "Higher & Higher", artist: "Jackie Wilson" };
+  assert.equal(songKey(song), lastFmTrackKey(song));
+  assert.equal(songKey(song), "higherhigher:jackiewilson");
+  assert.ok(!songKey(song).includes("\0"));
+});
 
 const row = (id: number, content: string): BotMemorySearchResult => ({
   id,
@@ -62,6 +70,7 @@ test("記憶検索は web_research に限定し、気分をクエリへ含める
 test("YouTubeで曲名と作者を確認できた候補まで順に進む", async () => {
   const searched: string[] = [];
   const result = await resolveMoodSong("気分", "日本語", SCHEDULED_POST_SONG_SCOPE, {
+    resolveLastFm: async () => null,
     getRecentSelections: async (scope) => {
       assert.deepEqual(scope, SCHEDULED_POST_SONG_SCOPE);
       return [];
@@ -126,6 +135,7 @@ test("直近の同一曲を除外し、YouTube検索は3候補までに制限す
     artist: `artist-${title}`,
   }));
   const result = await resolveMoodSong("気分", "日本語", djSongSelectionScope("did:plc:alice"), {
+    resolveLastFm: async () => null,
     getRecentSelections: async (scope) => {
       assert.deepEqual(scope, { purpose: "dj", subjectDid: "did:plc:alice" });
       return [{
@@ -154,6 +164,7 @@ test("直近の同一曲を除外し、YouTube検索は3候補までに制限す
 
 test("同じ曲の別動画もsongKeyで、同じ動画の別表記もvideoIdで除外する", async () => {
   const result = await resolveMoodSong("気分", "日本語", SCHEDULED_POST_SONG_SCOPE, {
+    resolveLastFm: async () => null,
     getRecentSelections: async () => [{
       videoId: "used-video",
       songKey: songKey({ title: "SUN", artist: "星野源" }),
