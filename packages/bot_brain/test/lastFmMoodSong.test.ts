@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { getLastFmTopTracks, getLastFmTrackInfo } from "../src/api/lastfm/index.js";
+import { getLastFmTopTracks, getLastFmTrackInfo, searchLastFmTracks } from "../src/api/lastfm/index.js";
+import { getAnimeThemeSongs, searchAnimeThemes } from "../src/api/animethemes/index.js";
 import {
   classifyLastFmMoodTags,
+  extractAnimeWorkMention,
   lastFmTrackKey,
   parseMoodTagClassification,
   rankJapaneseLastFmTracks,
@@ -10,6 +12,45 @@ import {
   resolveLastFmMoodSong,
   screenLastFmMoodSongCandidates,
 } from "../src/ai/lastFmMoodSong.js";
+
+test("AnimeThemesの検索結果と作品のOP/EDを整形する", async () => {
+  let searchUrl = "";
+  const anime = await searchAnimeThemes("Mobile Suit Gundam", {
+    fetchImpl: async (input) => {
+      searchUrl = String(input);
+      return new Response(JSON.stringify({
+        search: { anime: [{ id: 1923, name: "Mobile Suit Gundam", slug: "mobile_suit_gundam", year: 1979 }] },
+      }));
+    },
+  });
+  assert.equal(new URL(searchUrl).searchParams.get("q"), "Mobile Suit Gundam");
+  assert.deepEqual(anime, [{ id: 1923, name: "Mobile Suit Gundam", slug: "mobile_suit_gundam", year: 1979 }]);
+
+  let themesUrl = "";
+  const themes = await getAnimeThemeSongs("Mobile Suit Gundam", {
+    fetchImpl: async (input) => {
+      themesUrl = String(input);
+      return new Response(JSON.stringify({ anime: [{
+        name: "Mobile Suit Gundam",
+        animethemes: [{
+          type: "OP",
+          sequence: 1,
+          song: { title: "Tobe! Gundam", artists: [{ name: "池田鴻" }] },
+        }],
+      }] }));
+    },
+  });
+  const url = new URL(themesUrl);
+  assert.equal(url.searchParams.get("filter[name]"), "Mobile Suit Gundam");
+  assert.equal(url.searchParams.get("include"), "animethemes.song.artists");
+  assert.deepEqual(themes, [{
+    animeName: "Mobile Suit Gundam",
+    type: "OP",
+    sequence: 1,
+    title: "Tobe! Gundam",
+    artists: ["池田鴻"],
+  }]);
+});
 
 test("Last.fm tag.getTopTracksを認証情報なしの公開メソッドとして呼ぶ", async () => {
   let requested = "";
@@ -63,6 +104,25 @@ test("track.getInfoからリスナー数・概要・タグを安全確認用に�
   });
 });
 
+test("Last.fm track.searchで欠けたアニメ主題歌の歌手を補える", async () => {
+  let requested = "";
+  const tracks = await searchLastFmTracks("Tobe! Gundam", {
+    apiKey: "test-key",
+    fetchImpl: async (input) => {
+      requested = String(input);
+      return new Response(JSON.stringify({ results: { trackmatches: { track: [{
+        name: "Tobe! Gundam",
+        artist: "池田鴻",
+        url: "https://last.fm/music/example",
+      }] } } }));
+    },
+  });
+  const url = new URL(requested);
+  assert.equal(url.searchParams.get("method"), "track.search");
+  assert.equal(url.searchParams.get("track"), "Tobe! Gundam");
+  assert.equal(tracks[0]?.artist, "池田鴻");
+});
+
 test("タグ分類は許可リストだけを重複なしで採用する", () => {
   assert.deepEqual(
     parseMoodTagClassification('{"tags":["Chill","chill","not-a-tag","dreamy"]}'),
@@ -88,6 +148,25 @@ test("投稿を最後のメッセージに置き、num_predictとtemperatureを�
   assert.equal(captured.messages.at(-1).content, "雨音を聞きながら静かに勉強中");
   assert.equal(captured.options.maxTokens, 64);
   assert.equal(captured.options.temperature, 0.2);
+  assert.equal("num_ctx" in captured.options, false);
+});
+
+test("アニメ作品名を検索用英題へ変換し、投稿を最後に置く", async () => {
+  let captured: any;
+  const mention = await extractAnimeWorkMention("今日はガンダムの話で盛り上がった", "日本語", {
+    chat: async (feature, messages, options) => {
+      captured = { feature, messages, options };
+      return '{"mentionedTitle":"ガンダム","searchQuery":"Mobile Suit Gundam","genericFranchise":true}';
+    },
+  });
+  assert.deepEqual(mention, {
+    mentionedTitle: "ガンダム",
+    searchQuery: "Mobile Suit Gundam",
+    genericFranchise: true,
+  });
+  assert.equal(captured.feature, "COMMON_MOOD_SONG_LOCAL");
+  assert.equal(captured.messages.at(-1).content, "今日はガンダムの話で盛り上がった");
+  assert.equal(captured.options.temperature, 0.1);
   assert.equal("num_ctx" in captured.options, false);
 });
 
@@ -155,6 +234,7 @@ test("履歴曲を除外し、YouTubeで確認できた候補にだけコメン�
   const requestedTags: string[] = [];
   const result = await resolveLastFmMoodSong("穏やかな午後", "日本語", {
     classify: async () => ({ tags: ["calm"] }),
+    extractAnime: async () => ({ mentionedTitle: null, searchQuery: null, genericFranchise: false }),
     topTracks: async (tag) => {
       requestedTags.push(tag);
       return [
@@ -186,4 +266,62 @@ test("履歴曲を除外し、YouTubeで確認できた候補にだけコメン�
   assert.equal(result?.comment, "Foundが合いそう！");
   assert.deepEqual(result?.tags, ["calm"]);
   assert.equal(result?.screenedOutCount, 0);
+});
+
+test("ガンダム明示時は通常の気分タグ分類より先に公式OPを選ぶ", async () => {
+  let classified = false;
+  let searchedTrack = "";
+  const result = await resolveLastFmMoodSong("今日はガンダムの話で盛り上がった", "日本語", {
+    classify: async () => {
+      classified = true;
+      return { tags: ["happy"] };
+    },
+    extractAnime: async () => ({
+      mentionedTitle: "ガンダム",
+      searchQuery: "Mobile Suit Gundam",
+      genericFranchise: true,
+    }),
+    searchAnime: async () => [{
+      id: 1923,
+      name: "Mobile Suit Gundam",
+      slug: "mobile_suit_gundam",
+      year: 1979,
+    }],
+    themeSongs: async () => [{
+      animeName: "Mobile Suit Gundam",
+      type: "OP",
+      sequence: 1,
+      title: "Tobe! Gundam (Fly! Gundam)",
+      artists: [],
+    }],
+    searchTracks: async (query) => {
+      searchedTrack = query;
+      return [{
+        title: "Tobe! Gundam",
+        artist: "池田鴻",
+        lastFmUrl: "https://last.fm/tobe-gundam",
+        rank: 1,
+      }];
+    },
+    trackInfo: async () => ({ listeners: 100, summary: "Japanese anime opening theme", topTags: ["anime"] }),
+    screen: async (_post, candidates) => ({ allowedIndices: candidates.map((_, index) => index) }),
+    searchYoutube: async () => ({
+      videoId: "gundam-op",
+      url: "https://www.youtube.com/watch?v=gundam-op",
+      videoTitle: "翔べ！ガンダム",
+      channelTitle: "official",
+    }),
+    comment: async (_post, _lang, song) => `${song.animeTheme?.animeName}の${song.animeTheme?.type}！`,
+    random: () => 0.5,
+  });
+  assert.equal(classified, false);
+  assert.equal(searchedTrack, "Tobe! Gundam (Fly! Gundam)");
+  assert.equal(result?.artist, "池田鴻");
+  assert.equal(result?.videoId, "gundam-op");
+  assert.deepEqual(result?.animeTheme, {
+    animeName: "Mobile Suit Gundam",
+    type: "OP",
+    sequence: 1,
+  });
+  assert.deepEqual(result?.tags, []);
 });

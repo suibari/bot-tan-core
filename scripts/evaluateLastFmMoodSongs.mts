@@ -1,5 +1,5 @@
 /**
- * 実際のbotたん定期ポストを、ローカルLLM → Last.fm → YouTube のPoCへ流す。
+ * 実際のbotたん定期ポストを、ローカルLLM → AnimeThemes / Last.fm → YouTube のPoCへ流す。
  *
  * pnpm exec tsx --env-file=.env scripts/evaluateLastFmMoodSongs.mts --count=8
  * LASTFM_API_KEY は別途必要。結果を保存する場合は --out=path/to/report.json を付ける。
@@ -91,7 +91,7 @@ for (const [index, post] of posts.entries()) {
 const report = {
   generatedAt: new Date().toISOString(),
   actor,
-  method: "local Ollama tags -> Last.fm tag.getTopTracks(page 1, limit 50) -> weighted sampling -> YouTube verification -> local Ollama comment",
+  method: "local Ollama anime-title extraction -> AnimeThemes OP/ED (when explicitly mentioned), otherwise local Ollama tags -> Last.fm candidates -> local safety/language screening -> YouTube verification -> local Ollama comment",
   results,
 };
 

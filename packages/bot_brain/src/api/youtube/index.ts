@@ -37,6 +37,13 @@ const normalized = (value: string) => value
   .replace(/&(?:amp|quot|#39);/g, '')
   .replace(/[^\p{Letter}\p{Number}]+/gu, '');
 
+const distinctiveTitleParts = (value: string) => value
+  .normalize('NFKC')
+  .toLocaleLowerCase()
+  .split(/[^\p{Letter}\p{Number}]+/gu)
+  .map(normalized)
+  .filter((part) => part.length >= 4 && !/^(?:official|music|video|theme|opening|ending)$/u.test(part));
+
 function artistAliases(artist: string) {
   const values = [artist];
   for (const match of artist.matchAll(/[（(]([^）)]+)[）)]/g)) values.push(match[1]);
@@ -49,8 +56,11 @@ export function selectYoutubeSongMatch(
   items: YoutubeSearchItem[],
   title: string,
   artist: string,
+  contextTerms: string[] = [],
 ): YoutubeSongMatch | null {
   const expectedTitle = normalized(title);
+  const expectedTitleParts = distinctiveTitleParts(title);
+  const expectedContextTerms = contextTerms.map(normalized).filter((value) => value.length >= 3);
   const expectedArtists = artistAliases(artist);
   if (!expectedTitle || expectedArtists.length === 0) return null;
 
@@ -62,7 +72,9 @@ export function selectYoutubeSongMatch(
     const normalizedEvidence = normalized(`${videoTitle} ${channelTitle}`);
     if (
       videoId &&
-      normalizedTitle.includes(expectedTitle) &&
+      (normalizedTitle.includes(expectedTitle) ||
+        expectedTitleParts.some((part) => normalizedTitle.includes(part)) ||
+        expectedContextTerms.some((term) => normalizedTitle.includes(term))) &&
       expectedArtists.some((value) => normalizedEvidence.includes(value))
     ) {
       return {
@@ -79,6 +91,7 @@ export function selectYoutubeSongMatch(
 export async function searchYoutubeSong(
   title: string,
   artist: string,
+  contextTerms: string[] = [],
 ): Promise<YoutubeSongMatch | null> {
   const res = await axios.get(YOUTUBE_SEARCH_URL, {
     params: {
@@ -88,6 +101,7 @@ export async function searchYoutubeSong(
       maxResults: 5,
       type: 'video',
     },
+    timeout: 15_000,
   });
-  return selectYoutubeSongMatch(res.data.items ?? [], title, artist);
+  return selectYoutubeSongMatch(res.data.items ?? [], title, artist, contextTerms);
 }

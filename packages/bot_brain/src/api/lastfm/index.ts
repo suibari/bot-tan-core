@@ -1,10 +1,12 @@
 const LASTFM_API_URL = "https://ws.audioscrobbler.com/2.0/";
 const TOP_TRACKS_CACHE_MS = 6 * 60 * 60 * 1_000;
 const TRACK_INFO_CACHE_MS = 24 * 60 * 60 * 1_000;
+const TRACK_SEARCH_CACHE_MS = 24 * 60 * 60 * 1_000;
 
 type CacheEntry<T> = { expiresAt: number; value: T };
 const topTracksCache = new Map<string, CacheEntry<LastFmTrack[]>>();
 const trackInfoCache = new Map<string, CacheEntry<LastFmTrackInfo>>();
+const trackSearchCache = new Map<string, CacheEntry<LastFmTrack[]>>();
 
 function cached<T>(cache: Map<string, CacheEntry<T>>, key: string): T | undefined {
   const entry = cache.get(key);
@@ -49,6 +51,68 @@ export interface LastFmTopTracksOptions {
   limit?: number;
   page?: number;
   fetchImpl?: typeof fetch;
+}
+
+interface LastFmTrackSearchResponse {
+  results?: {
+    trackmatches?: {
+      track?: Array<{
+        name?: string;
+        artist?: string;
+        url?: string;
+        mbid?: string;
+      }>;
+    };
+  };
+  error?: number;
+  message?: string;
+}
+
+/** AnimeThemes に歌手情報がない古い曲などを Last.fm の曲検索で補完する。 */
+export async function searchLastFmTracks(
+  query: string,
+  options: LastFmTopTracksOptions = {},
+): Promise<LastFmTrack[]> {
+  const apiKey = options.apiKey ?? process.env.LASTFM_API_KEY;
+  if (!apiKey) throw new Error("LASTFM_API_KEY is required");
+  const limit = Math.min(30, Math.max(1, options.limit ?? 10));
+  const normalizedQuery = query.trim();
+  if (!normalizedQuery) return [];
+  const cacheKey = `${normalizedQuery.toLocaleLowerCase()}\u0000${limit}`;
+  if (!options.fetchImpl) {
+    const hit = cached(trackSearchCache, cacheKey);
+    if (hit) return hit;
+  }
+  const params = new URLSearchParams({
+    method: "track.search",
+    track: normalizedQuery,
+    api_key: apiKey,
+    format: "json",
+    limit: String(limit),
+  });
+  const response = await (options.fetchImpl ?? fetch)(`${LASTFM_API_URL}?${params}`, {
+    headers: { "User-Agent": "bot-tan-core/lastfm-mood-song" },
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!response.ok) throw new Error(`Last.fm HTTP ${response.status}`);
+  const body = await response.json() as LastFmTrackSearchResponse;
+  if (body.error) throw new Error(`Last.fm API ${body.error}: ${body.message ?? "unknown error"}`);
+  const tracks = (body.results?.trackmatches?.track ?? []).flatMap((track, index) => {
+    const title = track.name?.trim();
+    const artist = track.artist?.trim();
+    if (!title || !artist) return [];
+    return [{
+      title,
+      artist,
+      lastFmUrl: track.url?.trim() ?? "",
+      ...(track.mbid?.trim() ? { mbid: track.mbid.trim() } : {}),
+      rank: index + 1,
+    }];
+  });
+  if (!options.fetchImpl) {
+    trackSearchCache.set(cacheKey, { expiresAt: Date.now() + TRACK_SEARCH_CACHE_MS, value: tracks });
+  }
+  return tracks;
 }
 
 /** Last.fm の公開タグ順位を取得する。ユーザー認証は不要。 */

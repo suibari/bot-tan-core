@@ -8,3 +8,4 @@ export * from './api/spotify/index.js';
 export * from './api/weather/index.js';
 export * from './api/youtube/index.js';
 export * from './api/lastfm/index.js';
+export * from './api/animethemes/index.js';

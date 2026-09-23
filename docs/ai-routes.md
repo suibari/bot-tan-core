@@ -18,9 +18,10 @@ SEARXNG_BASE_URL=http://127.0.0.1:8080
 従来のGemini構成へ一括で戻すための設定である。
 
 `AI_ROUTE_<機能キー>` を明示した場合は全体既定より優先される。曲選出はローカルLLMで
-気分タグを抽出し、Last.fm候補をコード側で抽選する。`COMMON_MOOD_SONG_LOCAL`は分類・
-安全確認・紹介文に使うローカル専用経路である。Last.fm経路が失敗してもGeminiへは戻らず、
-ローカル検査を通ったbot memory候補だけを試す。
+投稿に明示されたアニメ作品を先に検出し、AnimeThemesの公式OP/EDを候補にする。該当作品が
+ない場合は気分タグを抽出し、Last.fm候補をコード側で抽選する。`COMMON_MOOD_SONG_LOCAL`は
+作品名抽出・分類・安全確認・紹介文に使うローカル専用経路である。AnimeThemes / Last.fm
+経路が失敗してもGeminiへは戻らず、ローカル検査を通ったbot memory候補だけを試す。
 
 **通常のGroundingに Gemini は使わない。** 検索は bot 機に同居させた自前の SearXNG
 （`searxng/compose.yml`、loopback 固定）で行い、本文取得も自前（`nagi-linkcard` の
@@ -29,7 +30,9 @@ SEARXNG_BASE_URL=http://127.0.0.1:8080
 
 通常時は定期ポストまたはDJリクエスト本文をローカルLLMだけに渡す。Last.fmが返した候補を
 ローカルで安全確認し、コード側で抽選した後、YouTube APIで検証する。この経路からGeminiを
-呼ぶコードとルートは置かない。Last.fm経路を有効にするには`LASTFM_API_KEY`が必要。
+呼ぶコードとルートは置かない。作品名がある場合も、AnimeThemesの登録曲をLast.fmで補完し、
+同じ言語・安全性・YouTube・選出履歴の検査を通す。Last.fm経路を有効にするには
+`LASTFM_API_KEY`が必要。AnimeThemesはAPIキー不要。
 
 構成は**用途によって非対称**である。
 

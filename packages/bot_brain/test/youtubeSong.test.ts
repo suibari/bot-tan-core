@@ -36,3 +36,13 @@ test("括弧内の作者別名でも一致する", () => {
   ], "Brain Power", "ノマ（NOMA）");
   assert.equal(result?.url, "https://www.youtube.com/watch?v=brain-power");
 });
+
+test("ローマ字題と日本語題が混在しても固有語と作者が一致すれば採用する", () => {
+  const result = selectYoutubeSongMatch([
+    {
+      id: { videoId: "gundam-op" },
+      snippet: { title: "翔べ！ガンダム", channelTitle: "池田鴻 - Topic" },
+    },
+  ], "Tobe! Gundam", "池田鴻", ["ガンダム"]);
+  assert.equal(result?.videoId, "gundam-op");
+});
