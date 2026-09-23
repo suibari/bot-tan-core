@@ -27,6 +27,36 @@ test("検索語に似ていても作者を確認できない動画は返さな�
   assert.equal(result, null);
 });
 
+test("曲名と歌手名がタグにあっても歌ってみたを採用しない", () => {
+  const cover = {
+    id: { videoId: "fan-cover" },
+    snippet: {
+      title: "ライバル! The rivals #ポケモン #松本梨香 #歌ってみた #ものまね #shorts",
+      channelTitle: "ファンのチャンネル",
+    },
+  };
+  assert.equal(selectYoutubeSongMatch([cover], "Rival!", "松本梨香", ["ポケモン"]), null);
+  const result = selectYoutubeSongMatch([
+    cover,
+    {
+      id: { videoId: "original" },
+      snippet: { title: "松本梨香 - Rival! ライバル!", channelTitle: "松本梨香 - Topic" },
+    },
+  ], "Rival!", "松本梨香", ["ポケモン"]);
+  assert.equal(result?.videoId, "original");
+});
+
+test("検索上位に非公式投稿があっても本人チャンネルの動画を選ぶ", () => {
+  const result = selectYoutubeSongMatch([
+    { id: { videoId: "reupload" }, snippet: { title: "NOMA Brain Power", channelTitle: "Music Archive" } },
+    { id: { videoId: "artist" }, snippet: { title: "Brain Power", channelTitle: "NOMA" } },
+  ], "Brain Power", "NOMA");
+  assert.equal(result?.videoId, "artist");
+  assert.equal(selectYoutubeSongMatch([
+    { id: { videoId: "reupload" }, snippet: { title: "NOMA Brain Power", channelTitle: "Music Archive" } },
+  ], "Brain Power", "NOMA"), null);
+});
+
 test("括弧内の作者別名でも一致する", () => {
   const result = selectYoutubeSongMatch([
     {

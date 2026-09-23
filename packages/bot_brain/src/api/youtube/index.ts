@@ -48,6 +48,11 @@ const distinctiveTitleParts = (value: string) => value
   .map(normalized)
   .filter((part) => part.length >= 4 && !/^(?:official|music|video|theme|opening|ending)$/u.test(part));
 
+// 曲名・歌手名をタグに入れたカバー動画も検索上位に来るため、先に除外する。
+const COVER_MARKER = /歌ってみた|弾いてみた|ものまね|モノマネ|カラオケ|karaoke|\bcover\b|\bcovered by\b|\btribute\b|\bfan[ -]?made\b/i;
+const OFFICIAL_MARKER = /official|公式|\bmv\b|music video/i;
+const LABEL_CHANNEL = /sony music|universal music|warner music|avex|king records|vevo|aniplex/i;
+
 function artistAliases(artist: string) {
   const values = [artist];
   for (const match of artist.matchAll(/[（(]([^）)]+)[）)]/g)) values.push(match[1]);
@@ -68,6 +73,8 @@ export function selectYoutubeSongMatch(
   const expectedArtists = artistAliases(artist);
   if (!expectedTitle || expectedArtists.length === 0) return null;
 
+  let best: YoutubeSongMatch | null = null;
+  let bestScore = 0;
   for (const item of items) {
     const videoId = item.id?.videoId;
     const videoTitle = item.snippet?.title ?? '';
@@ -76,12 +83,22 @@ export function selectYoutubeSongMatch(
     const normalizedEvidence = normalized(`${videoTitle} ${channelTitle}`);
     if (
       videoId &&
+      !COVER_MARKER.test(videoTitle) &&
       (normalizedTitle.includes(expectedTitle) ||
         expectedTitleParts.some((part) => normalizedTitle.includes(part)) ||
         expectedContextTerms.some((term) => normalizedTitle.includes(term))) &&
       expectedArtists.some((value) => normalizedEvidence.includes(value))
     ) {
-      return {
+      const channel = normalized(channelTitle);
+      const artistChannel = expectedArtists.some((value) => {
+        if (channel === value) return true;
+        if (!channel.startsWith(value)) return false;
+        return /^(?:topic|vevo|official(?:youtube)?(?:channel)?)$/u.test(channel.slice(value.length));
+      });
+      const score = artistChannel ? 3 : OFFICIAL_MARKER.test(videoTitle) && LABEL_CHANNEL.test(channelTitle) ? 2 : 0;
+      if (score <= bestScore) continue;
+      bestScore = score;
+      best = {
         videoId,
         url: `https://www.youtube.com/watch?v=${videoId}`,
         videoTitle,
@@ -89,7 +106,7 @@ export function selectYoutubeSongMatch(
       };
     }
   }
-  return null;
+  return best;
 }
 
 export async function searchYoutubeSong(

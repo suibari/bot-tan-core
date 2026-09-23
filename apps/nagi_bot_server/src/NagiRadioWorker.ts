@@ -13,16 +13,19 @@ import {
   reserveBotSongSelection,
   type BotSongReservation,
 } from "@bsky-affirmative-bot/database";
-import { generateNagiRadioComment, researchNagiRadioSong, resolveMoodSong, type NagiRadioSong } from "@bsky-affirmative-bot/bot-brain";
+import { generateNagiRadioComment, researchNagiRadioSong, resolveMoodSong, selectNagiRadioCandidate, type NagiRadioSong } from "@bsky-affirmative-bot/bot-brain";
 import { getLangStr } from "@bsky-affirmative-bot/clients";
 import { currentRadioSlotKey } from "@bsky-affirmative-bot/nagi-lexicon";
 import { startWorkerLoop } from "./workerLoop.js";
 
 const WEEK_MS = 7 * 24 * 60 * 60_000;
 const LEASE_MS = 15 * 60_000;
-const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
 
-export async function generateNagiRadioForUser(did: string, now = new Date()): Promise<boolean> {
+export async function generateNagiRadioForUser(
+  did: string,
+  now = new Date(),
+  options: { preferredSong?: NagiRadioSong } = {},
+): Promise<boolean> {
   const slotKey = currentRadioSlotKey(now);
   const stale = new Date(now.getTime() - LEASE_MS);
   const [claim] = await db.insert(nagiRadioTracks).values({
@@ -51,28 +54,20 @@ export async function generateNagiRadioForUser(did: string, now = new Date()): P
       : (/[\p{Script=Hiragana}\p{Script=Katakana}]/u.test(latest.text) ? "日本語" : "English");
     const postText = posts.slice(-3).map((post) => post.text.slice(0, 1_000)).join("\n");
     const scope = djSongSelectionScope(did);
-    const excludedSongKeys = new Set<string>();
-    const excludedVideoIds = new Set<string>();
-    let song: NagiRadioSong | null = null;
-    let fact: Awaited<ReturnType<typeof researchNagiRadioSong>> = null;
-    // 検索結果が薄い曲だけを理由に枠全体を欠測させない。候補を最大3曲まで試す。
-    for (let attempt = 0; attempt < 3; attempt++) {
-      const candidate = await resolveMoodSong(postText, language, scope, {
-        excludeSongKeys: excludedSongKeys,
-        excludeVideoIds: excludedVideoIds,
-      });
-      if (!candidate || !VIDEO_ID.test(candidate.videoId)) break;
-      console.info(`[INFO][NAGI][RADIO] Candidate ${attempt + 1} for ${did}: ${candidate.artist} - ${candidate.title}`);
-      excludedSongKeys.add(candidate.songKey);
-      excludedVideoIds.add(candidate.videoId);
-      const sourced = await researchNagiRadioSong(candidate, language).catch((error) => {
-        console.warn(`[WARN][NAGI][RADIO] Song research failed for ${candidate.artist} - ${candidate.title}`, error);
-        return null;
-      });
-      if (sourced) { song = candidate; fact = sourced; break; }
-      console.info(`[INFO][NAGI][RADIO] No supported fact for ${candidate.artist} - ${candidate.title}`);
-    }
-    if (!song || !fact) throw new Error("No sourced radio song among three candidates");
+    const selected = await selectNagiRadioCandidate(
+      async (attempt, excludedSongKeys, excludedVideoIds) => {
+        const candidate = attempt === 0 && options.preferredSong ? options.preferredSong : await resolveMoodSong(postText, language, scope, {
+          excludeSongKeys: excludedSongKeys,
+          excludeVideoIds: excludedVideoIds,
+        });
+        if (candidate) console.info(`[INFO][NAGI][RADIO] Candidate ${attempt + 1} for ${did}: ${candidate.artist} - ${candidate.title}`);
+        return candidate;
+      },
+      (candidate) => researchNagiRadioSong(candidate, language),
+    );
+    if (!selected) throw new Error("No verified radio video among three candidates");
+    const { song, fact } = selected;
+    if (!fact) console.warn(`[WARN][NAGI][RADIO] Publishing without a song background fact for ${did} ${slotKey}`);
     const [actor, profile, preferred, memory] = await Promise.all([
       db.select({ handle: nagiActors.handle }).from(nagiActors).where(eq(nagiActors.did, did)).limit(1),
       db.select({ displayName: nagiProfiles.displayName }).from(nagiProfiles).where(eq(nagiProfiles.did, did)).limit(1),
@@ -99,7 +94,7 @@ export async function generateNagiRadioForUser(did: string, now = new Date()): P
       const [published] = await tx.update(nagiRadioTracks).set({
         status: "ready", title: song.title, artist: song.artist, comment,
         videoId: song.videoId, videoTitle: song.videoTitle,
-        sourceUrl: fact.sourceUrl, publishedAt: new Date(),
+        sourceUrl: fact?.sourceUrl ?? null, publishedAt: new Date(),
       }).where(and(eq(nagiRadioTracks.subjectDid, did), eq(nagiRadioTracks.slotKey, slotKey),
         eq(nagiRadioTracks.status, "pending"), eq(nagiRadioTracks.claimedAt, now)))
         .returning({ subjectDid: nagiRadioTracks.subjectDid });
