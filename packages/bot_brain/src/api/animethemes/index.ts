@@ -1,3 +1,5 @@
+import { withMoodSongApiCall } from "../moodSongRequest.js";
+
 const ANIME_THEMES_API_URL = "https://api.animethemes.moe";
 const CACHE_MS = 24 * 60 * 60 * 1_000;
 
@@ -55,16 +57,18 @@ interface AnimeResponse {
   }>;
 }
 
-async function fetchJson<T>(url: string, fetchImpl: typeof fetch): Promise<T> {
-  const response = await fetchImpl(url, {
-    headers: {
-      Accept: "application/json",
-      "User-Agent": "bot-tan-core/anime-theme-song",
-    },
-    signal: AbortSignal.timeout(15_000),
+async function fetchJson<T>(url: string, operation: string, fetchImpl: typeof fetch): Promise<T> {
+  return withMoodSongApiCall("animethemes", operation, async (signal) => {
+    const response = await fetchImpl(url, {
+      headers: {
+        Accept: "application/json",
+        "User-Agent": "bot-tan-core/anime-theme-song",
+      },
+      signal,
+    });
+    if (!response.ok) throw new Error(`AnimeThemes HTTP ${response.status}`);
+    return response.json() as Promise<T>;
   });
-  if (!response.ok) throw new Error(`AnimeThemes HTTP ${response.status}`);
-  return response.json() as Promise<T>;
 }
 
 /** AnimeThemes の検索インデックスから作品候補を取得する。 */
@@ -82,6 +86,7 @@ export async function searchAnimeThemes(
   const params = new URLSearchParams({ q: normalizedQuery });
   const body = await fetchJson<SearchResponse>(
     `${ANIME_THEMES_API_URL}/search?${params}`,
+    "search",
     options.fetchImpl ?? fetch,
   );
   const anime = (body.search?.anime ?? []).flatMap((item) => {
@@ -114,6 +119,7 @@ export async function getAnimeThemeSongs(
   });
   const body = await fetchJson<AnimeResponse>(
     `${ANIME_THEMES_API_URL}/anime?${params}`,
+    "anime.themes",
     options.fetchImpl ?? fetch,
   );
   const exactAnime = (body.anime ?? []).find((anime) => anime.name === normalizedName);

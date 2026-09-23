@@ -1,3 +1,5 @@
+import { withMoodSongApiCall } from "../moodSongRequest.js";
+
 const LASTFM_API_URL = "https://ws.audioscrobbler.com/2.0/";
 const TOP_TRACKS_CACHE_MS = 6 * 60 * 60 * 1_000;
 const TRACK_INFO_CACHE_MS = 24 * 60 * 60 * 1_000;
@@ -90,12 +92,14 @@ export async function searchLastFmTracks(
     format: "json",
     limit: String(limit),
   });
-  const response = await (options.fetchImpl ?? fetch)(`${LASTFM_API_URL}?${params}`, {
-    headers: { "User-Agent": "bot-tan-core/lastfm-mood-song" },
-    signal: AbortSignal.timeout(15_000),
+  const body = await withMoodSongApiCall("lastfm", "track.search", async (signal) => {
+    const response = await (options.fetchImpl ?? fetch)(`${LASTFM_API_URL}?${params}`, {
+      headers: { "User-Agent": "bot-tan-core/lastfm-mood-song" },
+      signal,
+    });
+    if (!response.ok) throw new Error(`Last.fm HTTP ${response.status}`);
+    return response.json() as Promise<LastFmTrackSearchResponse>;
   });
-  if (!response.ok) throw new Error(`Last.fm HTTP ${response.status}`);
-  const body = await response.json() as LastFmTrackSearchResponse;
   if (body.error) throw new Error(`Last.fm API ${body.error}: ${body.message ?? "unknown error"}`);
   const tracks = (body.results?.trackmatches?.track ?? []).flatMap((track, index) => {
     const title = track.name?.trim();
@@ -138,12 +142,14 @@ export async function getLastFmTopTracks(
     limit: String(limit),
     page: String(page),
   });
-  const response = await (options.fetchImpl ?? fetch)(`${LASTFM_API_URL}?${params}`, {
-    headers: { "User-Agent": "bot-tan-core/lastfm-mood-song" },
-    signal: AbortSignal.timeout(15_000),
+  const body = await withMoodSongApiCall("lastfm", "tag.getTopTracks", async (signal) => {
+    const response = await (options.fetchImpl ?? fetch)(`${LASTFM_API_URL}?${params}`, {
+      headers: { "User-Agent": "bot-tan-core/lastfm-mood-song" },
+      signal,
+    });
+    if (!response.ok) throw new Error(`Last.fm HTTP ${response.status}`);
+    return response.json() as Promise<LastFmTopTracksResponse>;
   });
-  if (!response.ok) throw new Error(`Last.fm HTTP ${response.status}`);
-  const body = await response.json() as LastFmTopTracksResponse;
   if (body.error) throw new Error(`Last.fm API ${body.error}: ${body.message ?? "unknown error"}`);
 
   const tracks = (body.tracks?.track ?? []).flatMap((track, index) => {
@@ -204,12 +210,14 @@ export async function getLastFmTrackInfo(
     format: "json",
     autocorrect: "1",
   });
-  const response = await (options.fetchImpl ?? fetch)(`${LASTFM_API_URL}?${params}`, {
-    headers: { "User-Agent": "bot-tan-core/lastfm-mood-song" },
-    signal: AbortSignal.timeout(15_000),
+  const body = await withMoodSongApiCall("lastfm", "track.getInfo", async (signal) => {
+    const response = await (options.fetchImpl ?? fetch)(`${LASTFM_API_URL}?${params}`, {
+      headers: { "User-Agent": "bot-tan-core/lastfm-mood-song" },
+      signal,
+    });
+    if (!response.ok) throw new Error(`Last.fm HTTP ${response.status}`);
+    return response.json() as Promise<LastFmTrackInfoResponse>;
   });
-  if (!response.ok) throw new Error(`Last.fm HTTP ${response.status}`);
-  const body = await response.json() as LastFmTrackInfoResponse;
   if (body.error) throw new Error(`Last.fm API ${body.error}: ${body.message ?? "unknown error"}`);
   const listeners = Number(body.track?.listeners);
   const info = {

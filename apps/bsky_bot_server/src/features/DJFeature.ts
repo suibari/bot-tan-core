@@ -7,12 +7,14 @@ import { AppBskyFeedPost } from "@atproto/api"; type Record = AppBskyFeedPost.Re
 import { handleMode, isPast } from "./utils.js";
 import {
     MoodSongResolver,
-    type GroundedMoodSong,
+    type ReservedMoodSong,
 } from "@bsky-affirmative-bot/bot-brain";
 import {
     djSongSelectionScope,
-    recordBotSongSelection,
+    finalizeBotSongSelection,
+    releaseBotSongSelection,
 } from "@bsky-affirmative-bot/database";
+import retry from "async-retry";
 import { getLangStr } from "../bsky/util.js";
 import { UserInfoGemini, GeminiResponseResult } from "@bsky-affirmative-bot/shared-configs";
 import { agent } from "../bsky/agent.js";
@@ -53,44 +55,55 @@ export class DJFeature implements BotFeature {
             return;
         }
 
-        let selectedSong: GroundedMoodSong | undefined;
+        let selectedSong: ReservedMoodSong | undefined;
+        let songPostCompleted = false;
         const songSelectionScope = djSongSelectionScope(follower.did);
-        const result = await handleMode(event, {
-            dbColumn: "last_dj_at",
-            dbValue: new Date(),
-            generateText: async (userinfo) => {
-                const generated = await this.getSongLink(userinfo, songSelectionScope);
-                selectedSong = generated.song;
-                return generated.text;
+        let result: boolean;
+        try {
+            result = await handleMode(event, {
+                dbColumn: "last_dj_at",
+                dbValue: new Date(),
+                generateText: async (userinfo) => {
+                    const generated = await this.getSongLink(userinfo, songSelectionScope);
+                    selectedSong = generated.song;
+                    return generated.text;
+                },
+                onPublished: async () => {
+                    if (!selectedSong) return;
+                    songPostCompleted = true;
+                    const requestUri = `at://${event.did}/${event.commit.collection}/${event.commit.rkey}`;
+                    try {
+                        await retry(() => finalizeBotSongSelection(selectedSong!.reservation, requestUri), { retries: 2 });
+                    } catch (error) {
+                        console.error("[ERROR][MOOD_SONG] Failed to finalize DJ reservation", error);
+                    } finally {
+                        moodSongResolver.remember(
+                            songSelectionScope,
+                            selectedSong.song,
+                            selectedSong.reservation.selectedAt,
+                        );
+                    }
+                },
             },
-        },
-            {
-                follower,
-                posts,
-                langStr: getLangStr(record.langs),
-            });
+                {
+                    follower,
+                    posts,
+                    langStr: getLangStr(record.langs),
+                });
+        } catch (error) {
+            if (selectedSong && !songPostCompleted) {
+                await releaseBotSongSelection(selectedSong.reservation).catch((releaseError) =>
+                    console.error("[ERROR][MOOD_SONG] Failed to release DJ reservation", releaseError));
+            }
+            throw error;
+        }
 
         if (result) {
-            if (selectedSong) {
-                const song = selectedSong;
-                const requestUri = `at://${event.did}/${event.commit.collection}/${event.commit.rkey}`;
-                try {
-                    await recordBotSongSelection({
-                        videoId: song.videoId,
-                        songKey: song.songKey,
-                        title: song.title,
-                        artist: song.artist,
-                        scope: songSelectionScope,
-                        outputRef: requestUri,
-                    });
-                } catch (error) {
-                    console.error("[WARN][MOOD_SONG] Failed to record DJ song", error);
-                } finally {
-                    moodSongResolver.remember(songSelectionScope, song);
-                }
-            }
             await MemoryService.logUsage('dj', follower.did);
             await botBiothythmManager.addDJ();
+        } else if (selectedSong) {
+            await releaseBotSongSelection(selectedSong.reservation).catch((error) =>
+                console.error("[ERROR][MOOD_SONG] Failed to release unpublished DJ reservation", error));
         }
     }
 
@@ -99,23 +112,24 @@ export class DJFeature implements BotFeature {
         songSelectionScope: ReturnType<typeof djSongSelectionScope>,
     ): Promise<{
         text: GeminiResponseResult;
-        song?: GroundedMoodSong;
+        song?: ReservedMoodSong;
     }> {
         const query = (userinfo.posts?.[0] ?? "").slice(0, 1_000);
         const langStr = userinfo.langStr ?? "日本語";
-        const groundedSong = await moodSongResolver.resolve(query, langStr, songSelectionScope);
-        if (!groundedSong) {
+        const reservedSong = await moodSongResolver.resolveAndReserve(query, langStr, songSelectionScope);
+        if (!reservedSong) {
             return {
                 text: langStr === "日本語"
                     ? "ごめんね、検索とYouTubeの両方で実在を確認できる曲を見つけられなかったよ。"
                     : "Sorry, I couldn't find a song I could verify through search and YouTube.",
             };
         }
+        const groundedSong = reservedSong.song;
         const text = `${groundedSong.comment}
 title: ${groundedSong.title}
 artist: ${groundedSong.artist}
 ${groundedSong.lastFmUrl ? `Source: Last.fm ${groundedSong.lastFmUrl}\n` : ""}
 ${groundedSong.url}`;
-        return { text, song: groundedSong };
+        return { text, song: reservedSong };
     }
 }

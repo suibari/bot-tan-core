@@ -9,6 +9,7 @@ import {
   buildMoodSongMemoryQuery,
   extractMemorySongCandidates,
   findMoodSongCandidates,
+  MoodSongResolver,
   resolveMoodSong,
   songKey,
 } from "../src/ai/memorySong.js";
@@ -135,6 +136,8 @@ test("直近の同一曲を除外し、YouTube検索は3候補までに制限す
         purpose: "dj",
         subjectDid: "did:plc:alice",
         outputRef: null,
+        status: "published",
+        reservationExpiresAt: null,
         selectedAt: new Date(),
       }];
     },
@@ -159,6 +162,8 @@ test("同じ曲の別動画もsongKeyで、同じ動画の別表記もvideoIdで
       purpose: "scheduled_post",
       subjectDid: null,
       outputRef: null,
+      status: "published",
+      reservationExpiresAt: null,
       selectedAt: new Date(),
     }],
     findCandidates: async () => [
@@ -176,4 +181,62 @@ test("同じ曲の別動画もsongKeyで、同じ動画の別表記もvideoIdで
   });
   assert.equal(result?.title, "新しい曲");
   assert.equal(result?.videoId, "new-video");
+});
+
+const groundedSong = (suffix: string) => ({
+  title: `Song ${suffix}`,
+  artist: `Artist ${suffix}`,
+  comment: "comment",
+  songKey: `song-${suffix}`,
+  videoId: `video-${suffix}`,
+  url: `https://www.youtube.com/watch?v=video-${suffix}`,
+  videoTitle: `Song ${suffix}`,
+  channelTitle: `Artist ${suffix}`,
+});
+
+test("メモリ内履歴はちょうど30日間だけ除外する", async () => {
+  let now = new Date("2026-08-01T00:00:00.000Z");
+  let excluded: string[] = [];
+  const resolver = new MoodSongResolver(30, {
+    now: () => now,
+    resolve: async (_post, _lang, _scope, options) => {
+      excluded = [...options.excludeSongKeys ?? []];
+      return null;
+    },
+  });
+  resolver.remember(SCHEDULED_POST_SONG_SCOPE, groundedSong("A"), now);
+
+  now = new Date("2026-08-31T00:00:00.000Z");
+  await resolver.resolve("post", "日本語", SCHEDULED_POST_SONG_SCOPE);
+  assert.deepEqual(excluded, ["song-A"]);
+
+  now = new Date("2026-08-31T00:00:00.001Z");
+  await resolver.resolve("post", "日本語", SCHEDULED_POST_SONG_SCOPE);
+  assert.deepEqual(excluded, []);
+});
+
+test("予約競合時は別候補を再選し、予約できた曲だけを返す", async () => {
+  let resolved = 0;
+  let reserved = 0;
+  const now = new Date("2026-09-23T00:00:00.000Z");
+  const resolver = new MoodSongResolver(30, {
+    now: () => now,
+    resolve: async () => groundedSong(String.fromCharCode(65 + resolved++)),
+    reserve: async (selection) => {
+      reserved++;
+      if (reserved === 1) return null;
+      return {
+        id: 2,
+        videoId: selection.videoId,
+        songKey: selection.songKey,
+        scope: selection.scope,
+        selectedAt: now,
+        expiresAt: new Date(now.getTime() + 15 * 60_000),
+      };
+    },
+  });
+  const result = await resolver.resolveAndReserve("post", "日本語", SCHEDULED_POST_SONG_SCOPE);
+  assert.equal(result?.song.songKey, "song-B");
+  assert.equal(resolved, 2);
+  assert.equal(reserved, 2);
 });

@@ -12,6 +12,8 @@ export type TriggeredReplyHandlerOptions = {
     dbValue?: number | string | Date; // 登録時にセットする値（例: 1）
     generateText: GeminiResponseResult | ((userinfo: UserInfoGemini, event: CommitCreateEvent<"app.bsky.feed.post">) => Promise<GeminiResponseResult | undefined>); // 返信するテキスト(コールバック対応)
     disableReply?: boolean; // リプライの無効化
+    /** 投稿API成功直後、後続の利用者DB更新より前に確定する処理。 */
+    onPublished?: () => Promise<void>;
 };
 
 export const handleMode = async (
@@ -60,6 +62,7 @@ export const handleMode = async (
         } else {
             await postContinuous(result.text, { uri, cid, record });
         }
+        await options.onPublished?.();
     }
 
     // DB更新: 列、値が指定ある時だけ

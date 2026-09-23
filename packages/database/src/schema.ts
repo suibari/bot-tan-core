@@ -310,6 +310,8 @@ export const bot_song_selections = affirmativeBotSchema.table(
     purpose: text("purpose").notNull(),
     subject_did: text("subject_did"),
     output_ref: text("output_ref"),
+    status: text("status").default("published").notNull(),
+    reservation_expires_at: timestamp("reservation_expires_at", { withTimezone: true }),
     selected_at: timestamp("selected_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
@@ -318,9 +320,15 @@ export const bot_song_selections = affirmativeBotSchema.table(
       "bot_song_selection_scope_check",
       sql`(${table.purpose} = 'scheduled_post' and ${table.subject_did} is null) or (${table.purpose} = 'dj' and ${table.subject_did} is not null)`,
     ),
+    check("bot_song_selection_status_check", sql`${table.status} in ('reserved', 'published')`),
+    check(
+      "bot_song_selection_reservation_check",
+      sql`(${table.status} = 'reserved' and ${table.reservation_expires_at} is not null) or (${table.status} = 'published' and ${table.reservation_expires_at} is null)`,
+    ),
     index("bot_song_selection_video_selected_idx").on(table.purpose, table.subject_did, table.video_id, table.selected_at),
     index("bot_song_selection_key_selected_idx").on(table.purpose, table.subject_did, table.song_key, table.selected_at),
     index("bot_song_selection_selected_idx").on(table.selected_at),
+    index("bot_song_selection_reservation_expiry_idx").on(table.status, table.reservation_expires_at),
   ],
 );
 

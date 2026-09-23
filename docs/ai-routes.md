@@ -34,6 +34,15 @@ SEARXNG_BASE_URL=http://127.0.0.1:8080
 同じ言語・安全性・YouTube・選出履歴の検査を通す。Last.fm経路を有効にするには
 `LASTFM_API_KEY`が必要。AnimeThemesはAPIキー不要。
 
+曲の再選除外はUTCの時刻を基準にしたローリング30日で、ちょうど30日前の選出も含む。
+定期ポストは全体で1スコープ、DJはDIDごとに別スコープとする。選曲後は投稿前にDB予約を取り、
+同じスコープの並行処理が同じ`videoId`または曲名・アーティストを投稿するのを防ぐ。投稿失敗時は
+即時解放し、プロセス停止で残った予約は15分後に失効する。
+
+Last.fm、AnimeThemes、YouTubeの実通信は`MOOD_SONG_API_TIMEOUT_MS`（既定15秒）で打ち切り、
+サービス・操作・成否・所要時間だけを`[MOOD_SONG_API]`ログへ残す。投稿本文、検索語、APIキーは
+ログへ出さない。Ollamaは既存の`OLLAMA_TEXT_TIMEOUT_MS`とは別管理である。
+
 構成は**用途によって非対称**である。
 
 | policy | 機能 | 検索のタイミング |
@@ -192,7 +201,7 @@ Ollama既定とGemini切り戻しの両方を全機能ぶんピン留めして�
 | `BSKY_ANNIVERSARY` | `lite-flex` | 記念日 |
 | `BSKY_RECAP` | `lite-flex` | 1年のまとめ |
 | `BSKY_ROOM_WELCOME` | `lite-flex` | お部屋招待のお出迎え |
-| `COMMON_MOOD_SONG_LOCAL` | `ollama-chat` | Last.fm候補のタグ分類・安全確認・紹介文 |
+| `COMMON_MOOD_SONG_LOCAL` | `ollama-chat` | 作品名抽出・気分タグ分類・候補の安全確認・紹介文 |
 | `BSKY_IMAGE_PROMPT` | `ollama-chat` | 画像生成用に日本語の情景文を booru タグへ直す（必ずローカル） |
 | `BSKY_DRAWING_REQUEST` | `ollama-chat` | お絵描き: botたんに絵を頼んでいるか・題材・描いてよい依頼かの判定（Nagi の依頼も共用） |
 

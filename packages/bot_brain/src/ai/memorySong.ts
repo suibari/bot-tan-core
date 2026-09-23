@@ -2,8 +2,10 @@ import {
   botSongSelectionCutoff,
   botSongSelectionScopeKey,
   getRecentBotSongSelections,
+  reserveBotSongSelection,
   searchBotMemory,
   type BotMemorySearchResult,
+  type BotSongReservation,
   type BotSongSelectionScope,
 } from "@bsky-affirmative-bot/database";
 import type { LanguageName } from "@bsky-affirmative-bot/shared-configs";
@@ -161,7 +163,7 @@ export async function resolveMoodSong(
   } = {},
 ): Promise<GroundedMoodSong | null> {
   const getRecent = deps.getRecentSelections ?? getRecentBotSongSelections;
-  const recent = await getRecent(scope, botSongSelectionCutoff(deps.now));
+  const recent = await getRecent(scope, deps.now ?? new Date());
   const excludedSongKeys = new Set([
     ...recent.map((item) => item.songKey),
     ...(deps.excludeSongKeys ?? []),
@@ -211,29 +213,81 @@ export async function resolveMoodSong(
   );
 }
 
-/** DB反映までの短い隙間でも同一プロセス内の再選を避ける。 */
-export class MoodSongResolver {
-  private recent = new Map<string, GroundedMoodSong[]>();
+export interface ReservedMoodSong {
+  song: GroundedMoodSong;
+  reservation: BotSongReservation;
+}
 
-  constructor(private maxHistory = 30) {}
+type RecentMoodSong = { song: GroundedMoodSong; selectedAt: Date };
+
+/** DB予約に加え、同一プロセスでは直近履歴を再問い合わせ前にも除外する。 */
+export class MoodSongResolver {
+  private recent = new Map<string, RecentMoodSong[]>();
+
+  constructor(
+    private maxHistory = 30,
+    private dependencies: {
+      now?: () => Date;
+      reserve?: typeof reserveBotSongSelection;
+      resolve?: typeof resolveMoodSong;
+    } = {},
+  ) {}
+
+  private currentTime() {
+    return this.dependencies.now?.() ?? new Date();
+  }
+
+  private activeRecent(scope: BotSongSelectionScope, now: Date) {
+    const scopeKey = botSongSelectionScopeKey(scope);
+    const cutoff = botSongSelectionCutoff(now);
+    const active = (this.recent.get(scopeKey) ?? []).filter((item) =>
+      item.selectedAt >= cutoff && item.selectedAt <= now
+    );
+    this.recent.set(scopeKey, active);
+    return active;
+  }
 
   async resolve(
     postText: string,
     langStr: LanguageName,
     scope: BotSongSelectionScope,
   ) {
-    const recent = this.recent.get(botSongSelectionScopeKey(scope)) ?? [];
-    return resolveMoodSong(postText, langStr, scope, {
-      excludeSongKeys: new Set(recent.map((item) => item.songKey)),
-      excludeVideoIds: new Set(recent.map((item) => item.videoId)),
+    const now = this.currentTime();
+    const recent = this.activeRecent(scope, now);
+    return (this.dependencies.resolve ?? resolveMoodSong)(postText, langStr, scope, {
+      now,
+      excludeSongKeys: new Set(recent.map((item) => item.song.songKey)),
+      excludeVideoIds: new Set(recent.map((item) => item.song.videoId)),
     });
   }
 
-  remember(scope: BotSongSelectionScope, song: GroundedMoodSong) {
+  async resolveAndReserve(
+    postText: string,
+    langStr: LanguageName,
+    scope: BotSongSelectionScope,
+    maxAttempts = 3,
+  ): Promise<ReservedMoodSong | null> {
+    const reserve = this.dependencies.reserve ?? reserveBotSongSelection;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const song = await this.resolve(postText, langStr, scope);
+      if (!song) return null;
+      const reservation = await reserve({
+        videoId: song.videoId,
+        songKey: song.songKey,
+        title: song.title,
+        artist: song.artist,
+        scope,
+      }, { now: this.currentTime() });
+      if (reservation) return { song, reservation };
+    }
+    return null;
+  }
+
+  remember(scope: BotSongSelectionScope, song: GroundedMoodSong, selectedAt = this.currentTime()) {
     const scopeKey = botSongSelectionScopeKey(scope);
-    const recent = this.recent.get(scopeKey) ?? [];
-    this.recent.set(scopeKey, [song, ...recent.filter((item) =>
-      item.videoId !== song.videoId && item.songKey !== song.songKey
+    const recent = this.activeRecent(scope, selectedAt);
+    this.recent.set(scopeKey, [{ song, selectedAt }, ...recent.filter((item) =>
+      item.song.videoId !== song.videoId && item.song.songKey !== song.songKey
     )].slice(0, this.maxHistory));
   }
 }

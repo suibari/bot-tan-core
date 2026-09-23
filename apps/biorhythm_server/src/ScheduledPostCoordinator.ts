@@ -22,8 +22,9 @@ import {
   claimDailyDrawing,
   drawingDay,
   getTodaysLearnedWorks,
+  finalizeBotSongSelection,
   recordBotMemoryUsages,
-  recordBotSongSelection,
+  releaseBotSongSelection,
   releaseDailyDrawing,
   SCHEDULED_POST_SONG_SCOPE,
 } from "@bsky-affirmative-bot/database";
@@ -273,9 +274,9 @@ export async function postWhimsical(currentMood: string, botContext?: BotContext
     return result;
   }, { retries: 3 });
 
-  let song: Awaited<ReturnType<MoodSongResolver["resolve"]>> = null;
+  let reservedSong: Awaited<ReturnType<MoodSongResolver["resolveAndReserve"]>> = null;
   try {
-    song = await moodSongResolver.resolve(
+    reservedSong = await moodSongResolver.resolveAndReserve(
       isJapanesePost ? generated.textJa : generated.textEn,
       langStr,
       SCHEDULED_POST_SONG_SCOPE,
@@ -283,6 +284,7 @@ export async function postWhimsical(currentMood: string, botContext?: BotContext
   } catch (error) {
     console.error("[ERROR] Failed to resolve mood song:", error);
   }
+  const song = reservedSong?.song ?? null;
 
   const moodSong = song
     ? `MyMoodSong:\n${song.title} - ${song.artist}` +
@@ -295,18 +297,50 @@ export async function postWhimsical(currentMood: string, botContext?: BotContext
     moodSong,
     selectedNewsUrl: generated.selectedNewsUrl,
   });
-  const results = await publish({
-    kind: "whimsical",
-    contentByTarget: {
-      bsky: { text: isJapanesePost ? texts.bskyJa : texts.bskyEn },
-      nagi: {
-        text: texts.nagiJa,
-        langs: ["ja"],
-        translations: [{ lang: "en", text: texts.nagiEn }],
+  let results: Partial<Record<"bsky" | "nagi", ScheduledPostResult>>;
+  try {
+    results = await publish({
+      kind: "whimsical",
+      contentByTarget: {
+        bsky: { text: isJapanesePost ? texts.bskyJa : texts.bskyEn },
+        nagi: {
+          text: texts.nagiJa,
+          langs: ["ja"],
+          translations: [{ lang: "en", text: texts.nagiEn }],
+        },
       },
-    },
-  });
+    });
+  } catch (error) {
+    if (reservedSong) {
+      await releaseBotSongSelection(reservedSong.reservation).catch((releaseError) =>
+        console.error("[ERROR][MOOD_SONG] Failed to release scheduled-post reservation", releaseError)
+      );
+    }
+    throw error;
+  }
   const published = Object.keys(results).length > 0;
+
+  if (reservedSong) {
+    if (published) {
+      try {
+        await retry(() => finalizeBotSongSelection(
+          reservedSong!.reservation,
+          results.bsky?.uri ?? results.nagi?.uri,
+        ), { retries: 2 });
+      } catch (error) {
+        console.error("[ERROR][MOOD_SONG] Failed to finalize scheduled-post reservation", error);
+      }
+      moodSongResolver.remember(
+        SCHEDULED_POST_SONG_SCOPE,
+        reservedSong.song,
+        reservedSong.reservation.selectedAt,
+      );
+    } else {
+      await releaseBotSongSelection(reservedSong.reservation).catch((error) =>
+        console.error("[ERROR][MOOD_SONG] Failed to release scheduled-post reservation", error)
+      );
+    }
+  }
 
   if (published) {
     if (giftIdToUpdate !== undefined) await MemoryService.updateGiftStatus(giftIdToUpdate, "used");
@@ -323,22 +357,6 @@ export async function postWhimsical(currentMood: string, botContext?: BotContext
     ).catch((error) =>
       console.error("[WARN][BOT_MEMORY] Failed to record scheduled-post usage", error),
     );
-    if (song) {
-      try {
-        await recordBotSongSelection({
-          videoId: song.videoId,
-          songKey: song.songKey,
-          title: song.title,
-          artist: song.artist,
-          scope: SCHEDULED_POST_SONG_SCOPE,
-          outputRef: results.bsky?.uri ?? results.nagi?.uri,
-        });
-      } catch (error) {
-        console.error("[WARN][MOOD_SONG] Failed to record scheduled-post song", error);
-      } finally {
-        moodSongResolver.remember(SCHEDULED_POST_SONG_SCOPE, song);
-      }
-    }
   }
 
   // 未読リプライの消費・言語カウント・言語トグルはいずれも Bluesky 投稿に紐づくため、
