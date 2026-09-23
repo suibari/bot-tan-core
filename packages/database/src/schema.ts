@@ -320,10 +320,10 @@ export const bot_song_selections = affirmativeBotSchema.table(
       "bot_song_selection_scope_check",
       sql`(${table.purpose} = 'scheduled_post' and ${table.subject_did} is null) or (${table.purpose} = 'dj' and ${table.subject_did} is not null)`,
     ),
-    check("bot_song_selection_status_check", sql`${table.status} in ('reserved', 'published')`),
+    check("bot_song_selection_status_check", sql`${table.status} in ('reserved', 'publishing', 'published')`),
     check(
       "bot_song_selection_reservation_check",
-      sql`(${table.status} = 'reserved' and ${table.reservation_expires_at} is not null) or (${table.status} = 'published' and ${table.reservation_expires_at} is null)`,
+      sql`(${table.status} in ('reserved', 'publishing') and ${table.reservation_expires_at} is not null) or (${table.status} = 'published' and ${table.reservation_expires_at} is null)`,
     ),
     index("bot_song_selection_video_selected_idx").on(table.purpose, table.subject_did, table.video_id, table.selected_at),
     index("bot_song_selection_key_selected_idx").on(table.purpose, table.subject_did, table.song_key, table.selected_at),

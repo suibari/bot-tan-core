@@ -6,14 +6,14 @@ ALTER TABLE "affirmative_bot"."bot_song_selections"
   DROP CONSTRAINT IF EXISTS "bot_song_selection_status_check";
 ALTER TABLE "affirmative_bot"."bot_song_selections"
   ADD CONSTRAINT "bot_song_selection_status_check"
-  CHECK ("status" IN ('reserved', 'published'));
+  CHECK ("status" IN ('reserved', 'publishing', 'published'));
 
 ALTER TABLE "affirmative_bot"."bot_song_selections"
   DROP CONSTRAINT IF EXISTS "bot_song_selection_reservation_check";
 ALTER TABLE "affirmative_bot"."bot_song_selections"
   ADD CONSTRAINT "bot_song_selection_reservation_check"
   CHECK (
-    ("status" = 'reserved' AND "reservation_expires_at" IS NOT NULL)
+    ("status" IN ('reserved', 'publishing') AND "reservation_expires_at" IS NOT NULL)
     OR ("status" = 'published' AND "reservation_expires_at" IS NULL)
   );
 

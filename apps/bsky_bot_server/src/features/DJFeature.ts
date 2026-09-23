@@ -12,6 +12,7 @@ import {
 import {
     djSongSelectionScope,
     finalizeBotSongSelection,
+    protectBotSongSelectionForPublish,
     releaseBotSongSelection,
 } from "@bsky-affirmative-bot/database";
 import retry from "async-retry";
@@ -56,6 +57,7 @@ export class DJFeature implements BotFeature {
         }
 
         let selectedSong: ReservedMoodSong | undefined;
+        let songProtected = false;
         let songPostCompleted = false;
         const songSelectionScope = djSongSelectionScope(follower.did);
         let result: boolean;
@@ -67,6 +69,11 @@ export class DJFeature implements BotFeature {
                     const generated = await this.getSongLink(userinfo, songSelectionScope);
                     selectedSong = generated.song;
                     return generated.text;
+                },
+                beforePublish: async () => {
+                    if (!selectedSong) return;
+                    await protectBotSongSelectionForPublish(selectedSong.reservation);
+                    songProtected = true;
                 },
                 onPublished: async () => {
                     if (!selectedSong) return;
@@ -91,17 +98,18 @@ export class DJFeature implements BotFeature {
                     langStr: getLangStr(record.langs),
                 });
         } catch (error) {
-            if (selectedSong && !songPostCompleted) {
+            if (selectedSong && !songProtected && !songPostCompleted) {
                 await releaseBotSongSelection(selectedSong.reservation).catch((releaseError) =>
                     console.error("[ERROR][MOOD_SONG] Failed to release DJ reservation", releaseError));
             }
+            // publishing へ進んだ後は投稿結果を断定できないため、30日保護を残す。
             throw error;
         }
 
         if (result) {
             await MemoryService.logUsage('dj', follower.did);
             await botBiothythmManager.addDJ();
-        } else if (selectedSong) {
+        } else if (selectedSong && !songProtected) {
             await releaseBotSongSelection(selectedSong.reservation).catch((error) =>
                 console.error("[ERROR][MOOD_SONG] Failed to release unpublished DJ reservation", error));
         }

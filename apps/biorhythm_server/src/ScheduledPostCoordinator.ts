@@ -10,6 +10,7 @@ import {
   generateImage,
   generateQuestion,
   MoodSongResolver,
+  type ReservedMoodSong,
   WhimsicalPostGenerator,
 } from "@bsky-affirmative-bot/bot-brain";
 import retry from "async-retry";
@@ -23,6 +24,7 @@ import {
   drawingDay,
   getTodaysLearnedWorks,
   finalizeBotSongSelection,
+  protectBotSongSelectionForPublish,
   recordBotMemoryUsages,
   releaseBotSongSelection,
   releaseDailyDrawing,
@@ -162,6 +164,41 @@ async function publish(request: ScheduledPostPublishRequest) {
   return ScheduledPostService.publish(request);
 }
 
+export async function settleScheduledSongReservation(
+  reservedSong: ReservedMoodSong,
+  results: Partial<Record<"bsky" | "nagi", ScheduledPostResult>>,
+  dependencies: {
+    finalize?: typeof finalizeBotSongSelection;
+    release?: typeof releaseBotSongSelection;
+    remember?: MoodSongResolver["remember"];
+    reportFinalizeError?: (error: unknown) => void;
+  } = {},
+) {
+  const published = Boolean(results.bsky || results.nagi);
+  if (!published) {
+    await (dependencies.release ?? releaseBotSongSelection)(reservedSong.reservation);
+    return false;
+  }
+
+  try {
+    const finalize = dependencies.finalize ?? finalizeBotSongSelection;
+    await retry(() => finalize(
+      reservedSong.reservation,
+      results.bsky?.uri ?? results.nagi?.uri,
+    ), { retries: 2 });
+  } catch (error) {
+    (dependencies.reportFinalizeError ?? ((cause) =>
+      console.error("[ERROR][MOOD_SONG] Failed to finalize scheduled-post reservation", cause)
+    ))(error);
+  }
+  (dependencies.remember ?? moodSongResolver.remember.bind(moodSongResolver))(
+    SCHEDULED_POST_SONG_SCOPE,
+    reservedSong.song,
+    reservedSong.reservation.selectedAt,
+  );
+  return true;
+}
+
 export async function recordScheduledPostMemoryUsage(
   results: Partial<Record<"bsky" | "nagi", ScheduledPostResult>>,
   documentIds: number[],
@@ -284,6 +321,17 @@ export async function postWhimsical(currentMood: string, botContext?: BotContext
   } catch (error) {
     console.error("[ERROR] Failed to resolve mood song:", error);
   }
+  if (reservedSong) {
+    try {
+      await protectBotSongSelectionForPublish(reservedSong.reservation);
+    } catch (error) {
+      console.error("[ERROR][MOOD_SONG] Failed to protect scheduled-post song before publishing", error);
+      await releaseBotSongSelection(reservedSong.reservation).catch((releaseError) =>
+        console.error("[ERROR][MOOD_SONG] Failed to release unprotected scheduled-post reservation", releaseError)
+      );
+      reservedSong = null;
+    }
+  }
   const song = reservedSong?.song ?? null;
 
   const moodSong = song
@@ -311,35 +359,15 @@ export async function postWhimsical(currentMood: string, botContext?: BotContext
       },
     });
   } catch (error) {
-    if (reservedSong) {
-      await releaseBotSongSelection(reservedSong.reservation).catch((releaseError) =>
-        console.error("[ERROR][MOOD_SONG] Failed to release scheduled-post reservation", releaseError)
-      );
-    }
+    // 外部投稿の成否を断定できないため、publishing の30日保護を残す。
     throw error;
   }
-  const published = Object.keys(results).length > 0;
+  const published = Boolean(results.bsky || results.nagi);
 
   if (reservedSong) {
-    if (published) {
-      try {
-        await retry(() => finalizeBotSongSelection(
-          reservedSong!.reservation,
-          results.bsky?.uri ?? results.nagi?.uri,
-        ), { retries: 2 });
-      } catch (error) {
-        console.error("[ERROR][MOOD_SONG] Failed to finalize scheduled-post reservation", error);
-      }
-      moodSongResolver.remember(
-        SCHEDULED_POST_SONG_SCOPE,
-        reservedSong.song,
-        reservedSong.reservation.selectedAt,
-      );
-    } else {
-      await releaseBotSongSelection(reservedSong.reservation).catch((error) =>
-        console.error("[ERROR][MOOD_SONG] Failed to release scheduled-post reservation", error)
-      );
-    }
+    await settleScheduledSongReservation(reservedSong, results).catch((error) =>
+      console.error("[ERROR][MOOD_SONG] Failed to settle scheduled-post reservation", error)
+    );
   }
 
   if (published) {

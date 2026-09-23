@@ -35,6 +35,7 @@ test("履歴検索のtimestampパラメータはDrizzleの列エンコーダを�
   assert.match(query.sql, /selected_at.*<=/);
   assert.match(query.sql, /reservation_expires_at.*>/);
   assert.ok(query.params.every((param) => !(param instanceof Date)));
+  assert.ok(query.params.includes("publishing"));
   assert.ok(query.params.includes("2026-08-24T12:00:00.000Z"));
   assert.ok(query.params.includes("2026-09-23T12:00:00.000Z"));
 });

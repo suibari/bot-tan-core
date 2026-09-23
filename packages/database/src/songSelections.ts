@@ -29,7 +29,7 @@ export interface BotSongSelection {
   purpose: BotSongSelectionScope["purpose"];
   subjectDid: string | null;
   outputRef: string | null;
-  status: "reserved" | "published";
+  status: "reserved" | "publishing" | "published";
   reservationExpiresAt: Date | null;
   selectedAt: Date;
 }
@@ -73,7 +73,10 @@ const scopeCondition = (scope: BotSongSelectionScope) => and(
 
 const activeSelectionCondition = (now: Date) => or(
   and(
-    eq(bot_song_selections.status, "published"),
+    or(
+      eq(bot_song_selections.status, "publishing"),
+      eq(bot_song_selections.status, "published"),
+    ),
     gte(bot_song_selections.selected_at, botSongSelectionCutoff(now)),
     lte(bot_song_selections.selected_at, now),
   ),
@@ -164,6 +167,38 @@ export async function reserveBotSongSelection(
   });
 }
 
+/** 外部投稿の直前に30日保護へ昇格する。成功応答を失っても再試行できる。 */
+export async function protectBotSongSelectionForPublish(
+  reservation: BotSongReservation,
+  options: { now?: Date } = {},
+) {
+  const now = options.now ?? new Date();
+  const protectedUntil = new Date(
+    reservation.selectedAt.getTime() + BOT_SONG_SELECTION_COOLDOWN_DAYS * 24 * 60 * 60 * 1_000,
+  );
+  const lockKey = `bot-song-selection-v1:${botSongSelectionScopeKey(reservation.scope)}`;
+
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${lockKey}))`);
+    const [row] = await tx.update(bot_song_selections).set({
+      status: "publishing",
+      reservation_expires_at: protectedUntil,
+    }).where(and(
+      eq(bot_song_selections.id, reservation.id),
+      eq(bot_song_selections.status, "reserved"),
+      gt(bot_song_selections.reservation_expires_at, now),
+    )).returning({ id: bot_song_selections.id });
+    if (row) return;
+
+    const [existing] = await tx.select({ status: bot_song_selections.status })
+      .from(bot_song_selections)
+      .where(eq(bot_song_selections.id, reservation.id))
+      .limit(1);
+    if (existing?.status === "publishing" || existing?.status === "published") return;
+    throw new Error(`Song reservation ${reservation.id} is no longer active`);
+  });
+}
+
 export async function finalizeBotSongSelection(
   reservation: BotSongReservation,
   outputRef?: string,
@@ -174,15 +209,24 @@ export async function finalizeBotSongSelection(
     output_ref: outputRef ?? null,
   }).where(and(
     eq(bot_song_selections.id, reservation.id),
-    eq(bot_song_selections.status, "reserved"),
+    eq(bot_song_selections.status, "publishing"),
   )).returning({ id: bot_song_selections.id });
-  if (!row) throw new Error(`Song reservation ${reservation.id} is no longer active`);
+  if (row) return;
+  const [existing] = await db.select({ status: bot_song_selections.status })
+    .from(bot_song_selections)
+    .where(eq(bot_song_selections.id, reservation.id))
+    .limit(1);
+  if (existing?.status === "published") return;
+  throw new Error(`Song reservation ${reservation.id} is not protected for publishing`);
 }
 
 export async function releaseBotSongSelection(reservation: BotSongReservation) {
   await db.delete(bot_song_selections).where(and(
     eq(bot_song_selections.id, reservation.id),
-    eq(bot_song_selections.status, "reserved"),
+    or(
+      eq(bot_song_selections.status, "reserved"),
+      eq(bot_song_selections.status, "publishing"),
+    ),
   ));
 }
 

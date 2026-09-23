@@ -64,13 +64,13 @@ test("予約は解放直後または15分失効後に取り直せる", { skip: !
   assert.ok(atExpiry);
 });
 
-test("確定曲は30日ちょうどまで除外し、1ms後に再予約できる", { skip: !databaseUrl }, async () => {
+test("投稿保護した曲はfinalize前でも30日ちょうどまで除外する", { skip: !databaseUrl }, async () => {
   await setup!`truncate affirmative_bot.bot_song_selections restart identity`;
   const scope = database!.SCHEDULED_POST_SONG_SCOPE;
   const now = new Date("2026-08-01T00:00:00.000Z");
   const reservation = await database!.reserveBotSongSelection(selection(scope), { now });
   assert.ok(reservation);
-  await database!.finalizeBotSongSelection(reservation!, "at://published");
+  await database!.protectBotSongSelectionForPublish(reservation!, { now });
 
   assert.equal(await database!.reserveBotSongSelection(selection(scope), {
     now: new Date("2026-08-31T00:00:00.000Z"),
@@ -78,4 +78,31 @@ test("確定曲は30日ちょうどまで除外し、1ms後に再予約できる
   assert.ok(await database!.reserveBotSongSelection(selection(scope), {
     now: new Date("2026-08-31T00:00:00.001Z"),
   }));
+});
+
+test("投稿保護とfinalizeは冪等で、15分経過後も保護を維持する", { skip: !databaseUrl }, async () => {
+  await setup!`truncate affirmative_bot.bot_song_selections restart identity`;
+  const scope = database!.SCHEDULED_POST_SONG_SCOPE;
+  const now = new Date("2026-09-01T00:00:00.000Z");
+  const reservation = await database!.reserveBotSongSelection(selection(scope), { now });
+  assert.ok(reservation);
+
+  await database!.protectBotSongSelectionForPublish(reservation!, { now });
+  await database!.protectBotSongSelectionForPublish(reservation!, { now });
+  assert.equal(await database!.reserveBotSongSelection(selection(scope), {
+    now: new Date("2026-09-01T00:15:00.000Z"),
+  }), null);
+
+  await database!.finalizeBotSongSelection(reservation!, "at://published");
+  await database!.finalizeBotSongSelection(reservation!, "at://published");
+  const [row] = await setup!`
+    select status, reservation_expires_at, output_ref
+    from affirmative_bot.bot_song_selections
+    where id = ${reservation!.id}
+  `;
+  assert.deepEqual(row, {
+    status: "published",
+    reservation_expires_at: null,
+    output_ref: "at://published",
+  });
 });
