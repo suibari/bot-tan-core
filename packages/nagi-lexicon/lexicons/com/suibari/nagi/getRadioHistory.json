@@ -19,7 +19,8 @@
           "required": ["tracks"],
           "properties": {
             "tracks": { "type": "array", "items": { "type": "ref", "ref": "com.suibari.nagi.getRadioTrack#track" } },
-            "cursor": { "type": "string" }
+            "cursor": { "type": "string" },
+            "unreadSlotKey": { "type": "string" }
           }
         }
       },

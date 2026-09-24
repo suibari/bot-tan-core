@@ -13,6 +13,9 @@
             "hasUnread": {
               "type": "boolean"
             },
+            "unreadSlotKey": {
+              "type": "string"
+            },
             "track": {
               "type": "ref",
               "ref": "#track"

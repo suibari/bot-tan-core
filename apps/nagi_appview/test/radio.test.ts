@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { toRadioTrack } from "../src/queries/radio.js";
+import { toRadioTrack, unreadRadioSlot } from "../src/queries/radio.js";
 import type { nagiRadioTracks } from "@bsky-affirmative-bot/database";
 
 const row: typeof nagiRadioTracks.$inferSelect = {
@@ -30,4 +30,11 @@ test("移行前のYouTube履歴はリンクとサムネイルを補完する", (
 test("リンクまたは画像が未確定の新しい放送は返さない", () => {
   assert.equal(toRadioTrack({ ...row, songUrl: null }), null);
   assert.equal(toRadioTrack({ ...row, thumbnailUrl: null }), null);
+});
+
+test("未読枠は既読位置より新しい最新枠だけを返す", () => {
+  assert.equal(unreadRadioSlot("2026-09-24-20", "2026-09-24-14"), "2026-09-24-20");
+  assert.equal(unreadRadioSlot("2026-09-24-14", "2026-09-24-14"), undefined);
+  assert.equal(unreadRadioSlot("2026-09-24-14", "2026-09-24-20"), undefined);
+  assert.equal(unreadRadioSlot("2026-09-24-14", undefined), "2026-09-24-14");
 });
