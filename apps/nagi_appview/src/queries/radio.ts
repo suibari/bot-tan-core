@@ -6,9 +6,11 @@ import { ApiError } from "../middleware/errors.js";
 type RadioRow = typeof nagiRadioTracks.$inferSelect;
 const SLOT_KEY = /^\d{4}-\d{2}-\d{2}-(?:08|14|20)$/;
 
-function toTrack(row: RadioRow) {
+export function toRadioTrack(row: RadioRow) {
+  const songUrl = row.songUrl || (row.videoId ? `https://www.youtube.com/watch?v=${row.videoId}` : null);
+  const thumbnailUrl = row.thumbnailUrl || (row.videoId ? `https://i.ytimg.com/vi/${row.videoId}/hqdefault.jpg` : null);
   const comment = row.commentJa || row.commentEn;
-  if (!row.title || !row.artist || !comment || !row.videoId || !row.publishedAt)
+  if (!row.title || !row.artist || !comment || !songUrl || !thumbnailUrl || !row.publishedAt)
     return null;
   return {
     slotKey: row.slotKey,
@@ -18,7 +20,9 @@ function toTrack(row: RadioRow) {
     comment,
     ...(row.commentJa ? { commentJa: row.commentJa } : {}),
     ...(row.commentEn ? { commentEn: row.commentEn } : {}),
-    videoId: row.videoId,
+    songUrl,
+    thumbnailUrl,
+    ...(row.videoId ? { videoId: row.videoId } : {}),
     publishedAt: row.publishedAt.toISOString(),
     ...(row.sourceUrl ? { sourceUrl: row.sourceUrl } : {}),
   };
@@ -30,6 +34,10 @@ async function latestReadySlot(viewerDid: string): Promise<string | undefined> {
     .where(and(eq(nagiRadioTracks.subjectDid, viewerDid), eq(nagiRadioTracks.status, "ready")))
     .orderBy(desc(nagiRadioTracks.slotKey)).limit(1);
   return row?.slotKey;
+}
+
+export function unreadRadioSlot(latest: string | undefined, seen: string | undefined) {
+  return latest && latest > (seen ?? "") ? latest : undefined;
 }
 
 /** 現在枠の曲はサイドバー用。未読は履歴全体の最新枠から判定する。 */
@@ -44,10 +52,12 @@ export async function getRadioTrack(viewerDid: string, now = new Date()) {
     db.select({ slotKey: nagiRadioReadStates.lastSeenSlotKey })
       .from(nagiRadioReadStates).where(eq(nagiRadioReadStates.subjectDid, viewerDid)).limit(1),
   ]);
-  const track = rows[0] ? toTrack(rows[0]) : null;
+  const track = rows[0] ? toRadioTrack(rows[0]) : null;
+  const unreadSlotKey = unreadRadioSlot(latest, seen[0]?.slotKey);
   return {
     ...(track ? { track } : {}),
-    hasUnread: Boolean(latest && latest > (seen[0]?.slotKey ?? "")),
+    hasUnread: Boolean(unreadSlotKey),
+    ...(unreadSlotKey ? { unreadSlotKey } : {}),
   };
 }
 
@@ -61,18 +71,26 @@ export async function getRadioHistory(
   if (options.limit !== undefined && (!Number.isInteger(options.limit) || options.limit < 1 || options.limit > 30))
     throw new ApiError(400, "invalid_request", "Invalid radio limit");
   const pageSize = Math.min(30, Math.max(1, Math.trunc(options.limit ?? 20)));
-  const rows = await db.select().from(nagiRadioTracks).where(and(
-    eq(nagiRadioTracks.subjectDid, viewerDid),
-    eq(nagiRadioTracks.status, "ready"),
-    options.cursor ? lt(nagiRadioTracks.slotKey, options.cursor) : undefined,
-  )).orderBy(desc(nagiRadioTracks.slotKey)).limit(pageSize + 1);
+  const [rows, latest, seen] = await Promise.all([
+    db.select().from(nagiRadioTracks).where(and(
+      eq(nagiRadioTracks.subjectDid, viewerDid),
+      eq(nagiRadioTracks.status, "ready"),
+      options.cursor ? lt(nagiRadioTracks.slotKey, options.cursor) : undefined,
+    )).orderBy(desc(nagiRadioTracks.slotKey)).limit(pageSize + 1),
+    latestReadySlot(viewerDid),
+    db.select({ slotKey: nagiRadioReadStates.lastSeenSlotKey })
+      .from(nagiRadioReadStates).where(eq(nagiRadioReadStates.subjectDid, viewerDid)).limit(1),
+  ]);
   const hasMore = rows.length > pageSize;
   const pageRows = rows.slice(0, pageSize);
   return {
     tracks: pageRows.flatMap((row) => {
-      const track = toTrack(row);
+      const track = toRadioTrack(row);
       return track ? [track] : [];
     }),
+    ...(!options.cursor && unreadRadioSlot(latest, seen[0]?.slotKey)
+      ? { unreadSlotKey: unreadRadioSlot(latest, seen[0]?.slotKey) }
+      : {}),
     ...(hasMore ? { cursor: pageRows.at(-1)!.slotKey } : {}),
   };
 }

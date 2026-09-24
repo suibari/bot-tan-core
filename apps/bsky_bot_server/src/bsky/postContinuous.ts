@@ -1,5 +1,5 @@
 import { AppBskyFeedPost } from "@atproto/api"; type Record = AppBskyFeedPost.Record;
-import { $Typed, AppBskyEmbedRecord, BlobRef } from "@atproto/api";
+import { $Typed, AppBskyEmbedRecord, AppBskyEmbedExternal, BlobRef } from "@atproto/api";
 import { post } from "./post.js";
 import { ComAtprotoRepoStrongRef } from "@atproto/api"; type Main = ComAtprotoRepoStrongRef.Main;
 import { POST_TEXT_LIMIT } from "@bsky-affirmative-bot/shared-configs";
@@ -23,6 +23,8 @@ export async function postContinuous(
     uri: string,
     cid: string,
   },
+  external?: AppBskyEmbedExternal.External,
+  postImpl: typeof post = post,
 ): Promise<{ uri: string; cid: string; }> {
   // ポスト制限文字数以上の場合は切り詰める
   if (text.length > POST_TEXT_LIMIT) {
@@ -111,7 +113,11 @@ export async function postContinuous(
       newRecord.embed = embedRecord;
     }
 
-    const result = await post(newRecord);
+    if (isFirst && external && !newRecord.embed) {
+      newRecord.embed = { $type: "app.bsky.embed.external", external };
+    }
+
+    const result = await postImpl(newRecord);
     if (isFirst) {
       firstPostResult = result;
     }

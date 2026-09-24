@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { db, nagiActors, nagiRadioTracks } from "@bsky-affirmative-bot/database";
-import { searchYoutubeSong, songKey } from "@bsky-affirmative-bot/bot-brain";
+import { resolveNagiRadioSongLink } from "@bsky-affirmative-bot/bot-brain";
 import { currentRadioSlotKey } from "@bsky-affirmative-bot/nagi-lexicon";
 import { generateNagiRadioForUser } from "../src/NagiRadioWorker.js";
 
@@ -13,11 +13,9 @@ if (!handle) throw new Error("Usage: pnpm --filter nagi-bot-server radio:now --h
 const title = process.argv.find((arg) => arg.startsWith("--title="))?.slice(8);
 const artist = process.argv.find((arg) => arg.startsWith("--artist="))?.slice(9);
 if (Boolean(title) !== Boolean(artist)) throw new Error("--title and --artist must be specified together");
-const matched = title && artist ? await searchYoutubeSong(title, artist) : null;
-if (title && artist && !matched) throw new Error("No official YouTube video for preferred song");
-const preferredSong = title && artist && matched
-  ? { ...matched, title, artist, songKey: songKey({ title, artist }) }
-  : undefined;
+const matched = title && artist ? await resolveNagiRadioSongLink(title, artist) : null;
+if (title && artist && !matched) throw new Error("No Last.fm song link with album artwork for preferred song");
+const preferredSong = matched ?? undefined;
 const [actor] = await db.select({ did: nagiActors.did })
   .from(nagiActors).where(eq(nagiActors.handle, handle)).limit(1);
 if (!actor) throw new Error(`Unknown Nagi handle: ${handle}`);

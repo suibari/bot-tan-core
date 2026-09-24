@@ -44,3 +44,5 @@ export * from './grounding.js';
 export * from './routedGeneration.js';
 export * from './actorThemes.js';
 export * from './newsInterestTopics.js';
+
+export * from "./linkedMoodSong.js";

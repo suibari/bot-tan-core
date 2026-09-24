@@ -7,6 +7,8 @@ import { AppBskyFeedPost } from "@atproto/api"; type Record = AppBskyFeedPost.Re
 import { handleMode, isPast } from "./utils.js";
 import {
     MoodSongResolver,
+    resolveLinkedMoodSong,
+    type LinkedMoodSong,
     type ReservedMoodSong,
 } from "@bsky-affirmative-bot/bot-brain";
 import {
@@ -19,8 +21,9 @@ import retry from "async-retry";
 import { getLangStr } from "../bsky/util.js";
 import { UserInfoGemini, GeminiResponseResult } from "@bsky-affirmative-bot/shared-configs";
 import { agent } from "../bsky/agent.js";
+import { buildDjSongReply } from "./djSongReply.js";
 
-const moodSongResolver = new MoodSongResolver();
+const moodSongResolver = new MoodSongResolver<LinkedMoodSong>(30, { resolve: resolveLinkedMoodSong });
 
 export class DJFeature implements BotFeature {
     name = "DJ";
@@ -57,7 +60,7 @@ export class DJFeature implements BotFeature {
             return;
         }
 
-        let selectedSong: ReservedMoodSong | undefined;
+        let selectedSong: ReservedMoodSong<LinkedMoodSong> | undefined;
         let songProtected = false;
         let songPostCompleted = false;
         const songSelectionScope = djSongSelectionScope(follower.did);
@@ -121,7 +124,7 @@ export class DJFeature implements BotFeature {
         songSelectionScope: ReturnType<typeof djSongSelectionScope>,
     ): Promise<{
         text: GeminiResponseResult;
-        song?: ReservedMoodSong;
+        song?: ReservedMoodSong<LinkedMoodSong>;
     }> {
         const query = (userinfo.posts?.[0] ?? "").slice(0, 1_000);
         const recentPosts = (userinfo.posts?.slice(1, 21) ?? []).reduce<string[]>((selected, post) => {
@@ -140,16 +143,17 @@ export class DJFeature implements BotFeature {
         if (!reservedSong) {
             return {
                 text: langStr === "日本語"
-                    ? "ごめんね、検索とYouTubeの両方で実在を確認できる曲を見つけられなかったよ。"
-                    : "Sorry, I couldn't find a song I could verify through search and YouTube.",
+                    ? "ごめんね、曲のリンクとジャケットを確認できる一曲を見つけられなかったよ。"
+                    : "Sorry, I couldn't find a song with a verified link and album cover.",
             };
         }
-        const groundedSong = reservedSong.song;
-        const text = `${groundedSong.comment}
-title: ${groundedSong.title}
-artist: ${groundedSong.artist}
-${groundedSong.lastFmUrl ? `Source: Last.fm ${groundedSong.lastFmUrl}\n` : ""}
-${groundedSong.url}`;
-        return { text, song: reservedSong };
+        try {
+            const text = await buildDjSongReply(reservedSong.song, async (data, encoding) =>
+                (await agent.uploadBlob(data, { encoding })).data.blob);
+            return { text, song: reservedSong };
+        } catch (error) {
+            await releaseBotSongSelection(reservedSong.reservation);
+            throw error;
+        }
     }
 }

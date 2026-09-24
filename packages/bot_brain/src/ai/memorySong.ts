@@ -168,7 +168,7 @@ export async function resolveMoodSong(
     ...(deps.excludeSongKeys ?? []),
   ]);
   const excludedVideoIds = new Set([
-    ...recent.map((item) => item.videoId),
+    ...recent.flatMap((item) => item.videoId ? [item.videoId] : []),
     ...(deps.excludeVideoIds ?? []),
   ]);
   const searchYoutube = deps.searchYoutube ?? searchYoutubeSong;
@@ -182,7 +182,8 @@ export async function resolveMoodSong(
       });
       if (lastFm) return { ...lastFm, songKey: songKey(lastFm) };
     } catch (error) {
-      console.error("[WARN][MOOD_SONG] Last.fm candidate selection failed", error);
+      // この経路にはYouTube検索も含まれる。Last.fmの障害と決め付けない。
+      console.error("[WARN][MOOD_SONG] Song discovery pipeline failed", error);
     }
   }
 
@@ -213,23 +214,30 @@ export async function resolveMoodSong(
   );
 }
 
-export interface ReservedMoodSong {
-  song: GroundedMoodSong;
+type ReservableMoodSong = { title: string; artist: string; songKey: string; videoId?: string };
+
+type MoodSongResolve<T extends ReservableMoodSong> = (
+  input: MoodSongInput, langStr: LanguageName, scope: BotSongSelectionScope,
+  deps?: Parameters<typeof resolveMoodSong>[3],
+) => Promise<T | null>;
+
+export interface ReservedMoodSong<T extends ReservableMoodSong = GroundedMoodSong> {
+  song: T;
   reservation: BotSongReservation;
 }
 
-type RecentMoodSong = { song: GroundedMoodSong; selectedAt: Date };
+type RecentMoodSong<T> = { song: T; selectedAt: Date };
 
 /** DB予約に加え、同一プロセスでは直近履歴を再問い合わせ前にも除外する。 */
-export class MoodSongResolver {
-  private recent = new Map<string, RecentMoodSong[]>();
+export class MoodSongResolver<T extends ReservableMoodSong = GroundedMoodSong> {
+  private recent = new Map<string, RecentMoodSong<T>[]>();
 
   constructor(
     private maxHistory = 30,
     private dependencies: {
       now?: () => Date;
       reserve?: typeof reserveBotSongSelection;
-      resolve?: typeof resolveMoodSong;
+      resolve?: MoodSongResolve<T>;
     } = {},
   ) {}
 
@@ -254,10 +262,10 @@ export class MoodSongResolver {
   ) {
     const now = this.currentTime();
     const recent = this.activeRecent(scope, now);
-    return (this.dependencies.resolve ?? resolveMoodSong)(input, langStr, scope, {
+    return (this.dependencies.resolve ?? (resolveMoodSong as MoodSongResolve<T>))(input, langStr, scope, {
       now,
       excludeSongKeys: new Set(recent.map((item) => item.song.songKey)),
-      excludeVideoIds: new Set(recent.map((item) => item.song.videoId)),
+      excludeVideoIds: new Set(recent.flatMap((item) => item.song.videoId ? [item.song.videoId] : [])),
     });
   }
 
@@ -266,7 +274,7 @@ export class MoodSongResolver {
     langStr: LanguageName,
     scope: BotSongSelectionScope,
     maxAttempts = 3,
-  ): Promise<ReservedMoodSong | null> {
+  ): Promise<ReservedMoodSong<T> | null> {
     const reserve = this.dependencies.reserve ?? reserveBotSongSelection;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       const song = await this.resolve(input, langStr, scope);
@@ -283,11 +291,11 @@ export class MoodSongResolver {
     return null;
   }
 
-  remember(scope: BotSongSelectionScope, song: GroundedMoodSong, selectedAt = this.currentTime()) {
+  remember(scope: BotSongSelectionScope, song: T, selectedAt = this.currentTime()) {
     const scopeKey = botSongSelectionScopeKey(scope);
     const recent = this.activeRecent(scope, selectedAt);
     this.recent.set(scopeKey, [{ song, selectedAt }, ...recent.filter((item) =>
-      item.song.videoId !== song.videoId && item.song.songKey !== song.songKey
+      (!song.videoId || item.song.videoId !== song.videoId) && item.song.songKey !== song.songKey
     )].slice(0, this.maxHistory));
   }
 }

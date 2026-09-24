@@ -10,29 +10,74 @@
         "schema": {
           "type": "object",
           "properties": {
-            "hasUnread": { "type": "boolean" },
+            "hasUnread": {
+              "type": "boolean"
+            },
+            "unreadSlotKey": {
+              "type": "string"
+            },
             "track": {
               "type": "ref",
               "ref": "#track"
             }
           },
-          "required": ["hasUnread"]
+          "required": [
+            "hasUnread"
+          ]
         }
       }
     },
     "track": {
       "type": "object",
-      "required": ["slotKey", "title", "artist", "comment", "videoId", "publishedAt"],
+      "required": [
+        "slotKey",
+        "title",
+        "artist",
+        "comment",
+        "publishedAt",
+        "songUrl",
+        "thumbnailUrl"
+      ],
       "properties": {
-        "slotKey": { "type": "string" },
-        "title": { "type": "string" },
-        "artist": { "type": "string" },
-        "comment": { "type": "string" },
-        "commentJa": { "type": "string" },
-        "commentEn": { "type": "string" },
-        "videoId": { "type": "string" },
-        "publishedAt": { "type": "string", "format": "datetime" },
-        "sourceUrl": { "type": "string", "format": "uri" }
+        "slotKey": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "artist": {
+          "type": "string"
+        },
+        "comment": {
+          "type": "string"
+        },
+        "commentJa": {
+          "type": "string"
+        },
+        "commentEn": {
+          "type": "string"
+        },
+        "videoId": {
+          "type": "string"
+        },
+        "publishedAt": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "sourceUrl": {
+          "type": "string",
+          "format": "uri"
+        },
+        "songUrl": {
+          "type": "string",
+          "format": "uri",
+          "description": "選曲した曲のページ。Last.fmまたは既存のYouTubeリンク。"
+        },
+        "thumbnailUrl": {
+          "type": "string",
+          "format": "uri",
+          "description": "曲のジャケット画像。既存のYouTube履歴では動画サムネイル。"
+        }
       }
     }
   }

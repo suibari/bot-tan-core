@@ -123,3 +123,18 @@ test("投稿保護とfinalizeは冪等で、15分経過後も保護を維持す�
     output_ref: "at://published",
   });
 });
+
+test("動画なしの曲を予約でき、別曲は許可し同じ曲の並列予約を止める", { skip: !databaseUrl }, async () => {
+  await setup!`truncate affirmative_bot.bot_song_selections restart identity`;
+  const scope = database!.djSongSelectionScope("did:plc:radio-links");
+  const song = { title: "Song", artist: "Artist", songKey: "artist:song", scope };
+  const results = await Promise.all([
+    database!.reserveBotSongSelection(song), database!.reserveBotSongSelection(song),
+  ]);
+  assert.equal(results.filter(Boolean).length, 1);
+  assert.equal(results.find(Boolean)?.videoId, null);
+  assert.ok(await database!.reserveBotSongSelection({ ...song, title: "Other", songKey: "artist:other" }));
+  const recent = await database!.getRecentBotSongSelections(scope);
+  assert.equal(recent.length, 2);
+  assert.ok(recent.every((item) => item.videoId === null));
+});
