@@ -26,7 +26,7 @@ import {
   type SearchMode,
 } from "./hybridSearch.js";
 import { loadMutes, type MuteSet } from "./mutes.js";
-import { loadNewsGenres, nearestOwnPost } from "./personalizedFeed.js";
+import { loadNewsGenres } from "./personalizedFeed.js";
 import { embeddingProfile } from "@bsky-affirmative-bot/database";
 
 export type NewsLang = "ja" | "en";
@@ -580,68 +580,17 @@ export async function getNewsQuoteViews(
   return out;
 }
 
-/**
- * 全肯定ニュースの「動的枠」。ログインユーザーの興味ベクトルに近い承認済みニュースを返す。
- *
- * **items には混ぜない。** クライアントの未読判定が `items[0]` = 最新であることに
- * 依存しているため（news/unread.svelte.ts）、推薦は別フィールドで返して一覧の時系列を保つ。
- *
- * 一覧と違って14日制限は掛けない（searchNews と同じ扱い）。少し前の記事でも、
- * その人に近いなら拾い直す枠なので。
- */
+/** 関心ジャンルに一致した全ニュース。新着との重複・過去記事も含めて時系列で返す。 */
 export async function getRecommendedNews(opts: {
   viewerDid: string;
   lang: NewsLang;
-  limit: number;
-  /** 一覧の1ページ目に既に載っている URI。 */
-  excludeUris: string[];
   mutes: MuteSet;
+  isAdult: boolean;
 }): Promise<RecommendedNewsView[]> {
-  if (opts.limit <= 0) return [];
-  // **関心ジャンルが当たった記事だけを出す。** 理由は飾りではなく掲載条件。
-  // 近い順に3件並べるだけだと、実測で大半が「近いが話題は無関係」な記事になり
-  // （本番で判定200ペア中 一致12件）、「あなたに近いかも」という見出しが実態を伴わなかった。
-  // 当たりが無ければセクションごと出さない。
   const matched = await loadNewsGenres(opts.viewerDid, null);
-  const uris = [...matched.keys()].filter(
-    (uri) => !opts.excludeUris.includes(uri),
-  );
+  const uris = [...matched.keys()];
   if (!uris.length) return [];
-  // 重心ではなく「自分の直近の投稿のいずれかとの最短距離」で並べる（nearestOwnPost 参照）。
-  const dist = sql<number>`${nearestOwnPost(opts.viewerDid, nagiNews.embedding)}`;
-  const rows = await db
-    .select({
-      news: nagiNews,
-      approval: nagiNewsApprovals,
-      actor: nagiActors,
-      profile: nagiProfiles,
-      semDistance: dist,
-    })
-    .from(nagiNews)
-    .innerJoin(nagiNewsApprovals, eq(nagiNewsApprovals.newsUri, nagiNews.uri))
-    .leftJoin(nagiActors, eq(nagiActors.did, nagiNews.did))
-    .leftJoin(nagiProfiles, eq(nagiProfiles.did, nagiNews.did))
-    .where(
-      and(
-        inArray(nagiNews.uri, uris),
-        isNull(nagiNews.deletedAt),
-        eq(nagiNewsApprovals.status, "approved"),
-        eq(nagiNewsApprovals.newsCid, nagiNews.cid),
-        hasTrustedSnapshot,
-        or(
-          eq(nagiNews.did, config.botDid),
-          isNull(nagiActors.did),
-          eq(nagiActors.status, "active"),
-        ),
-        isNotNull(nagiNews.embedding),
-        ...(opts.mutes.actors.length
-          ? [notInArray(nagiNews.did, opts.mutes.actors)]
-          : []),
-      ),
-    )
-    .orderBy(sql`${dist} asc`, sql`${nagiNews.uri} desc`)
-    .limit(opts.limit);
-  const page = rows;
+  const page = await recommendedNewsQuery(uris, opts.mutes, opts.isAdult);
   if (!page.length) return [];
   const reactions = await getReactionViews(
     page.map((row) => row.news.uri),
@@ -652,4 +601,34 @@ export async function getRecommendedNews(opts: {
     // uris は matched から作っているので、ここで必ずジャンルが取れる。
     reason: { genre: matched.get(row.news.uri)! },
   }));
+}
+
+/** 時系列の全推薦。通常一覧との重複・件数・期間では制限しない。 */
+export function recommendedNewsQuery(uris: string[], mutes: MuteSet, isAdult = true) {
+  return db
+    .select({
+      news: nagiNews,
+      approval: nagiNewsApprovals,
+      actor: nagiActors,
+      profile: nagiProfiles,
+    })
+    .from(nagiNews)
+    .innerJoin(nagiNewsApprovals, eq(nagiNewsApprovals.newsUri, nagiNews.uri))
+    .leftJoin(nagiActors, eq(nagiActors.did, nagiNews.did))
+    .leftJoin(nagiProfiles, eq(nagiProfiles.did, nagiNews.did))
+    .where(
+      and(
+        inArray(nagiNews.uri, uris),
+        ...approvedNewsConditions(),
+        ...newsAdultVisibility(isAdult),
+        ...(mutes.actors.length
+          ? [notInArray(nagiNews.did, mutes.actors)]
+          : []),
+      ),
+    )
+    .orderBy(
+      sql`coalesce(${nagiNewsApprovals.snapshotCreatedAt}, ${nagiNews.recordCreatedAt}) desc`,
+      desc(nagiNews.indexedAt),
+      desc(nagiNews.uri),
+    );
 }

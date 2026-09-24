@@ -5,7 +5,7 @@
  *  1. 関心抽出 … 本人の投稿からローカルLLMが具体テーマと広いジャンルを取り出し、
  *     プロフィール用の nagi.actor_interest_keywords と推薦用の
  *     nagi.actor_interest_genres に分けて入れる
- *  2. 突合     … 興味ベクトルに近い記事を数件だけ選び、関心ジャンルのどれに当たるかを
+ *  2. 突合     … 全承認済み記事をバッチに分け、関心ジャンルのどれに当たるかを
  *     ローカルLLMに判定させて nagi.news_reasons に置く
  *
  * リクエスト経路でLLMを呼ばないための前計算であることが要点。AppView は結果を読むだけ。
@@ -47,13 +47,11 @@ const THEME_TTL_HOURS = 24;
  * 突合をやり直す間隔。新しい記事が積まれるので、テーマより短くする。
  *
  * 新着記事に理由が付くのは最大でこの時間ぶん遅れる（ニュースの掲載自体が6時間スロットなので
- * 実質的に同じ周期）。理由が無い記事は理由なしで表示されるだけなので、遅れても壊れない。
+ * 実質的に同じ周期）。未判定の記事は通常一覧には出るが、おすすめへの反映は判定完了後になる。
  */
 const REASON_TTL_HOURS = 6;
 /** 動的枠を出すのに必要な埋め込み済み投稿数（personalizedFeed.ts と揃える）。 */
 const MIN_PROBE_POSTS = 5;
-/** 採点に使う自分の投稿の本数（personalizedFeed.ts と揃える）。 */
-const PROBE_POSTS = 10;
 /** テーマとして扱うのに最低限必要なハッシュタグの使用回数。1回だけの語は癖ではない。 */
 const MIN_HASHTAG_POSTS = 2;
 const MAX_HASHTAG_THEMES = 8;
@@ -181,40 +179,36 @@ async function actorsNeedingReasons(limit: number): Promise<string[]> {
   return rows.map((row) => row.did);
 }
 
-/**
- * そのユーザーの興味ベクトルに近い記事を数件選び、テーマとの突合結果を保存する。
- *
- * 候補の選び方は AppView の getRecommendedNews と同じ「直近投稿のどれかに近い順」。実際に表示される
- * 3件はこの上位に含まれるので、多めに取っておけば取りこぼしはほぼ無い。
- */
-async function computeReasons(did: string): Promise<number> {
+/** 全承認済みニュースを、未判定・記事更新分から1バッチずつ突合する。 */
+export async function computeReasons(
+  did: string,
+  match: typeof matchNewsToGenres = matchNewsToGenres,
+): Promise<{ matched: number; complete: boolean }> {
   const genreRows = await db
     .select({ genre: nagiActorInterestGenres.genre })
     .from(nagiActorInterestGenres)
     .where(eq(nagiActorInterestGenres.did, did));
   const genres = genreRows.map((row) => row.genre);
-  if (!genres.length) return 0;
+  if (!genres.length) return { matched: 0, complete: true };
 
-  // AppView の getRecommendedNews と同じ採点（自分の直近投稿との最短距離）で並べる。
-  // 実際に表示される3件はこの上位に含まれるので、多めに取れば取りこぼしはほぼ無い。
-  const articles = await db.execute<{ uri: string; title: string }>(sql`
-    with probe as (
-      select embedding from nagi.posts
-       where did = ${did} and deleted_at is null and embedding is not null
-       order by indexed_at desc limit ${PROBE_POSTS}
-    )
+  // 30件は全体の候補上限ではなく、1回のLLM呼び出しの上限。
+  // 判定済みの不一致も保存し、次のtickでその先の記事へ進む。
+  const pending = await db.execute<{ uri: string; title: string }>(sql`
     select n.uri, coalesce(a.snapshot_title_ja, n.title_ja) as title
       from nagi.news n
       join nagi.news_approvals a
         on a.news_uri = n.uri and a.news_cid = n.cid and a.status = 'approved'
+      left join nagi.news_reasons r on r.news_uri = n.uri and r.did = ${did}
      where n.deleted_at is null
-       and n.embedding is not null
-     order by (select min(probe.embedding <=> n.embedding) from probe) asc
-     limit ${MAX_MATCH_ARTICLES}
+       and a.hidden_at is null
+       and (r.news_uri is null or r.updated_at < a.reviewed_at)
+     order by coalesce(a.snapshot_created_at, n.record_created_at) desc, n.indexed_at desc, n.uri desc
+     limit ${MAX_MATCH_ARTICLES + 1}
   `);
-  if (!articles.length) return 0;
+  const articles = pending.slice(0, MAX_MATCH_ARTICLES);
+  if (!articles.length) return { matched: 0, complete: true };
 
-  const matches = await matchNewsToGenres(
+  const matches = await match(
     genres,
     articles.map((row) => row.title),
   );
@@ -237,7 +231,10 @@ async function computeReasons(did: string): Promise<number> {
         updatedAt: sql`excluded.updated_at`,
       },
     });
-  return matches.filter(Boolean).length;
+  return {
+    matched: matches.filter(Boolean).length,
+    complete: pending.length <= MAX_MATCH_ARTICLES,
+  };
 }
 
 /**
@@ -246,13 +243,15 @@ async function computeReasons(did: string): Promise<number> {
  * テーマが無い・記事が0件で1行も書けなかったときも印は付ける（付けないと次の tick で
  * また選ばれる）。例外時は付けない ＝ Ollama 不通などは次回に持ち越す。
  */
-async function refreshReasons(did: string): Promise<number> {
-  const matched = await computeReasons(did);
-  await db
-    .update(nagiActors)
-    .set({ newsReasonsCheckedAt: new Date() })
-    .where(eq(nagiActors.did, did));
-  return matched;
+async function refreshReasons(did: string): Promise<{ matched: number; complete: boolean }> {
+  const result = await computeReasons(did);
+  if (result.complete) {
+    await db
+      .update(nagiActors)
+      .set({ newsReasonsCheckedAt: new Date() })
+      .where(eq(nagiActors.did, did));
+  }
+  return result;
 }
 
 let running = false;
@@ -262,7 +261,7 @@ export function startNagiThemeWorker() {
   running = true;
 
   /**
-   * 戻り値は「成果があったか」。実行できただけでは busy 扱いにしない。
+   * 一致があった、または未処理の記事が残る場合に短い間隔で続行する。
    * 空振りが busy を維持すると、間隔が10秒に張り付いたまま何も進まなくなる。
    */
   const tick = async (): Promise<number> => {
@@ -279,9 +278,9 @@ export function startNagiThemeWorker() {
     }
     for (const did of await actorsNeedingReasons(BATCH_SIZE)) {
       try {
-        const n = await refreshReasons(did);
-        console.info(LOG_PREFIX, { event: "reasons", did, matched: n });
-        if (n > 0) worked++;
+        const result = await refreshReasons(did);
+        console.info(LOG_PREFIX, { event: "reasons", did, ...result });
+        if (result.matched > 0 || !result.complete) worked++;
       } catch (error) {
         console.error(`[ERROR]${LOG_PREFIX} reasons did=${did}`, error);
       }
