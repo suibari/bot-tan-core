@@ -13,6 +13,7 @@ import { botLabelerManager, MemoryService } from '@bsky-affirmative-bot/clients'
 import { eq } from 'drizzle-orm';
 import { BADGE_DEF } from '@bsky-affirmative-bot/shared-configs';
 import { assertExternalAccountAccessAllowed } from '@bsky-affirmative-bot/shared-configs/externalAccountAccess';
+import { registerModerationInteractions, startModerationNoticeServer } from './moderation.js';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -39,6 +40,20 @@ if (!DISCORD_TOKEN || !GUILD_ID || !ROLE_ID || !CHANNEL_ID) {
   console.error(`DISCORD_ROLE_ID: ${ROLE_ID ? 'Loaded' : 'Missing'}`);
   console.error(`DISCORD_CHANNEL_ID: ${CHANNEL_ID ? 'Loaded' : 'Missing'}`);
   process.exit(1);
+}
+
+// Nagi のモデレーション通知（解除ボタン付き）。未設定なら AppView は Webhook へ送る。
+const MODERATION_CHANNEL_ID = process.env.DISCORD_MODERATION_CHANNEL_ID;
+const moderationConfig = MODERATION_CHANNEL_ID
+  ? {
+      channelId: MODERATION_CHANNEL_ID,
+      moderatorRoleId: process.env.DISCORD_MODERATOR_ROLE_ID || undefined,
+      port: Number(process.env.DISCORD_BOT_INTERNAL_PORT || 3005),
+      appviewOverrideUrl: `http://127.0.0.1:${Number(process.env.NAGI_APPVIEW_INTERNAL_PORT || 3004)}/internal/moderation/override`,
+    }
+  : undefined;
+if (!moderationConfig) {
+  console.warn("[WARN][DISCORD] DISCORD_MODERATION_CHANNEL_ID is unset; moderation notices stay webhook-only.");
 }
 
 // Checks if a member has the subscriber role and upgrades their status to 'active'.
@@ -337,7 +352,13 @@ async function startBot() {
     await reconcileMembers(member.guild);
   });
 
-  // 8. Connect/Login to Discord
+  // 8. Moderation notices with release buttons
+  if (moderationConfig) {
+    registerModerationInteractions(client, moderationConfig);
+    startModerationNoticeServer(client, moderationConfig);
+  }
+
+  // 9. Connect/Login to Discord
   client.login(DISCORD_TOKEN);
 }
 

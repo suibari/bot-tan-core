@@ -9,6 +9,7 @@ import {
 import { config } from "../config.js";
 import { applyMutation } from "../ingest/applyMutation.js";
 import { createKossoriPost } from "../queries/kossoriPosts.js";
+import { overrideModerationDecision } from "../services/moderation/override.js";
 import { dispatchPush } from "../services/pushDispatch.js";
 import { resolveEmojiAliases } from "../services/emoji.js";
 import {
@@ -50,6 +51,37 @@ internal.post("/emoji/resolve-aliases", async (req, res, next) => {
       return;
     }
     res.status(200).json({ aliases: await resolveEmojiAliases(aliases) });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * 運用者によるモデレーション判定の上書き。discord_bot が解除ボタンの押下を受けて叩く。
+ * 押した人の権限確認は discord_bot 側（ロール）で済ませてある。
+ */
+internal.post("/moderation/override", async (req, res, next) => {
+  try {
+    const uri = req.body?.uri;
+    const action = req.body?.action;
+    const actor = req.body?.actor;
+    if (
+      typeof uri !== "string" ||
+      !uri.startsWith("at://") ||
+      action !== "allow" ||
+      typeof actor !== "string" ||
+      !actor
+    ) {
+      res
+        .status(400)
+        .json({ error: "uri, action=allow and actor are required" });
+      return;
+    }
+    const result = await overrideModerationDecision({ uri, action, actor });
+    console.warn(
+      `[moderation] override ${action} by ${actor}: ${uri} -> ${result.status}`,
+    );
+    res.status(result.status === "not-found" ? 404 : 200).json(result);
   } catch (e) {
     next(e);
   }

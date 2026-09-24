@@ -5,7 +5,7 @@ import type { ModerationDecision } from "./rules.js";
  * 運用者向けの Discord 通知。
  *
  * AppView と discord_bot は同じホストで動くので、outbox もポーラーも挟まず
- * Webhook を直接叩く。判定は取り込みと非同期なので、ここが失敗しても
+ * discord_bot の内部 HTTP（解除ボタン付き）を直接叩き、繋がらなければ Webhook へ送る。判定は取り込みと非同期なので、ここが失敗しても
  * 取り込み・投稿は一切影響を受けない（ログだけ残す）。
  */
 
@@ -84,13 +84,56 @@ async function downloadImages(imageUrls: string[]): Promise<{
   return { files, embeds, failures };
 }
 
+/** 解除ボタンを付ける対象。discord_bot にだけ渡り、Webhook では使えない。 */
+type NoticeAction = { uri: string; decision: ModerationDecision };
+
+/**
+ * discord_bot 経由で投稿する。ボタン付きメッセージは bot でしか送れない（通常の
+ * Webhook は components を受け付けない）。bot が落ちている・未設定なら false。
+ */
+async function postViaBot(
+  url: string,
+  payload: object,
+  files: Array<{ blob: Blob; filename: string }>,
+  action: NoticeAction | undefined,
+): Promise<boolean> {
+  if (!url) return false;
+  try {
+    const form = new FormData();
+    form.append("payload_json", JSON.stringify(payload));
+    files.forEach((file, index) =>
+      form.append(`files[${index}]`, file.blob, file.filename),
+    );
+    if (action) {
+      form.append("moderation_uri", action.uri);
+      form.append("moderation_decision", action.decision);
+    }
+    const response = await fetch(url, {
+      method: "POST",
+      body: form,
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+    if (response.ok) return true;
+    console.warn(
+      `[moderation] discord_bot returned HTTP ${response.status}; falling back to webhook`,
+    );
+  } catch (error) {
+    console.warn(
+      `[moderation] discord_bot unreachable; falling back to webhook: ${String(error)}`,
+    );
+  }
+  return false;
+}
+
 async function post(
   content: string,
   embeds: DiscordEmbed[] = [],
   imageUrls: string[] = [],
+  action?: NoticeAction,
 ): Promise<void> {
   const webhook = config.moderation?.discordWebhookUrl;
-  if (!webhook) return;
+  const botUrl = config.moderation?.discordBotInternalUrl ?? "";
+  if (!webhook && !botUrl) return;
   try {
     const downloaded = imageUrls.length
       ? await downloadImages(imageUrls)
@@ -103,6 +146,13 @@ async function post(
       embeds: [...embeds, ...downloaded.embeds].slice(0, 10),
       allowed_mentions: { parse: [] },
     };
+    if (await postViaBot(botUrl, payload, downloaded.files, action)) return;
+    if (!webhook) {
+      console.error(
+        "[ERROR][moderation] discord_bot failed and no webhook fallback is configured",
+      );
+      return;
+    }
     const form = downloaded.files.length ? new FormData() : undefined;
     if (form) {
       form.append("payload_json", JSON.stringify(payload));
@@ -182,6 +232,7 @@ export async function notifyDecision(notice: ModerationNotice): Promise<void> {
       },
     ],
     notice.imageUrls,
+    { uri: notice.uri, decision: notice.decision },
   );
 }
 

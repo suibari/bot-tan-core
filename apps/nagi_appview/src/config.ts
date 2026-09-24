@@ -59,10 +59,16 @@ function moderationConfig() {
       throw new Error("OPENAI_API_KEY is required in production");
     return undefined;
   }
+  const notificationsAllowed = appviewExternalNotificationsAllowed();
   return {
     apiKey,
-    discordWebhookUrl: appviewExternalNotificationsAllowed()
+    discordWebhookUrl: notificationsAllowed
       ? process.env.NAGI_MODERATION_DISCORD_WEBHOOK_URL || ""
+      : "",
+    // 解除ボタン付きで投稿するため discord_bot の内部 HTTP を先に叩く。
+    // 繋がらなければ discordWebhookUrl（ボタン無し）へフォールバックする。
+    discordBotInternalUrl: notificationsAllowed
+      ? `http://127.0.0.1:${integer("DISCORD_BOT_INTERNAL_PORT", 3005, 1, 65_535)}/moderation/notices`
       : "",
   };
 }
