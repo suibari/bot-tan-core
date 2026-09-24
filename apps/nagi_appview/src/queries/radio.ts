@@ -7,13 +7,17 @@ type RadioRow = typeof nagiRadioTracks.$inferSelect;
 const SLOT_KEY = /^\d{4}-\d{2}-\d{2}-(?:08|14|20)$/;
 
 function toTrack(row: RadioRow) {
-  if (!row.title || !row.artist || !row.comment || !row.videoId || !row.publishedAt)
+  const comment = row.commentJa || row.commentEn;
+  if (!row.title || !row.artist || !comment || !row.videoId || !row.publishedAt)
     return null;
   return {
     slotKey: row.slotKey,
     title: row.title,
     artist: row.artist,
-    comment: row.comment,
+    // 旧クライアントとの互換用。DBにはja/enだけを保存する。
+    comment,
+    ...(row.commentJa ? { commentJa: row.commentJa } : {}),
+    ...(row.commentEn ? { commentEn: row.commentEn } : {}),
     videoId: row.videoId,
     publishedAt: row.publishedAt.toISOString(),
     ...(row.sourceUrl ? { sourceUrl: row.sourceUrl } : {}),

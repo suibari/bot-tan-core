@@ -28,6 +28,8 @@
         "title": { "type": "string" },
         "artist": { "type": "string" },
         "comment": { "type": "string" },
+        "commentJa": { "type": "string" },
+        "commentEn": { "type": "string" },
         "videoId": { "type": "string" },
         "publishedAt": { "type": "string", "format": "datetime" },
         "sourceUrl": { "type": "string", "format": "uri" }

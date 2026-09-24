@@ -1,5 +1,6 @@
 import { Type } from "@google/genai";
 import { generateContentWithRetry } from "./util.js";
+import { BILINGUAL_COMMENT_INSTRUCTION, normalizeBilingualComment, type BilingualComment } from "./bilingualComment.js";
 import {
   SYSTEM_INSTRUCTION,
   TONE_RULES_JA,
@@ -22,10 +23,7 @@ export interface NagiZenkatsuCommentInput {
   reading: string[];
 }
 
-export interface NagiZenkatsuCommentResult {
-  commentJa: string;
-  commentEn: string;
-}
+export type NagiZenkatsuCommentResult = BilingualComment;
 
 /**
  * v2: 日英のカード名を出力欄に合わせて保存前に揃える。
@@ -101,7 +99,7 @@ export async function generateZenkatsuComment(
        * 呼び出しは1ユーザーにつき1日1回なので総量はごくわずか。
        */
       feature: "NAGI_ZENKATSU",
-      contents: [buildZenkatsuCommentPrompt(input)],
+      contents: [BILINGUAL_COMMENT_INSTRUCTION + "\n" + buildZenkatsuCommentPrompt(input)],
       config: {
         systemInstruction: SYSTEM_INSTRUCTION,
         responseMimeType: "application/json",
@@ -126,13 +124,7 @@ export async function generateZenkatsuComment(
   );
 
   try {
-    const json = JSON.parse(
-      response.text || "{}",
-    ) as NagiZenkatsuCommentResult;
-    return normalizeZenkatsuCommentCardNames({
-      commentJa: (json.commentJa || "").trim(),
-      commentEn: (json.commentEn || "").trim(),
-    }, input.cards);
+    return normalizeZenkatsuCommentCardNames(normalizeBilingualComment(JSON.parse(response.text || "{}")), input.cards);
   } catch (e) {
     console.error(
       "[ERROR] Failed to parse Structured Outputs JSON in generateZenkatsuComment:",

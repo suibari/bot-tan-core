@@ -1,14 +1,32 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ensureRadioAddress, generateNagiRadioComment } from "../src/ai/generateNagiRadioComment.js";
+import { ensureRadioAddress, generateNagiRadioComment, generateNagiRadioComments } from "../src/ai/generateNagiRadioComment.js";
 import { selectNagiRadioCandidate } from "../src/ai/nagiRadioCandidate.js";
-import { radioGreeting, radioObservances } from "../src/ai/nagiRadioOpening.js";
+import { radioObservances } from "../src/ai/nagiRadioOpening.js";
 import { getWhatDayForCalendarDate } from "@bsky-affirmative-bot/shared-configs";
 
 const songs = [
   { title: "First Song", artist: "First Artist", videoId: "aaaaaaaaaaa", videoTitle: "First Song", songKey: "first" },
   { title: "Second Song", artist: "Second Artist", videoId: "bbbbbbbbbbb", videoTitle: "Second Song", songKey: "second" },
 ];
+
+test("両言語を1回で生成し、片方が欠けた場合だけ再試行する", async () => {
+  let calls = 0;
+  const result = await generateNagiRadioComments({
+    did: "did:plc:test", name: "Suibari", slotKey: "2026-09-24-08",
+    posts: ["ラジオを作っている"], memory: [], hasPrivatePost: false,
+    song: songs[0], fact: null,
+  }, { chat: async (_route, _messages, options) => {
+    calls++;
+    assert.deepEqual(options?.format && (options.format as { required: string[] }).required, ["commentJa", "commentEn"]);
+    return JSON.stringify(calls === 1 ? { commentJa: "一緒に聴こう。" }
+      : { commentJa: "一緒に聴こう。", commentEn: "Let's listen together." });
+  } });
+  assert.equal(calls, 2);
+  // 挨拶や記念日が生成されなくても受け入れ、定型のOpeningは付けない。
+  assert.equal(result.commentJa, "Suibari、一緒に聴こう。");
+  assert.equal(result.commentEn, "Suibari, Let's listen together.");
+});
 
 test("制作情報が3件とも見つからなくても最初の確認済み曲を選ぶ", async () => {
   const result = await selectNagiRadioCandidate(
@@ -71,15 +89,13 @@ test("出典がなくてもAIで日本語と英語の紹介文を作る", async 
     }, { chat: async (_route, messages) => {
       calls++;
       assert.match(messages[0].content, /verifiedFact/);
-      return JSON.stringify({ comment: language === "日本語"
-        ? "First ArtistのFirst Songを聴こう。"
-        : "Let's hear First Song by First Artist." });
+      return JSON.stringify({ commentJa: "First ArtistのFirst Songを聴こう。",
+        commentEn: "Let's hear First Song by First Artist." });
     } });
     assert.equal(calls, 1);
     assert.ok(comment.includes(songs[0].title));
     assert.ok(comment.includes(songs[0].artist));
     assert.doesNotMatch(comment, /主題歌|制作|producer|soundtrack/i);
-    assert.ok(comment.startsWith(language === "日本語" ? "こんばんは！" : "Good evening!"));
     assert.ok(comment.includes("Suibari,") || comment.includes("Suibari、"));
   }
 });
@@ -93,23 +109,21 @@ test("AI応答が一時的に不正でも再試行し、失敗し続けたら公
   let calls = 0;
   const comment = await generateNagiRadioComment(input, { chat: async () => {
     calls++;
-    return calls === 1 ? "invalid json" : JSON.stringify({ comment: "前に話した街の写真を思い出したよ。" });
+    return calls === 1 ? "invalid json" : JSON.stringify({ commentJa: "前に話した街の写真を思い出したよ。", commentEn: "I remembered your city photos." });
   } });
   assert.equal(calls, 2);
-  assert.match(comment, /^こんばんは！すいばり、前に話した街の写真/);
+  assert.match(comment, /^すいばり、前に話した街の写真/);
   await assert.rejects(generateNagiRadioComment(input, { chat: async () =>
     JSON.stringify({ comment: "" }) }), /five attempts/);
 });
 
-test("朝の枠だけ、年に応じた記念日を挨拶に含める", () => {
+test("朝の枠だけ、年に応じた記念日を生成材料に含める", () => {
   const observances = radioObservances("2026-09-21-08");
   assert.equal(observances.length, 1);
   assert.ok(getWhatDayForCalendarDate(2026, 9, 21).includes(observances[0]));
   assert.deepEqual(radioObservances("2026-09-21-08"), observances);
-  assert.equal(radioGreeting("2026-09-21-08", "日本語"), `おはよう！今日は${observances[0]}だね。`);
-  assert.equal(radioGreeting("2026-09-21-14", "日本語"), "こんにちは！");
-  assert.equal(radioGreeting("2026-09-21-20", "日本語"), "こんばんは！");
-  assert.equal(radioGreeting("2026-09-21-08", "English"), "Good morning!");
+  assert.deepEqual(radioObservances("2026-09-21-14"), []);
+  assert.deepEqual(radioObservances("2026-09-21-20"), []);
 });
 
 test("DJ本文で本人を一度は呼びかけ、既存の呼びかけは重ねない", () => {

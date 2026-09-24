@@ -12,7 +12,7 @@ import {
   reserveBotSongSelection,
   type BotSongReservation,
 } from "@bsky-affirmative-bot/database";
-import { generateNagiRadioComment, researchNagiRadioSong, resolveMoodSong, searchYoutubeSong, selectNagiRadioCandidate, selectNagiRadioPostContext, type NagiRadioSong } from "@bsky-affirmative-bot/bot-brain";
+import { generateNagiRadioComments, researchNagiRadioSong, resolveMoodSong, searchYoutubeSong, selectNagiRadioCandidate, selectNagiRadioPostContext, type NagiRadioSong } from "@bsky-affirmative-bot/bot-brain";
 import { getLangStr } from "@bsky-affirmative-bot/clients";
 import { currentRadioSlotKey } from "@bsky-affirmative-bot/nagi-lexicon";
 import { startWorkerLoop } from "./workerLoop.js";
@@ -33,7 +33,8 @@ export async function generateNagiRadioForUser(
     target: [nagiRadioTracks.subjectDid, nagiRadioTracks.slotKey],
     set: {
       status: "pending", claimedAt: now,
-      title: null, artist: null, comment: null, videoId: null,
+      title: null, artist: null, videoId: null,
+      commentJa: null, commentEn: null,
       videoTitle: null, sourceUrl: null, publishedAt: null,
     },
     setWhere: and(eq(nagiRadioTracks.status, "pending"), lte(nagiRadioTracks.claimedAt, stale)),
@@ -104,7 +105,7 @@ export async function generateNagiRadioForUser(
       db.select({ displayName: nagiProfiles.displayName }).from(nagiProfiles).where(eq(nagiProfiles.did, did)).limit(1),
       db.select({ name: nagiPreferredNames.name }).from(nagiPreferredNames).where(eq(nagiPreferredNames.did, did)).limit(1),
     ]);
-    const comment = await generateNagiRadioComment({
+    const comments = await generateNagiRadioComments({
       did, name: preferred[0]?.name || profile[0]?.displayName || actor[0]?.handle || null,
       slotKey, posts: commentPost ? [context!.commentPostText] : [],
       memory: recalled ? [recalled.text] : [],
@@ -119,7 +120,8 @@ export async function generateNagiRadioForUser(
     const held = reservation;
     await db.transaction(async (tx) => {
       const [published] = await tx.update(nagiRadioTracks).set({
-        status: "ready", title: song.title, artist: song.artist, comment,
+        status: "ready", title: song.title, artist: song.artist,
+        commentJa: comments.commentJa, commentEn: comments.commentEn,
         videoId: song.videoId, videoTitle: song.videoTitle,
         sourceUrl: fact?.sourceUrl ?? null, publishedAt: new Date(),
       }).where(and(eq(nagiRadioTracks.subjectDid, did), eq(nagiRadioTracks.slotKey, slotKey),
