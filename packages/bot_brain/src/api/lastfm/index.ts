@@ -1,6 +1,5 @@
-import { withMoodSongApiCall } from "../moodSongRequest.js";
+import { requestLastFm } from "./request.js";
 
-const LASTFM_API_URL = "https://ws.audioscrobbler.com/2.0/";
 const TOP_TRACKS_CACHE_MS = 6 * 60 * 60 * 1_000;
 const TRACK_INFO_CACHE_MS = 24 * 60 * 60 * 1_000;
 const TRACK_SEARCH_CACHE_MS = 24 * 60 * 60 * 1_000;
@@ -35,6 +34,10 @@ export interface LastFmTrack {
 }
 
 export interface LastFmTrackInfo {
+  title?: string;
+  artist?: string;
+  lastFmUrl?: string;
+  thumbnailUrl?: string;
   listeners: number | null;
   summary: string;
   topTags: string[];
@@ -132,15 +135,7 @@ export async function searchLastFmArtists(
     format: "json",
     limit: String(limit),
   });
-  const body = await withMoodSongApiCall("lastfm", "artist.search", async (signal) => {
-    const response = await (options.fetchImpl ?? fetch)(`${LASTFM_API_URL}?${params}`, {
-      headers: { "User-Agent": "bot-tan-core/lastfm-mood-song" },
-      signal,
-    });
-    if (!response.ok) throw new Error(`Last.fm HTTP ${response.status}`);
-    return response.json() as Promise<LastFmArtistSearchResponse>;
-  });
-  if (body.error) throw new Error(`Last.fm API ${body.error}: ${body.message ?? "unknown error"}`);
+  const body = await requestLastFm<LastFmArtistSearchResponse>(params, options.fetchImpl);
   const artists = (body.results?.artistmatches?.artist ?? []).flatMap((artist) => {
     const name = artist.name?.trim();
     if (!name) return [];
@@ -181,15 +176,7 @@ export async function getLastFmArtistTopTracks(
     limit: String(limit),
     page: String(page),
   });
-  const body = await withMoodSongApiCall("lastfm", "artist.getTopTracks", async (signal) => {
-    const response = await (options.fetchImpl ?? fetch)(`${LASTFM_API_URL}?${params}`, {
-      headers: { "User-Agent": "bot-tan-core/lastfm-mood-song" },
-      signal,
-    });
-    if (!response.ok) throw new Error(`Last.fm HTTP ${response.status}`);
-    return response.json() as Promise<LastFmArtistTopTracksResponse>;
-  });
-  if (body.error) throw new Error(`Last.fm API ${body.error}: ${body.message ?? "unknown error"}`);
+  const body = await requestLastFm<LastFmArtistTopTracksResponse>(params, options.fetchImpl);
   const tracks = (body.toptracks?.track ?? []).flatMap((track, index) => {
     const title = track.name?.trim();
     const trackArtist = track.artist?.name?.trim() || artist.name.trim();
@@ -231,15 +218,7 @@ export async function searchLastFmTracks(
     format: "json",
     limit: String(limit),
   });
-  const body = await withMoodSongApiCall("lastfm", "track.search", async (signal) => {
-    const response = await (options.fetchImpl ?? fetch)(`${LASTFM_API_URL}?${params}`, {
-      headers: { "User-Agent": "bot-tan-core/lastfm-mood-song" },
-      signal,
-    });
-    if (!response.ok) throw new Error(`Last.fm HTTP ${response.status}`);
-    return response.json() as Promise<LastFmTrackSearchResponse>;
-  });
-  if (body.error) throw new Error(`Last.fm API ${body.error}: ${body.message ?? "unknown error"}`);
+  const body = await requestLastFm<LastFmTrackSearchResponse>(params, options.fetchImpl);
   const tracks = (body.results?.trackmatches?.track ?? []).flatMap((track, index) => {
     const title = track.name?.trim();
     const artist = track.artist?.trim();
@@ -281,15 +260,7 @@ export async function getLastFmTopTracks(
     limit: String(limit),
     page: String(page),
   });
-  const body = await withMoodSongApiCall("lastfm", "tag.getTopTracks", async (signal) => {
-    const response = await (options.fetchImpl ?? fetch)(`${LASTFM_API_URL}?${params}`, {
-      headers: { "User-Agent": "bot-tan-core/lastfm-mood-song" },
-      signal,
-    });
-    if (!response.ok) throw new Error(`Last.fm HTTP ${response.status}`);
-    return response.json() as Promise<LastFmTopTracksResponse>;
-  });
-  if (body.error) throw new Error(`Last.fm API ${body.error}: ${body.message ?? "unknown error"}`);
+  const body = await requestLastFm<LastFmTopTracksResponse>(params, options.fetchImpl);
 
   const tracks = (body.tracks?.track ?? []).flatMap((track, index) => {
     const title = track.name?.trim();
@@ -312,6 +283,10 @@ export async function getLastFmTopTracks(
 
 interface LastFmTrackInfoResponse {
   track?: {
+    name?: string;
+    url?: string;
+    artist?: { name?: string };
+    album?: { image?: Array<{ "#text"?: string; size?: string }> };
     listeners?: string;
     wiki?: { summary?: string };
     toptags?: { tag?: Array<{ name?: string }> };
@@ -328,6 +303,35 @@ const decodeBasicHtml = (value: string) => value
   .replace(/&amp;/gu, "&")
   .replace(/\s+/gu, " ")
   .trim();
+
+/** APIが返した曲ページだけをリンクに使う。推測でURLを組み立てない。 */
+export function lastFmSongUrl(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    const url = new URL(value);
+    if (!["https:", "http:"].includes(url.protocol) ||
+      !["www.last.fm", "last.fm"].includes(url.hostname) || url.username || url.password || url.port ||
+      !/^\/music\/[^/]+\/_\/[^/]+\/?$/.test(url.pathname)) return undefined;
+    url.protocol = "https:";
+    return url.href;
+  } catch { return undefined; }
+}
+
+export function lastFmAlbumImage(images: Array<{ "#text"?: string; size?: string }> = []): string | undefined {
+  const sizes = ["mega", "extralarge", "large", "medium", "small"];
+  for (const size of sizes) {
+    for (const image of images.filter((entry) => entry.size === size)) {
+      try {
+        const url = new URL(image["#text"] ?? "");
+        if (url.protocol !== "https:" || url.username || url.password || url.port ||
+          !["lastfm-img.freetls.fastly.net", "lastfm.freetls.fastly.net"].includes(url.hostname) ||
+          /2a96cbd8b46e442fc41c2b86b821562f/i.test(url.pathname)) continue;
+        return url.href;
+      } catch { /* 空画像や不正URLは採用しない。 */ }
+    }
+  }
+  return undefined;
+}
 
 export async function getLastFmTrackInfo(
   title: string,
@@ -349,17 +353,15 @@ export async function getLastFmTrackInfo(
     format: "json",
     autocorrect: "1",
   });
-  const body = await withMoodSongApiCall("lastfm", "track.getInfo", async (signal) => {
-    const response = await (options.fetchImpl ?? fetch)(`${LASTFM_API_URL}?${params}`, {
-      headers: { "User-Agent": "bot-tan-core/lastfm-mood-song" },
-      signal,
-    });
-    if (!response.ok) throw new Error(`Last.fm HTTP ${response.status}`);
-    return response.json() as Promise<LastFmTrackInfoResponse>;
-  });
-  if (body.error) throw new Error(`Last.fm API ${body.error}: ${body.message ?? "unknown error"}`);
+  const body = await requestLastFm<LastFmTrackInfoResponse>(params, options.fetchImpl);
   const listeners = Number(body.track?.listeners);
+  const lastFmUrl = lastFmSongUrl(body.track?.url);
+  const thumbnailUrl = lastFmAlbumImage(body.track?.album?.image);
   const info = {
+    ...(body.track?.name?.trim() ? { title: body.track.name.trim() } : {}),
+    ...(body.track?.artist?.name?.trim() ? { artist: body.track.artist.name.trim() } : {}),
+    ...(lastFmUrl ? { lastFmUrl } : {}),
+    ...(thumbnailUrl ? { thumbnailUrl } : {}),
     listeners: Number.isFinite(listeners) && listeners >= 0 ? listeners : null,
     summary: decodeBasicHtml(body.track?.wiki?.summary ?? "").slice(0, 700),
     topTags: (body.track?.toptags?.tag ?? [])
@@ -399,15 +401,7 @@ export async function getLastFmArtistTags(
     format: "json",
     autocorrect: "1",
   });
-  const body = await withMoodSongApiCall("lastfm", "artist.getInfo", async (signal) => {
-    const response = await (options.fetchImpl ?? fetch)(`${LASTFM_API_URL}?${params}`, {
-      headers: { "User-Agent": "bot-tan-core/lastfm-mood-song" },
-      signal,
-    });
-    if (!response.ok) throw new Error(`Last.fm HTTP ${response.status}`);
-    return response.json() as Promise<LastFmArtistInfoResponse>;
-  });
-  if (body.error) throw new Error(`Last.fm API ${body.error}: ${body.message ?? "unknown error"}`);
+  const body = await requestLastFm<LastFmArtistInfoResponse>(params, options.fetchImpl);
   const tags = (body.artist?.tags?.tag ?? [])
     .flatMap((tag) => tag.name?.trim() ? [tag.name.trim()] : [])
     .slice(0, 8);

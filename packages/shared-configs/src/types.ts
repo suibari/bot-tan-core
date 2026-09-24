@@ -1,4 +1,4 @@
-import { BlobRef, AppBskyActorDefs, AppBskyFeedPost } from "@atproto/api";
+import { BlobRef, AppBskyActorDefs, AppBskyFeedPost, AppBskyEmbedExternal } from "@atproto/api";
 import { Content, Type } from "@google/genai";
 
 type ProfileView = AppBskyActorDefs.ProfileView;
@@ -266,6 +266,7 @@ export interface ImageRef {
 export type GeminiResponseResult = string | {
   text: string;
   imageBlob?: BlobRef;
+  external?: AppBskyEmbedExternal.External;
   embedTo?: {
     uri: string;
     cid: string;

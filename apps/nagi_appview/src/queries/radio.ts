@@ -6,9 +6,11 @@ import { ApiError } from "../middleware/errors.js";
 type RadioRow = typeof nagiRadioTracks.$inferSelect;
 const SLOT_KEY = /^\d{4}-\d{2}-\d{2}-(?:08|14|20)$/;
 
-function toTrack(row: RadioRow) {
+export function toRadioTrack(row: RadioRow) {
+  const songUrl = row.songUrl || (row.videoId ? `https://www.youtube.com/watch?v=${row.videoId}` : null);
+  const thumbnailUrl = row.thumbnailUrl || (row.videoId ? `https://i.ytimg.com/vi/${row.videoId}/hqdefault.jpg` : null);
   const comment = row.commentJa || row.commentEn;
-  if (!row.title || !row.artist || !comment || !row.videoId || !row.publishedAt)
+  if (!row.title || !row.artist || !comment || !songUrl || !thumbnailUrl || !row.publishedAt)
     return null;
   return {
     slotKey: row.slotKey,
@@ -18,7 +20,9 @@ function toTrack(row: RadioRow) {
     comment,
     ...(row.commentJa ? { commentJa: row.commentJa } : {}),
     ...(row.commentEn ? { commentEn: row.commentEn } : {}),
-    videoId: row.videoId,
+    songUrl,
+    thumbnailUrl,
+    ...(row.videoId ? { videoId: row.videoId } : {}),
     publishedAt: row.publishedAt.toISOString(),
     ...(row.sourceUrl ? { sourceUrl: row.sourceUrl } : {}),
   };
@@ -44,7 +48,7 @@ export async function getRadioTrack(viewerDid: string, now = new Date()) {
     db.select({ slotKey: nagiRadioReadStates.lastSeenSlotKey })
       .from(nagiRadioReadStates).where(eq(nagiRadioReadStates.subjectDid, viewerDid)).limit(1),
   ]);
-  const track = rows[0] ? toTrack(rows[0]) : null;
+  const track = rows[0] ? toRadioTrack(rows[0]) : null;
   return {
     ...(track ? { track } : {}),
     hasUnread: Boolean(latest && latest > (seen[0]?.slotKey ?? "")),
@@ -70,7 +74,7 @@ export async function getRadioHistory(
   const pageRows = rows.slice(0, pageSize);
   return {
     tracks: pageRows.flatMap((row) => {
-      const track = toTrack(row);
+      const track = toRadioTrack(row);
       return track ? [track] : [];
     }),
     ...(hasMore ? { cursor: pageRows.at(-1)!.slotKey } : {}),

@@ -12,7 +12,7 @@ import {
   reserveBotSongSelection,
   type BotSongReservation,
 } from "@bsky-affirmative-bot/database";
-import { generateNagiRadioComments, researchNagiRadioSong, resolveMoodSong, searchYoutubeSong, selectNagiRadioCandidate, selectNagiRadioPostContext, type NagiRadioSong } from "@bsky-affirmative-bot/bot-brain";
+import { generateNagiRadioComments, researchNagiRadioSong, resolveNagiRadioSong, selectNagiRadioCandidate, selectNagiRadioPostContext, type NagiRadioSong } from "@bsky-affirmative-bot/bot-brain";
 import { getLangStr } from "@bsky-affirmative-bot/clients";
 import { currentRadioSlotKey } from "@bsky-affirmative-bot/nagi-lexicon";
 import { startWorkerLoop } from "./workerLoop.js";
@@ -35,7 +35,7 @@ export async function generateNagiRadioForUser(
       status: "pending", claimedAt: now,
       title: null, artist: null, videoId: null,
       commentJa: null, commentEn: null,
-      videoTitle: null, sourceUrl: null, publishedAt: null,
+      videoTitle: null, songUrl: null, thumbnailUrl: null, sourceUrl: null, publishedAt: null,
     },
     setWhere: and(eq(nagiRadioTracks.status, "pending"), lte(nagiRadioTracks.claimedAt, stale)),
   }).returning({ subjectDid: nagiRadioTracks.subjectDid });
@@ -71,33 +71,17 @@ export async function generateNagiRadioForUser(
     const language = commentPost ? detectLanguage(commentPost.text,
       Array.isArray(commentPost.langs) ? commentPost.langs as string[] : undefined) : initialLanguage;
     const scope = djSongSelectionScope(did);
-    // 候補群を引き直しても同じ動画検索を繰り返さない。
-    const youtubeCache = new Map<string, ReturnType<typeof searchYoutubeSong>>();
-    const searchYoutube: typeof searchYoutubeSong = (title, artist, contextTerms) => {
-      const key = JSON.stringify([title, artist, contextTerms ?? []]);
-      const cached = youtubeCache.get(key);
-      if (cached) return cached;
-      const search = searchYoutubeSong(title, artist, contextTerms).catch((error) => {
-        youtubeCache.delete(key);
-        throw error;
-      });
-      youtubeCache.set(key, search);
-      return search;
-    };
     const selected = await selectNagiRadioCandidate(
-      async (attempt, excludedSongKeys, excludedVideoIds) => {
-        const candidate = attempt === 0 && options.preferredSong ? options.preferredSong : await resolveMoodSong(songText, language, scope, {
+      async (attempt, excludedSongKeys) => {
+        const candidate = attempt === 0 && options.preferredSong ? options.preferredSong : await resolveNagiRadioSong(songText, language, scope, {
           excludeSongKeys: excludedSongKeys,
-          excludeVideoIds: excludedVideoIds,
-          memoryQueryText: context?.memoryQueryContext,
-          searchYoutube,
         });
         if (candidate) console.info(`[INFO][NAGI][RADIO] Candidate ${attempt + 1} for ${did}: ${candidate.artist} - ${candidate.title}`);
         return candidate;
       },
       (candidate) => researchNagiRadioSong(candidate, language),
     );
-    if (!selected) throw new Error("No eligible radio video after three selection attempts");
+    if (!selected) throw new Error("No eligible radio song link after three selection attempts");
     const { song, fact } = selected;
     if (!fact) console.warn(`[WARN][NAGI][RADIO] Publishing without a song background fact for ${did} ${slotKey}`);
     const [actor, profile, preferred] = await Promise.all([
@@ -122,7 +106,8 @@ export async function generateNagiRadioForUser(
       const [published] = await tx.update(nagiRadioTracks).set({
         status: "ready", title: song.title, artist: song.artist,
         commentJa: comments.commentJa, commentEn: comments.commentEn,
-        videoId: song.videoId, videoTitle: song.videoTitle,
+        videoId: song.videoId ?? null, videoTitle: song.videoTitle ?? null,
+        songUrl: song.songUrl ?? null, thumbnailUrl: song.thumbnailUrl ?? null,
         sourceUrl: fact?.sourceUrl ?? null, publishedAt: new Date(),
       }).where(and(eq(nagiRadioTracks.subjectDid, did), eq(nagiRadioTracks.slotKey, slotKey),
         eq(nagiRadioTracks.status, "pending"), eq(nagiRadioTracks.claimedAt, now)))

@@ -5,7 +5,10 @@ import { radioObservances, type RadioLanguage } from "./nagiRadioOpening.js";
 import { BILINGUAL_COMMENT_INSTRUCTION, bilingualCommentFormat, parseBilingualComment, type BilingualComment } from "./bilingualComment.js";
 
 export type NagiRadioSong = {
-  title: string; artist: string; videoId: string; videoTitle: string; songKey: string;
+  title: string; artist: string; songKey: string;
+  songUrl?: string; thumbnailUrl?: string;
+  /** 既存のYouTube放送との互換用。新しいラジオでは不要。 */
+  videoId?: string; videoTitle?: string;
   animeTheme?: { animeName: string; type: "OP" | "ED"; sequence: number | null; slug?: string };
 };
 export type NagiRadioFact = { fact: string; sourceUrl: string };

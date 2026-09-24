@@ -22,7 +22,7 @@ export function botSongSelectionScopeKey(scope: BotSongSelectionScope) {
 }
 
 export interface BotSongSelection {
-  videoId: string;
+  videoId: string | null;
   songKey: string;
   title: string;
   artist: string;
@@ -35,7 +35,7 @@ export interface BotSongSelection {
 }
 
 export interface NewBotSongSelection {
-  videoId: string;
+  videoId?: string | null;
   songKey: string;
   title: string;
   artist: string;
@@ -45,7 +45,7 @@ export interface NewBotSongSelection {
 
 export interface BotSongReservation {
   id: number;
-  videoId: string;
+  videoId: string | null;
   songKey: string;
   scope: BotSongSelectionScope;
   selectedAt: Date;
@@ -136,7 +136,7 @@ export async function reserveBotSongSelection(
         scopeCondition(selection.scope),
         activeSelectionCondition(now),
         or(
-          eq(bot_song_selections.video_id, selection.videoId),
+          selection.videoId ? eq(bot_song_selections.video_id, selection.videoId) : undefined,
           eq(bot_song_selections.song_key, selection.songKey),
         ),
       ))
@@ -158,7 +158,7 @@ export async function reserveBotSongSelection(
     if (!row) throw new Error("Failed to insert song reservation");
     return {
       id: row.id,
-      videoId: selection.videoId,
+      videoId: selection.videoId ?? null,
       songKey: selection.songKey,
       scope: selection.scope,
       selectedAt: now,

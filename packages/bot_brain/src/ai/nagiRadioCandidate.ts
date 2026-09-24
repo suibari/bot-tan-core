@@ -1,8 +1,9 @@
+import { lastFmSongUrl } from "../api/lastfm/index.js";
 import type { NagiRadioFact, NagiRadioSong } from "./generateNagiRadioComment.js";
 
 const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
 
-/** 制作情報の出典がなくても、確認できた動画の曲を放送候補として残す。 */
+/** 制作情報の出典がなくても、確認できたリンクの曲を放送候補として残す。 */
 export async function selectNagiRadioCandidate(
   resolve: (attempt: number, excludedSongKeys: Set<string>, excludedVideoIds: Set<string>) => Promise<NagiRadioSong | null>,
   research: (song: NagiRadioSong) => Promise<NagiRadioFact | null>,
@@ -22,8 +23,9 @@ export async function selectNagiRadioCandidate(
     // 候補順は毎回変わる。1回空でも別の候補群を引き直す。
     if (!candidate) continue;
     excludedSongKeys.add(candidate.songKey);
-    excludedVideoIds.add(candidate.videoId);
-    if (!VIDEO_ID.test(candidate.videoId)) continue;
+    if (candidate.videoId) excludedVideoIds.add(candidate.videoId);
+    const hasSongCard = lastFmSongUrl(candidate.songUrl) && candidate.thumbnailUrl;
+    if (!hasSongCard && !VIDEO_ID.test(candidate.videoId ?? "")) continue;
     fallback ??= candidate;
     let fact: NagiRadioFact | null = null;
     try {

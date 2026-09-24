@@ -303,7 +303,7 @@ export const bot_song_selections = affirmativeBotSchema.table(
   "bot_song_selections",
   {
     id: serial("id").primaryKey(),
-    video_id: text("video_id").notNull(),
+    video_id: text("video_id"),
     song_key: text("song_key").notNull(),
     title: text("title").notNull(),
     artist: text("artist").notNull(),

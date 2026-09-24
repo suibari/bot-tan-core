@@ -210,3 +210,16 @@ startWorkerLoop({ name: "ZENKATSU", intervalMs: WORKER_INTERVAL_MS, tick: run })
 - 間隔を縮めるときは「1回の処理時間 ÷ 間隔」を並列数として見積もる。LLM を呼ぶ
   ワーカーなら、その本数がそのまま Ollama への同時リクエストになる。
 - `setTimeout` チェーンで次を予約する形（`NagiThemeWorker`）は元から重ならないので対象外。
+
+## 本番環境への接続
+
+本番は `ssh 192.168.1.200` で確認できる（2026-09-24 ユーザー指定）。
+リポジトリは `/home/suibari/work/bsky-affirmative-bot`。
+ラジオのログは `journalctl -u nagi-bot`、Bluesky bot は `journalctl -u bsky-bot`。
+
+## 曲リンクの使い分け
+
+- 気まぐれ定期ポストは YouTube リンク（`MoodSongResolver` の既定経路）。
+- Bluesky DJ と Nagi ラジオは Last.fm の曲ページとジャケット（`resolveLinkedMoodSong` / `resolveNagiRadioSong`）。
+- ユーザー起点の選曲に YouTube 検索を必須化しない。検索の日次枠は定期ポスト用に残す。
+- Last.fm の曲ページURLと画像は API 応答から取得し、URLの推測やダミー画像で補わない。

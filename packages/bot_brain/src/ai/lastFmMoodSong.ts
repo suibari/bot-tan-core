@@ -727,31 +727,34 @@ async function resolveAnimeThemeMoodSong(
   return null;
 }
 
-export async function resolveLastFmMoodSong(
+export type LastFmMoodSongOptions = {
+  excludedSongKeys?: ReadonlySet<string>;
+  excludedVideoIds?: ReadonlySet<string>;
+  maxYoutubeChecks?: number;
+  random?: () => number;
+  classify?: typeof classifyLastFmMoodTags;
+  topTracks?: typeof getLastFmTopTracks;
+  searchYoutube?: typeof searchYoutubeSong;
+  comment?: typeof buildLastFmMoodSongComment;
+  screen?: typeof screenLastFmMoodSongCandidates;
+  trackInfo?: typeof getLastFmTrackInfo;
+  artistTags?: typeof getLastFmArtistTags;
+  extractAnime?: typeof extractAnimeWorkMention;
+  searchAnime?: typeof searchAnimeThemes;
+  themeSongs?: typeof getAnimeThemeSongs;
+  searchTracks?: typeof searchLastFmTracks;
+  analyze?: typeof analyzeSongDiscovery;
+  searchArtists?: typeof searchLastFmArtists;
+  artistTopTracks?: typeof getLastFmArtistTopTracks;
+  researchTopic?: typeof researchTopicSongs;
+};
+
+/** 候補の探索と安全確認。リンクの解決先（YouTube/Last.fm）から独立させる。 */
+export async function discoverLastFmMoodSongCandidates(
   input: MoodSongInput,
   langStr: LanguageName,
-  options: {
-    excludedSongKeys?: ReadonlySet<string>;
-    excludedVideoIds?: ReadonlySet<string>;
-    maxYoutubeChecks?: number;
-    random?: () => number;
-    classify?: typeof classifyLastFmMoodTags;
-    topTracks?: typeof getLastFmTopTracks;
-    searchYoutube?: typeof searchYoutubeSong;
-    comment?: typeof buildLastFmMoodSongComment;
-    screen?: typeof screenLastFmMoodSongCandidates;
-    trackInfo?: typeof getLastFmTrackInfo;
-    artistTags?: typeof getLastFmArtistTags;
-    extractAnime?: typeof extractAnimeWorkMention;
-    searchAnime?: typeof searchAnimeThemes;
-    themeSongs?: typeof getAnimeThemeSongs;
-    searchTracks?: typeof searchLastFmTracks;
-    analyze?: typeof analyzeSongDiscovery;
-    searchArtists?: typeof searchLastFmArtists;
-    artistTopTracks?: typeof getLastFmArtistTopTracks;
-    researchTopic?: typeof researchTopicSongs;
-  } = {},
-): Promise<LastFmMoodSongResult | null> {
+  options: LastFmMoodSongOptions = {},
+) {
   const { postText, recentPosts } = normalizeMoodSongInput(input);
   const contextualPostText = recentPosts.length
     ? `参考用の直近ポスト（新しい順）:\n${recentPosts.slice(0, 20).join("\n").slice(0, 4_000)}\n\n今回のDJ依頼:\n${postText}`
@@ -782,7 +785,6 @@ export async function resolveLastFmMoodSong(
   }
 
   const excludedKeys = options.excludedSongKeys ?? new Set<string>();
-  const excludedVideos = options.excludedVideoIds ?? new Set<string>();
   const random = options.random ?? Math.random;
   const topTracks = options.topTracks ?? getLastFmTopTracks;
   const searchTracks = options.searchTracks ?? searchLastFmTracks;
@@ -1010,6 +1012,16 @@ export async function resolveLastFmMoodSong(
     allowed = [];
   }
   const screenedOutCount = Math.max(0, screeningPool.length - allowed.length);
+  return { allowed, screenedOutCount, contextualPostText, tags: analysis.tags };
+}
+
+export async function resolveLastFmMoodSong(
+  input: MoodSongInput,
+  langStr: LanguageName,
+  options: LastFmMoodSongOptions = {},
+): Promise<LastFmMoodSongResult | null> {
+  const { allowed, screenedOutCount, contextualPostText, tags } = await discoverLastFmMoodSongCandidates(input, langStr, options);
+  const excludedVideos = options.excludedVideoIds ?? new Set<string>();
   const searchYoutube = options.searchYoutube ?? searchYoutubeSong;
   let checks = 0;
 
@@ -1031,7 +1043,7 @@ export async function resolveLastFmMoodSong(
       title: candidate.title,
       artist: candidate.artist,
       comment,
-      tags: analysis.tags,
+      tags,
       lastFmUrl: candidate.lastFmUrl,
       screenedOutCount,
       ...(candidate.animeTheme ? { animeTheme: candidate.animeTheme } : {}),

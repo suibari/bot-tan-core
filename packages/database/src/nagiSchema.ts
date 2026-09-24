@@ -576,6 +576,8 @@ export const nagiRadioTracks = nagiSchema.table("radio_tracks", {
   commentEn: text("comment_en"),
   videoId: text("video_id"),
   videoTitle: text("video_title"),
+  songUrl: text("song_url"),
+  thumbnailUrl: text("thumbnail_url"),
   sourceUrl: text("source_url"),
   publishedAt: timestamp("published_at", { withTimezone: true }),
 }, (t) => [
