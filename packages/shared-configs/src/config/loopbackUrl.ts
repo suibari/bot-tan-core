@@ -14,3 +14,16 @@ export function loopbackUrlFromPort(
   }
   return `http://127.0.0.1:${port}`;
 }
+
+/**
+ * discord_bot の内部 HTTP（Nagi のモデレーション通知の受け口）の既定ポート。
+ * AppView（送信側）と discord_bot（受信側）が同じ値を読むよう、ここを唯一の出どころにする。
+ * NAGI_APPVIEW_INTERNAL_PORT（サンプルでは 3005）と同じホストの 127.0.0.1 に並ぶので重ねない。
+ */
+export const DISCORD_BOT_INTERNAL_DEFAULT_PORT = 3006;
+
+export const discordBotInternalUrl = (): string =>
+  loopbackUrlFromPort(
+    "DISCORD_BOT_INTERNAL_PORT",
+    DISCORD_BOT_INTERNAL_DEFAULT_PORT,
+  );

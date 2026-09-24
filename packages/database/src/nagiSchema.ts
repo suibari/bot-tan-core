@@ -200,6 +200,20 @@ export const nagiModerationDecisions = nagiSchema.table(
     /** そのカテゴリのスコア。閾値見直しの材料。 */
     score: doublePrecision("score"),
     ruleVersion: text("rule_version").notNull(),
+    /**
+     * 運用者による上書き。'allow' は Discord の解除ボタンから入る（将来 BAN を足す）。
+     * override_cid と今の cid が一致する間だけ効き、編集されたら通常の判定へ戻る。
+     */
+    override: text("override"),
+    overrideCid: text("override_cid"),
+    /** 上書きした Discord ユーザー。`tag (id)` 形式。 */
+    overrideBy: text("override_by"),
+    overrideAt: timestamp("override_at", { withTimezone: true }),
+    /**
+     * 解除に伴う復元（PDS からの取り直し・判定待ちへの戻し）が終わった時刻。
+     * NULL の間は途中で失敗した可能性があるので、もう一度押せば復元をやり直す。
+     */
+    overrideAppliedAt: timestamp("override_applied_at", { withTimezone: true }),
     decidedAt: timestamp("decided_at", { withTimezone: true })
       .defaultNow()
       .notNull(),

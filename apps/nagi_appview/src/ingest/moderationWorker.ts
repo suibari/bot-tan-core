@@ -16,6 +16,7 @@ import { BLUEMOJI_ITEM, NAGI } from "@bsky-affirmative-bot/nagi-lexicon";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { config } from "../config.js";
 import {
+  allowOverrideApplies,
   emojiAssetUrl,
   evaluateModerationInput,
   exhaustedInputEvaluation,
@@ -433,10 +434,20 @@ async function judge(
       decision: nagiModerationDecisions.decision,
       labels: nagiModerationDecisions.labels,
       ruleVersion: nagiModerationDecisions.ruleVersion,
+      override: nagiModerationDecisions.override,
+      overrideCid: nagiModerationDecisions.overrideCid,
     })
     .from(nagiModerationDecisions)
     .where(eq(nagiModerationDecisions.uri, item.uri))
     .limit(1);
+
+  // 運用者が Discord で解除した内容は、再試行切れでもルール版が上がっても判定し直さない。
+  // ここを通さないと、解除で PDS から戻した投稿を同じ cid のキャッシュ判定で再び落とす。
+  if (allowOverrideApplies(cached, item.cid)) {
+    await applyDecision(item, "allow", []);
+    logDecision(item, "allow", [], "override", 0, true, Date.now() - startedAt);
+    return;
+  }
 
   let decision: ModerationDecision;
   let labels: string[];
@@ -492,6 +503,7 @@ async function judge(
       decision,
       collection: item.collection,
       uri: item.uri,
+      cid: item.cid,
       did: item.did,
       labels,
       category,

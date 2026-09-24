@@ -104,3 +104,15 @@ test("applyMutation marks non-judged records as skipped rather than pending", ()
   );
   assert.match(applyMutation, /!isKossoriSubject\(uri, commit\.record, appviewOnly\)/);
 });
+
+/**
+ * 運用者の解除（Discord のボタン）は、キャッシュ判定や再試行切れより先に効くこと。
+ * これが無いと、解除で PDS から戻した投稿を同じ cid の旧判定で再び落とす。
+ */
+test("an operator release is honored before any cached or exhausted decision", () => {
+  const judgeBody = worker.slice(worker.indexOf("async function judge("));
+  const overrideAt = judgeBody.indexOf("allowOverrideApplies(cached, item.cid)");
+  assert.ok(overrideAt > 0);
+  assert.ok(overrideAt < judgeBody.indexOf("const reusedDecision"));
+  assert.ok(overrideAt < judgeBody.indexOf("evaluateModerationInput"));
+});

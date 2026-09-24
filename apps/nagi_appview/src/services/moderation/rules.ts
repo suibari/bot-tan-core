@@ -28,6 +28,22 @@ export const MODERATION_SKIPPED = "skipped";
  */
 export const MODERATION_LEGACY = "legacy";
 
+/** 運用者の上書き。今は解除（allow）だけ。BAN を足すときはここへ加える。 */
+export type ModerationOverride = "allow";
+
+/**
+ * 運用者の解除が今の内容に効くか。
+ *
+ * 上書きは押した時点の cid に結び付ける。編集されて cid が変わった内容は運用者が
+ * 見ていないので、通常の判定へ戻す。
+ */
+export function allowOverrideApplies(
+  row: { override: string | null; overrideCid: string | null } | undefined,
+  cid: string,
+): boolean {
+  return row?.override === "allow" && row.overrideCid === cid;
+}
+
 export interface ModerationEvaluation {
   decision: ModerationDecision;
   labels: string[];
