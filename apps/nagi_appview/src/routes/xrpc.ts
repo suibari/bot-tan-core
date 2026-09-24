@@ -92,7 +92,6 @@ import { getCommunityAffirmations } from "../queries/communityAffirmations.js";
 import { loadPersonalizationContext } from "../queries/personalizedFeed.js";
 
 /** 全肯定ニュースの動的枠の件数。一覧の頭に置くので、多いと時系列が押し下げられる。 */
-const NEWS_RECOMMENDATION_LIMIT = 3;
 import { putCommunityAffirmationDismissals } from "../queries/communityAffirmationDismissals.js";
 import {
   deleteDraft,
@@ -861,9 +860,8 @@ xrpc.get(
         ? await getRecommendedNews({
             viewerDid: req.viewerDid!,
             lang,
-            limit: NEWS_RECOMMENDATION_LIMIT,
-            excludeUris: page.items.map((item) => item.uri),
             mutes: context.mutes,
+            isAdult: context.isAdult,
           })
         : [];
       res

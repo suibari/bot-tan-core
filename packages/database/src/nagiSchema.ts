@@ -94,8 +94,12 @@ export const nagiActors = nagiSchema.table("actors", {
    * 1つも取れない人が候補に残り続けて10秒ごとに回り続ける。
    */
   themesCheckedAt: timestamp("themes_checked_at", { withTimezone: true }),
-  /** ニュース突合を最後に「試した」時刻。同上。テーマを取り直したら null に戻す。 */
+  /** ニュース突合が全件完了した時刻。再チェックの TTL 用。テーマ更新時は null に戻す。 */
   newsReasonsCheckedAt: timestamp("news_reasons_checked_at", {
+    withTimezone: true,
+  }),
+  /** 各バッチの開始時刻。未完了・失敗でも更新し、古い試行から順番に処理する。 */
+  newsReasonsAttemptedAt: timestamp("news_reasons_attempted_at", {
     withTimezone: true,
   }),
 });
