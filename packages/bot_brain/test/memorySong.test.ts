@@ -15,11 +15,15 @@ import {
 } from "../src/ai/memorySong.js";
 import { lastFmTrackKey } from "../src/ai/lastFmMoodSong.js";
 
-test("Bluesky DJ と Nagi ラジオの曲キーは共通でPostgresへ保存できる", () => {
-  const song = { title: "Higher & Higher", artist: "Jackie Wilson" };
-  assert.equal(songKey(song), lastFmTrackKey(song));
-  assert.equal(songKey(song), "higherhigher:jackiewilson");
-  assert.ok(!songKey(song).includes("\0"));
+test("DBへ渡す曲キーはNULを含まず、Last.fm候補のキーと一致する", () => {
+  for (const [song, expected] of [
+    [{ title: "Higher & Higher", artist: "Jackie Wilson" }, "higherhigher:jackiewilson"],
+    [{ title: "ワンルーム・ディスコ", artist: "Perfume" }, "ワンルームディスコ:perfume"],
+  ] as const) {
+    assert.equal(songKey(song), expected);
+    assert.equal(lastFmTrackKey(song), songKey(song));
+    assert.equal(songKey(song).includes("\0"), false);
+  }
 });
 
 const row = (id: number, content: string): BotMemorySearchResult => ({

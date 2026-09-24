@@ -46,6 +46,8 @@ test("定期ポストとDJ、DJ利用者ごとに履歴スコープを分ける"
   assert.ok(!botSongSelectionScopeKey(alice).includes("\0"));
   assert.notEqual(botSongSelectionScopeKey(SCHEDULED_POST_SONG_SCOPE), botSongSelectionScopeKey(alice));
   assert.notEqual(botSongSelectionScopeKey(alice), botSongSelectionScopeKey(bob));
+  assert.equal(botSongSelectionScopeKey(alice), "dj:did:plc:alice");
+  assert.equal(botSongSelectionScopeKey(alice).includes("\u0000"), false);
 
   const query = buildRecentBotSongSelectionsQuery(
     alice,

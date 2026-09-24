@@ -76,3 +76,19 @@ test("ローマ字題と日本語題が混在しても固有語と作者が一�
   ], "Tobe! Gundam", "池田鴻", ["ガンダム"]);
   assert.equal(result?.videoId, "gundam-op");
 });
+
+test("作者名を補助語に渡しても別の曲を採用しない", () => {
+  const result = selectYoutubeSongMatch([{
+    id: { videoId: "wrong-song" },
+    snippet: { title: "Perfume - ポリリズム", channelTitle: "Perfume" },
+  }], "Dream Fighter", "Perfume", ["Perfume"]);
+  assert.equal(result, null);
+});
+
+test("客演表記だけに候補の作者名がある動画は採用しない", () => {
+  const result = selectYoutubeSongMatch([{
+    id: { videoId: "featured-only" },
+    snippet: { title: "decago - shibuya 渋谷 (ft. fernie & baz)", channelTitle: "別のチャンネル" },
+  }], "渋谷", "Fernie", ["渋谷"]);
+  assert.equal(result, null);
+});

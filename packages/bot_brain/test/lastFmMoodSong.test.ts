@@ -1,9 +1,18 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { getLastFmTopTracks, getLastFmTrackInfo, searchLastFmTracks } from "../src/api/lastfm/index.js";
+import {
+  getLastFmArtistTopTracks,
+  getLastFmArtistTags,
+  getLastFmTopTracks,
+  getLastFmTrackInfo,
+  searchLastFmArtists,
+  searchLastFmTracks,
+} from "../src/api/lastfm/index.js";
 import { getAnimeThemeSongs, searchAnimeThemes } from "../src/api/animethemes/index.js";
 import {
   classifyLastFmMoodTags,
+  analyzeSongDiscovery,
+  buildLastFmMoodSongComment,
   extractAnimeWorkMention,
   lastFmTrackKey,
   parseMoodTagClassification,
@@ -123,6 +132,124 @@ test("Last.fm track.searchで欠けたアニメ主題歌の歌手を補える", 
   assert.equal(tracks[0]?.artist, "池田鴻");
 });
 
+test("Last.fmでアーティストを正規化し、その代表曲を取得する", async () => {
+  let artistSearchUrl = "";
+  const artists = await searchLastFmArtists("Perfume", {
+    apiKey: "test-key",
+    fetchImpl: async (input) => {
+      artistSearchUrl = String(input);
+      return new Response(JSON.stringify({ results: { artistmatches: { artist: [{
+        name: "Perfume",
+        url: "https://last.fm/music/Perfume",
+        mbid: "artist-mbid",
+      }] } } }));
+    },
+  });
+  assert.equal(new URL(artistSearchUrl).searchParams.get("method"), "artist.search");
+  assert.equal(artists[0]?.name, "Perfume");
+
+  let topTracksUrl = "";
+  const tracks = await getLastFmArtistTopTracks(artists[0]!, {
+    apiKey: "test-key",
+    fetchImpl: async (input) => {
+      topTracksUrl = String(input);
+      return new Response(JSON.stringify({ toptracks: { track: [{
+        name: "Dream Fighter",
+        url: "https://last.fm/dream-fighter",
+        artist: { name: "Perfume" },
+        "@attr": { rank: "2" },
+      }] } }));
+    },
+  });
+  const url = new URL(topTracksUrl);
+  assert.equal(url.searchParams.get("method"), "artist.getTopTracks");
+  assert.equal(url.searchParams.get("mbid"), "artist-mbid");
+  assert.equal(tracks[0]?.title, "Dream Fighter");
+});
+
+test("Last.fmの歌手タグを曲調の判断材料として取得する", async () => {
+  let requestUrl = "";
+  const tags = await getLastFmArtistTags("燐舞曲", {
+    apiKey: "test-key",
+    fetchImpl: async (input) => {
+      requestUrl = String(input);
+      return new Response(JSON.stringify({ artist: { tags: { tag: [
+        { name: "alternative rock" }, { name: "metalcore" },
+      ] } } }));
+    },
+  });
+  assert.equal(new URL(requestUrl).searchParams.get("method"), "artist.getInfo");
+  assert.deepEqual(tags, ["alternative rock", "metalcore"]);
+});
+
+test("統合解析は履歴と依頼を分離し、今回の依頼を最後に置く", async () => {
+  let captured: any;
+  const analysis = await analyzeSongDiscovery({
+    postText: "DJお願い、Perfumeの曲がいい",
+    recentPosts: ["渋谷を歩いてきた", "雨の日に勉強中"],
+  }, "日本語", {
+    chat: async (feature, messages, options) => {
+      captured = { feature, messages, options };
+      return JSON.stringify({
+        request: {
+          anime: null,
+          artist: { mentionedName: "Perfume", searchQuery: "Perfume", genericFranchise: false },
+          topic: null,
+        },
+        history: {
+          anime: null,
+          artist: null,
+          topic: { mentionedName: "渋谷", searchQuery: "渋谷", genericFranchise: false },
+        },
+        tags: ["energetic", "dance"],
+        titleQuery: null,
+      });
+    },
+  });
+  assert.equal(analysis.request.artist?.searchQuery, "Perfume");
+  assert.equal(analysis.history.topic?.searchQuery, "渋谷");
+  assert.equal(analysis.titleQuery, null);
+  assert.equal(captured.messages.at(-1).content, "DJお願い、Perfumeの曲がいい");
+  assert.match(captured.messages.at(-2).content, /渋谷を歩いてきた/);
+  assert.equal(captured.options.temperature, 0.1);
+  assert.equal("num_ctx" in captured.options, false);
+});
+
+test("解析が投稿にない題材を創作した場合は破棄する", async () => {
+  const analysis = await analyzeSongDiscovery({
+    postText: "最近の投稿に合う曲を選んで",
+    recentPosts: ["Perfumeを聴きながら作業した"],
+  }, "日本語", {
+    chat: async () => JSON.stringify({
+      request: { anime: null, artist: null, topic: { mentionedName: "作業", searchQuery: "作業" } },
+      history: { anime: null, artist: { mentionedName: "Perfume", searchQuery: "Perfume" }, topic: null },
+      tags: ["focus"],
+      titleQuery: null,
+    }),
+  });
+  assert.equal(analysis.request.topic, null);
+  assert.equal(analysis.history.artist?.mentionedName, "Perfume");
+});
+
+test("解析のsearchQueryが投稿にない場合はmentionedNameへ寄せる", async () => {
+  const analysis = await analyzeSongDiscovery({
+    postText: "DJお願い、Perfumeの曲がいい",
+    recentPosts: [],
+  }, "日本語", {
+    chat: async () => JSON.stringify({
+      request: {
+        anime: null,
+        artist: { mentionedName: "Perfume", searchQuery: "Taylor Swift", genericFranchise: false },
+        topic: null,
+      },
+      history: { anime: null, artist: null, topic: null },
+      tags: ["dance"],
+      titleQuery: null,
+    }),
+  });
+  assert.equal(analysis.request.artist?.searchQuery, "Perfume");
+});
+
 test("タグ分類は許可リストだけを重複なしで採用する", () => {
   assert.deepEqual(
     parseMoodTagClassification('{"tags":["Chill","chill","not-a-tag","dreamy"]}'),
@@ -229,6 +356,24 @@ test("安全ゲートの全落ちは候補を復活させない", async () => {
   assert.deepEqual(assessment.allowedIndices, []);
 });
 
+test("題材検索候補は曲名・作者・URLが検索資料にあるものだけを採用する", async () => {
+  const research = "URL: https://example.test/shibuya\n『渋谷で5時』は鈴木雅之と菊池桃子による楽曲。";
+  const assessment = await screenLastFmMoodSongCandidates("渋谷モチーフの曲", [], "日本語", {
+    chat: async () => JSON.stringify({
+      allowedIndices: [],
+      researchedCandidates: [
+        { title: "渋谷で5時", artist: "鈴木雅之 & 菊池桃子", evidenceUrl: "https://example.test/shibuya" },
+        { title: "架空曲", artist: "架空歌手", evidenceUrl: "https://example.test/shibuya" },
+      ],
+    }),
+  }, research);
+  assert.deepEqual(assessment.researchedCandidates, [{
+    title: "渋谷で5時",
+    artist: "鈴木雅之 & 菊池桃子",
+    evidenceUrl: "https://example.test/shibuya",
+  }]);
+});
+
 test("履歴曲を除外し、YouTubeで確認できた候補にだけコメントを付ける", async () => {
   const searched: string[] = [];
   const requestedTags: string[] = [];
@@ -261,7 +406,7 @@ test("履歴曲を除外し、YouTubeで確認できた候補にだけコメン�
     comment: async (_post, _lang, song) => `${song.title}が合いそう！`,
   });
   assert.deepEqual(searched, ["Missing", "Found"]);
-  assert.deepEqual(requestedTags.sort(), ["j-pop", "japanese"]);
+  assert.deepEqual(requestedTags.sort(), ["calm", "j-pop", "japanese"]);
   assert.equal(result?.videoId, "video-found");
   assert.equal(result?.comment, "Foundが合いそう！");
   assert.deepEqual(result?.tags, ["calm"]);
@@ -294,6 +439,7 @@ test("ガンダム明示時は通常の気分タグ分類より先に公式OPを
       title: "Tobe! Gundam (Fly! Gundam)",
       artists: [],
     }],
+    topTracks: async () => [],
     searchTracks: async (query) => {
       searchedTrack = query;
       return [{
@@ -323,5 +469,158 @@ test("ガンダム明示時は通常の気分タグ分類より先に公式OPを
     type: "OP",
     sequence: 1,
   });
-  assert.deepEqual(result?.tags, []);
+  assert.deepEqual(result?.tags, ["happy"]);
+});
+
+test("コメント生成は共通SYSTEM_INSTRUCTIONを人格の基礎にする", async () => {
+  let system = "";
+  const comment = await buildLastFmMoodSongComment("今日はいい日", "日本語", {
+    title: "Song",
+    artist: "Artist",
+  }, {
+    chat: async (_feature, messages) => {
+      system = messages[0]?.content ?? "";
+      return '{"comment":"いい日にぴったりだね！"}';
+    },
+  });
+  assert.equal(comment, "いい日にぴったりだね！");
+  assert.match(system, /全肯定SNS「Nagi」/);
+  assert.match(system, /# 選曲コメント/);
+});
+
+test("Web根拠がない題材候補を確認済みとして紹介しない", async () => {
+  let system = "";
+  await buildLastFmMoodSongComment("渋谷をモチーフにした曲", "日本語", {
+    title: "渋谷",
+    artist: "Artist",
+    selectionBasis: { kind: "topic", label: "渋谷", source: "request" },
+  }, {
+    chat: async (_feature, messages) => {
+      system = messages[0]?.content ?? "";
+      return '{"comment":"渋谷という題名から選んだよ"}';
+    },
+  });
+  assert.match(system, /確認できていないのに断定しない/);
+  assert.doesNotMatch(system, /関係が検索資料で確認された/);
+});
+
+test("アーティスト指定、題材指定、指定なしの各経路で実在確認済みの曲を選べる", async (t) => {
+  const base = {
+    searchAnime: async () => [],
+    themeSongs: async () => [],
+    searchArtists: async () => [],
+    artistTopTracks: async () => [],
+    searchTracks: async () => [],
+    topTracks: async () => [],
+    trackInfo: async () => ({ listeners: 100, summary: "safe Japanese song", topTags: ["j-pop"] }),
+    artistTags: async () => [],
+    researchTopic: async () => "",
+    random: () => 0.5,
+    searchYoutube: async (title: string, artist: string) => ({
+      videoId: `${title}-${artist}`,
+      url: `https://youtube.example/${encodeURIComponent(title)}`,
+      videoTitle: `${title} ${artist}`,
+      channelTitle: artist,
+    }),
+    comment: async (_post: string, _lang: "日本語" | "English", song: { title: string }) => `${song.title}を選んだよ！`,
+  };
+
+  await t.test("アーティスト名から代表曲を選ぶ", async () => {
+    const song = await resolveLastFmMoodSong("DJお願い、Perfumeの曲", "日本語", {
+      ...base,
+      analyze: async () => ({
+        request: { anime: null, artist: { mentionedName: "Perfume", searchQuery: "Perfume" }, topic: null },
+        history: { anime: null, artist: null, topic: null },
+        tags: ["dance"],
+      }),
+      searchArtists: async () => [{ name: "Perfume", lastFmUrl: "https://last.fm/perfume", mbid: "perfume" }],
+      artistTopTracks: async () => [{
+        title: "Dream Fighter",
+        artist: "Perfume",
+        lastFmUrl: "https://last.fm/dream-fighter",
+        rank: 1,
+      }],
+      screen: async (_post, candidates) => ({ allowedIndices: candidates.map((_, index) => index) }),
+    });
+    assert.equal(song?.title, "Dream Fighter");
+    assert.equal(song?.selectionBasis?.kind, "artist");
+  });
+
+  await t.test("題材のWeb根拠から曲を選ぶ", async () => {
+    const song = await resolveLastFmMoodSong("DJお願い、渋谷モチーフで", "日本語", {
+      ...base,
+      analyze: async () => ({
+        request: { anime: null, artist: null, topic: { mentionedName: "渋谷", searchQuery: "渋谷" } },
+        history: { anime: null, artist: null, topic: null },
+        tags: ["energetic"],
+      }),
+      researchTopic: async () => "URL: https://example.test/shibuya\n渋谷を題材にした楽曲『渋谷で5時』は鈴木雅之と菊池桃子による。",
+      screen: async (_post, _candidates, _lang, _deps, research) => ({
+        allowedIndices: [],
+        researchedCandidates: research ? [{
+          title: "渋谷で5時",
+          artist: "鈴木雅之 & 菊池桃子",
+          evidenceUrl: "https://example.test/shibuya",
+        }] : [],
+      }),
+    });
+    assert.equal(song?.title, "渋谷で5時");
+    assert.equal(song?.selectionBasis?.kind, "topic");
+    assert.equal(song?.selectionBasis?.evidenceUrl, "https://example.test/shibuya");
+  });
+
+  await t.test("固有名詞なしでは気分タグから選ぶ", async () => {
+    const song = await resolveLastFmMoodSong("穏やかな午後だね", "日本語", {
+      ...base,
+      analyze: async () => ({
+        request: { anime: null, artist: null, topic: null },
+        history: { anime: null, artist: null, topic: null },
+        tags: ["calm"],
+      }),
+      topTracks: async (tag) => tag === "calm" ? [{
+        title: "やさしさに包まれたなら",
+        artist: "松任谷由実",
+        lastFmUrl: "https://last.fm/yasashisa",
+        rank: 1,
+      }] : [],
+      screen: async (_post, candidates) => ({ allowedIndices: candidates.map((_, index) => index) }),
+    });
+    assert.equal(song?.title, "やさしさに包まれたなら");
+    assert.equal(song?.selectionBasis?.kind, "mood");
+  });
+
+  await t.test("投稿中の情景語から曲名を検索し、汎用タグ候補より優先する", async () => {
+    const song = await resolveLastFmMoodSong("雨音を聞きながら穏やかに過ごしたい", "日本語", {
+      ...base,
+      analyze: async () => ({
+        request: { anime: null, artist: null, topic: null },
+        history: { anime: null, artist: null, topic: null },
+        tags: ["calm", "rainy day"],
+        titleQuery: "雨音",
+      }),
+      searchTracks: async () => [{ title: "雨音", artist: "つじあやの", lastFmUrl: "https://last.fm/amaoto", rank: 1 }],
+      topTracks: async () => [{ title: "踊れる曲", artist: "例の歌手", lastFmUrl: "https://last.fm/dance", rank: 1 }],
+      screen: async (_post, candidates) => ({ allowedIndices: candidates.map((_, index) => index) }),
+    });
+    assert.equal(song?.title, "雨音");
+    assert.equal(song?.selectionBasis?.kind, "mood");
+  });
+
+  await t.test("同じ検索語の曲は安全判定が返した適合順で選ぶ", async () => {
+    const song = await resolveLastFmMoodSong("雨音を聞きながら穏やかに過ごしたい", "日本語", {
+      ...base,
+      analyze: async () => ({
+        request: { anime: null, artist: null, topic: null },
+        history: { anime: null, artist: null, topic: null },
+        tags: ["calm"],
+        titleQuery: "雨音",
+      }),
+      searchTracks: async () => [
+        { title: "雨音", artist: "激しいバンド", lastFmUrl: "https://last.fm/rock", rank: 1 },
+        { title: "雨音", artist: "穏やかな歌手", lastFmUrl: "https://last.fm/gentle", rank: 2 },
+      ],
+      screen: async () => ({ allowedIndices: [1, 0] }),
+    });
+    assert.equal(song?.artist, "穏やかな歌手");
+  });
 });
