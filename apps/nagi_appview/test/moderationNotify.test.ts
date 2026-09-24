@@ -8,6 +8,8 @@ process.env.NAGI_MODERATION_DISCORD_WEBHOOK_URL ??=
 process.env.ALLOW_DEV_APPVIEW_NOTIFICATIONS = "true";
 process.env.DISCORD_BOT_INTERNAL_PORT = "3905";
 
+import { readFile } from "node:fs/promises";
+
 const { notifyDecision, recordModerationFailure, resetModerationFailureState } =
   await import("../src/services/moderation/notify.js");
 
@@ -18,6 +20,7 @@ const notice = {
   decision: "reject-invalid" as const,
   collection: "com.suibari.nagi.post",
   uri: "at://did:plc:author/com.suibari.nagi.post/example",
+  cid: "bafyreiexample",
   did: "did:plc:author",
   labels: [],
   category: "invalid-input",
@@ -82,6 +85,8 @@ test("decision notices go to discord_bot with the subject for the release button
   assert.equal(sent.bot.length, 1);
   assertNoticeForm(sent.bot[0]);
   assert.equal(sent.bot[0].get("moderation_uri"), notice.uri);
+  // 解除ボタンを「この内容」に結び付けるための cid。
+  assert.equal(sent.bot[0].get("moderation_cid"), notice.cid);
   assert.equal(sent.bot[0].get("moderation_decision"), "reject-invalid");
 });
 
@@ -118,4 +123,28 @@ test("outage alerts carry no release button", async () => {
   resetModerationFailureState();
   assert.equal(sent.bot.length, 1);
   assert.equal(sent.bot[0].get("moderation_uri"), null);
+});
+
+/**
+ * AppView の内部 API と discord_bot の受け口は同じホストの 127.0.0.1 に並ぶ。
+ * サンプルどおりに設定して片方が EADDRINUSE にならないこと。
+ */
+test("the sample environment gives the discord_bot listener its own port", async () => {
+  const { DISCORD_BOT_INTERNAL_DEFAULT_PORT } = await import(
+    "@bsky-affirmative-bot/shared-configs"
+  );
+  const sample = await readFile(
+    new URL("../../../.env.example", import.meta.url),
+    "utf8",
+  );
+  const ports = new Map<string, string>();
+  for (const match of sample.matchAll(/^([A-Z_]+_PORT)=(\d+)$/gm))
+    ports.set(match[1], match[2]);
+  const discord = ports.get("DISCORD_BOT_INTERNAL_PORT");
+  assert.equal(discord, String(DISCORD_BOT_INTERNAL_DEFAULT_PORT));
+  for (const [name, port] of ports)
+    if (name !== "DISCORD_BOT_INTERNAL_PORT")
+      assert.notEqual(port, discord, `${name} collides with the discord_bot listener`);
+  // 既定値どうしも重ねない（AppView の内部 API の既定は 3004）。
+  assert.notEqual(DISCORD_BOT_INTERNAL_DEFAULT_PORT, 3004);
 });

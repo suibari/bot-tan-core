@@ -209,6 +209,11 @@ export const nagiModerationDecisions = nagiSchema.table(
     /** 上書きした Discord ユーザー。`tag (id)` 形式。 */
     overrideBy: text("override_by"),
     overrideAt: timestamp("override_at", { withTimezone: true }),
+    /**
+     * 解除に伴う復元（PDS からの取り直し・判定待ちへの戻し）が終わった時刻。
+     * NULL の間は途中で失敗した可能性があるので、もう一度押せば復元をやり直す。
+     */
+    overrideAppliedAt: timestamp("override_applied_at", { withTimezone: true }),
     decidedAt: timestamp("decided_at", { withTimezone: true })
       .defaultNow()
       .notNull(),

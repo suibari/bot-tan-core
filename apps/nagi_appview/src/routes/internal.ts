@@ -58,26 +58,35 @@ internal.post("/emoji/resolve-aliases", async (req, res, next) => {
 
 /**
  * 運用者によるモデレーション判定の上書き。discord_bot が解除ボタンの押下を受けて叩く。
- * 押した人の権限確認は discord_bot 側（ロール）で済ませてある。
+ * 押した人の権限確認は discord_bot 側（ロール）で済ませてある。cid は通知を出した時点の
+ * もので、今の判定と違えば stale を返して何もしない。
  */
 internal.post("/moderation/override", async (req, res, next) => {
   try {
     const uri = req.body?.uri;
+    const cid = req.body?.cid;
     const action = req.body?.action;
     const actor = req.body?.actor;
     if (
       typeof uri !== "string" ||
       !uri.startsWith("at://") ||
+      typeof cid !== "string" ||
+      !cid ||
       action !== "allow" ||
       typeof actor !== "string" ||
       !actor
     ) {
       res
         .status(400)
-        .json({ error: "uri, action=allow and actor are required" });
+        .json({ error: "uri, cid, action=allow and actor are required" });
       return;
     }
-    const result = await overrideModerationDecision({ uri, action, actor });
+    const result = await overrideModerationDecision({
+      uri,
+      cid,
+      action,
+      actor,
+    });
     console.warn(
       `[moderation] override ${action} by ${actor}: ${uri} -> ${result.status}`,
     );

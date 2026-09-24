@@ -6,29 +6,39 @@
 export type ModerationAction = "allow";
 
 const PREFIX = "mod:";
-/** Discord の custom_id の上限。 */
-export const CUSTOM_ID_MAX = 100;
 
-/** `mod:<action>:<uri>`。上限を超えるなら null（ボタンを付けない）。 */
-export function moderationCustomId(
-  action: ModerationAction,
-  uri: string,
-): string | null {
-  const id = `${PREFIX}${action}:${uri}`;
-  return id.length <= CUSTOM_ID_MAX ? id : null;
+/**
+ * ボタンの custom_id は `mod:<action>` だけにする。
+ *
+ * 対象の URI と cid は合わせて約140文字になり、custom_id の上限（100文字）に入らない。
+ * そこで bot 自身が投稿した通知の embed フッターに書いておき、押されたらそこから読む
+ * （bot の投稿は他人が編集できない）。
+ */
+export function moderationCustomId(action: ModerationAction): string {
+  return `${PREFIX}${action}`;
 }
 
 export function parseModerationCustomId(
   customId: string,
-): { action: ModerationAction; uri: string } | null {
-  if (!customId.startsWith(PREFIX)) return null;
-  const rest = customId.slice(PREFIX.length);
-  const separator = rest.indexOf(":");
-  if (separator < 0) return null;
-  const action = rest.slice(0, separator);
-  const uri = rest.slice(separator + 1);
-  if (action !== "allow" || !uri.startsWith("at://")) return null;
-  return { action, uri };
+): { action: ModerationAction } | null {
+  return customId === `${PREFIX}allow` ? { action: "allow" } : null;
+}
+
+const SUBJECT_PREFIX = "subject: ";
+
+/** 通知の embed フッター。判定した内容（uri と cid）をボタンに結び付ける。 */
+export function noticeFooter(uri: string, cid: string): string {
+  return `${SUBJECT_PREFIX}${uri} ${cid}`;
+}
+
+export function parseNoticeSubject(
+  footer: string | null | undefined,
+): { uri: string; cid: string } | null {
+  if (!footer?.startsWith(SUBJECT_PREFIX)) return null;
+  const match = /^(at:\/\/\S+) ([A-Za-z0-9]+)$/.exec(
+    footer.slice(SUBJECT_PREFIX.length),
+  );
+  return match ? { uri: match[1], cid: match[2] } : null;
 }
 
 /**
@@ -46,7 +56,13 @@ export function canModerate(
 }
 
 export type OverrideResponse = {
-  status: "restored" | "unlabeled" | "absent" | "already" | "not-found";
+  status:
+    | "restored"
+    | "unlabeled"
+    | "absent"
+    | "already"
+    | "stale"
+    | "not-found";
   cidChanged?: boolean;
 };
 
@@ -67,6 +83,8 @@ export function overrideResultLine(
       return `⚠️ 解除を記録しました${who}が、元の投稿は既に削除されています。`;
     case "already":
       return `ℹ️ 既に解除済みです${who}。`;
+    case "stale":
+      return `⚠️ この通知の後で内容が変わり、新しい判定が出ています${who}。新しい通知を確認してください。`;
     case "not-found":
       return `⚠️ 判定記録が見つかりません${who}。`;
   }

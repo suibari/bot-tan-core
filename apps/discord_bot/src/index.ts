@@ -11,7 +11,7 @@ const GatewayIntentBits = {
 import { db, subscribers, initializeDatabases } from '@bsky-affirmative-bot/database';
 import { botLabelerManager, MemoryService } from '@bsky-affirmative-bot/clients';
 import { eq } from 'drizzle-orm';
-import { BADGE_DEF } from '@bsky-affirmative-bot/shared-configs';
+import { BADGE_DEF, discordBotInternalUrl, loopbackUrlFromPort } from '@bsky-affirmative-bot/shared-configs';
 import { assertExternalAccountAccessAllowed } from '@bsky-affirmative-bot/shared-configs/externalAccountAccess';
 import { registerModerationInteractions, startModerationNoticeServer } from './moderation.js';
 import dotenv from 'dotenv';
@@ -48,8 +48,9 @@ const moderationConfig = MODERATION_CHANNEL_ID
   ? {
       channelId: MODERATION_CHANNEL_ID,
       moderatorRoleId: process.env.DISCORD_MODERATOR_ROLE_ID || undefined,
-      port: Number(process.env.DISCORD_BOT_INTERNAL_PORT || 3005),
-      appviewOverrideUrl: `http://127.0.0.1:${Number(process.env.NAGI_APPVIEW_INTERNAL_PORT || 3004)}/internal/moderation/override`,
+      // AppView が送ってくる先と同じ値・同じ既定値から得る（shared-configs が出どころ）。
+      port: Number(new URL(discordBotInternalUrl()).port),
+      appviewOverrideUrl: `${loopbackUrlFromPort('NAGI_APPVIEW_INTERNAL_PORT', 3004)}/internal/moderation/override`,
     }
   : undefined;
 if (!moderationConfig) {

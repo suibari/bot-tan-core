@@ -84,8 +84,11 @@ async function downloadImages(imageUrls: string[]): Promise<{
   return { files, embeds, failures };
 }
 
-/** 解除ボタンを付ける対象。discord_bot にだけ渡り、Webhook では使えない。 */
-type NoticeAction = { uri: string; decision: ModerationDecision };
+/**
+ * 解除ボタンを付ける対象。discord_bot にだけ渡り、Webhook では使えない。
+ * cid は判定した内容のもの。bot はこれを通知に書き込み、押されたら AppView へ返す。
+ */
+type NoticeAction = { uri: string; cid: string; decision: ModerationDecision };
 
 /**
  * discord_bot 経由で投稿する。ボタン付きメッセージは bot でしか送れない（通常の
@@ -106,6 +109,7 @@ async function postViaBot(
     );
     if (action) {
       form.append("moderation_uri", action.uri);
+      form.append("moderation_cid", action.cid);
       form.append("moderation_decision", action.decision);
     }
     const response = await fetch(url, {
@@ -179,6 +183,8 @@ export type ModerationNotice = {
   decision: ModerationDecision;
   collection: string;
   uri: string;
+  /** 判定した内容の cid（プロフィールは内容のハッシュ）。解除ボタンをこの内容に結び付ける。 */
+  cid: string;
   did: string;
   labels: string[];
   category: string;
@@ -232,7 +238,7 @@ export async function notifyDecision(notice: ModerationNotice): Promise<void> {
       },
     ],
     notice.imageUrls,
-    { uri: notice.uri, decision: notice.decision },
+    { uri: notice.uri, cid: notice.cid, decision: notice.decision },
   );
 }
 

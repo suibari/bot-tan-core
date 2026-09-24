@@ -503,6 +503,7 @@ async function judge(
       decision,
       collection: item.collection,
       uri: item.uri,
+      cid: item.cid,
       did: item.did,
       labels,
       category,

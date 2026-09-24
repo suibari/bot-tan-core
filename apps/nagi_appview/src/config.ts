@@ -1,4 +1,7 @@
-import { aiModel } from "@bsky-affirmative-bot/shared-configs";
+import {
+  aiModel,
+  discordBotInternalUrl,
+} from "@bsky-affirmative-bot/shared-configs";
 import { parseClientOrigins } from "./clientOrigins.js";
 import { parseJetstreamUrls } from "./jetstreamUrls.js";
 const required = (name: string, fallback?: string) => {
@@ -68,7 +71,7 @@ function moderationConfig() {
     // 解除ボタン付きで投稿するため discord_bot の内部 HTTP を先に叩く。
     // 繋がらなければ discordWebhookUrl（ボタン無し）へフォールバックする。
     discordBotInternalUrl: notificationsAllowed
-      ? `http://127.0.0.1:${integer("DISCORD_BOT_INTERNAL_PORT", 3005, 1, 65_535)}/moderation/notices`
+      ? `${discordBotInternalUrl()}/moderation/notices`
       : "",
   };
 }

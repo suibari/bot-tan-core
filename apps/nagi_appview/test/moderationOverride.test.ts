@@ -13,23 +13,51 @@ type Deps = NonNullable<Parameters<typeof overrideModerationDecision>[1]>;
 
 const POST_URI = "at://did:plc:author/com.suibari.nagi.post/3kabc";
 
+type Row = NonNullable<Awaited<ReturnType<Deps["loadDecision"]>>>;
+
+/**
+ * DB の代わりに row をその場で書き換える。writeOverride は本物と同じく
+ * uri と cid の両方が一致したときだけ書く。
+ */
 function fakeDeps(
-  row: Awaited<ReturnType<Deps["loadDecision"]>>,
-  ensured: Awaited<ReturnType<Deps["ensureRecord"]>> = {
-    status: "present",
-    record: { uri: POST_URI, cid: "cid-1", value: {} } as any,
-  },
+  row: Row | undefined,
+  options: {
+    ensured?: Awaited<ReturnType<Deps["ensureRecord"]>>;
+    ensureFails?: number;
+    /** load と write の間に新しい判定が入ったことを再現する。 */
+    racedCid?: string;
+  } = {},
 ) {
   const calls: string[] = [];
+  let ensureFailures = options.ensureFails ?? 0;
   const deps: Deps = {
-    loadDecision: async () => row,
-    writeOverride: async (_row, override, actor) => {
+    loadDecision: async () => (row ? { ...row } : undefined),
+    writeOverride: async (subject, override, actor) => {
+      if (row && options.racedCid) row.cid = options.racedCid;
+      if (!row || row.uri !== subject.uri || row.cid !== subject.cid)
+        return false;
       calls.push(`write:${override}:${actor}`);
-      if (row) Object.assign(row, { override, overrideCid: row.cid });
+      Object.assign(row, {
+        override,
+        overrideCid: subject.cid,
+        overrideAppliedAt: null,
+      });
+      return true;
+    },
+    markApplied: async (subject) => {
+      calls.push("applied");
+      if (row && row.overrideCid === subject.cid)
+        row.overrideAppliedAt = new Date();
     },
     ensureRecord: (async (did: string, collection: string, rkey: string) => {
       calls.push(`ensure:${did}/${collection}/${rkey}`);
-      return ensured;
+      if (ensureFailures-- > 0) throw new Error("PDS timeout");
+      return (
+        options.ensured ?? {
+          status: "present",
+          record: { uri: POST_URI, cid: "cid-1", value: {} } as any,
+        }
+      );
     }) as Deps["ensureRecord"],
     requeue: async () => {
       calls.push("requeue");
@@ -41,27 +69,35 @@ function fakeDeps(
   return { deps, calls };
 }
 
-const decision = (value: string) => ({
+const decision = (value: string): Row => ({
   uri: POST_URI,
   cid: "cid-1",
   did: "did:plc:author",
   collection: "com.suibari.nagi.post",
   decision: value,
-  override: null as string | null,
-  overrideCid: null as string | null,
+  override: null,
+  overrideCid: null,
+  overrideAppliedAt: null,
 });
 
-const input = { uri: POST_URI, action: "allow" as const, actor: "mod#1 (1)" };
+const input = {
+  uri: POST_URI,
+  cid: "cid-1",
+  action: "allow" as const,
+  actor: "mod#1 (1)",
+};
 
 test("releasing a rejected post writes the override before restoring from the PDS", async () => {
   const { deps, calls } = fakeDeps(decision("reject-policy"));
   const result = await overrideModerationDecision(input, deps);
   assert.deepEqual(result, { status: "restored", decision: "reject-policy" });
   // 上書きより先に復元すると、ワーカーが同じ cid のキャッシュ判定で再び落としうる。
+  // 完了の記録は復元の後。
   assert.deepEqual(calls, [
     "write:allow:mod#1 (1)",
     "ensure:did:plc:author/com.suibari.nagi.post/3kabc",
     "requeue",
+    "applied",
     "wake",
   ]);
 });
@@ -70,22 +106,62 @@ test("releasing a label only requeues the row", async () => {
   const { deps, calls } = fakeDeps(decision("label"));
   const result = await overrideModerationDecision(input, deps);
   assert.equal(result.status, "unlabeled");
-  assert.deepEqual(calls, ["write:allow:mod#1 (1)", "requeue", "wake"]);
+  assert.deepEqual(calls, [
+    "write:allow:mod#1 (1)",
+    "requeue",
+    "applied",
+    "wake",
+  ]);
 });
 
-test("a second press is a no-op", async () => {
+test("a second press after a completed release is a no-op", async () => {
   const row = decision("reject-policy");
-  const { deps } = fakeDeps(row);
-  await overrideModerationDecision(input, deps);
+  await overrideModerationDecision(input, fakeDeps(row).deps);
   const second = fakeDeps(row);
   const result = await overrideModerationDecision(input, second.deps);
   assert.equal(result.status, "already");
   assert.deepEqual(second.calls, []);
 });
 
+test("a release that failed half-way can be retried until the record is restored", async () => {
+  const row = decision("reject-policy");
+  const first = fakeDeps(row, { ensureFails: 1 });
+  await assert.rejects(
+    overrideModerationDecision(input, first.deps),
+    /PDS timeout/,
+  );
+  // 上書きは残るが完了していないので、押し直しは already にならない。
+  assert.equal(row.override, "allow");
+  assert.equal(row.overrideAppliedAt, null);
+  assert.ok(!first.calls.includes("applied"));
+
+  const retry = fakeDeps(row);
+  const result = await overrideModerationDecision(input, retry.deps);
+  assert.equal(result.status, "restored");
+  assert.ok(retry.calls.includes("requeue"));
+  assert.ok(row.overrideAppliedAt);
+});
+
+test("a stale notice cannot approve content judged after it", async () => {
+  const row = { ...decision("reject-policy"), cid: "cid-2" };
+  const { deps, calls } = fakeDeps(row);
+  const result = await overrideModerationDecision(input, deps);
+  assert.equal(result.status, "stale");
+  assert.deepEqual(calls, []);
+  assert.equal(row.override, null);
+});
+
+test("a decision recorded between reading and writing is also stale", async () => {
+  const row = decision("reject-policy");
+  const { deps, calls } = fakeDeps(row, { racedCid: "cid-2" });
+  const result = await overrideModerationDecision(input, deps);
+  assert.equal(result.status, "stale");
+  assert.deepEqual(calls, []);
+});
+
 test("a record deleted in the PDS is reported and not requeued", async () => {
   const { deps, calls } = fakeDeps(decision("reject-policy"), {
-    status: "absent",
+    ensured: { status: "absent" },
   });
   const result = await overrideModerationDecision(input, deps);
   assert.equal(result.status, "absent");
@@ -94,8 +170,10 @@ test("a record deleted in the PDS is reported and not requeued", async () => {
 
 test("an edit after the decision is reported so the operator knows it will be judged again", async () => {
   const { deps } = fakeDeps(decision("reject-policy"), {
-    status: "present",
-    record: { uri: POST_URI, cid: "cid-2", value: {} } as any,
+    ensured: {
+      status: "present",
+      record: { uri: POST_URI, cid: "cid-2", value: {} } as any,
+    },
   });
   const result = await overrideModerationDecision(input, deps);
   assert.equal(result.cidChanged, true);

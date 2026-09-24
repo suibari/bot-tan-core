@@ -8,8 +8,10 @@ import {
 import {
   canModerate,
   moderationCustomId,
+  noticeFooter,
   overrideResultLine,
   parseModerationCustomId,
+  parseNoticeSubject,
   type OverrideResponse,
 } from './moderationNotice.js';
 
@@ -77,13 +79,16 @@ async function relayNotice(
     );
   }
 
-  let content: string = payload.content ?? '';
+  const content: string = payload.content ?? '';
+  const embeds: Array<Record<string, unknown>> = payload.embeds ?? [];
   const uri = form.get('moderation_uri');
+  const cid = form.get('moderation_cid');
   const components: Array<ReturnType<typeof releaseRow>> = [];
-  if (typeof uri === 'string' && uri) {
-    const customId = moderationCustomId('allow', uri);
-    if (customId) components.push(releaseRow(customId));
-    else content += '\n⚠️ URI が長すぎるため解除ボタンを付けられません。';
+  if (typeof uri === 'string' && uri && typeof cid === 'string' && cid) {
+    // 押されたときに「どの内容を見て解除したか」をここから読み戻す。
+    if (!embeds.length) embeds.push({});
+    embeds[0] = { ...embeds[0], footer: { text: noticeFooter(uri, cid) } };
+    components.push(releaseRow(moderationCustomId('allow')));
   }
 
   const channel = await client.channels.fetch(config.channelId);
@@ -91,7 +96,7 @@ async function relayNotice(
     throw new Error(`moderation channel ${config.channelId} is not sendable`);
   await channel.send({
     content: content.slice(0, 2_000),
-    embeds: payload.embeds ?? [],
+    embeds,
     files,
     components: components as any,
     allowedMentions: { parse: [] },
@@ -139,7 +144,7 @@ export function startModerationNoticeServer(
 async function handleRelease(
   interaction: ButtonInteraction,
   config: ModerationConfig,
-  target: { action: 'allow'; uri: string },
+  action: 'allow',
 ): Promise<void> {
   const member = interaction.member;
   const roleIds =
@@ -163,6 +168,19 @@ async function handleRelease(
     return;
   }
 
+  // bot 自身の投稿のフッターだけを信じる（他人は編集できない）。
+  const subject =
+    interaction.message.author.id === interaction.client.user.id
+      ? parseNoticeSubject(interaction.message.embeds[0]?.footer?.text)
+      : null;
+  if (!subject) {
+    await interaction.reply({
+      content: '❌ この通知から判定対象を読み取れませんでした。',
+      ephemeral: true,
+    });
+    return;
+  }
+
   // AppView は PDS からの取り直しを挟むので、3秒の応答期限を先に確保する。
   await interaction.deferUpdate();
   const actor = `${interaction.user.tag} (${interaction.user.id})`;
@@ -170,7 +188,7 @@ async function handleRelease(
     const response = (await fetch(config.appviewOverrideUrl, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ uri: target.uri, action: target.action, actor }),
+      body: JSON.stringify({ uri: subject.uri, cid: subject.cid, action, actor }),
       signal: AbortSignal.timeout(APPVIEW_TIMEOUT_MS),
     })) as unknown as JsonResponse;
     if (!response.ok && response.status !== 404)
@@ -182,11 +200,11 @@ async function handleRelease(
       components: [releaseRow(interaction.customId, true)] as any,
     });
     console.log(
-      `[INFO][DISCORD_MODERATION] ${actor} released ${target.uri}: ${result.status}`,
+      `[INFO][DISCORD_MODERATION] ${actor} released ${subject.uri} (${subject.cid}): ${result.status}`,
     );
   } catch (err) {
     console.error(
-      `[ERROR][DISCORD_MODERATION] Release failed for ${target.uri}:`,
+      `[ERROR][DISCORD_MODERATION] Release failed for ${subject.uri}:`,
       err,
     );
     await interaction.followUp({
@@ -205,7 +223,7 @@ export function registerModerationInteractions(
     const target = parseModerationCustomId(interaction.customId);
     if (!target) return;
     try {
-      await handleRelease(interaction, config, target);
+      await handleRelease(interaction, config, target.action);
     } catch (err) {
       console.error('[ERROR][DISCORD_MODERATION] Interaction failed:', err);
     }
