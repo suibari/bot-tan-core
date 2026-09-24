@@ -37,11 +37,8 @@ import {
 import { fetchDisplayName } from "./displayName.js";
 import { jstDateString as jstDate } from "./jstDate.js";
 import { getRecentNewsArticleIds, recordRecentNewsArticle } from "./whimsicalPostNewsHistory.js";
-import {
-  buildGoodNightPostTexts,
-  buildWhimsicalPostTexts,
-  selectGoodNightLearnedTerms,
-} from "./scheduledPostContent.js";
+import { selectGoodNightLearnedTerms } from "./scheduledPostContent.js";
+import { buildMorningPostRequest, buildWhimsicalPostRequest, buildGoodNightPostRequest } from "./scheduledPostRequests.js";
 import {
   buildBotMemoryTopicQuery,
   retrieveBotMemoryTopics,
@@ -228,20 +225,7 @@ export async function getYoutubeLiveForWhimsical(
 
 export async function postMorning(botContext?: BotContext) {
   const { textJa, textEn, theme } = await generateQuestion(botContext);
-  const hashtags = "#全肯定質問コーナー #BottansQuestion";
-  const results = await publish({
-    kind: "morning",
-    contentByTarget: {
-      bsky: { text: `${textJa}\n\n${textEn}\n\n${hashtags}` },
-      // Nagi は日本語で投稿し、英語版は Gemini が作ったこの textEn を翻訳キャッシュへ
-      // 投入する（機械翻訳させない）。ハッシュタグは日本語側と揃える。
-      nagi: {
-        text: `${textJa}\n\n${hashtags}`,
-        langs: ["ja"],
-        translations: [{ lang: "en", text: `${textEn}\n\n${hashtags}` }],
-      },
-    },
-  });
+  const results = await publish(buildMorningPostRequest({ textJa, textEn }));
   if (results.bsky) {
     await MemoryService.setQuestionState(results.bsky.uri, theme);
   }
@@ -334,30 +318,9 @@ export async function postWhimsical(currentMood: string, botContext?: BotContext
   }
   const song = reservedSong?.song ?? null;
 
-  const moodSong = song
-    ? `MyMoodSong:\n${song.title} - ${song.artist}` +
-      (song.lastFmUrl ? `\nSource: Last.fm ${song.lastFmUrl}` : "") +
-      `\n${song.url}`
-    : "";
-  const texts = buildWhimsicalPostTexts({
-    textJa: generated.textJa,
-    textEn: generated.textEn,
-    moodSong,
-    selectedNewsUrl: generated.selectedNewsUrl,
-  });
   let results: Partial<Record<"bsky" | "nagi", ScheduledPostResult>>;
   try {
-    results = await publish({
-      kind: "whimsical",
-      contentByTarget: {
-        bsky: { text: isJapanesePost ? texts.bskyJa : texts.bskyEn },
-        nagi: {
-          text: texts.nagiJa,
-          langs: ["ja"],
-          translations: [{ lang: "en", text: texts.nagiEn }],
-        },
-      },
-    });
+    results = await publish(buildWhimsicalPostRequest({ generated, song, isJapanesePost }));
   } catch (error) {
     // 外部投稿の成否を断定できないため、publishing の30日保護を残す。
     throw error;
@@ -464,32 +427,14 @@ export async function postGoodNight(currentMood: string, botContext?: BotContext
       return result;
     }, { retries: 3 });
 
-    const texts = buildGoodNightPostTexts({
-      textJa: generated.textJa,
-      textEn: generated.textEn,
-      sourcePost: { network: candidate.network, uri: candidate.uri },
-    });
-
     // 絵は1日1枚ここだけで作る。本文が確定してから作るので、絵と文がずれない。
     const image = await buildGoodNightImage(generated.textJa, botContext);
 
-    const results = await publish({
-      kind: "good-night",
-      contentByTarget: {
-        // **Bluesky の投稿には絵を出さない。** ここで image を渡しているのは、
-        // Leaflet の日記が Bluesky 側のおやすみポストの副作用として発行されており、
-        // その日記のヘッダー画像に使うため。bsky_bot_server は image を
-        // postContinuous へ渡さない（ScheduledPostFeature.ts のコメント参照）。
-        bsky: { text: texts.bsky, ...(image ? { image } : {}) },
-        nagi: {
-          text: texts.nagiJa,
-          langs: ["ja"],
-          translations: [{ lang: "en", text: texts.nagiEn }],
-          ...(image ? { image } : {}),
-        },
-      },
+    const results = await publish(buildGoodNightPostRequest({
+      generated,
+      image,
       sourcePost: { network: candidate.network, uri: candidate.uri, cid: candidate.cid },
-    });
+    }));
     if (results.bsky) await MemoryService.setWhimsicalPostRoots([results.bsky.uri]);
 
     if (giftCandidates?.length && Object.keys(results).length > 0) {

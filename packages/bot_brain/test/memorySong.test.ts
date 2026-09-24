@@ -115,7 +115,7 @@ test("選曲候補を記憶から探すときは全投稿の要約を検索へ�
 
 test("Last.fm経路が成功すればbot memoryフォールバックを呼ばない", async () => {
   let memorySearched = false;
-  const result = await resolveMoodSong("晴れた日の散歩", "日本語", SCHEDULED_POST_SONG_SCOPE, {
+  const result = await resolveMoodSong("晴れた日の散歩", "日本語", djSongSelectionScope("did:plc:alice"), {
     getRecentSelections: async () => [],
     resolveLastFm: async (_post, _lang, options) => {
       assert.deepEqual([...options.excludedSongKeys ?? []], []);
@@ -266,4 +266,38 @@ test("予約競合時は別候補を再選し、予約できた曲だけを返�
   assert.equal(result?.song.songKey, "song-B");
   assert.equal(resolved, 2);
   assert.equal(reserved, 2);
+});
+
+
+test("定期ポストはLast.fm候補を呼ばず、記憶の候補をYouTubeで確認する", async () => {
+  let lastFmCalls = 0;
+  const searched: string[] = [];
+  const result = await resolveMoodSong("晴れた日", "日本語", SCHEDULED_POST_SONG_SCOPE, {
+    getRecentSelections: async () => [],
+    resolveLastFm: async () => { lastFmCalls++; return null; },
+    findCandidates: async () => [{ documentId: 1, title: "Song", artist: "Artist" }],
+    screenMemory: async (_post, _lang, candidates) => candidates,
+    searchYoutube: async (title) => {
+      searched.push(title);
+      return { videoId: "verified", url: "https://www.youtube.com/watch?v=verified",
+        videoTitle: title, channelTitle: "Official" };
+    },
+  });
+  assert.equal(lastFmCalls, 0);
+  assert.deepEqual(searched, ["Song"]);
+  assert.equal(result?.url, "https://www.youtube.com/watch?v=verified");
+  assert.equal(result?.lastFmUrl, undefined);
+});
+
+test("定期ポストの記憶候補が空でもLast.fmへ迂回しない", async () => {
+  let lastFmCalls = 0;
+  const result = await resolveMoodSong("晴れた日", "日本語", SCHEDULED_POST_SONG_SCOPE, {
+    getRecentSelections: async () => [],
+    resolveLastFm: async () => { lastFmCalls++; return null; },
+    findCandidates: async () => [],
+    screenMemory: async (_post, _lang, candidates) => candidates,
+    searchYoutube: async () => { assert.fail("候補なしでYouTube検索しない"); },
+  });
+  assert.equal(lastFmCalls, 0);
+  assert.equal(result, null);
 });

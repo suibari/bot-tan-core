@@ -17,7 +17,7 @@ SEARXNG_BASE_URL=http://127.0.0.1:8080
 `AI_FEATURES` に残るlite/flash/tierの表は、`AI_TEXT_PROVIDER=gemini` に変えたとき
 従来のGemini構成へ一括で戻すための設定である。
 
-`AI_ROUTE_<機能キー>` を明示した場合は全体既定より優先される。曲選出はローカルLLMの1回の
+`AI_ROUTE_<機能キー>` を明示した場合は全体既定より優先される。DJ・ラジオの曲選出はローカルLLMの1回の
 構造化解析で、投稿に明示されたアニメ作品・アーティスト・題材と気分タグをまとめて抽出する。
 アニメはAnimeThemesの公式OP/ED、アーティストはLast.fmの代表曲、題材はLast.fmとSearXNG、
 それ以外は気分タグから候補を作る。DJでは今回の依頼を優先しつつ直近20件も解析へ渡す。
@@ -29,11 +29,12 @@ AnimeThemes / Last.fm経路が失敗してもGeminiへは戻らず、ローカ�
 `fetchReadableText`）で行う。利用者が第三者AIサービスの規約に同意する関係が生まれない
 ことが採用理由で、これにより18歳以上要件の根拠が外れる。
 
-通常時は定期ポストまたはDJリクエスト本文をローカルLLMだけに渡す。Last.fmが返した候補を
-ローカルで安全確認し、コード側で抽選した後、YouTube APIで検証する。この経路からGeminiを
-呼ぶコードとルートは置かない。作品名がある場合も、AnimeThemesの登録曲をLast.fmで補完し、
-同じ言語・安全性・YouTube・選出履歴の検査を通す。Last.fm経路を有効にするには
-`LASTFM_API_KEY`が必要。AnimeThemesはAPIキー不要。
+定期ポストの `MoodSongResolver` は、bot memory の曲候補をローカルで言語・安全確認し、
+YouTube APIで検証してからYouTubeリンクだけを本文へ載せる。`scheduled_post` スコープでは
+Last.fm候補取得を呼ばず、確認できる候補が無ければ曲を省略する。
+DJ・Nagiラジオは `resolveLinkedMoodSong` / `resolveNagiRadioSong` でLast.fmの曲ページと
+ジャケットを取得する。こちらはYouTube検索を必須にせず、日次枠を定期ポスト用に残す。
+Last.fm経路を有効にするには `LASTFM_API_KEY` とOllama接続設定が必要。
 
 曲の再選除外はUTCの時刻を基準にしたローリング30日で、ちょうど30日前の選出も含む。
 定期ポストは全体で1スコープ、DJはDIDごとに別スコープとする。選曲後は投稿前にDB予約を取り、

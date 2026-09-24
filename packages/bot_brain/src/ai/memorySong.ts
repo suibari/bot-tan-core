@@ -142,7 +142,7 @@ async function screenMemorySongCandidates(
   return candidates.filter((_, index) => allowed.has(index));
 }
 
-/** Last.fm候補を優先し、失敗時はローカル検査済みbot memoryだけへフォールバックする。 */
+/** 定期ポストは検査済みbot memory → YouTube。他用途ではLast.fm候補を優先する。 */
 export async function resolveMoodSong(
   input: MoodSongInput,
   langStr: LanguageName,
@@ -173,7 +173,8 @@ export async function resolveMoodSong(
   ]);
   const searchYoutube = deps.searchYoutube ?? searchYoutubeSong;
 
-  if (deps.resolveLastFm || (process.env.LASTFM_API_KEY && isOllamaConfigured())) {
+  if (scope.purpose !== "scheduled_post" &&
+      (deps.resolveLastFm || (process.env.LASTFM_API_KEY && isOllamaConfigured()))) {
     try {
       const lastFm = await (deps.resolveLastFm ?? resolveLastFmMoodSong)(input, langStr, {
         excludedSongKeys,
