@@ -15,7 +15,8 @@
  *
  * ## スケジューリングは「いつ試したか」で決める
  *
- * 進捗は nagi.actors の themes_checked_at / news_reasons_checked_at に書く。結果が空でも書く。
+ * テーマの試行は themes_checked_at、突合の試行は news_reasons_attempted_at に書く。
+ * 突合の完了は news_reasons_checked_at に分け、未完了でも他のユーザーへ順番を回す。
  * 「行が書けたか」で判定すると、テーマが1つも取れない人・記事が1件も無い状態が候補に残り続け、
  * BUSY_INTERVAL_MS の10秒間隔で永久に回る（本番で実際に起きた）。
  * LLM の当たり外れとスケジューリングは切り離しておくこと。
@@ -154,7 +155,7 @@ async function refreshThemes(did: string): Promise<number> {
     // テーマが変わったら理由は作り直し。古い理由が残ると、もう無い語を出しかねない。
     await tx.delete(nagiNewsReasons).where(eq(nagiNewsReasons.did, did));
     // themes が空でも「試した」印は付ける。付けないと次の tick でまた選ばれる。
-    // 理由は消したので、突合は未実施へ戻す。
+    // 理由は消したので、突合は未実施へ戻す。試行日時は公平な順番を保つため残す。
     await tx
       .update(nagiActors)
       .set({ themesCheckedAt: new Date(), newsReasonsCheckedAt: null })
@@ -165,7 +166,7 @@ async function refreshThemes(did: string): Promise<number> {
 }
 
 /** 突合が古い／未実施のユーザー。関心ジャンルを1つ以上持っている人だけが対象。 */
-async function actorsNeedingReasons(limit: number): Promise<string[]> {
+export async function actorsNeedingReasons(limit: number): Promise<string[]> {
   const rows = await db.execute<{ did: string }>(sql`
     select a.did
       from nagi.actors a
@@ -173,7 +174,7 @@ async function actorsNeedingReasons(limit: number): Promise<string[]> {
        and (a.news_reasons_checked_at is null
             or a.news_reasons_checked_at < now() - interval '${sql.raw(String(REASON_TTL_HOURS))} hours')
        and exists (select 1 from nagi.actor_interest_genres g where g.did = a.did)
-     order by a.news_reasons_checked_at asc nulls first
+     order by a.news_reasons_attempted_at asc nulls first, a.did asc
      limit ${limit}
   `);
   return rows.map((row) => row.did);
@@ -238,13 +239,18 @@ export async function computeReasons(
 }
 
 /**
- * 突合を1人ぶん実行し、「試した」印を付ける。
- *
- * テーマが無い・記事が0件で1行も書けなかったときも印は付ける（付けないと次の tick で
- * また選ばれる）。例外時は付けない ＝ Ollama 不通などは次回に持ち越す。
+ * 突合を1人ぶん実行する。開始時に試行日時を更新し、未完了・失敗でも順番を回す。
+ * 完了日時は全件終了時だけ更新する。空の結果も完了扱いだが、例外時は持ち越す。
  */
-async function refreshReasons(did: string): Promise<{ matched: number; complete: boolean }> {
-  const result = await computeReasons(did);
+export async function refreshReasons(
+  did: string,
+  match: typeof matchNewsToGenres = matchNewsToGenres,
+): Promise<{ matched: number; complete: boolean }> {
+  await db
+    .update(nagiActors)
+    .set({ newsReasonsAttemptedAt: new Date() })
+    .where(eq(nagiActors.did, did));
+  const result = await computeReasons(did, match);
   if (result.complete) {
     await db
       .update(nagiActors)
