@@ -22,6 +22,12 @@
               "maxGraphemes": 40,
               "description": "botたんに呼んでほしい名前。空文字を送ると登録を解除し、表示名に戻す。送らなければ変更しない。"
             },
+            "chronicleReadRevisions": {
+              "type": "array",
+              "maxLength": 200,
+              "items": { "type": "string", "maxLength": 64 },
+              "description": "年表の既読リビジョンを追加する。既存の既読は削除しない。"
+            },
             "readPositions": {
               "type": "array",
               "maxLength": 16,
@@ -98,6 +104,10 @@
               "maxLength": 120,
               "maxGraphemes": 40,
               "description": "botたんに呼んでほしい名前。省略時は未設定＝表示名で呼ばれる。"
+            },
+            "chronicleReadRevisions": {
+              "type": "array",
+              "items": { "type": "string", "maxLength": 64 }
             },
             "readPositions": {
               "type": "array",

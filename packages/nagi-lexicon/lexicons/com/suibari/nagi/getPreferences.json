@@ -23,6 +23,11 @@
               "maxGraphemes": 40,
               "description": "botたんに呼んでほしい名前。省略時は未設定＝表示名で呼ばれる。"
             },
+            "chronicleReadRevisions": {
+              "type": "array",
+              "items": { "type": "string", "maxLength": 64 },
+              "description": "年表の既読リビジョン（項目IDと内容のSHA-256）の集合。"
+            },
             "readPositions": {
               "type": "array",
               "items": { "type": "ref", "ref": "#readPosition" }

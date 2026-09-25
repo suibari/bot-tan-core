@@ -1323,6 +1323,16 @@ export const nagiCardCommentJobs = nagiSchema.table(
   ],
 );
 
+/** 年表の既読は項目IDと内容のSHA-256集合。端末間で既読を巻き戻さない。 */
+export const nagiChronicleReadRevisions = nagiSchema.table(
+  "chronicle_read_revisions",
+  {
+    did: text("did").notNull(),
+    revision: text("revision").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.did, t.revision] })],
+);
+
 /**
  * 端末をまたいで同期する「ここまで読んだ」位置。my Nagi の各セクションのドットに使う。
  * ミュートや非公開リストと同じく、PDS レコードにすると「いつ何を読んだか」が公開されて

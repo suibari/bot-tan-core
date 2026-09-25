@@ -49,6 +49,7 @@ import {
   nagiPrivateListMembers,
   nagiPushSubscriptions,
   nagiReadPositions,
+  nagiChronicleReadRevisions,
   nagiReactions,
   nagiTranslations,
 } from "@bsky-affirmative-bot/database";
@@ -307,6 +308,9 @@ export async function deleteAccountData(did: string) {
       .where(eq(nagiPushSubscriptions.recipientDid, did));
 
     // 端末間で同期していた設定。既読位置は閲覧履歴そのものなので必ず消す。
+    await tx
+      .delete(nagiChronicleReadRevisions)
+      .where(eq(nagiChronicleReadRevisions.did, did));
     await tx.delete(nagiReadPositions).where(eq(nagiReadPositions.did, did));
     await tx.delete(nagiEmojiFavorites).where(eq(nagiEmojiFavorites.did, did));
     await tx.delete(nagiFeedTabs).where(eq(nagiFeedTabs.did, did));

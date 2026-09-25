@@ -384,3 +384,24 @@ timestamptz のイベントは全部 `cardDrawDate()`（**JST 4:00 始まり**�
   `nagi.zenkatsu_combo_discoveries` は揃っている。`chronicle_events.kind` を enum ではなく
   text にしてあるので、`kind` を足して `getChronicle` のマージに1本クエリを増やすだけで済む
 - **共有・OG画像。** 年表は日記本文の抜粋を含みうるので、外へ出す導線は別途設計が要る
+
+
+## メニューの既読バッジ
+
+年表の既読は `nagi.chronicle_read_revisions` にアカウント単位で保存する。
+既存の認証付き `getPreferences` / `putPreferences` の `chronicleReadRevisions` で同期するため、OAuthスコープの追加は不要。
+
+リビジョンは `SHA-256(JSON.stringify([id, revision]))` の小文字hex。
+`revision` は `JSON.stringify([kind, date, titleJa, titleEn, detailJa, detailEn, diaryDate])`。
+省略値は配列内の `null` になり、表示言語で変わる `card` / `news` の展開結果は含めない。
+既読集合への追加だけを受け付ける（1リクエスト200件まで）。別端末から古い既読が届いても、
+他端末の既読を巻き戻さない。未表示の年や内容が変わった項目は未読のまま残る。
+
+クライアントは従来のlocalStorageの既読を移行し、通信失敗時の未送信分も次回同期で再送する。
+メニューバッジの取得は年表・カードゲーム・ラジオとも、起動／ログイン時と画面復帰時。
+定期取得はしない。本人の閲覧・プレイ完了時にはその場でバッジを更新する。
+全データ削除・退会ではサーバーの既読行とクライアントのキャッシュも削除する。
+
+反映順はDBスキーマ（通常の `drizzle-kit push`、手動適用用は
+`0080_nagi_chronicle_read_revisions.sql`）、AppView、クライアント。
+DBの適用前にAppViewだけを更新すると、設定取得が新テーブルを参照して失敗する。

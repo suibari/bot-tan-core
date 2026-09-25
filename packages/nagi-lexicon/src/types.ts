@@ -751,6 +751,8 @@ export type SyncedModerationPreferences = {
   selfNsfw: ModerationPreference;
 };
 export type PreferencesView = {
+  /** SHA-256 of JSON.stringify([eventId, revision]). Union-only read state. */
+  chronicleReadRevisions?: string[];
   readPositions: ReadPosition[];
   emojiFavorites: EmojiFavorite[];
   /** 未同期（まだ一度も書き込んでいない）なら undefined。 */
@@ -780,6 +782,8 @@ export type PreferencesView = {
   };
 };
 export type PutPreferencesInput = {
+  /** Add read revisions; at most 200 per request. Never replaces existing reads. */
+  chronicleReadRevisions?: string[];
   readPositions?: ReadPosition[];
   emojiFavorites?: EmojiFavorite[];
   /** emojiFavorites を送るときは必須。保存済みより古ければ書き込まない。 */
