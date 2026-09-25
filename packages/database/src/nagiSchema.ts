@@ -13,6 +13,7 @@ import {
   pgEnum,
   pgSchema,
   primaryKey,
+  smallint,
   text,
   timestamp,
   uniqueIndex,
@@ -455,6 +456,38 @@ export const nagiPostScores = nagiSchema.table("post_scores", {
     .defaultNow()
     .notNull(),
 });
+/**
+ * 投稿ごとの気分（日記の感情グラフ用）。NagiPostMoodWorker が非同期に埋める。
+ *
+ * posts の列にしないのは、採点がボットサーバ側の都合（Ollama）で決まるから。
+ * 取り込み経路（applyMutation）は触らず、編集は cid の不一致、採点基準の変更は
+ * version の不一致として、ワーカーが拾い直す。投稿の削除は posts.deleted_at で除外する。
+ */
+export const nagiPostMoods = nagiSchema.table(
+  "post_moods",
+  {
+    postUri: text("post_uri").primaryKey(),
+    did: text("did").notNull(),
+    /** 採点した時点の投稿の cid。posts.cid と違えば編集後なので採点し直す。 */
+    cid: text("cid").notNull(),
+    /** -5（深く落ち込んでいる）〜 +5（最高に嬉しい）。本文が空などで採点できなければ null。 */
+    valence: smallint("valence"),
+    /** 書き手の気分が読み取れたか。false は告知・事実共有などの中立で、グラフの帯には入れない。 */
+    expressive: boolean("expressive").default(false).notNull(),
+    /** 採点プロンプトの版。POST_MOOD_VERSION と違えば採点し直す。 */
+    version: text("version").notNull(),
+    scoredAt: timestamp("scored_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    index("nagi_post_moods_did_idx").on(t.did),
+    check(
+      "nagi_post_moods_valence_range",
+      sql`${t.valence} IS NULL OR ${t.valence} BETWEEN -5 AND 5`,
+    ),
+  ],
+);
 export const nagiReactions = nagiSchema.table(
   "reactions",
   {

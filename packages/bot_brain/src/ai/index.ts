@@ -9,6 +9,7 @@ export * from './generateZenkatsuComment.js';
 export * from './generateZenkatsuAward.js';
 export * from './generateChronicleMonth.js';
 export * from './generateChronicleNews.js';
+export * from './scorePostMood.js';
 export * from './generateCommunityAffirmation.js';
 export * from './generateAnniversary.js';
 export * from './generateCheerResult.js';

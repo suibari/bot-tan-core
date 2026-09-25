@@ -765,6 +765,7 @@ xrpc.get(
             to: String(req.query.to ?? "") || undefined,
             limit: limit(req.query.limit),
             cursor: String(req.query.cursor ?? "") || undefined,
+            moods: req.query.moods === "true",
             viewerDid: req.viewerDid!,
           }),
         );

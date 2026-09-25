@@ -5,6 +5,7 @@ import { validateRecord } from "../src/ingest/validateRecord.js";
 import {
   diaryInteractionWindow,
   diaryView,
+  moodDiaryDate,
   rankDiaryInteractionActors,
   validateDiaryRange,
 } from "../src/queries/diaries.js";
@@ -174,6 +175,21 @@ test("uses the same local 22:00 cutoff as Japanese diary generation", () => {
   const window = diaryInteractionWindow(row);
   assert.equal(window.start.toISOString(), "2026-08-01T13:00:00.000Z");
   assert.equal(window.end.toISOString(), "2026-08-02T13:00:00.000Z");
+});
+
+test("mood points fall into the same diary day as the 22:00 diary window", () => {
+  const tokyo = "Asia/Tokyo";
+  // 2026-08-02 の日記の窓は JST 8/1 22:00 の直後〜8/2 22:00（上のテストと同じ境界）。
+  assert.equal(moodDiaryDate(new Date("2026-08-01T13:00:00.000Z"), tokyo), "2026-08-01");
+  assert.equal(moodDiaryDate(new Date("2026-08-01T13:00:00.001Z"), tokyo), "2026-08-02");
+  assert.equal(moodDiaryDate(new Date("2026-08-02T03:00:00.000Z"), tokyo), "2026-08-02");
+  assert.equal(moodDiaryDate(new Date("2026-08-02T13:00:00.000Z"), tokyo), "2026-08-02");
+  // 月・年をまたぐ繰り上がり。
+  assert.equal(moodDiaryDate(new Date("2026-12-31T14:30:00.000Z"), tokyo), "2027-01-01");
+  // 夏時間のある地域でも、ローカル22時で区切る（NY の夏は UTC-4）。
+  const ny = "America/New_York";
+  assert.equal(moodDiaryDate(new Date("2026-07-10T01:59:00.000Z"), ny), "2026-07-09");
+  assert.equal(moodDiaryDate(new Date("2026-07-10T02:01:00.000Z"), ny), "2026-07-10");
 });
 
 test("ranks interaction targets by count, recency, then DID", () => {
