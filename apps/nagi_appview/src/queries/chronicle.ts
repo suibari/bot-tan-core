@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   db,
   followers,
@@ -16,6 +17,7 @@ import type {
   CardView,
   ChronicleEventKind,
   ChronicleEventView,
+  ChroniclePage,
   NewsView,
 } from "@bsky-affirmative-bot/nagi-lexicon";
 import {
@@ -46,7 +48,8 @@ import { hasTrustedSnapshot, newsView, type NewsLang } from "./positiveNews.js";
  */
 
 /** cursor として受け付ける下限。これより前のデータは無い（Nagi は 2025 開始）。 */
-const MIN_YEAR = 2020;
+export const CHRONICLE_MIN_YEAR = 2020;
+type ChronicleDb = Pick<typeof db, "select">;
 
 const YEAR = /^\d{4}$/;
 
@@ -125,8 +128,9 @@ const inWindow = (date: string, w: ChronicleWindow) =>
 async function loadStoredEvents(
   did: string,
   w: ChronicleWindow,
+  queryDb: ChronicleDb,
 ): Promise<ChronicleEventView[]> {
-  const rows = await db
+  const rows = await queryDb
     .select()
     .from(nagiChronicleEvents)
     .where(
@@ -154,8 +158,9 @@ async function loadStoredEvents(
 async function loadAnniversaryCards(
   did: string,
   w: ChronicleWindow,
+  queryDb: ChronicleDb,
 ): Promise<ChronicleEventView[]> {
-  const rows = await db
+  const rows = await queryDb
     .select(INSTANCE_COLUMNS)
     .from(nagiCardInstances)
     .where(
@@ -254,20 +259,21 @@ export function buildFirstEvents(input: FirstsInput): ChronicleEventView[] {
  */
 async function loadFirsts(
   did: string,
+  queryDb: ChronicleDb,
 ): Promise<{ events: ChronicleEventView[]; originYear?: number }> {
   const [profile, follower, rareCards] = await Promise.all([
-    db
+    queryDb
       .select({ createdAt: nagiProfiles.createdAt })
       .from(nagiProfiles)
       .where(eq(nagiProfiles.did, did))
       .limit(1),
-    db
+    queryDb
       .select({ createdAt: followers.created_at })
       .from(followers)
       .where(eq(followers.did, did))
       .limit(1),
     // rarity は card_gets に焼き付けてあるので、カード定義 JSON を読まずに SQL で絞れる。
-    db
+    queryDb
       .select({ rarity: nagiCardGets.rarity, at: min(nagiCardGets.drawnAt) })
       .from(nagiCardGets)
       .where(
@@ -300,9 +306,10 @@ async function loadFirsts(
 async function loadNewsViews(
   uris: string[],
   lang: NewsLang,
+  queryDb: ChronicleDb,
 ): Promise<Map<string, NewsView>> {
   if (!uris.length) return new Map();
-  const rows = await db
+  const rows = await queryDb
     .select({ news: nagiNews, approval: nagiNewsApprovals })
     .from(nagiNews)
     .innerJoin(nagiNewsApprovals, eq(nagiNewsApprovals.newsUri, nagiNews.uri))
@@ -328,8 +335,9 @@ type MonthlyNewsRow = { event: ChronicleEventView; newsUri: string };
 
 async function loadMonthlyNews(
   w: ChronicleWindow,
+  queryDb: ChronicleDb,
 ): Promise<{ rows: MonthlyNewsRow[]; newsUris: string[] }> {
-  const rows = await db
+  const rows = await queryDb
     .select()
     .from(nagiChronicleNews)
     .where(
@@ -361,14 +369,35 @@ function monthEndOf(month: string): string {
   return `${month}-${String(last).padStart(2, "0")}`;
 }
 
-export async function getChronicle(opts: {
-  actor: string;
-  limit: number;
-  cursor?: string;
-  lang: NewsLang;
-  /** 認証必須のエンドポイントなので常にある。actor と一致しなければ拒否する。 */
-  viewerDid: string;
-}): Promise<{ items: ChronicleEventView[]; cursor?: string; hasMore: boolean }> {
+/** 表示言語・取得順序によらない年全体の版。削除や空の年への変更も検出する。 */
+export function chronicleYearRevision(
+  year: number,
+  items: ChronicleEventView[],
+): string {
+  const contents = [...items]
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    .map((event) => [
+      event.id, event.kind, event.date, event.titleJa, event.titleEn,
+      event.detailJa, event.detailEn, event.diaryDate,
+      event.news?.uri, event.news?.cid,
+      event.card?.volume, event.card?.id, event.card?.nameJa, event.card?.nameEn,
+      event.card?.commentJa, event.card?.commentEn,
+    ]);
+  return createHash("sha256").update(JSON.stringify([year, contents])).digest("hex");
+}
+
+export async function getChronicle(
+  opts: {
+    actor: string;
+    /** 互換性のため受理する。年全体の既読判定には全項目が必要なので切り捨てない。 */
+    limit: number;
+    cursor?: string;
+    lang: NewsLang;
+    /** 認証必須。actor と一致しなければ拒否する。 */
+    viewerDid: string;
+  },
+  queryDb: ChronicleDb = db,
+): Promise<ChroniclePage> {
   if (!opts.actor)
     throw new ApiError(400, "invalid_request", "actor is required");
   if (opts.actor !== opts.viewerDid)
@@ -386,22 +415,23 @@ export async function getChronicle(opts: {
    * 「今年」から始めればよいわけではない）。そのぶんここだけ1往復多いが、
    * 引いているのは索引付きの MIN が数本だけ。
    */
-  const firsts = await loadFirsts(opts.actor);
+  const firsts = await loadFirsts(opts.actor, queryDb);
   const origin = firsts.originYear ?? thisYear;
   const year = parseChronicleCursor(opts.cursor) ?? origin;
-  if (year < MIN_YEAR || year > thisYear)
+  if (year < Math.max(CHRONICLE_MIN_YEAR, origin) || year > thisYear)
     throw new ApiError(400, "invalid_request", "Invalid chronicle cursor");
   const w = windowOf(year);
 
   const [storedEvents, cards, monthlyNews] = await Promise.all([
-    loadStoredEvents(opts.actor, w),
-    loadAnniversaryCards(opts.actor, w),
-    loadMonthlyNews(w),
+    loadStoredEvents(opts.actor, w, queryDb),
+    loadAnniversaryCards(opts.actor, w, queryDb),
+    loadMonthlyNews(w, queryDb),
   ]);
 
   const news = await loadNewsViews(
     [...new Set(monthlyNews.newsUris)],
     opts.lang,
+    queryDb,
   );
 
   /*
@@ -421,13 +451,14 @@ export async function getChronicle(opts: {
     ...contextEvents,
     ...cards,
     ...firsts.events.filter((event) => inWindow(event.date, w)),
-  ])
-    .flatMap((event) => chronicleEventView(opts.actor, opts.viewerDid, event) ?? [])
-    .slice(0, opts.limit);
+  ]).flatMap((event) => chronicleEventView(opts.actor, opts.viewerDid, event) ?? []);
+  // 年単位の既読なので全件を返す。limitで切ると未表示部分まで既読になる。
 
   // 今年まで来たら終端。古い順なので、進む先は「より新しい年」。
   const hasMore = year < thisYear;
   return {
+    year,
+    revision: chronicleYearRevision(year, items),
     items,
     ...(hasMore ? { cursor: String(year + 1) } : {}),
     hasMore,

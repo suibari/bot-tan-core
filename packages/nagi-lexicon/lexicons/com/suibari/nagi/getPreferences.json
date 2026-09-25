@@ -23,6 +23,11 @@
               "maxGraphemes": 40,
               "description": "botたんに呼んでほしい名前。省略時は未設定＝表示名で呼ばれる。"
             },
+            "chronicleReadYears": {
+              "type": "array",
+              "items": { "type": "ref", "ref": "com.suibari.nagi.getChronicle#readYear" },
+              "description": "年ごとの既読ハッシュ。過去の版は蓄積せず、現在の年表内容と一致する版だけを保存する。"
+            },
             "readPositions": {
               "type": "array",
               "items": { "type": "ref", "ref": "#readPosition" }

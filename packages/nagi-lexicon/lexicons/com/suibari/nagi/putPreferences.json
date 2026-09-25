@@ -22,6 +22,12 @@
               "maxGraphemes": 40,
               "description": "botたんに呼んでほしい名前。空文字を送ると登録を解除し、表示名に戻す。送らなければ変更しない。"
             },
+            "chronicleReadYears": {
+              "type": "array",
+              "maxLength": 100,
+              "items": { "type": "ref", "ref": "com.suibari.nagi.getChronicle#readYear" },
+              "description": "年ごとの既読ハッシュ。過去の版は蓄積せず、現在の年表内容と一致する版だけを保存する。"
+            },
             "readPositions": {
               "type": "array",
               "maxLength": 16,
@@ -99,6 +105,11 @@
               "maxGraphemes": 40,
               "description": "botたんに呼んでほしい名前。省略時は未設定＝表示名で呼ばれる。"
             },
+            "chronicleReadYears": {
+              "type": "array",
+              "items": { "type": "ref", "ref": "com.suibari.nagi.getChronicle#readYear" },
+              "description": "年ごとの既読ハッシュ。過去の版は蓄積せず、現在の年表内容と一致する版だけを保存する。"
+            },
             "readPositions": {
               "type": "array",
               "items": {
@@ -149,7 +160,10 @@
           }
         }
       },
-      "errors": [{ "name": "AuthRequired" }, { "name": "InvalidRequest" }]
+      "errors": [
+        { "name": "AuthRequired" },
+        { "name": "InvalidRequest" }
+      ]
     }
   }
 }

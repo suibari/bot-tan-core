@@ -1323,6 +1323,17 @@ export const nagiCardCommentJobs = nagiSchema.table(
   ],
 );
 
+/** 年表の既読は年ごとの内容ハッシュを上書きする。過去の版は蓄積しない。 */
+export const nagiChronicleReadYears = nagiSchema.table(
+  "chronicle_read_years",
+  {
+    did: text("did").notNull(),
+    year: integer("year").notNull(),
+    revision: text("revision").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.did, t.year] })],
+);
+
 /**
  * 端末をまたいで同期する「ここまで読んだ」位置。my Nagi の各セクションのドットに使う。
  * ミュートや非公開リストと同じく、PDS レコードにすると「いつ何を読んだか」が公開されて

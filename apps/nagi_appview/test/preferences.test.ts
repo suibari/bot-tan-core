@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+process.env.NAGI_BOT_DID ??= "did:plc:testbot";
 process.env.DATABASE_URL ??= "postgres://user:pass@localhost:5432/test";
 
 const { NAGI_SUPPORTED_LANGUAGES } =
