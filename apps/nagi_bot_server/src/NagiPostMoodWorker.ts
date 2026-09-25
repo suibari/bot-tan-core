@@ -12,6 +12,7 @@ import { db, nagiPostMoods, nagiPosts } from "@bsky-affirmative-bot/database";
 import {
   POST_MOOD_VERSION,
   isOllamaConfigured,
+  isPostMoodRouteLocal,
   scorePostMood,
 } from "@bsky-affirmative-bot/bot-brain";
 import { and, desc, eq, isNull, ne, or } from "drizzle-orm";
@@ -32,10 +33,7 @@ export type PendingMoodPost = { uri: string; did: string; cid: string; text: str
  * botたん自身の投稿（全員への返信など）は除く。感情グラフは利用者の日記のためのもので、
  * 開発DBでは投稿の半分以上（4,964件中2,811件）が bot の返信だった。
  */
-export async function pendingMoodPosts(
-  limit: number,
-  onlyDid?: string,
-): Promise<PendingMoodPost[]> {
+export async function pendingMoodPosts(limit: number): Promise<PendingMoodPost[]> {
   const botDid = process.env.NAGI_BOT_DID;
   return db
     .select({
@@ -50,7 +48,6 @@ export async function pendingMoodPosts(
       and(
         isNull(nagiPosts.deletedAt),
         botDid ? ne(nagiPosts.did, botDid) : undefined,
-        onlyDid ? eq(nagiPosts.did, onlyDid) : undefined,
         or(
           isNull(nagiPostMoods.postUri),
           ne(nagiPostMoods.cid, nagiPosts.cid),
@@ -90,14 +87,12 @@ export async function scoreAndStore(post: PendingMoodPost): Promise<void> {
 }
 
 /**
- * 戻り値は採点した件数。バックフィルスクリプトからも同じ関数で回す。
- * onlyDid はスクリプト用（1人だけ先に埋めて確かめるとき）。
+ * 戻り値は採点した件数。
+ * **ワーカーの tick 以外から回さないこと。** startWorkerLoop の直列性を迂回すると
+ * Ollama への同時リクエストが増える（バックフィル用スクリプトを置かないのも同じ理由）。
  */
-export async function runPostMoodBatch(
-  limit = BATCH_SIZE,
-  onlyDid?: string,
-): Promise<number> {
-  const posts = await pendingMoodPosts(limit, onlyDid);
+export async function runPostMoodBatch(limit = BATCH_SIZE): Promise<number> {
+  const posts = await pendingMoodPosts(limit);
   let scored = 0;
   for (const post of posts) {
     try {
@@ -116,6 +111,11 @@ export async function runPostMoodBatch(
 export function startNagiPostMoodWorker() {
   if (!isOllamaConfigured()) {
     console.warn(`${LOG_PREFIX} Ollama is not configured; post moods are not scored`);
+    return;
+  }
+  if (!isPostMoodRouteLocal()) {
+    // 本人しか見ない値なので外へは出さない。毎 tick 全件失敗させるより起動しないほうがよい。
+    console.warn(`${LOG_PREFIX} AI_ROUTE_NAGI_POST_MOOD is not a local Ollama route; post moods are not scored`);
     return;
   }
   startWorkerLoop({

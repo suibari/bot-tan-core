@@ -269,6 +269,8 @@ export type DiaryMoodView = {
   valence: number;
   /** 本文の冒頭（最大200字）。 */
   text: string;
+  selfLabels?: string[];
+  moderationLabels?: string[];
 };
 export type DiaryView = {
   uri: string;

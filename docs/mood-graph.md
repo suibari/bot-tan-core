@@ -39,7 +39,11 @@ URL は通知の `/diary?date=` と互換のため `/diary` のまま。
 - `NagiPostMoodWorker` が「採点なし／cid 違い／版違い」の投稿を**新しい順に**1分ごと24件まで採点する。
   過去分のバックフィルもこのワーカーが兼ねる。**botたん自身の投稿（`NAGI_BOT_DID`）は対象外。**
   開発DBでは投稿の半分以上（4,964件中2,811件）が bot の返信で、除かないと採点時間の大半を食う。
-  早く埋めたいときは `pnpm --filter nagi-bot-server mood:backfill`（DID を渡すとその1人だけ）。
+  **バックフィル用のスクリプトは置かない。** スクリプトから直接採点すると `startWorkerLoop` の
+  直列性を迂回し、同じ Ollama を共用している別アプリまで巻き込む（年表のバックフィルと同じ方針）。
+- 採点は必ずローカル Ollama。`AI_ROUTE_NAGI_POST_MOOD` がローカル以外を指していたらワーカーは起動せず、
+  `scorePostMood` も例外を投げる。プロンプトは `fitOllamaMessages` で num_ctx の予算内に収めてから送る。
+- AppView は cid か `POST_MOOD_VERSION` が違う採点を未採点として数え、古い点をグラフに出さない。
 - Ollama の接続失敗はその tick を打ち切って保存しない。本文が空・出力が壊れているものは
   `valence=null` で保存し、同じ投稿で叩き続けない。
 
@@ -48,6 +52,8 @@ URL は通知の `/diary?date=` と互換のため `/diary` のまま。
 新しい XRPC は作らず、**`getDiaries` の期間指定に `moods=true` を付けたときだけ**
 `moods`（点の配列）と `moodPending`（未採点数）を返す。新しいメソッドを足すと
 OAuth の permission set の再公開と全員の再認可が要るため。日記と同じく本人以外には 403。
+点には投稿の `selfLabels` / `moderationLabels` を付け、クライアントは本文の抜粋を
+タイムラインと同じ表示設定（非表示・警告）で隠す。
 
 ## 5. PoC（2026-09-25、suibari.com の投稿 426件）
 

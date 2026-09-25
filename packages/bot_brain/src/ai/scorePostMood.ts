@@ -1,4 +1,11 @@
-import { ollamaChat } from "../ollamaChat.js";
+import {
+  ollamaPromptBudget,
+  ollamaTextContextLength,
+  POST_MOOD_VERSION,
+  resolveAiRoute,
+} from "@bsky-affirmative-bot/shared-configs";
+import { ollamaChat, type OllamaMessage } from "../ollamaChat.js";
+import { fitOllamaMessages } from "./generationClient.js";
 
 /**
  * 日記の感情グラフ用に、投稿1件の「書き手の気分」を -5〜+5 で採点する。
@@ -11,11 +18,14 @@ import { ollamaChat } from "../ollamaChat.js";
  * 開発報告やイラスト投稿が 0 に寄るのは仕様（本人確認済み）。画像は渡していない。
  */
 
-/** 採点基準の版。上げると NagiPostMoodWorker が全投稿を採点し直す。 */
-export const POST_MOOD_VERSION = "post-mood-v2";
+// 版は AppView も参照するので shared-configs に置いてある。ワーカーはここから引く。
+export { POST_MOOD_VERSION };
 
 /** 長文ブログをそのまま渡さない。気分は冒頭で十分に読める。 */
 const MAX_TEXT_CHARS = 2000;
+
+/** 出力は {"valence":-5,"expressive":false} 程度。プロンプト予算の出力枠にも使う。 */
+const MAX_OUTPUT_TOKENS = 40;
 
 const SYSTEM_PROMPT = `あなたはSNS投稿の書き手の「気分」を読み取る採点者です。
 投稿1件を読み、書いた本人がそのとき明るい気分か落ち込んだ気分かを -5〜+5 の整数で採点してください。
@@ -75,20 +85,50 @@ export function parsePostMood(raw: string): PostMood | null {
 }
 
 /**
+ * 採点がローカル Ollama へ向いているか。
+ *
+ * AI_ROUTE_NAGI_POST_MOOD は env で Gemini ルートにも上書きできてしまうが、ollamaChat は
+ * 解決したモデル名をそのままローカル Ollama へ送るので、全件が失敗するうえ
+ * 「本人しか見ない値を外へ出さない」前提も崩れる。ローカル以外なら採点しない。
+ */
+export function isPostMoodRouteLocal(): boolean {
+  return resolveAiRoute("NAGI_POST_MOOD").provider === "ollama";
+}
+
+/**
+ * 送るメッセージを組み立てて、num_ctx から出力枠を引いた予算へ収める。
+ * 投稿本文の文字数上限だけでは、num_ctx が小さい環境やトークン化が膨らむ本文で
+ * 出力枠が潰れ、壊れた JSON が採点不能として保存されてしまう。
+ */
+export function buildPostMoodMessages(
+  body: string,
+  numCtx = ollamaTextContextLength(),
+): OllamaMessage[] {
+  const messages: Parameters<typeof fitOllamaMessages>[0] = [
+    { role: "system", content: SYSTEM_PROMPT },
+    // AGENTS.md「プロンプトの並び順」: 投稿はいちばん後ろ。
+    { role: "user", content: `<post>\n${body}\n</post>` },
+  ];
+  return fitOllamaMessages(messages, {
+    budget: ollamaPromptBudget({ numCtx, outputTokens: MAX_OUTPUT_TOKENS }),
+  }).messages;
+}
+
+/**
  * 本文が空なら採点せず null。モデル出力が壊れていても null（呼び出し側は採点不能として保存し、
- * 同じ投稿で Ollama を叩き続けない）。Ollama への接続失敗は例外のまま投げる。
+ * 同じ投稿で Ollama を叩き続けない）。Ollama への接続失敗と、ルートがローカルでないときは
+ * 例外のまま投げる（どちらも保存させない）。
  */
 export async function scorePostMood(text: string): Promise<PostMood | null> {
   const body = text.trim().slice(0, MAX_TEXT_CHARS);
   if (!body) return null;
-  const raw = await ollamaChat(
-    "NAGI_POST_MOOD",
-    [
-      { role: "system", content: SYSTEM_PROMPT },
-      // AGENTS.md「プロンプトの並び順」: 投稿はいちばん後ろ。
-      { role: "user", content: `<post>\n${body}\n</post>` },
-    ],
-    { maxTokens: 40, temperature: 0, format: RESPONSE_SCHEMA, timeoutMs: 60_000 },
-  );
+  if (!isPostMoodRouteLocal())
+    throw new Error("NAGI_POST_MOOD must be routed to local Ollama");
+  const raw = await ollamaChat("NAGI_POST_MOOD", buildPostMoodMessages(body), {
+    maxTokens: MAX_OUTPUT_TOKENS,
+    temperature: 0,
+    format: RESPONSE_SCHEMA,
+    timeoutMs: 60_000,
+  });
   return parsePostMood(raw);
 }

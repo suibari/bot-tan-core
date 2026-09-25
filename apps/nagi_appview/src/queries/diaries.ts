@@ -12,7 +12,10 @@ import type {
   DiaryMoodView,
   DiaryView,
 } from "@bsky-affirmative-bot/nagi-lexicon";
-import { localeToTimezone } from "@bsky-affirmative-bot/shared-configs";
+import {
+  localeToTimezone,
+  POST_MOOD_VERSION,
+} from "@bsky-affirmative-bot/shared-configs";
 import {
   and,
   asc,
@@ -278,6 +281,8 @@ export async function loadDiaryMoods(
       uri: nagiPosts.uri,
       text: nagiPosts.text,
       createdAt: nagiPosts.recordCreatedAt,
+      selfLabels: nagiPosts.selfLabels,
+      moderationLabels: nagiPosts.moderationLabels,
       scored: nagiPostMoods.postUri,
       valence: nagiPostMoods.valence,
       expressive: nagiPostMoods.expressive,
@@ -287,8 +292,9 @@ export async function loadDiaryMoods(
       nagiPostMoods,
       and(
         eq(nagiPostMoods.postUri, nagiPosts.uri),
-        // 編集後の採点し直し待ちは、古い本文の点を出さずに未採点として数える。
+        // 編集後・採点基準の版上げ後の採点し直し待ちは、古い点を出さずに未採点として数える。
         eq(nagiPostMoods.cid, nagiPosts.cid),
+        eq(nagiPostMoods.version, POST_MOOD_VERSION),
       ),
     )
     .where(
@@ -323,6 +329,11 @@ export async function loadDiaryMoods(
       createdAt: row.createdAt.toISOString(),
       valence: row.valence!,
       text: row.text.slice(0, MOOD_TEXT_MAX),
+      // 抜粋もタイムラインと同じ表示設定（非表示・警告）で隠せるよう、ラベルを添える。
+      selfLabels: row.selfLabels.length ? row.selfLabels : undefined,
+      moderationLabels: row.moderationLabels.length
+        ? row.moderationLabels
+        : undefined,
     });
   }
   return { moods, moodPending };
