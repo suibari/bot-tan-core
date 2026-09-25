@@ -21,7 +21,7 @@
             "minimum": 1,
             "maximum": 100,
             "default": 50,
-            "description": "1ページの上限。年チャンクなので通常は効かず、1年が想定外に膨らんだときの安全弁として働く。"
+            "description": "互換性のため受理するが適用しない。既読は年単位なので必ずその年の全項目を返す。"
           },
           "lang": {
             "type": "string",
@@ -44,7 +44,9 @@
           "type": "object",
           "required": [
             "items",
-            "hasMore"
+            "hasMore",
+            "year",
+            "revision"
           ],
           "properties": {
             "items": {
@@ -60,8 +62,34 @@
             },
             "hasMore": {
               "type": "boolean"
+            },
+            "year": {
+              "type": "integer",
+              "minimum": 2020
+            },
+            "revision": {
+              "type": "string",
+              "maxLength": 64,
+              "description": "その年の全内容のSHA-256。表示言語や取得順序には依存しない。"
             }
           }
+        }
+      }
+    },
+    "readYear": {
+      "type": "object",
+      "required": [
+        "year",
+        "revision"
+      ],
+      "properties": {
+        "year": {
+          "type": "integer",
+          "minimum": 2020
+        },
+        "revision": {
+          "type": "string",
+          "maxLength": 64
         }
       }
     }

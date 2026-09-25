@@ -1323,14 +1323,15 @@ export const nagiCardCommentJobs = nagiSchema.table(
   ],
 );
 
-/** 年表の既読は項目IDと内容のSHA-256集合。端末間で既読を巻き戻さない。 */
-export const nagiChronicleReadRevisions = nagiSchema.table(
-  "chronicle_read_revisions",
+/** 年表の既読は年ごとの内容ハッシュを上書きする。過去の版は蓄積しない。 */
+export const nagiChronicleReadYears = nagiSchema.table(
+  "chronicle_read_years",
   {
     did: text("did").notNull(),
+    year: integer("year").notNull(),
     revision: text("revision").notNull(),
   },
-  (t) => [primaryKey({ columns: [t.did, t.revision] })],
+  (t) => [primaryKey({ columns: [t.did, t.year] })],
 );
 
 /**

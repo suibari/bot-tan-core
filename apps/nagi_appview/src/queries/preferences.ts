@@ -1,7 +1,7 @@
 import {
-  addChronicleReadRevisions,
-  getChronicleReadRevisions,
-  parseChronicleReadRevisions,
+  putChronicleReadYears,
+  getChronicleReadYears,
+  parseChronicleReadYears,
 } from "./chronicleReadState.js";
 import {
   db,
@@ -321,7 +321,7 @@ async function selectPreferences(did: string): Promise<PreferencesView> {
       .from(nagiBookmarkPreferences)
       .where(eq(nagiBookmarkPreferences.did, did))
       .limit(1),
-    getChronicleReadRevisions(did),
+    getChronicleReadYears(did),
   ]);
   const favoritesRow = favorites[0];
   const feedTabsRow = feedTabs[0];
@@ -331,7 +331,7 @@ async function selectPreferences(did: string): Promise<PreferencesView> {
   const moderationRow = moderationRows[0];
   const bookmarkRow = bookmarkRows[0];
   return {
-    chronicleReadRevisions: chronicleRows,
+    chronicleReadYears: chronicleRows,
     readPositions: positions
       .filter((row) => isSection(row.section))
       .map((row) => ({
@@ -417,7 +417,7 @@ export async function putPreferences(
   input: PutPreferencesInput,
 ): Promise<PreferencesView> {
   const readPositions = parseReadPositions(input.readPositions);
-  const chronicleReadRevisions = parseChronicleReadRevisions(input.chronicleReadRevisions);
+  const chronicleReadYears = parseChronicleReadYears(input.chronicleReadYears);
   const hasFavorites = input.emojiFavorites !== undefined;
   const emojiFavorites = hasFavorites
     ? parseEmojiFavorites(input.emojiFavorites)
@@ -475,7 +475,7 @@ export async function putPreferences(
       parentalConsent: input.parentalConsent,
     });
 
-  await addChronicleReadRevisions(did, chronicleReadRevisions);
+  await putChronicleReadYears(did, chronicleReadYears);
 
   if (readPositions.length) {
     await db

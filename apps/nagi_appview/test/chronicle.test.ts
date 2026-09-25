@@ -1,14 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ChronicleEventView } from "@bsky-affirmative-bot/nagi-lexicon";
-import {
+process.env.DATABASE_URL ??= "postgres://user:pass@localhost:5432/test";
+process.env.NAGI_BOT_DID ??= "did:plc:testbot";
+const {
   buildFirstEvents,
   chronicleDate,
   chronicleEventView,
   parseChronicleCursor,
   sortChronicleEvents,
   toDate,
-} from "../src/queries/chronicle.js";
+} = await import("../src/queries/chronicle.js");
 
 const event = (
   over: Partial<ChronicleEventView> & Pick<ChronicleEventView, "id" | "kind" | "date">,

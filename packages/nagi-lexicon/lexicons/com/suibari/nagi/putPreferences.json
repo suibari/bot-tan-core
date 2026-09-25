@@ -22,11 +22,11 @@
               "maxGraphemes": 40,
               "description": "botたんに呼んでほしい名前。空文字を送ると登録を解除し、表示名に戻す。送らなければ変更しない。"
             },
-            "chronicleReadRevisions": {
+            "chronicleReadYears": {
               "type": "array",
-              "maxLength": 200,
-              "items": { "type": "string", "maxLength": 64 },
-              "description": "年表の既読リビジョンを追加する。既存の既読は削除しない。"
+              "maxLength": 100,
+              "items": { "type": "ref", "ref": "com.suibari.nagi.getChronicle#readYear" },
+              "description": "年ごとの既読ハッシュ。過去の版は蓄積せず、現在の年表内容と一致する版だけを保存する。"
             },
             "readPositions": {
               "type": "array",
@@ -105,9 +105,10 @@
               "maxGraphemes": 40,
               "description": "botたんに呼んでほしい名前。省略時は未設定＝表示名で呼ばれる。"
             },
-            "chronicleReadRevisions": {
+            "chronicleReadYears": {
               "type": "array",
-              "items": { "type": "string", "maxLength": 64 }
+              "items": { "type": "ref", "ref": "com.suibari.nagi.getChronicle#readYear" },
+              "description": "年ごとの既読ハッシュ。過去の版は蓄積せず、現在の年表内容と一致する版だけを保存する。"
             },
             "readPositions": {
               "type": "array",
@@ -159,7 +160,10 @@
           }
         }
       },
-      "errors": [{ "name": "AuthRequired" }, { "name": "InvalidRequest" }]
+      "errors": [
+        { "name": "AuthRequired" },
+        { "name": "InvalidRequest" }
+      ]
     }
   }
 }
