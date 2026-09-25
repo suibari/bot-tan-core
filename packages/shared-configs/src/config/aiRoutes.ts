@@ -292,6 +292,9 @@ export const AI_FEATURES = {
   NAGI_CHRONICLE_MONTH: "ollama-chat",
   // 年表の「そのころ世の中では」。**月ごとに全体で1回**だけ走る（人数には比例しない）。
   NAGI_CHRONICLE_NEWS: "ollama-chat",
+  // 日記の感情グラフ用に、投稿1件ずつの気分を -5〜+5 で採点する。**必ずローカルで回す。**
+  // 全投稿に走り（過去分のバックフィルも同じワーカーが兼ねる）、本人しか見ない値なので外へ出す理由が無い。
+  NAGI_POST_MOOD: "ollama-chat",
 
   // ══════ ニュース ═══════════════════════════════════════════════════
   NEWS_POSITIVE_GATE: "lite-flex", // ポジニュース判定（構造化JSON）

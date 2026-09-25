@@ -23,7 +23,8 @@
     "news:feed:hide": "tsx --env-file=../../.env src/newsFeedAdmin.ts hide",
     "news:image:backfill": "tsx --env-file=../../.env scripts/backfillNewsImageUrls.ts",
     "zenkatsu:drain": "tsx --env-file=../../.env scripts/drainZenkatsuComments.mts",
-    "radio:now": "tsx --env-file=../../.env scripts/generateNagiRadioNow.ts"
+    "radio:now": "tsx --env-file=../../.env scripts/generateNagiRadioNow.ts",
+    "mood:backfill": "tsx --env-file=../../.env scripts/backfillPostMoods.ts"
   },
   "dependencies": {
     "@atproto/api": "^0.18.21",

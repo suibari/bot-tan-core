@@ -43,6 +43,7 @@ import {
   nagiNewsApprovals,
   nagiNewsReviewJobs,
   nagiPosts,
+  nagiPostMoods,
   nagiPostScores,
   nagiProcessedEvents,
   nagiProfiles,
@@ -178,6 +179,7 @@ export async function deleteAccountData(did: string) {
     await tx
       .delete(nagiPostScores)
       .where(like(nagiPostScores.postUri, postUri));
+    await tx.delete(nagiPostMoods).where(eq(nagiPostMoods.did, did));
     await tx
       .delete(nagiBotReplyJobs)
       .where(like(nagiBotReplyJobs.sourceUri, postUri));
