@@ -129,6 +129,26 @@ test("1人の絵では2人目を呼ぶタグを落とし、人数のネガティ
   assert.match(built.negativePrompt, /multiple girls, 2girls/);
 });
 
+test("1人の絵では鏡と相手のいない抱きつきも落とし、物や犬が相手なら残す", () => {
+  const built = buildImagePrompt(
+    plan({
+      pose: ["standing", "hugging", "leaning on pet"],
+      action: ["looking at mirror", "hugging plushie", "talking"],
+      objects: ["mirror", "plushie"],
+    }),
+    "crayon-diary",
+  );
+  assert.ok(built);
+  const tags = built.prompt.split(", ");
+  assert.ok(!tags.includes("hugging"));
+  assert.ok(!tags.includes("looking at mirror"));
+  assert.ok(!tags.includes("mirror"));
+  assert.ok(tags.includes("hugging plushie"));
+  assert.ok(tags.includes("leaning on pet"));
+  // 話す相手は描かれず1人のままだった（4シード）ので残す。
+  assert.ok(tags.includes("talking"));
+});
+
 test("自分の手を合わせる姿勢は1人の絵でも残す", () => {
   const built = buildImagePrompt(plan({ pose: ["sitting", "hands together"] }), "crayon-diary");
   assert.ok(built);

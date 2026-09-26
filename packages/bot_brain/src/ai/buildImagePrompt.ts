@@ -361,11 +361,16 @@ const SLEEP_PATTERN =
  * シード4本で回すと4枚とも分身し、このタグを落とすと4枚とも1人になった（9/24 の
  * `side by side, standing together` も同じ）。
  *
+ * **鏡も落とす。** `looking at mirror` を4シード回すと4枚とも2人に見えた（隣に並ぶか、
+ * 鏡像が2人目として描かれる）。`hugging` / `cuddling` / `leaning on` は相手の書かれていない
+ * 単独のときだけ落とし、`hugging plushie` や `leaning on pet` は残す。
+ * `talking` / `chatting` は残す（4シードとも相手は描かれず1人だった）。
+ *
  * 2人の絵では `facing each other` などが正しいので、ここではなく buildImagePrompt で
  * 人数が決まってから当てる。`hands together`（自分の手を合わせる）は1人の姿勢なので残す。
  */
 const OTHER_PERSON_PATTERN =
-  /\b(next to|side by side|(?<!hands |palms )together|each other|hand on shoulder|patting head|head ?pat|stroking (back|hair|head|cheek)|comforting|holding hands|hand holding|audience|crowd|couple|group|sharing)\b/;
+  /\b(next to|side by side|(?<!hands |palms )together|each other|hand on shoulder|patting head|head ?pat|stroking (back|hair|head|cheek)|comforting|holding hands|hand holding|audience|crowd|couple|group|sharing|friends?|offering|mirror|reflection)\b|^(hugging|hug|cuddling|leaning on)$/;
 
 /**
  * 1人の絵のネガティブに足す。上の正タグの除去と二重にする（gemma が新しい言い回しで
