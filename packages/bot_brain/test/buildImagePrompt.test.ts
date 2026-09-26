@@ -111,6 +111,55 @@ test("ラテちゃんが居るときは領域を割り、横長にする", () =>
   assert.ok(built.regions[0].x1 > built.regions[1].x0);
 });
 
+test("1人の絵では2人目を呼ぶタグを落とし、人数のネガティブを足す", () => {
+  // 2026-09-26 8:48 の Nagi 投稿のシーン。このまま描くと botたんが2人並ぶ（分身）。
+  const built = buildImagePrompt(
+    plan({
+      pose: ["sitting", "side by side"],
+      expression: ["smile", "moved"],
+      action: ["sharing emotion", "watching anime", "hand on shoulder"],
+      setting: ["indoors", "dim lighting"],
+      objects: ["screen"],
+    }),
+    "crayon-diary",
+  );
+  assert.ok(built);
+  assert.doesNotMatch(built.prompt, /side by side|sharing emotion|hand on shoulder/);
+  assert.match(built.prompt, /watching anime/);
+  assert.match(built.negativePrompt, /multiple girls, 2girls/);
+});
+
+test("自分の手を合わせる姿勢は1人の絵でも残す", () => {
+  const built = buildImagePrompt(plan({ pose: ["sitting", "hands together"] }), "crayon-diary");
+  assert.ok(built);
+  assert.match(built.prompt, /hands together/);
+});
+
+test("2人の絵では向かい合うタグを残し、領域に全体の人数タグを入れない", () => {
+  const built = buildImagePrompt(
+    plan({ pose: ["sitting", "facing each other"], companions: ["latte-chan"] }),
+    "crayon-diary",
+  );
+  assert.ok(built);
+  assert.match(built.prompt, /facing each other/);
+  assert.match(built.prompt, /2girls/);
+  // 領域に 2girls が入ると、半分の領域の中で2人を描けと言うことになる。
+  for (const region of built.regions) {
+    assert.doesNotMatch(region.prompt, /2girls/);
+    assert.match(region.prompt, /^1girl, /);
+    assert.match(region.prompt, /facing each other/);
+  }
+  assert.doesNotMatch(built.negativePrompt, /multiple girls/);
+});
+
+test("2人目を呼ぶタグを落として薄くなったシーンは描かない", () => {
+  const built = buildImagePrompt(
+    plan({ pose: ["side by side"], expression: ["smile"], action: ["comforting"], setting: ["indoors"], objects: [] }),
+    "crayon-diary",
+  );
+  assert.equal(built, null);
+});
+
 test("ことみちゃんが居るときも領域を割り、外見が混ざらない", () => {
   const built = buildImagePrompt(plan({ companions: ["kotomi-chan"] }), "crayon-diary");
   assert.ok(built);

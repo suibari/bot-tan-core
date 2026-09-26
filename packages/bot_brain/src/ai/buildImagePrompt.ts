@@ -271,7 +271,8 @@ const SCENE_RULES = `Rules:
 * framing: "full-body" if the whole body and the place matter, "upper-body" for a close moment.
 * outdoor: true only if the scene is outside.
 * Prefer 2-5 tags per field. Use an empty array if nothing applies.
-* Posture tags matter most: if she is on the floor, say so.`;
+* Posture tags matter most: if she is on the floor, say so.
+* Nobody else is drawn except the listed companions and characters. When she comforts, thanks or talks to the reader or someone not in the picture, draw her alone facing the viewer (looking at viewer, reaching out, smile). When she is alone in the picture, NEVER output tags that need another person, such as next to, side by side, together, hand on shoulder, patting head or sharing.`;
 
 const SCENE_SYSTEM = `You turn a Japanese description of an anime character's day into Danbooru-style English tags for an anime image generator.
 
@@ -350,6 +351,27 @@ const UNSAFE_PATTERN =
  */
 const SLEEP_PATTERN =
   /\b(sleep|asleep|slumber|doze|dozing|nap|bed|pillow|blanket|duvet|quilt|futon|pajama|pyjama|nightgown|nightcap|nightwear|sleepwear|zzz|dreaming|closed eyes|eyes closed)/;
+
+/**
+ * 2人目がいる前提のタグ。**1人の絵（`1girl, solo`）でだけ落とす。**
+ *
+ * Nagi の慰めや感想の場面で gemma が `side by side` / `sitting next to` / `sharing emotion` を
+ * 付けると、SDXL は `solo` より優先して2人目を描く。外見タグは botたんの分しか無いので、
+ * 2人目も botたんの顔になる（分身）。2026-09-26 8:48 の Nagi 投稿がこれで、同じプロンプトを
+ * シード4本で回すと4枚とも分身し、このタグを落とすと4枚とも1人になった（9/24 の
+ * `side by side, standing together` も同じ）。
+ *
+ * 2人の絵では `facing each other` などが正しいので、ここではなく buildImagePrompt で
+ * 人数が決まってから当てる。`hands together`（自分の手を合わせる）は1人の姿勢なので残す。
+ */
+const OTHER_PERSON_PATTERN =
+  /\b(next to|side by side|(?<!hands |palms )together|each other|hand on shoulder|patting head|head ?pat|stroking (back|hair|head|cheek)|comforting|holding hands|hand holding|audience|crowd|couple|group|sharing)\b/;
+
+/**
+ * 1人の絵のネガティブに足す。上の正タグの除去と二重にする（gemma が新しい言い回しで
+ * 2人目を呼んだときの保険）。
+ */
+const SOLO_NEGATIVE = "multiple girls, 2girls, multiple views, twins, clone";
 
 /**
  * 日本語の情景文からシーンのタグを起こす。
@@ -545,21 +567,6 @@ export function buildImagePrompt(
   style: ImageStyle,
   characters: ResolvedCharacter[] = [],
 ): BuiltImagePrompt | null {
-  let scene = sceneTags(plan);
-  const thin = scene.split(",").filter((tag) => tag.trim()).length < MIN_SCENE_TAGS;
-  if (thin && characters.length > 0) {
-    // 「艦これの島風」「初音ミク」のように名前だけの依頼では、gemma が characters だけ埋めて
-    // タグ欄を空で返す（2026-09-16 に4件中3件）。キャラが違えば絵も違うので、
-    // MIN_SCENE_TAGS が防ぎたい「毎回同じ絵」にはならない。立ち絵で描く。
-    console.warn("[WARN][IMGGEN] シーンが薄いので既存キャラの立ち絵にする:", scene);
-    scene = [scene, CHARACTER_PORTRAIT_SCENE].filter(Boolean).join(", ");
-  } else if (thin) {
-    console.warn("[WARN][IMGGEN] シーンのタグが少なすぎるので描かない:", scene);
-    return null;
-  }
-
-  const spec = STYLES[style];
-
   // 人物は MAX_FIGURES 人まで。溢れたぶんは後ろから捨てる。
   // 同伴者の順序は LLM が返したまま（先に挙げたほうがその場面で目立っていたはず）。
   const companionGirls = plan.companions.filter((name): name is (typeof GIRL_COMPANIONS)[number] =>
@@ -581,7 +588,32 @@ export function buildImagePrompt(
       figures.map((figure) => figure.label).join(", "),
     );
   }
+  const solo = figures.length === 1;
 
+  let scene = sceneTags(plan);
+  if (solo) {
+    const others = scene.split(", ").filter((tag) => OTHER_PERSON_PATTERN.test(tag));
+    if (others.length > 0) {
+      console.warn("[WARN][IMGGEN] 1人の絵なので2人目を呼ぶタグを落とした:", others.join(", "));
+      scene = scene
+        .split(", ")
+        .filter((tag) => !OTHER_PERSON_PATTERN.test(tag))
+        .join(", ");
+    }
+  }
+  const thin = scene.split(",").filter((tag) => tag.trim()).length < MIN_SCENE_TAGS;
+  if (thin && characters.length > 0) {
+    // 「艦これの島風」「初音ミク」のように名前だけの依頼では、gemma が characters だけ埋めて
+    // タグ欄を空で返す（2026-09-16 に4件中3件）。キャラが違えば絵も違うので、
+    // MIN_SCENE_TAGS が防ぎたい「毎回同じ絵」にはならない。立ち絵で描く。
+    console.warn("[WARN][IMGGEN] シーンが薄いので既存キャラの立ち絵にする:", scene);
+    scene = [scene, CHARACTER_PORTRAIT_SCENE].filter(Boolean).join(", ");
+  } else if (thin) {
+    console.warn("[WARN][IMGGEN] シーンのタグが少なすぎるので描かない:", scene);
+    return null;
+  }
+
+  const spec = STYLES[style];
   const count = countTags(figures);
 
   const tail = [
@@ -594,13 +626,13 @@ export function buildImagePrompt(
   // 姿勢はシーン側が決める。standing のような姿勢語を構図タグに混ぜると、
   // 「床から立てない」が「立っている」に化ける。
 
-  const head = [...(spec.leading ? [spec.leading] : []), count];
+  const leading = spec.leading ? [spec.leading] : [];
   const morpho = plan.companions.includes("morpho") ? [MORPHO_TAGS] : [];
 
   // 領域を割るときは全体プロンプトへ外見タグを入れない（入れると領域の意味が消える）。
-  const splitRegions = figures.length > 1;
+  const splitRegions = !solo;
 
-  const prompt = [...head, ...(splitRegions ? [] : [figures[0].tags]), ...morpho, ...tail]
+  const prompt = [...leading, count, ...(splitRegions ? [] : [figures[0].tags]), ...morpho, ...tail]
     .filter(Boolean)
     .join(", ");
 
@@ -610,9 +642,12 @@ export function buildImagePrompt(
       [0.0, 0.55],
       [0.45, 1.0],
     ];
+    // 領域には全体の人数タグ（2girls）を入れない。入れると「1girl, botたんの外見, …, 2girls」
+    // になり、半分の領域の中で2人を描けと言うことになる。
+    const shared = [...leading, ...morpho, ...tail].filter(Boolean).join(", ");
     figures.forEach((figure, index) => {
       regions.push({
-        prompt: `${figure.count}, ${figure.tags}, ${prompt}`,
+        prompt: `${figure.count}, ${figure.tags}, ${shared}`,
         x0: spans[index][0],
         x1: spans[index][1],
       });
@@ -620,9 +655,11 @@ export function buildImagePrompt(
   }
 
   const drawsCharacter = figures.some((figure) => !(figure.label in CHARACTERS));
+  const negativePrompt = [spec.negative, ...(drawsCharacter ? [CHARACTER_NEGATIVE] : []), ...(solo ? [SOLO_NEGATIVE] : [])]
+    .join(", ");
   return {
     prompt,
-    negativePrompt: drawsCharacter ? `${spec.negative}, ${CHARACTER_NEGATIVE}` : spec.negative,
+    negativePrompt,
     regions,
     // Animagine XL 4.0 のモデルカード記載の推奨解像度。
     width: splitRegions ? 1216 : 832,
