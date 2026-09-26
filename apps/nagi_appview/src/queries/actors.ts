@@ -1,5 +1,11 @@
-import { db, embeddingProfile, nagiActors, nagiProfiles } from "@bsky-affirmative-bot/database";
-import { and, asc, eq, ilike, or, sql } from "drizzle-orm";
+import {
+  db,
+  embeddingProfile,
+  nagiActors,
+  nagiPosts,
+  nagiProfiles,
+} from "@bsky-affirmative-bot/database";
+import { and, asc, eq, exists, ilike, isNotNull, isNull, or, sql } from "drizzle-orm";
 import {
   embedQuery,
   relativeCut,
@@ -46,12 +52,12 @@ const actorView = ({
   profile,
 }: {
   actor: typeof nagiActors.$inferSelect;
-  profile: typeof nagiProfiles.$inferSelect;
+  profile: typeof nagiProfiles.$inferSelect | null;
 }) => ({
   did: actor.did,
   handle: actor.handle,
-  displayName: profile.displayName,
-  avatar: profile.avatarCid
+  displayName: profile?.displayName ?? undefined,
+  avatar: profile?.avatarCid
     ? `/api/blob/${encodeURIComponent(actor.did)}/${profile.avatarCid}`
     : undefined,
 });
@@ -72,15 +78,31 @@ export async function searchActors(
     ilike(nagiProfiles.displayName, contains),
   )!;
   const selection = { actor: nagiActors, profile: nagiProfiles };
+  // プロフィール未設定・削除済みでも、投稿があれば Nagi のユーザーとして探せる。
+  // posts を join すると投稿数だけ重複するため、存在だけを確認する。
+  const searchable = and(
+    eq(nagiActors.status, "active"),
+    or(
+      isNotNull(nagiProfiles.did),
+      exists(
+        db
+          .select({ uri: nagiPosts.uri })
+          .from(nagiPosts)
+          .where(
+            and(eq(nagiPosts.did, nagiActors.did), isNull(nagiPosts.deletedAt)),
+          ),
+      ),
+    ),
+  );
   const from = () =>
     db
       .select(selection)
-      .from(nagiProfiles)
-      .innerJoin(nagiActors, eq(nagiActors.did, nagiProfiles.did));
+      .from(nagiActors)
+      .leftJoin(nagiProfiles, eq(nagiActors.did, nagiProfiles.did));
 
   if (mode === "exact") {
     const rows = await from()
-      .where(and(eq(nagiActors.status, "active"), lexical))
+      .where(and(searchable, lexical))
       .orderBy(
         // handle 前方一致 → displayName 前方一致 → それ以外の部分一致。
         sql`CASE
@@ -129,7 +151,7 @@ export async function searchActors(
     ? sql`(${nagiProfiles.embedding} is not null and (${nagiProfiles.embedding} <=> ${vec}) < ${actorSemDistMax()})`
     : sql`false`;
   const rows = await from()
-    .where(and(eq(nagiActors.status, "active"), or(lexical, semMatch)))
+    .where(and(searchable, or(lexical, semMatch)))
     .orderBy(
       // タイプアヘッド優先: handle 前方一致 → displayName 前方一致 → それ以外。
       sql`CASE
