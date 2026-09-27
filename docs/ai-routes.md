@@ -10,7 +10,8 @@ AI_TEXT_PROVIDER=ollama
 AI_GROUNDING_PROVIDER=searxng
 OLLAMA_BASE_URL=http://127.0.0.1:11434/v1
 OLLAMA_MODEL=hf.co/unsloth/gemma-4-12B-it-qat-GGUF:UD-Q4_K_XL
-SEARXNG_BASE_URL=http://127.0.0.1:8080
+SEARXNG_BASE_URL=http://192.168.1.200:8080
+SEARXNG_API_KEY=<共通出口APIのキー>
 ```
 
 `AI_TEXT_PROVIDER=ollama` では、原則として画像を除くテキスト機能を上記Ollamaモデルへ集約する。
@@ -25,7 +26,7 @@ SEARXNG_BASE_URL=http://127.0.0.1:8080
 AnimeThemes / Last.fm経路が失敗してもGeminiへは戻らず、ローカル検査を通ったbot memory候補だけを試す。
 
 **通常のGroundingに Gemini は使わない。** 検索は bot 機に同居させた自前の SearXNG
-（`searxng/compose.yml`、loopback 固定）で行い、本文取得も自前（`nagi-linkcard` の
+（`searxng/compose.yml`、[共通出口API](search-egress.md)経由）で行い、本文取得も自前（`nagi-linkcard` の
 `fetchReadableText`）で行う。利用者が第三者AIサービスの規約に同意する関係が生まれない
 ことが採用理由で、これにより18歳以上要件の根拠が外れる。
 

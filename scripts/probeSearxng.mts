@@ -118,7 +118,7 @@ async function main(): Promise<void> {
     console.log(`■ ${query}`);
     const startedAt = Date.now();
     try {
-      const { hits, infoboxes, unresponsiveEngines } = await searxngSearch(query);
+      const { hits, infoboxes, unresponsiveEngines } = await searxngSearch(query, { source: "probe" });
       console.log(
         `  ${hits.length}件 / ${Date.now() - startedAt}ms` +
           (unresponsiveEngines.length

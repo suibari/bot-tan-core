@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ensureRadioAddress, generateNagiRadioComment, generateNagiRadioComments } from "../src/ai/generateNagiRadioComment.js";
+import { ensureRadioAddress, generateNagiRadioComment, generateNagiRadioComments, researchNagiRadioSong } from "../src/ai/generateNagiRadioComment.js";
 import { selectNagiRadioCandidate } from "../src/ai/nagiRadioCandidate.js";
 import { radioObservances } from "../src/ai/nagiRadioOpening.js";
 import { getWhatDayForCalendarDate } from "@bsky-affirmative-bot/shared-configs";
@@ -28,12 +28,16 @@ test("両言語を1回で生成し、片方が欠けた場合だけ再試行す�
   assert.equal(result.commentEn, "Suibari, Let's listen together.");
 });
 
-test("制作情報が3件とも見つからなくても最初の確認済み曲を選ぶ", async () => {
+test("制作情報が見つからなくても選曲と検索を引き直さない", async () => {
+  let resolved = 0;
+  let researched = 0;
   const result = await selectNagiRadioCandidate(
-    async (attempt) => songs[attempt] ?? null,
-    async () => null,
+    async (attempt) => { resolved++; return songs[attempt] ?? null; },
+    async () => { researched++; return null; },
   );
   assert.deepEqual(result, { song: songs[0], fact: null });
+  assert.equal(resolved, 1);
+  assert.equal(researched, 1);
 });
 
 test("検索サービスが失敗しても確認済み曲を失わない", async () => {
@@ -55,13 +59,36 @@ test("後続候補の検索が失敗しても最初の曲を届ける", async ()
   assert.deepEqual(result, { song: songs[0], fact: null });
 });
 
-test("制作情報がある後続候補を優先する", async () => {
+test("確認済み候補の制作情報を採用する", async () => {
   const fact = { fact: "A verified film theme.", sourceUrl: "https://example.com/song" };
   const result = await selectNagiRadioCandidate(
     async (attempt) => songs[attempt] ?? null,
-    async (song) => song.songKey === "second" ? fact : null,
+    async () => fact,
   );
-  assert.deepEqual(result, { song: songs[1], fact });
+  assert.deepEqual(result, { song: songs[0], fact });
+});
+
+test("AnimeThemesで確認済みなら再検索しない", async () => {
+  const fact = await researchNagiRadioSong({ ...songs[0],
+    animeTheme: { animeName: "作品", type: "OP", sequence: 1, slug: "verified-anime" },
+  }, "日本語", { search: async () => { assert.fail("検索不要"); } });
+  assert.equal(fact?.sourceUrl, "https://animethemes.moe/anime/verified-anime");
+  assert.match(fact!.fact, /作品.*オープニング/);
+});
+
+test("背景調査は最大2検索で打ち切り、無関係な結果はLLMへ渡さない", async () => {
+  let calls = 0;
+  const fact = await researchNagiRadioSong(songs[0], "日本語", {
+    search: async (_query, options) => {
+      calls++;
+      assert.equal(options?.source, "radio");
+      return { hits: [{ title: "Windows", content: "設定", url: "https://example.com/windows" }],
+        infoboxes: [], unresponsiveEngines: [] };
+    },
+    chat: async () => { assert.fail("無関係な検索結果は渡さない"); },
+  });
+  assert.equal(fact, null);
+  assert.equal(calls, 2);
 });
 
 test("候補が空や検索エラーでも全体を引き直す", async () => {

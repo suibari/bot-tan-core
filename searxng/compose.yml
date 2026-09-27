@@ -6,9 +6,9 @@
 # 【なぜ LLM 機ではなく bot 機か】
 #   - リポジトリは bot 機にしか置かない（scripts/deploy.sh が git pull する先）。
 #     compose ファイル 1 個のために 2 台で git 管理したくない。
-#   - 検索はリプライの同期パスから外してあり、リサーチワーカー（同時実行1）と
-#     バッチしか叩かない。I/O バウンドで GPU も要らないので Pi で足りる。
-#   - localhost に閉じられるぶん、LAN へ無認証公開するより安全。
+#   - 複数bot・ラジオ・リサーチの検索は gateway の共通キューで間隔を制御する。
+#     I/O バウンドで GPU も要らないので Pi で足りる。
+#   - SearXNG 本体は非公開。出口APIはAPIキーで認証し、bind先を指定する。
 #   - 上流エンジンから見た IP は同じ NAT なので、ブロックリスクは変わらない。
 #
 # 起動:
@@ -22,14 +22,42 @@
 #   docker compose up -d --force-recreate
 # 反映確認: curl -s localhost:8080/config | grep -o '"name": "[a-z]*"' | sort -u
 services:
+  gateway:
+    image: docker.io/library/python:3.13-alpine
+    container_name: nagi-search-gateway
+    restart: unless-stopped
+    command: ["python", "-B", "/app/gateway.py"]
+    user: "65534:65534"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    ports:
+      - "${SEARCH_GATEWAY_BIND:-127.0.0.1}:${SEARXNG_PORT:-8080}:8080"
+    volumes:
+      - ./gateway.py:/app/gateway.py:ro
+    environment:
+      SEARXNG_UPSTREAM: http://searxng:8080
+      SEARCH_GATEWAY_API_KEY: ${SEARCH_GATEWAY_API_KEY:?set SEARCH_GATEWAY_API_KEY in searxng/.env}
+    depends_on:
+      searxng:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=3).close()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
   searxng:
-    image: docker.io/searxng/searxng:latest
+    # 2026.9.25-12f8b6515（Bing #6671 を含む）。更新は品質プローブとセットで行う。
+    image: docker.io/searxng/searxng@sha256:5286edb35782454ab8a102c5eff6b54bff745853191b46aeead95f225aa6dfb6
     container_name: nagi-searxng
     restart: unless-stopped
-    # 【重要】loopback に固定する。SearXNG は無認証なので LAN にも晒さない。
-    # bot は同じホストから http://127.0.0.1:8080 で叩く。
-    ports:
-      - "127.0.0.1:${SEARXNG_PORT:-8080}:8080"
+    # ホストへ直接公開しない。全検索を gateway に通してプロセス間の制限を共有。
+    # bot の接続先は引き続き http://127.0.0.1:8080。
     volumes:
       - ./settings.yml:/etc/searxng/settings.yml:ro
     environment:

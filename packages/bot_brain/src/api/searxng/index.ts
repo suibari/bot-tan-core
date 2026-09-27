@@ -5,13 +5,14 @@
  * アカウントも要らないので、利用者が第三者サービスの規約に同意する関係が生まれない
  * （18歳以上要件の根拠だった Gemini 規約を外すのが目的）。
  *
- * 【重要】ここで叩く先は自分自身（bot 機の loopback、既定 http://127.0.0.1:8080）。
+ * 【重要】ここで叩く先は設定済みの共通出口API（本番 http://192.168.1.200:8080）。
  * nagi-linkcard の `safeUrl` / `blockedAddress` はループバックと RFC1918 を遮断するので、
- * **この呼び出しを SSRF 検証に通してはいけない**。SSRF 検証を掛けるのは
+ * **この呼び出しを SSRF 検証に通してはいけない**。接続先は利用者入力から作らない。SSRF 検証を掛けるのは
  * 「利用者が投稿に含めた URL」と「検索結果として返ってきた URL」だけ。
  */
 
-const DEFAULT_TIMEOUT_MS = 15_000;
+// 共通 gateway: キュー待ち最大10秒 + 上流15秒 + 通信の余裕。
+const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_RESULTS = 5;
 /**
  * bing = 一覧・時事の索引。wikipedia / wikidata = 固有名詞の実在確認。
@@ -114,7 +115,7 @@ const text = (value: unknown): string => (typeof value === "string" ? value.trim
  */
 export async function searxngSearch(
   query: string,
-  options: { language?: "ja" | "en" } = {},
+  options: { language?: "ja" | "en"; source?: "grounding" | "knowledge-card" | "radio" | "topic-song" | "character" | "probe" } = {},
 ): Promise<SearxngResponse> {
   const trimmed = query.trim();
   if (!trimmed) return { hits: [], infoboxes: [], unresponsiveEngines: [] };
@@ -130,7 +131,10 @@ export async function searxngSearch(
   let response: Response;
   try {
     response = await fetch(url, {
-      headers: { accept: "application/json" },
+      headers: {
+        accept: "application/json", "X-Search-Source": options.source ?? "grounding",
+        ...(process.env.SEARXNG_API_KEY ? { Authorization: `Bearer ${process.env.SEARXNG_API_KEY}` } : {}),
+      },
       signal: AbortSignal.timeout(
         Number(process.env.SEARXNG_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS,
       ),
@@ -147,9 +151,15 @@ export async function searxngSearch(
       cause: { status: response.status },
     });
   }
+  let body: RawBody;
+  try {
+    body = (await response.json()) as RawBody;
+    if (!body || !Array.isArray(body.results)) throw new Error("Invalid SearXNG search JSON");
+  } catch (error) {
+    reportSearchCall("error");
+    throw error;
+  }
   reportSearchCall("ok");
-
-  const body = (await response.json()) as RawBody;
   const limit = maxResults();
 
   const hits: SearchHit[] = [];
@@ -178,18 +188,23 @@ export async function searxngSearch(
     infoboxes.push(`${label ? `${label}: ` : ""}${content}${source}`);
   }
 
-  // [["duckduckgo", "timeout"], ...] の形で来る。エンジン名だけ拾う。
+  // 呼び出し側との互換性は名前配列のまま。ログには原因と件数も残す。
   const unresponsiveEngines: string[] = [];
+  const engineErrors: string[] = [];
   for (const item of Array.isArray(body.unresponsive_engines)
     ? body.unresponsive_engines
     : []) {
     const name = Array.isArray(item) ? text(item[0]) : text(item);
-    if (name) unresponsiveEngines.push(name);
+    if (name) {
+      unresponsiveEngines.push(name);
+      const reason = Array.isArray(item) ? text(item[1]) : "";
+      engineErrors.push(`${name}${reason ? ` (${reason})` : ""}`);
+    }
   }
   if (unresponsiveEngines.length) {
     // 上流に弾かれ始めた合図。結果が薄いときの原因究明はここを見る。
     console.warn(
-      `[WARN][SEARXNG] unresponsive engines: ${unresponsiveEngines.join(", ")}`,
+      `[WARN][SEARXNG] source=${options.source ?? "grounding"} unresponsive engines: ${engineErrors.join(", ")}; hits=${hits.length} infoboxes=${infoboxes.length}`,
     );
   }
 

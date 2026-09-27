@@ -102,11 +102,13 @@ grounding の検索基盤 SearXNG を立てます（API キーもアカウント
 cd searxng
 cp .env.example .env
 sed -i "s/^SEARXNG_SECRET=/SEARXNG_SECRET=$(openssl rand -hex 32)/" .env
+sed -i "s/^SEARCH_GATEWAY_API_KEY=/SEARCH_GATEWAY_API_KEY=$(openssl rand -hex 32)/" .env
 docker compose up -d
 curl -s localhost:8080/healthz
 ```
 
-リポジトリ直下の `.env` に `SEARXNG_BASE_URL=http://127.0.0.1:8080` を書いたら、
+リポジトリ直下の `.env` に `SEARXNG_BASE_URL=http://127.0.0.1:8080` と、
+上のキーと同じ `SEARXNG_API_KEY` を設定したら、
 検索が実用に足るかを確認します。
 
 ```sh
@@ -116,6 +118,9 @@ pnpm searxng:probe -- --fetch
 `settings.yml` を書き換えたときは `docker compose up -d --force-recreate` が要ります。
 bind mount した設定はプロセス起動時にしか読まれず、`up -d` だけではコンテナが
 作り直されないため、変更が黙って無視されます。
+
+本番は200側の[共通出口API](docs/search-egress.md)へ集約します。calendarも検索・Wikipedia
+取得をここへ送り、頻度制限とキャッシュを共有します。220側にはSearXNGを立てません。
 
 ### サービスごとの起動
 

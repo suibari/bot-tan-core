@@ -3,7 +3,7 @@ import type { NagiRadioFact, NagiRadioSong } from "./generateNagiRadioComment.js
 
 const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
 
-/** 制作情報の出典がなくても、確認できたリンクの曲を放送候補として残す。 */
+/** 選曲失敗だけ再試行する。背景情報の有無を理由に曲と検索を引き直さない。 */
 export async function selectNagiRadioCandidate(
   resolve: (attempt: number, excludedSongKeys: Set<string>, excludedVideoIds: Set<string>) => Promise<NagiRadioSong | null>,
   research: (song: NagiRadioSong) => Promise<NagiRadioFact | null>,
@@ -11,7 +11,6 @@ export async function selectNagiRadioCandidate(
 ): Promise<{ song: NagiRadioSong; fact: NagiRadioFact | null } | null> {
   const excludedSongKeys = new Set<string>();
   const excludedVideoIds = new Set<string>();
-  let fallback: NagiRadioSong | null = null;
   for (let attempt = 0; attempt < attempts; attempt++) {
     let candidate: NagiRadioSong | null;
     try {
@@ -26,14 +25,13 @@ export async function selectNagiRadioCandidate(
     if (candidate.videoId) excludedVideoIds.add(candidate.videoId);
     const hasSongCard = lastFmSongUrl(candidate.songUrl) && candidate.thumbnailUrl;
     if (!hasSongCard && !VIDEO_ID.test(candidate.videoId ?? "")) continue;
-    fallback ??= candidate;
     let fact: NagiRadioFact | null = null;
     try {
       fact = await research(candidate);
     } catch (error) {
       console.warn(`[WARN][NAGI][RADIO] Song research failed for ${candidate.artist} - ${candidate.title}`, error);
     }
-    if (fact) return { song: candidate, fact };
+    return { song: candidate, fact };
   }
-  return fallback ? { song: fallback, fact: null } : null;
+  return null;
 }

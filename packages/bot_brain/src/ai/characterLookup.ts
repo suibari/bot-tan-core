@@ -143,7 +143,7 @@ async function relatedTags(tag: string, category: "general" | "copyright", limit
 async function titlesFromSearch(request: CharacterRequest): Promise<string[]> {
   if (!isSearxngConfigured()) return [];
   try {
-    const { hits } = await searxngSearch(`${request.name} ${request.series} danbooru`.replace(/\s+/g, " "));
+    const { hits } = await searxngSearch(`${request.name} ${request.series} danbooru`.replace(/\s+/g, " "), { source: "character" });
     const titles = new Set<string>();
     for (const hit of hits) {
       const match = hit.url.match(/danbooru\.donmai\.us\/(?:wiki_pages\/|posts\?tags=)([^&#?/]+)/);

@@ -110,11 +110,13 @@ Start SearXNG, the grounding search backend. It needs no API key and no account.
 cd searxng
 cp .env.example .env
 sed -i "s/^SEARXNG_SECRET=/SEARXNG_SECRET=$(openssl rand -hex 32)/" .env
+sed -i "s/^SEARCH_GATEWAY_API_KEY=/SEARCH_GATEWAY_API_KEY=$(openssl rand -hex 32)/" .env
 docker compose up -d
 curl -s localhost:8080/healthz
 ```
 
-Put `SEARXNG_BASE_URL=http://127.0.0.1:8080` in the repository-root `.env`, then check that
+Put `SEARXNG_BASE_URL=http://127.0.0.1:8080` and `SEARXNG_API_KEY` (the gateway key above)
+in the repository-root `.env`, then check that
 search is actually usable:
 
 ```sh

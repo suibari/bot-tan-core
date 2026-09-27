@@ -423,20 +423,21 @@ async function gatherMaterial(input: {
   queries: string[];
   urls: string[];
   fetchTopN?: number;
+  source?: "grounding" | "knowledge-card";
 }): Promise<{
   sources: ResearchSource[];
   infoboxes: string[];
 }> {
-  const searched = await Promise.all(
-    input.queries.slice(0, MAX_QUERIES).map(async (query) => {
-      try {
-        return await searxngSearch(query);
-      } catch (error) {
-        console.warn(`[WARN][AI_GROUNDING] search failed: ${query}`, error);
-        return null;
-      }
-    }),
-  );
+  const searched = [];
+  // 同一調査でキューを占有しない。重複・空白クエリは送信前に除去する。
+  const queries = [...new Set(input.queries.map((query) => query.trim()).filter(Boolean))];
+  for (const query of queries.slice(0, MAX_QUERIES)) {
+    try {
+      searched.push(await searxngSearch(query, { source: input.source ?? "grounding" }));
+    } catch (error) {
+      console.warn("[WARN][AI_GROUNDING] search failed", error);
+    }
+  }
 
   const infoboxes: string[] = [];
   const hits: SearchHit[] = [];
@@ -662,6 +663,7 @@ export async function researchKnowledgeCardSelfHosted(subject: string): Promise<
     queries: [normalizedSubject],
     urls: [],
     fetchTopN: KNOWLEDGE_CARD_FETCH_TOP_N,
+    source: "knowledge-card",
   });
   if (!sources.length && !infoboxes.length)
     throw new Error("Self-hosted knowledge-card research returned no material");
