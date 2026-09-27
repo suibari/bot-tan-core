@@ -25,6 +25,7 @@ RESTART_LABELER=false
 RESTART_DISCORD=false
 RESTART_NAGI_APPVIEW=false
 RESTART_SEARXNG=false
+SEARXNG_FAILED=false
 PUSH_DB=false
 PUBLISH_LEXICON=false
 
@@ -64,7 +65,7 @@ if echo "$DIFF_FILES" | grep -q "apps/nagi_appview/"; then
 fi
 
 # SearXNG は grounding の検索段。唯一 systemd ではなく Docker で動かしている。
-if echo "$DIFF_FILES" | grep -q "^searxng/"; then
+if echo "$DIFF_FILES" | grep -Eq "^searxng/|^scripts/deploy-searxng\.sh$"; then
     RESTART_SEARXNG=true
 fi
 
@@ -86,28 +87,15 @@ fi
 
 # 実際の再起動処理
 
-# SearXNG は grounding の検索基盤。bot より先に上げる。
-#
-# **ここで deploy 全体を止めない。** searxng/.env は .gitignore なので初回 pull 後は
-# 存在せず、compose の ${SEARXNG_SECRET:?} がハードエラーになる。set -e のまま
-# 素通しすると、以降の lexicon publish ごと落ちる。検索が無くても bot は
-# 「知らない」と答えて動くので、警告だけ出して先へ進める。
+# Git差分がなくても上流イメージを確認する。失敗しても他appsは更新するが、
+# 最後に非ゼロで終了し、検索基盤の更新失敗を成功扱いしない。
+SEARXNG_ARGS=()
 if [ "$RESTART_SEARXNG" = true ]; then
-    if ! command -v docker >/dev/null 2>&1; then
-        echo "⚠️  docker が無いので SearXNG をスキップ"
-    elif [ ! -f searxng/.env ]; then
-        echo "⚠️  searxng/.env が無いので SearXNG をスキップ（初回は手動セットアップが要る）"
-        echo "    cd searxng && cp .env.example .env && SEARXNG_SECRET を埋めて docker compose up -d"
-    else
-        echo "♻️  Reloading SearXNG..."
-        # .env の探索場所がバージョンで揺れるので -f ではなく cd してから叩く。
-        #
-        # `up -d` ではダメ。settings.yml は bind mount で渡していてプロセス起動時に
-        # しか読まれず、compose ファイル自体が変わらない限りコンテナが作り直されない。
-        # 実際、engines を書き換えたのに反映されず /config に旧設定が残っていた。
-        (cd searxng && docker compose up -d --force-recreate) \
-            || echo "⚠️  SearXNG の再起動に失敗。他のサービスは続行する。"
-    fi
+    SEARXNG_ARGS=(--force-recreate)
+fi
+if ! bash scripts/deploy-searxng.sh "${SEARXNG_ARGS[@]}"; then
+    SEARXNG_FAILED=true
+    echo "⚠️ SearXNG の更新に失敗。他のサービスは続行する。" >&2
 fi
 
 if [ "$RESTART_BIO" = true ]; then
@@ -145,4 +133,8 @@ if [ "$PUBLISH_LEXICON" = true ]; then
     pnpm --filter ./packages/nagi-lexicon lex:publish
 fi
 
+if [ "$SEARXNG_FAILED" = true ]; then
+    echo "❌ 他appsの更新は完了しましたが、SearXNGの更新に失敗しました。" >&2
+    exit 1
+fi
 echo "✅ Deployment completed: $OLD_COMMIT -> $NEW_COMMIT"

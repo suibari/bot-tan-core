@@ -63,7 +63,13 @@ SEARXNG_ENGINES=bing,wikipedia,wikidata
 
 bsky側は `SEARXNG_TIMEOUT_MS=30000`、calendar側は `SEARXNG_TIMEOUT_S=30`。
 LAN外へ公開しない。キーはログやコマンド引数へ出さない。
-`searxng/compose.yml` はSearXNGイメージを検証済みdigestで固定する。
+`scripts/deploy.sh` は毎回 `scripts/deploy-searxng.sh` を実行し、Git差分の有無にかかわらず
+SearXNGの `latest` とgatewayのイメージをpullする。新イメージがあればComposeが更新する。
+`searxng/` または更新スクリプトに差分があれば、bind mountの変更も反映するため再作成する。
+変更がなければ稼働中コンテナを維持する。更新後はhealthcheckを待ち、版とimage IDを記録する。
+pull失敗時は再作成せず、他appsのデプロイを続行した後、全体を非ゼロで終了する。
+再試行は `bash scripts/deploy-searxng.sh --force-recreate` で行える。
+これはデプロイ時の更新であり、デプロイが無い期間に自動更新するタイマーではない。
 
 切り替え時はAPIと利用側を一緒に更新する。APIだけ先に認証必須化すると旧クライアントが401になる。
 旧env・コミット・コンテナimage IDを控え、200側を先に更新、続いてcalendarを更新して疎通確認、
