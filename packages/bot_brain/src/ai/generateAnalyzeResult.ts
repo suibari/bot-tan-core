@@ -8,6 +8,7 @@ import {
   safeFetch,
 } from "@bsky-affirmative-bot/shared-configs";
 import { bulletList, limitLikedMaterial } from "./analysisMaterials.js";
+import { findTitleViolation } from "./validateTitle.js";
 
 export interface AnalyzeResult {
   analysis: string;
@@ -63,11 +64,11 @@ export async function generateAnalyzeResult(userinfo: UserInfoGemini): Promise<A
           },
           title_ja: {
             type: Type.STRING,
-            description: "ユーザーにふさわしい日本語の称号（20字以内、例: 癒やしの哲学者）。**本人の投稿から読み取れること**を元にすること"
+            description: "ユーザーにふさわしい日本語の称号（20字以内、例: 癒やしの哲学者）。**本人の投稿から読み取れること**を元にすること。称号は公開ラベルに残るので、疾患・障害語（多動など）、侮蔑語、体調・怪我・年齢・飲酒・喫煙、他人の名前、性別を決めつける語（女神・姫など）、他言語の文字は使わないこと"
           },
           title_en: {
             type: Type.STRING,
-            description: "同じ称号の英語訳（30字以内、例: Philosopher of Healing）"
+            description: "同じ称号の英語訳（30字以内、例: Philosopher of Healing）。hyperactive / scum / goddess のような疾患・侮蔑・性別を決めつける語は使わないこと"
           }
         },
         required: ["analysis", "title_ja", "title_en"]
@@ -82,10 +83,18 @@ export async function generateAnalyzeResult(userinfo: UserInfoGemini): Promise<A
     const responseText = response.text || "{}";
     const cleanedText = responseText.replace(/\[.*?\]/gs, '');
     const json = JSON.parse(cleanedText) as AnalyzeResult;
+    const title_ja = json.title_ja || "全肯定の賢者";
+    const title_en = json.title_en || "Affirmative Sage";
+    // 占いはユーザーが待っている返信で再生成の口が無いので、禁止語を踏んだ称号だけ既定へ差し替える。
+    const violation = findTitleViolation(title_ja, title_en);
+    if (violation) {
+      console.warn(`[WARN][ANALYZE] Replaced disallowed title (${violation}): ${title_ja} / ${title_en}`);
+      return { analysis: json.analysis || "", title_ja: "全肯定の賢者", title_en: "Affirmative Sage" };
+    }
     return {
       analysis: json.analysis || "",
-      title_ja: json.title_ja || "全肯定の賢者",
-      title_en: json.title_en || "Affirmative Sage"
+      title_ja,
+      title_en,
     };
   } catch (e) {
     console.error("[ERROR] Failed to parse Structured Outputs JSON in generateAnalyzeResult:", e);

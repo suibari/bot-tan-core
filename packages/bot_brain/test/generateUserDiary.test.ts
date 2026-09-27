@@ -8,6 +8,7 @@ import {
   validateUsedContextId,
   usedContextIdSchema,
 } from "../src/ai/generateUserDiary.js";
+import { assertTitleIsSafe } from "../src/ai/validateTitle.js";
 import { generateUserDiaryResilient } from "../src/ai/generateUserDiaryResilient.js";
 import { normalizeJsonSchema } from "../src/ai/generationClient.js";
 
@@ -125,6 +126,11 @@ test("new prompt removes the fixed triad and emoji work while pinning attributio
   assert.match(prompt, /「ローカルLLMへの移行とマジカルミライ」ではなく「ミライのLLM魔術師」/);
   assert.match(prompt, /この例の語を投稿に根拠なく流用してはいけません/);
   assert.match(prompt, /title_en は title_ja と同じ称号の自然な英訳/);
+  assert.match(prompt, /疾患・障害・診断名や、それを揶揄する語（多動、ADHD/);
+  assert.match(prompt, /「行動派」「フットワークの軽い」「情熱家」/);
+  assert.match(prompt, /体調・怪我・病気・年齢・飲酒・喫煙/);
+  assert.match(prompt, /性別を決めつける語（女神、姫/);
+  assert.match(prompt, /ハングルなど他言語の文字を使ったりしないでください/);
   assert.match(prompt, /500文字を多少超えても構いません/);
   assert.match(prompt, /<media_reference id="movie-star-wars".*usage="optional"/);
   assert.match(prompt, /プロトン魚雷/);
@@ -228,6 +234,10 @@ test("English prompt keeps the same attribution, privacy, and chaos rules", () =
   assert.match(prompt, /"Moving to a Local LLM and Magical Mirai,"/i);
   assert.match(prompt, /never reuse words from this example unless the user's posts support them/i);
   assert.match(prompt, /title_en a natural translation of the same title as title_ja/i);
+  assert.match(prompt, /Disorder, disability, or diagnosis terms.*hyperactive, ADHD/i);
+  assert.match(prompt, /Health, injury, illness, age, drinking, or smoking/i);
+  assert.match(prompt, /Gendered words that assume the user's gender/i);
+  assert.match(prompt, /Write title_ja in Japanese only/i);
   assert.match(prompt, /exceeding 1,000 characters somewhat is acceptable/i);
 });
 
@@ -336,6 +346,31 @@ test("a valid diary draft completes without a separate repair request", async ()
   });
   assert.equal(bodyCalls, 1);
   assert.equal(result.diary, "保存すべき本文の前半。\n\n保存すべき本文の後半。");
+});
+
+test("a diary draft with a disallowed title is regenerated", async () => {
+  const titles = [
+    { title_ja: "街を駆け抜ける多動の旅人", title_en: "The Relentless Urban Nomad" },
+    { title_ja: "街を駆け抜ける行動派の旅人", title_en: "The Go-Getter Urban Nomad" },
+  ];
+  let bodyCalls = 0;
+  const result = await generateUserDiaryResilient(userinfo, {
+    label: "[TEST][DIARY]",
+    sleep: async () => {},
+    generateDraft: async () => {
+      const title = titles[bodyCalls]!;
+      bodyCalls += 1;
+      assertTitleIsSafe(title.title_ja, title.title_en);
+      return {
+        diary: "本文の前半。\n\n本文の後半。",
+        ...title,
+        usedContextId: "none",
+        chaosExcerpt: "本文にあるカオスな抜粋です。",
+      };
+    },
+  });
+  assert.equal(bodyCalls, 2);
+  assert.equal(result.title_ja, "街を駆け抜ける行動派の旅人");
 });
 
 test("omits absent diary context without inventing placeholders", () => {

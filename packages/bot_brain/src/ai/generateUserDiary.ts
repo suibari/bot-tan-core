@@ -1,5 +1,6 @@
 import { Type } from "@google/genai";
 import { generateContentWithRetry } from "./util.js";
+import { assertTitleIsSafe } from "./validateTitle.js";
 import {
   UserInfoGemini,
   SYSTEM_INSTRUCTION,
@@ -220,6 +221,13 @@ ${NAME_RULES_JA(name)}
 - 「AとB」「Aへの移行」「Aした日」「Aの記録」のように、投稿の話題や出来事を並べたり説明したりするだけの見出しは禁止です。複数の題材を使う場合は列挙せず、一人の人物像へ融合してください。「ローカルLLMへの移行とマジカルミライ」ではなく「ミライのLLM魔術師」のような形です。ただし、この例の語を投稿に根拠なく流用してはいけません。
 - 「〜の魔術師」「〜の探究者」「〜職人」などは形の例であり、語尾を固定する必要はありません。題材に即した、短く印象的で、その人を呼べる称号にしてください。
 - title_en は title_ja と同じ称号の自然な英訳にし、別の題材を選ばないでください。
+- 称号は公開ラベルとして本人のプロフィールに残ります。次の語は、比喩や褒め言葉のつもりでも、本文で触れた話題でも称号に使わないでください。
+  - 疾患・障害・診断名や、それを揶揄する語（多動、ADHD、メンヘラ、コミュ障、〜中毒、〜依存症 など）。よく動く・夢中だと表したいなら「行動派」「フットワークの軽い」「情熱家」のように言い換えてください。
+  - 侮蔑語・罵倒語（英語の scum / trash なども含む）。
+  - 体調・怪我・病気・年齢・飲酒・喫煙（骨折、夏バテ、二日酔い、〜歳、タバコ など）。
+  - 日記の対象者以外の人名・ハンドル。
+  - 性別を決めつける語（女神、姫、プリンセス、女王、女優、魔女、パティシエール など）。性別に中立な呼び名にしてください。
+- title_ja は日本語で書き、英単語をそのまま混ぜたり、ハングルなど他言語の文字を使ったりしないでください（固有名詞・略語は可）。
 
 # 出力直前チェック（最優先）
 - diaryを読み直し、予定調和を壊す自然なカオス要素が最低1か所残っていることを確認してください。なければ、事実境界を守ったbotたん自身の連想として追加してから返してください。
@@ -291,6 +299,13 @@ ${NAME_RULES_EN(name)}
 - Do not merely list or describe topics in headline forms such as "A and B," "Moving to A," "The Day of A," or "A Record." When drawing on multiple topics, fuse them into one persona instead of enumerating them. Prefer a form like "Mirai LLM Sorcerer" over "Moving to a Local LLM and Magical Mirai," but never reuse words from this example unless the user's posts support them.
 - Forms such as "Sorcerer of...," "... Explorer," or "... Artisan" are examples, not mandatory suffixes. Create a concise, memorable epithet that could be used to address the person and fits their actual material.
 - Make title_en a natural translation of the same title as title_ja; do not choose a separate motif.
+- The title stays on the user's profile as a public label. Never use the following in either title, even as a metaphor or compliment, and even when the diary body mentions the topic:
+  - Disorder, disability, or diagnosis terms, or slang mocking them (hyperactive, ADHD, OCD, psycho, addict, and their Japanese equivalents such as 多動 or メンヘラ). To praise someone who is always on the move or deeply absorbed, say "go-getter," "light on their feet," or "enthusiast" instead.
+  - Insults or slurs, such as scum or trash.
+  - Health, injury, illness, age, drinking, or smoking (fracture, fatigue, hangover, "75-year-old," cigarettes, and so on).
+  - The name or handle of anyone other than the diary subject.
+  - Gendered words that assume the user's gender (goddess, princess, queen, actress, witch, lady, and so on). Use a gender-neutral epithet.
+- Write title_ja in Japanese only. Do not drop raw English words or other scripts such as Hangul into it; proper nouns and abbreviations are fine.
 
 # Final check (highest priority)
 - Reread the diary and confirm that at least one natural disruption of its expected, tidy flow remains. If none does, add one as Bot-tan's own association while preserving every grounding boundary.
@@ -411,12 +426,12 @@ export async function generateUserDiaryDraft(
             title_ja: {
               type: Type.STRING,
               description:
-                "<user_posts>にユーザー自身が書いた具体的内容だけを根拠に、出来事の見出しではなくユーザー本人を指す異名・呼び名にした日本語の称号。話題を列挙せず一人の人物像に融合し、botたんの感想・比喩・カオス要素や補助材料は使わない。20字以内",
+                "<user_posts>にユーザー自身が書いた具体的内容だけを根拠に、出来事の見出しではなくユーザー本人を指す異名・呼び名にした日本語の称号。話題を列挙せず一人の人物像に融合し、botたんの感想・比喩・カオス要素や補助材料は使わない。疾患・障害語、侮蔑語、体調・怪我・年齢・飲酒・喫煙、他人の名前、性別を決めつける語、他言語の文字は使わない。20字以内",
             },
             title_en: {
               type: Type.STRING,
               description:
-                "title_jaと同じ人物像を自然に英訳した、出来事の見出しではなくユーザー本人を指す英語の称号。根拠は<user_posts>だけとし、話題の列挙、botたん由来の要素、補助材料は使わない。30字以内",
+                "title_jaと同じ人物像を自然に英訳した、出来事の見出しではなくユーザー本人を指す英語の称号。根拠は<user_posts>だけとし、話題の列挙、botたん由来の要素、補助材料は使わない。疾患・障害語、侮蔑語、体調・怪我・年齢・飲酒・喫煙、他人の名前、性別を決めつける語は使わない。30字以内",
             },
             usedContextId: usedContextIdSchema(options.dayContext),
             chaosExcerpt: {
@@ -446,10 +461,14 @@ export async function generateUserDiaryDraft(
     });
   }
   const diary = validateDiaryParagraphs(json.diary || "");
+  const title_ja = json.title_ja || "全肯定の旅人";
+  const title_en = json.title_en || "Affirmative Traveler";
+  // 称号は公開ラベルに残るので、禁止語を踏んだら日記ごと再生成させる（呼び出し側のラダーが拾う）。
+  assertTitleIsSafe(title_ja, title_en);
   return {
     diary,
-    title_ja: json.title_ja || "全肯定の旅人",
-    title_en: json.title_en || "Affirmative Traveler",
+    title_ja,
+    title_en,
     usedContextId: validateUsedContextId(json.usedContextId, options.dayContext),
     chaosExcerpt: validateChaosExcerpt(json.chaosExcerpt, diary),
   };
