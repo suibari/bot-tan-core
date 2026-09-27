@@ -170,13 +170,16 @@ test("returns empty for a blank query without touching the network", async () =>
 
 test("sends the query parameters the JSON API needs", async () => {
   let requested: URL | undefined;
-  globalThis.fetch = async (input: any) => {
+  process.env.SEARXNG_API_KEY = "test-key";
+  globalThis.fetch = async (input: any, options) => {
     requested = new URL(String(input));
+    assert.equal(new Headers(options?.headers).get("Authorization"), "Bearer test-key");
+    assert.equal(new Headers(options?.headers).get("X-Search-Source"), "probe");
     return json({ results: [] });
   };
 
   process.env.SEARXNG_ENGINES = "duckduckgo,wikipedia";
-  await searxngSearch("秋アニメ");
+  await searxngSearch("秋アニメ", { source: "probe" });
 
   assert.ok(requested);
   assert.equal(requested.pathname, "/search");

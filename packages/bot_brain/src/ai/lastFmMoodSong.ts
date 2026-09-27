@@ -591,7 +591,9 @@ export async function researchTopicSongs(
   const query = langStr === "日本語"
     ? `${normalized} モチーフ 舞台 楽曲`
     : `${normalized} inspired song music`;
-  const result = await (deps.search ?? searxngSearch)(query);
+  const result = await (deps.search ?? searxngSearch)(query, {
+    source: "topic-song", language: langStr === "日本語" ? "ja" : "en",
+  });
   const read = deps.read ?? fetchReadableText;
   const sections = await Promise.all(result.hits.slice(0, 3).map(async (hit) => {
     let body = "";

@@ -8,9 +8,8 @@
 # - wikipedia / wikidata は infobox の供給源。固有名詞の実在確認に効くので必須。
 #   （この2つは results を返さず infobox だけを返す。0件に見えても働いている）
 # - bing が一覧・時事の索引。実質これ1本なので、詰まったら真っ先に疑う。
-# 【重要】ここに書いたエンジンは、クライアントが engines= で絞っても問い合わせ
-# される。SearXNG の engines= は結果の採用を絞るだけで、送信自体は止まらない。
-# よって使えないエンジンを残すと全クエリに待ちが乗る。必ず外すこと。
+# engines= と categories=general を併記するとカテゴリ内の全エンジンが追加される。
+# gateway がこの併記を解消するので、engines= による送信先の限定が実際に効く。
 #
 # 日本語で使えるものを実測した結果（2026-09-02）:
 #   bing      ✅ 一覧・時事とも十分
@@ -22,7 +21,9 @@
 #   qwant      ❌ 応答なし
 #   mojeek     △ 応答するが日本語の結果は 0 件（索引が実質空）
 #
-# つまり日本語の索引は Bing 単独依存。詰まったら真っ先にここを疑う。
+# 2026-09-27: Bingは曲名を無視/無関係なHTMLを返す不具合を再現。
+# 最新版でも再現した。件数だけで正常判定しない。詳細は docs/search-egress.md。
+# 日本語の索引は Bing 単独依存。詰まったら真っ先にここを疑う。
 # 代替を試すときは keep_only に足して `docker compose up -d --force-recreate`。
 #
 # エンジンを増やすほど 1 リクエストの所要時間が伸びる。増やす前に
@@ -71,7 +72,5 @@ outgoing:
 engines:
   - name: wikipedia
     language: ja
-  - name: duckduckgo
-    timeout: 5.0
   - name: bing
     timeout: 5.0

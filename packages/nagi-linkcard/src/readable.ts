@@ -55,10 +55,37 @@ const toPlainText = (html: string) =>
 
 export type ReadableText = { title: string; text: string };
 
+/** Wikipedia本文も検索と同じ出口へ送り、検索後の並列本文取得で制限を迂回しない。 */
+async function wikipediaText(url: URL, limit: number): Promise<ReadableText | null> {
+  const language = /^([a-z]{2,3}(?:-[a-z]+)?)\.(?:m\.)?wikipedia\.org$/.exec(url.hostname)?.[1];
+  if (!language || !url.pathname.startsWith("/wiki/")) return null;
+  const base = process.env.SEARXNG_BASE_URL;
+  if (!base) throw new Error("Wikipedia requires the shared search gateway");
+  const title = decodeURIComponent(url.pathname.slice("/wiki/".length)).replace(/_/g, " ");
+  const endpoint = new URL(`${base.replace(/\/+$/, "")}/wikipedia/${language}`);
+  endpoint.search = new URLSearchParams({
+    action: "query", format: "json", prop: "extracts", explaintext: "1", redirects: "1", titles: title,
+  }).toString();
+  const response = await fetch(endpoint, {
+    headers: {
+      "X-Search-Source": "research-page",
+      ...(process.env.SEARXNG_API_KEY ? { Authorization: `Bearer ${process.env.SEARXNG_API_KEY}` } : {}),
+    },
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!response.ok) throw new Error(`Wikipedia gateway HTTP ${response.status}`);
+  const body = await response.json() as { query?: { pages?: Record<string, { title?: string; extract?: string }> } };
+  const page = Object.values(body.query?.pages ?? {})[0];
+  if (!page?.extract) throw new Error("Wikipedia article has no readable text");
+  return { title: (page.title ?? title).slice(0, 300), text: page.extract.slice(0, limit) };
+}
+
 export async function fetchReadableText(
   url: string,
   limit = DEFAULT_TEXT_LIMIT,
 ): Promise<ReadableText> {
+  const wiki = await wikipediaText(new URL(url), limit);
+  if (wiki) return wiki;
   const { response, url: resolved } = await limitedFetch(
     url,
     "text/html,application/xhtml+xml",
