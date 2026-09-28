@@ -13,9 +13,12 @@ import {
   awardSuperPositiveLevel,
 } from "@bsky-affirmative-bot/clients";
 import { blobImagesToImageRefs, resolvePdsUrl } from "@bsky-affirmative-bot/bot-runtime";
+import { hasDrawingHint } from "@bsky-affirmative-bot/shared-configs";
 import { createNagiReply } from "./createNagiReply.js";
 import {
   enqueueNagiDrawingGift,
+  nagiDrawingReferenceUnavailable,
+  nagiDrawingLang,
   nagiDrawingReplyThread,
   prepareNagiDrawingRequest,
   type PreparedNagiDrawingRequest,
@@ -140,10 +143,22 @@ export function startNagiReplyWorker() {
       // こっそりは返信が PDS に無く、絵をぶら下げる先の cid が取れないので対象外。
       let drawingRequest: PreparedNagiDrawingRequest | undefined;
       if (!isAppviewOwnedUri(job.sourceUri) && typeof incomingRecord?.text === "string") {
-        drawingRequest = await prepareNagiDrawingRequest({
+        const attachments = incomingRecord.embed?.images ?? [];
+        let imageRefs;
+        if (attachments.length && hasDrawingHint(incomingRecord.text)) {
+          try {
+            imageRefs = blobImagesToImageRefs(job.authorDid, await resolvePdsUrl(job.authorDid), attachments);
+            if (imageRefs.length !== attachments.length) throw new Error("Invalid drawing reference");
+          } catch (error) {
+            console.warn("[WARN][NAGI][DRAWING] Reference images unavailable:", error);
+            drawingRequest = { comment: nagiDrawingReferenceUnavailable(nagiDrawingLang(incomingRecord.langs)) };
+          }
+        }
+        drawingRequest ??= await prepareNagiDrawingRequest({
           sourceUri: job.sourceUri,
           authorDid: job.authorDid,
           text: incomingRecord.text,
+          images: imageRefs,
           langs: incomingRecord.langs,
         });
       }

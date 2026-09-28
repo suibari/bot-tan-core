@@ -113,3 +113,61 @@ test("場面が書かれていなければ贈らない（投稿本文をその�
     assert.equal(normalizeDrawingGift({ ...gift, scene }).gift, false);
   }
 });
+
+test("参考画像の場面は短い題名と別に保持し、読み取り結果が空なら描かない", () => {
+  const scene = "botたんが海辺で赤い傘を持ち、左を向いて座っている。夕日が右奥に見える。".repeat(3);
+  assert.deepEqual(normalizeDrawingRequest({ ...request, scene }, true), {
+    intent: "request", allowed: true, concern: "none", subject: "猫", scene,
+  });
+  assert.deepEqual(normalizeDrawingRequest(request, true), { intent: "unavailable" });
+  const declined = normalizeDrawingRequest({ ...request, concern: "real_person" }, true);
+  assert.equal(declined.intent === "request" && declined.allowed, false);
+});
+
+test("画像付き依頼は整形した画像を判定へ渡し、取得・デコード・推論失敗時は題材を捏造しない", async (t) => {
+  const { judgeDrawingRequest } = await import("../src/ai/judgeDrawing.js");
+  const { createCanvas } = await import("@napi-rs/canvas");
+  const original = process.env.OLLAMA_BASE_URL;
+  const originalModel = process.env.OLLAMA_MODEL;
+  process.env.OLLAMA_MODEL = "test-model";
+  process.env.OLLAMA_BASE_URL = "http://ollama.test:11434/v1";
+  const png = createCanvas(32, 32).toBuffer("image/png");
+  const images = [{ image_url: "https://93.184.216.34/reference.png", mimeType: "image/png" }];
+  let mode = "ok";
+  let body: any;
+  let calls = 0;
+  t.mock.method(globalThis, "fetch", async (url: any, init: any) => {
+    if (String(url).includes("reference.png")) {
+      if (mode === "http") return new Response("missing", { status: 404 });
+      return new Response(mode === "broken" ? new Uint8Array([1, 2, 3]) : new Uint8Array(png));
+    }
+    calls++;
+    body = JSON.parse(init.body);
+    if (mode === "model") throw new Error("model unavailable");
+    return new Response(JSON.stringify({ message: { content: JSON.stringify({ ...request, scene: "海辺で赤い傘を持つbotたん" }) } }));
+  });
+  try {
+    const result = await judgeDrawingRequest("botたん、こういうのを描いて", images);
+    assert.equal(result.intent === "request" && result.scene, "海辺で赤い傘を持つbotたん");
+    assert.ok(body.messages[1].images.length > 0);
+    assert.notEqual(body.messages[1].images[0], png.toString("base64"));
+    assert.match(body.messages.at(-1).content, /こういうのを描いて$/);
+    assert.equal("num_ctx" in body.options, false);
+    assert.equal(typeof body.options.num_predict, "number");
+    assert.equal(typeof body.options.temperature, "number");
+    for (mode of ["http", "broken"]) {
+      assert.deepEqual(await judgeDrawingRequest("botたん、これ描いて", images), { intent: "unavailable" });
+    }
+    assert.equal(calls, 1);
+    mode = "model";
+    assert.deepEqual(await judgeDrawingRequest("botたん、これ描いて", images), { intent: "unavailable" });
+    mode = "ok";
+    await judgeDrawingRequest("botたん、猫描いて");
+    assert.equal(body.messages[1].images, undefined);
+  } finally {
+    if (original === undefined) delete process.env.OLLAMA_BASE_URL;
+    else process.env.OLLAMA_BASE_URL = original;
+    if (originalModel === undefined) delete process.env.OLLAMA_MODEL;
+    else process.env.OLLAMA_MODEL = originalModel;
+  }
+});

@@ -195,6 +195,7 @@ function scaleToLongSide(
 export async function prepareModelImages(
   buffer: Buffer,
   mimeType: string,
+  options: { strict?: boolean } = {},
 ): Promise<PreparedImage[]> {
   try {
     if (!isDecodableImage(buffer)) {
@@ -252,6 +253,8 @@ export async function prepareModelImages(
     }
     return images;
   } catch (error) {
+    // 参考画像が読めないまま別の絵を生成してはいけない呼び出し元向け。
+    if (options.strict) throw error;
     console.warn(
       "[WARN][AI_IMAGE] 画像を整形できなかったので原本をそのまま使う",
       error instanceof Error ? error.message : error,

@@ -146,7 +146,7 @@ export function nagiDrawingReplyThread(source: StrongRef, root: StrongRef) {
 
 export type NagiDrawingJob =
   | (NagiDrawingThread & { kind: "gift"; text: string; images?: ImageRef[] })
-  | (NagiDrawingThread & { kind: "request"; subject: string; day: string });
+  | (NagiDrawingThread & { kind: "request"; subject: string; scene?: string; day: string });
 
 export type NagiDrawingOutcome =
   | "empty"
@@ -211,7 +211,7 @@ export async function processNagiDrawingJob(
   if (job.kind === "request") {
     return drawAndPublish(job, job.day, deps, {
       // 見出しを付けて渡す。シーン変換は材料に書かれたものを描くので、何の記述かを明示しておく。
-      sourceText: `### 描いてほしいと頼まれた絵\n${job.subject}`,
+      sourceText: `### 描いてほしいと頼まれた絵\n${job.scene ?? job.subject}`,
       text: nagiDrawingRequestText("drawn", job.lang, job.subject),
       alt: job.lang === "ja" ? `全肯定botたんが描いた絵: ${job.subject}` : `A picture drawn by Bot-tan: ${job.subject}`,
       failedText: nagiDrawingRequestText("failed", job.lang, job.subject),
@@ -303,7 +303,7 @@ export type PreparedNagiDrawingRequest = {
 
 export type NagiDrawingRequestDeps = {
   available(): boolean;
-  judgeRequest(text: string): Promise<DrawingRequestJudgement>;
+  judgeRequest(text: string, images?: readonly ImageRef[]): Promise<DrawingRequestJudgement>;
   claim(did: string, sourceUri: string): Promise<DrawingClaimResult>;
   enqueue(job: NagiDrawingJob): boolean;
 };
@@ -315,12 +315,15 @@ export type NagiDrawingRequestDeps = {
  * 同じ投稿での枠取りは claimed として返る（claimDailyDrawing）。
  */
 export async function prepareNagiDrawingRequest(
-  input: { sourceUri: string; authorDid: string; text: string; langs?: unknown },
+  input: { sourceUri: string; authorDid: string; text: string; langs?: unknown; images?: ImageRef[] },
   deps: NagiDrawingRequestDeps = defaultRequestDeps,
 ): Promise<PreparedNagiDrawingRequest | undefined> {
   if (!hasDrawingHint(input.text) || !deps.available()) return undefined;
 
-  const judgement = await deps.judgeRequest(input.text);
+  const judgement = await deps.judgeRequest(input.text, input.images);
+  if (judgement.intent === "unavailable") {
+    return { comment: nagiDrawingReferenceUnavailable(nagiDrawingLang(input.langs)) };
+  }
   if (judgement.intent !== "request") return undefined;
 
   const lang = nagiDrawingLang(input.langs);
@@ -347,6 +350,7 @@ export async function prepareNagiDrawingRequest(
         authorDid: input.authorDid,
         lang,
         subject: judgement.subject,
+        ...(judgement.scene ? { scene: judgement.scene } : {}),
         day: claim.day,
         ...thread,
       });
@@ -394,7 +398,7 @@ const drawingAvailable = () => isImageGenerationAvailable() && drawingServiceDai
 
 const defaultRequestDeps: NagiDrawingRequestDeps = {
   available: drawingAvailable,
-  judgeRequest: (text) => judgeDrawingRequest(text),
+  judgeRequest: (text, images) => judgeDrawingRequest(text, images),
   claim: (did, sourceUri) => claimDailyDrawing({ surface: "nagi", did, sourceUri }),
   enqueue: (job) => queue().enqueue(job),
 };
@@ -420,4 +424,11 @@ export function enqueueNagiDrawingGift(input: {
     root: input.root,
     parent: input.parent,
   });
+}
+
+/** 参考画像を読めなかった場合は枠を取らず、再送をお願いする。 */
+export function nagiDrawingReferenceUnavailable(lang: DrawingLang): string {
+  return lang === "ja"
+    ? "ごめんね、参考画像をうまく読み取れなかったよ。画像を添えてもう一度頼んでくれる？"
+    : "Sorry, I couldn't read the reference image. Could you send the image and request again?";
 }

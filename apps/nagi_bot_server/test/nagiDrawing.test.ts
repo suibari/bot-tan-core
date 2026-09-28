@@ -304,3 +304,33 @@ test("本文は投稿の言語に合わせ、贈り物の喜びの側でも祝�
   assert.doesNotMatch(nagiDrawingGiftText("very_happy", "ja"), /おめでとう/);
   assert.doesNotMatch(nagiDrawingGiftText("very_happy", "en"), /congrat/i);
 });
+
+test("添付画像を依頼判定へ渡し、短い題名ではなく画像の場面を描く", async () => {
+  const images = [{ image_url: "https://pds.example/blob", mimeType: "image/png" }];
+  const scene = "botたんが海辺で赤い傘を持ち、左を向いて座っている。夕日が右奥に見える。";
+  const { deps, enqueued } = fakeRequestDeps({
+    async judgeRequest(text, refs) {
+      assert.equal(text, "botたん、こういうのを描いて");
+      assert.deepEqual(refs, images);
+      return { intent: "request", allowed: true, concern: "none", subject: "海辺のbotたん", scene };
+    },
+  });
+  const prepared = await prepareNagiDrawingRequest({ ...input, text: "botたん、こういうのを描いて", images }, deps);
+  assert.ok(prepared);
+  assert.match(prepared.comment, /「海辺のbotたん」/);
+  prepared.onReplyPosted?.({ root: thread.root, parent: thread.parent });
+  const drawing = fakeDeps({ async draw(source) {
+    assert.equal(source, `### 描いてほしいと頼まれた絵\n${scene}`);
+    return image;
+  } });
+  assert.equal(await processNagiDrawingJob(enqueued[0], drawing.deps), "drawn");
+});
+
+test("参考画像が読めないときは枠を取らず再送を案内する", async () => {
+  const { deps, calls, enqueued } = fakeRequestDeps({ judgeRequest: async () => ({ intent: "unavailable" }) });
+  const prepared = await prepareNagiDrawingRequest(input, deps);
+  assert.match(prepared!.comment, /参考画像をうまく読み取れなかった/);
+  assert.equal(prepared!.onReplyPosted, undefined);
+  assert.equal(calls.includes("claim"), false);
+  assert.equal(enqueued.length, 0);
+});
