@@ -5,6 +5,7 @@ import {
   shouldConsiderWhimsicalPost,
   shouldPostGoodMorning,
   shouldPostGoodNight,
+  stepClock,
 } from "../src/scheduledPostGate.js";
 
 /** bot 日は4時始まり。おやすみは D に、その翌朝のおはようは D+1 に記録される。 */
@@ -199,4 +200,35 @@ test("おはようを撃った step では、同じ step で定期つぶやき�
     lastGoodMorningPostDate: NEXT,
   };
   assert.equal(shouldConsiderWhimsicalPost(afterMorningPost), false);
+});
+
+// --- stepClock ---
+
+test("4時直前に始まった step は、hour と bot 日がそろって前日の夜になる", () => {
+  // 2026-09-28: 03:59:57 開始の step で LLM を待つ間に 04:00 を越え、hour=3 と翌 bot 日が
+  // 組み合わさっておやすみを二重に撃った。1つの now から決めればこの組み合わせは生まれない。
+  const clock = stepClock(new Date("2026-09-28T03:59:57+09:00"));
+  assert.deepEqual(clock, { hour: 3, isWeekend: false, today: "2026-09-27" });
+  assert.equal(
+    shouldPostGoodNight({ status: "Sleep", hour: clock.hour, today: clock.today, lastGoodNightPostDate: "2026-09-27" }),
+    false,
+  );
+});
+
+test("4時ちょうどからは翌 bot 日で、夜の時間帯からも外れる", () => {
+  const clock = stepClock(new Date("2026-09-28T04:00:00+09:00"));
+  assert.deepEqual(clock, { hour: 4, isWeekend: false, today: "2026-09-28" });
+});
+
+test("hour と曜日は JST で決まる", () => {
+  // UTC では土曜 15:30、JST では日曜 0:30。
+  const clock = stepClock(new Date("2026-09-26T15:30:00Z"));
+  assert.equal(clock.hour, 0);
+  assert.equal(clock.isWeekend, true);
+  assert.equal(clock.today, "2026-09-26");
+});
+
+test("おやすみが翌 bot 日で記録されると、その日は一日中就寝中扱いになる（事故の再現）", () => {
+  // 修正前に DB に残った状態。stepClock を使う限りこの組み合わせは作られない。
+  assert.equal(isSleepingPeriod("2026-09-28", "2026-09-28"), true);
 });

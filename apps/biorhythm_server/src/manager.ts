@@ -6,7 +6,7 @@ import eventsEveningWorkday from "@bsky-affirmative-bot/shared-configs/json/even
 import eventsEveningDayoff from "@bsky-affirmative-bot/shared-configs/json/event_evening_dayoff.json" with { type: "json" };
 import eventsNight from "@bsky-affirmative-bot/shared-configs/json/event_night.json" with { type: "json" };
 import eventsMidnight from "@bsky-affirmative-bot/shared-configs/json/event_midnight.json" with { type: "json" };
-import { BOT_SCENE_BRIEF_JA, botDayRange } from '@bsky-affirmative-bot/shared-configs';
+import { BOT_SCENE_BRIEF_JA } from '@bsky-affirmative-bot/shared-configs';
 import { generateContentWithRetry } from '@bsky-affirmative-bot/bot-brain';
 import { DailyReport, Stats } from '@bsky-affirmative-bot/shared-configs';
 import EventEmitter from "events";
@@ -51,6 +51,7 @@ import {
   shouldConsiderWhimsicalPost,
   shouldPostGoodMorning,
   shouldPostGoodNight,
+  stepClock,
 } from "./scheduledPostGate.js";
 import {
   DEFAULT_STEP_INTERVAL_MS,
@@ -381,9 +382,9 @@ export class BiorhythmManager extends EventEmitter {
     const topPost = await MemoryService.getTopPost();
     const memoryImpressions = await this.getMemoryImpressionsCached();
 
-    const now = new Date();
-    const hour = now.getHours();
-    const isWeekend = now.getDay() === 0 || now.getDay() === 6;
+    // 時刻の判定材料はここで一度だけ決める。LLM 呼び出しの後で時計を読み直すと、
+    // 4時をまたいだ step で hour と bot 日が食い違う（stepClock のコメント参照）。
+    const { hour, isWeekend, today } = stepClock(new Date());
 
     // Convert lang Map to array safely
     const langArray: [LanguageName, number][] = dailyStats.lang instanceof Map
@@ -427,9 +428,9 @@ export class BiorhythmManager extends EventEmitter {
     this.energyPrev = this.energy;
     this.timePrev = new Date().toISOString();
 
-    const now = new Date();
-    const hour = now.getHours();
-    const isWeekend = now.getDay() === 0 || now.getDay() === 6;
+    // 時刻の判定材料はここで一度だけ決める。LLM 呼び出しの後で時計を読み直すと、
+    // 4時をまたいだ step で hour と bot 日が食い違う（stepClock のコメント参照）。
+    const { hour, isWeekend, today } = stepClock(new Date());
 
     // 未読のリプライ取得
     const unreadReply = await MemoryService.getUnreadReplies();
@@ -449,7 +450,7 @@ export class BiorhythmManager extends EventEmitter {
     // その日まだおはようを言っていないときにSleepから他の状態へ遷移する場合、必ずWakeUpを経由させる。
     // 時刻ではなく「おはよう未投稿か」で見るのは、おはようポスト側も時刻の窓を持たないため。
     // 条件がずれると、起床ポストをしながら mood は勉強中、といった食い違いが起きる。
-    if (this.status === "Sleep" && nextStatus !== "Sleep" && this.canPostGoodMorning()) {
+    if (this.status === "Sleep" && nextStatus !== "Sleep" && this.canPostGoodMorning(today)) {
       this.status = "WakeUp";
     } else {
       this.status = nextStatus;
@@ -534,25 +535,25 @@ export class BiorhythmManager extends EventEmitter {
       if (shouldPostGoodNight({
         status: this.status,
         hour,
-        today: this.getAdjustedDateString(),
+        today,
         lastGoodNightPostDate: this.lastGoodNightPostDate,
       })) {
         console.log(`[INFO][BIORHYTHM] post goodnight!`);
         await postGoodNight(this.getMood, botContext);
-        await this.setGoodNightPostDate();
+        await this.setGoodNightPostDate(today);
       }
 
       // おはようポスト。起動直後の step でも抑えないのは、朝に再起動が挟まった日に撃ち漏らすため。
       // 二重投稿は canPostGoodMorning() と同じ bot 日ガード（shouldPostGoodMorning）が防ぐ。
       if (shouldPostGoodMorning({
         status: this.status,
-        today: this.getAdjustedDateString(),
+        today,
         lastGoodMorningPostDate: this.lastGoodMorningPostDate,
       })) {
         console.log(`[INFO][BIORHYTHM] post goodmorning!`);
         await postMorning(botContext);
         await this.changeEnergy(-6000);
-        await this.setGoodMorningPostDate();
+        await this.setGoodMorningPostDate(today);
       }
 
       // 定期つぶやきポスト。
@@ -834,23 +835,16 @@ ${buildRoomEventsSection(roomEvents)}
     }
   }
 
-  private getAdjustedDateString(): string {
-    return botDayRange().date;
-  }
-
-  private async setGoodNightPostDate() {
-    const today = this.getAdjustedDateString();
+  private async setGoodNightPostDate(today: string) {
     this.lastGoodNightPostDate = today;
     await MemoryService.updateBiorhythmState({ lastGoodNightPostDate: today });
   }
 
-  private canPostGoodMorning(): boolean {
-    const today = this.getAdjustedDateString();
+  private canPostGoodMorning(today: string): boolean {
     return this.lastGoodMorningPostDate !== today;
   }
 
-  private async setGoodMorningPostDate() {
-    const today = this.getAdjustedDateString();
+  private async setGoodMorningPostDate(today: string) {
     this.lastGoodMorningPostDate = today;
     await MemoryService.updateBiorhythmState({ lastGoodMorningPostDate: today });
   }
