@@ -1,4 +1,4 @@
-import type { Status } from "@bsky-affirmative-bot/shared-configs";
+import { botDayRange, type Status } from "@bsky-affirmative-bot/shared-configs";
 
 /**
  * 定期ポストを撃つかどうかの判定だけを切り出したもの。
@@ -6,6 +6,27 @@ import type { Status } from "@bsky-affirmative-bot/shared-configs";
  * step() 本体は LLM・DB・投稿を巻き込むので条件を直接テストできない。ここが素の関数に
  * なっていれば、「おはようより先に定期つぶやきが出る」たぐいの事故を単体テストで固定できる。
  */
+
+const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
+
+/**
+ * step() が判定に使う時刻を、1つの `now` から一度にまとめて決める。
+ *
+ * 以前は `hour` を step の冒頭で、bot 日（`today`）を LLM 呼び出しの後でそれぞれ時計から
+ * 読んでいた。2026-09-28 の 03:59:57 に始まった step は LLM に3秒かかり、`hour = 3`（夜）
+ * なのに `today` は 04:00 を越えた翌 bot 日になった。その結果おやすみを二重に撃ち、しかも
+ * 翌 bot 日の日付で記録したため、同じ日の朝のおはようと日付が並んで isSleepingPeriod() が
+ * 一日中 true になり、定期つぶやきが止まった。判定材料の時刻は必ずここから取ること。
+ */
+export function stepClock(now: Date): { hour: number; isWeekend: boolean; today: string } {
+  const jst = new Date(now.getTime() + JST_OFFSET_MS);
+  const day = jst.getUTCDay();
+  return {
+    hour: jst.getUTCHours(),
+    isWeekend: day === 0 || day === 6,
+    today: botDayRange(now).date,
+  };
+}
 
 /** 定期つぶやきに必要な体力気力（0〜100スケール）。 */
 export const WHIMSICAL_MIN_ENERGY = 60;
