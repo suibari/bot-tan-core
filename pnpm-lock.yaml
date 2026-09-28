@@ -38,6 +38,9 @@ importers:
       '@bsky-affirmative-bot/bot-brain':
         specifier: workspace:*
         version: link:../../packages/bot_brain
+      '@bsky-affirmative-bot/bot-runtime':
+        specifier: workspace:*
+        version: link:../../packages/bot-runtime
       '@bsky-affirmative-bot/clients':
         specifier: workspace:*
         version: link:../../packages/clients

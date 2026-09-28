@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import test from "node:test";
-import { prepareOllamaGrounding } from "../src/ai/grounding.js";
+import { mock, test } from "node:test";
+import { prepareOllamaGrounding, researchItemCount } from "../src/ai/grounding.js";
 import {
   fitOllamaMessages,
   toOllamaMessages,
@@ -144,4 +144,37 @@ test("リンクと記憶の両方があれば両方を根拠にする", async ()
   const contents = JSON.stringify(result.contents);
   assert.match(contents, /リンクの中身/);
   assert.match(contents, /前に調べた事実/);
+});
+
+test("リンクや記憶を渡したときは成功ログを残す", async () => {
+  const log = mock.method(console, "log", () => {});
+  try {
+    await prepareOllamaGrounding(
+      "BSKY_AFFIRMATIVE_REPLY",
+      replyParams("これ見て https://example.com/a"),
+      { research: async () => "- 項目1 — 詳細\n- 項目2 — 詳細\n\nSources:\n- https://example.com/a" },
+      { urls: ["https://example.com/a"], researchMemory: "Jev\n概要" },
+    );
+    const lines = log.mock.calls.map((call) => String(call.arguments[0]));
+    const line = lines.find((value) => value.includes("[AI_GROUNDING]"));
+    assert.ok(line, "成功時のログが無い");
+    assert.match(line, /feature=BSKY_AFFIRMATIVE_REPLY deferred links=1 linkItems=2 linkChars=\d+ memoryChars=6/);
+  } finally {
+    log.mock.restore();
+  }
+});
+
+test("根拠が何も無いリプライでは成功ログを出さない", async () => {
+  const log = mock.method(console, "log", () => {});
+  try {
+    await prepareOllamaGrounding("BSKY_AFFIRMATIVE_REPLY", replyParams("おはよう"), forbidResearch);
+    assert.ok(log.mock.calls.every((call) => !String(call.arguments[0]).includes("[AI_GROUNDING]")));
+  } finally {
+    log.mock.restore();
+  }
+});
+
+test("researchItemCount は出典の行を項目に数えない", () => {
+  assert.equal(researchItemCount("- a — b\n- c — d\n\nSources:\n- https://x\n- https://y"), 2);
+  assert.equal(researchItemCount(""), 0);
 });

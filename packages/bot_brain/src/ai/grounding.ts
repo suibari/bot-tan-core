@@ -406,16 +406,22 @@ const knowledgeCardSchema = normalizeJsonSchema({
   required: ["overview", "sections"],
 });
 
-async function readBody(url: string): Promise<string> {
+/**
+ * 本文とページタイトル。タイトルも捨てない。
+ *
+ * SPA のページは本文がほぼ空（実測: emoji-samurai.penpen-dev.com は `: 10_10 : Edit` の14字）でも、
+ * `<title>` にはサービスの説明が入っていることが多い。利用者が貼ったURLは検索結果と違って
+ * 見出しを持たないので、ここで拾わないと要約器はページが何なのかを知る手段が無い。
+ */
+async function readBody(url: string): Promise<{ title: string; text: string }> {
   try {
-    const { text } = await fetchReadableText(url);
-    return text;
+    return await fetchReadableText(url);
   } catch (error) {
     // SPA や bot 避けサイトはここで落ちる。スニペットとカード情報で代替するので致命ではない。
     console.warn(
       `[WARN][AI_GROUNDING] body fetch failed: ${url} (${error instanceof Error ? error.message : String(error)})`,
     );
-    return "";
+    return { title: "", text: "" };
   }
 }
 
@@ -463,12 +469,12 @@ async function gatherMaterial(input: {
 
   const sources: ResearchSource[] = [];
   userUrls.forEach((url, index) => {
-    sources.push({ title: "", url, body: bodies[index] });
+    sources.push({ title: bodies[index].title, url, body: bodies[index].text });
   });
   hits.forEach((hit, index) => {
     // 呼び出し元が指定した上位件数は本文、それ以外はスニペットで代用する。
     // 本文取得に失敗した場合もスニペットへ落ちる。
-    const body = (index < fetchTopN ? bodies[userUrls.length + index] : "") || hit.content;
+    const body = (index < fetchTopN ? bodies[userUrls.length + index].text : "") || hit.content;
     sources.push({ title: hit.title, url: hit.url, body });
   });
   return { sources: sources.filter((source) => source.body), infoboxes };
@@ -581,6 +587,18 @@ function renderSummary(parsed: unknown, sources: ResearchSource[]): string {
   return `${lines.join("\n")}\n\nSources:\n${urls.map((url) => `- ${url}`).join("\n")}`;
 }
 
+/**
+ * renderSummary が作った調査テキストの項目数。ログ用。
+ *
+ * 要約器は JSON としては正しいまま途中で切れた1項目を返すことがある（実測: note 記事で
+ * 12回中1回、`Nagi — すいばり developed Nagi, a` の84字）。例外にならないので、
+ * 項目数と字数を残しておかないと「読めたが中身がほぼ空」に気づけない。
+ */
+export function researchItemCount(research: string): number {
+  const body = research.split("\n\nSources:\n", 1)[0] ?? "";
+  return body.split("\n").filter((line) => line.startsWith("- ")).length;
+}
+
 function renderKnowledgeCard(parsed: unknown, sources: ResearchSource[]): string {
   const overview = typeof (parsed as any)?.overview === "string"
     ? (parsed as any).overview.trim()
@@ -620,6 +638,17 @@ export async function researchSelfHosted(input: {
   urls: string[];
 }): Promise<string> {
   const { sources, infoboxes } = await gatherMaterial(input);
+  // 貼られたURLから本文がどれだけ取れたか。SPA は数十字しか取れないので、
+  // 要約が薄いときに「読めなかった」のか「要約で潰れた」のかをここで切り分ける。
+  if (input.urls.length) {
+    const read = new Map(sources.map((source) => [source.url, source.body.length]));
+    console.log(
+      `[INFO][AI_GROUNDING] link bodies: ${input.urls
+        .slice(0, MAX_URLS)
+        .map((url) => `${url} chars=${read.get(url) ?? 0}`)
+        .join(", ")}`,
+    );
+  }
   if (!sources.length && !infoboxes.length)
     throw new Error("Self-hosted research returned no material");
 
@@ -743,6 +772,7 @@ export async function prepareOllamaGrounding(
 
   if (policy === "deferred") {
     const blocks: string[] = [];
+    let linkResearch = "";
 
     // 貼られたリンクだけは**その場で読む**。
     //
@@ -752,7 +782,8 @@ export async function prepareOllamaGrounding(
     const urls = (context.urls ?? []).slice(0, MAX_URLS);
     if (urls.length && isAiGroundingEnabled()) {
       try {
-        blocks.push(await (deps.research ?? researchSelfHosted)({ queries: [], urls }));
+        linkResearch = await (deps.research ?? researchSelfHosted)({ queries: [], urls });
+        blocks.push(linkResearch);
       } catch (error) {
         // 読めなくてもカードの title / description はプロンプトに残っている。
         console.warn(
@@ -765,6 +796,17 @@ export async function prepareOllamaGrounding(
     // botMemoryResearchWorker が先に調べて bot memory へ入れた分。
     const remembered = context.researchMemory?.trim();
     if (remembered) blocks.push(remembered);
+
+    // 成功時も必ず残す。deferred は失敗時の WARN しか出していなかったので、ログからは
+    // 「リンクを読んで渡した」のか「何もしなかった」のかが区別できなかった。
+    // 何も無いとき（大半のリプライ）は注意書きを足すだけなので出さない。
+    if (blocks.length) {
+      console.log(
+        `[INFO][AI_GROUNDING] feature=${feature ?? "unknown"} deferred links=${urls.length}` +
+          ` linkItems=${researchItemCount(linkResearch)} linkChars=${linkResearch.length}` +
+          ` memoryChars=${remembered?.length ?? 0}`,
+      );
+    }
 
     // 何も根拠が無ければ「知らないことは知らないと言う」だけを渡す。
     return blocks.length

@@ -215,6 +215,23 @@ test("URLだけでも検索せず本文を読んで調査できる", async () =>
   assert.match(research, /93\.184\.216\.34\/fall/, "出典に元URLが載る");
 });
 
+test("貼られたURLのページタイトルも要約の入力に入る", async () => {
+  // SPA は本文がほぼ空でも <title> にサービスの説明がある（実測: emoji-samurai）。
+  let prompt = "";
+  stubFetch({
+    page: {
+      body: "<html><head><title>Must-have custom emoji pack — free bulk download</title></head><body><p>: 10_10 : Edit</p></body></html>",
+    },
+    summary: { items: [{ name: "custom emoji pack", detail: "free bulk download" }] },
+    onSummaryPrompt: (value) => {
+      prompt = value;
+    },
+  });
+  await researchSelfHosted({ queries: [], urls: ["https://93.184.216.34/spa"] });
+  assert.match(prompt, /\[source\] Must-have custom emoji pack — free bulk download\n/);
+  assert.match(prompt, /93\.184\.216\.34\/spa/, "タイトルがあっても出典URLは残す");
+});
+
 test("URLが読めなければthrowして再試行に回す", async () => {
   // カードの title / description はプロンプト側に残るので、リプライ自体は成立する。
   stubFetch({ search: { results: [] }, page: { body: "%PDF", contentType: "application/pdf" } });

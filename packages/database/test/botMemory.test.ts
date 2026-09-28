@@ -14,6 +14,7 @@ import {
   isBotMemoryVisibility,
   normalizeMemorySubjectKey,
   selectNotableMemory,
+  selectRelevantResearch,
   searchConditions,
   memoryDigestDate,
   memoryDigestDayRange,
@@ -287,6 +288,62 @@ test("addBotMemoryRanks は複数レグで出た文書の上位順位を残す",
     1,
   );
   assert.equal(merged.get(9)!.semanticRank, 1);
+});
+
+const research = (
+  id: number,
+  term: string | null,
+  semanticDistance?: number,
+) => ({
+  ...row(id),
+  sourceType: "web_research" as const,
+  content: `${term ?? "旧形式の語"}\n概要\n…`,
+  metadata: term ? { term, format: "knowledge_card_v1" } : null,
+  relevance: 0.01,
+  ...(semanticDistance !== undefined ? { semanticRank: 1, semanticDistance } : {}),
+});
+
+test("selectRelevantResearch は語が投稿に出ていない遠いカードを落とす", () => {
+  // 2026-09-28 の実例。カスタム絵文字の投稿に「AIイラスト」のカードが 0.401 で混ざった。
+  const post = "JevというYes/Noだけ判定するLLMが最近あり、それを使ったカスタム絵文字ツールがXにあったので共有。";
+  const selected = selectRelevantResearch(
+    [research(1, "カスタム絵文字", 0.330), research(2, "AIイラスト", 0.401), research(3, "Jev")],
+    post,
+  );
+  assert.deepEqual(selected.map((item) => item.id), [1, 3]);
+});
+
+test("selectRelevantResearch は語が出ていれば距離が遠くても残す", () => {
+  // 実測で「称号」は 0.540、「Codex」は 0.525。距離だけで切ると関係あるものを落とす。
+  const selected = selectRelevantResearch([research(1, "称号", 0.540)], "称号に「多動」って入っちゃう");
+  assert.equal(selected.length, 1);
+});
+
+test("selectRelevantResearch は語が無くても十分近いカードを残す", () => {
+  const selected = selectRelevantResearch(
+    [research(1, "転生重騎士アニメ", 0.356), research(2, "転生重騎士アニメ", 0.35)],
+    "ルーチェちゃんがまじで可愛い #転生重",
+  );
+  assert.deepEqual(selected.map((item) => item.id), [2]);
+});
+
+test("selectRelevantResearch は全角半角・大文字小文字・空白の違いを吸収する", () => {
+  const selected = selectRelevantResearch([research(1, "Ｃｏｄｅｘ ＣＬＩ")], "codexcliにultra effortを投げた");
+  assert.equal(selected.length, 1);
+});
+
+test("selectRelevantResearch は metadata.term の無い旧行を本文1行目で照合する", () => {
+  assert.equal(selectRelevantResearch([research(1, null)], "旧形式の語の話").length, 1);
+  assert.equal(selectRelevantResearch([research(2, null)], "関係ない話").length, 0);
+});
+
+test("addBotMemoryRanks は複数レグで出た文書の最小距離を残す", () => {
+  const merged = addBotMemoryRanks(
+    addBotMemoryRanks(new Map(), [{ ...row(1), semanticDistance: 0.4 }], []),
+    [{ ...row(1), semanticDistance: 0.3 }],
+    [],
+  );
+  assert.equal(merged.get(1)!.semanticDistance, 0.3);
 });
 
 test("memoryDigestDate は JST の日付を返す", () => {

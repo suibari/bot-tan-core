@@ -4,3 +4,4 @@ export * from "./media.js";
 export * from "./botContext.js";
 export * from "./postTargeting.js";
 export * from "./clientDeployHook.js";
+export * from "./workerLoop.js";

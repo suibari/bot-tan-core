@@ -6,6 +6,7 @@ import {
   tryUpsertBotMemoryDocument,
 } from "@bsky-affirmative-bot/database";
 import { isAiGroundingEnabled } from "@bsky-affirmative-bot/shared-configs";
+import { startWorkerLoop } from "@bsky-affirmative-bot/bot-runtime";
 import {
   isSearxngConfigured,
   researchKnowledgeCardSelfHosted,
@@ -18,6 +19,11 @@ const LEASE_DURATION_MS = 300_000;
  *
  * ここを短くしても得は無い。リプライ生成と同じ 26B を奪い合うと Ollama の runner が
  * 取り合いになってリプライが遅くなり、非同期にした意味が消える。**同時実行は 1**。
+ *
+ * その「同時実行は 1」を守っているのは間隔ではなく startWorkerLoop。1回の調査は
+ * 検索（タイムアウト30秒）→ 5ページ取得 → Ollama 要約（タイムアウト180秒）なので、
+ * 混んでいれば 60 秒を超える。素の setInterval だと次の tick が重なり、リースは
+ * 別の語を掴むだけなので止まらない（以前はそうなっていた）。
  */
 const WORKER_INTERVAL_MS = 60_000;
 const MAX_BACKOFF_MS = 3_600_000;
@@ -26,6 +32,62 @@ const JOB_RETENTION_MS = 7 * 24 * 60 * 60_000;
 const PRUNE_INTERVAL_MS = 6 * 60 * 60_000;
 
 let running = false;
+
+/**
+ * 1件だけ掴んで調べる。**export しないこと。**
+ *
+ * 呼べるのは startBotMemoryResearchWorker が組む startWorkerLoop だけにしてある。
+ * 外から直接呼べると、setInterval や別のタイマーから重ねて回す経路がまた作れてしまい、
+ * 上の「同時実行は 1」が崩れる。手動で1件流したい場合も、ここを export するのではなく
+ * startWorkerLoop 経由の入口を足すこと。
+ */
+async function researchOnce() {
+  const job = await leaseResearchJob(LEASE_DURATION_MS);
+  if (!job) return;
+
+  try {
+    // ジョブに入っているのは調べる語そのもの。何を調べるかは既に決まっているので
+    // planner は要らず、非同期側の LLM 呼び出しは最後の要約 1 回だけ。
+    //
+    // 素の固有名詞は検索クエリとしてよく効く（実測:「薬屋のひとりごと」で公式
+    // サイトと Wikipedia の infobox が取れる）。
+    const research = await researchKnowledgeCardSelfHosted(job.subject);
+
+    // sourceId をジョブのハッシュに揃える。再調査すると同じ行が更新され、
+    // bot_memory_source_key_idx の unique がそのまま重複防止になる。
+    await tryUpsertBotMemoryDocument({
+      sourceType: "web_research",
+      sourceId: job.subjectHash,
+      // 語そのものを本文に含める。次に同じ語が出たとき、意味検索でも
+      // 部分一致検索でも引けるようにするため。
+      content: `${job.subject}\n${research}`,
+      occurredAt: new Date(),
+      metadata: { term: job.subject, format: "knowledge_card_v1" },
+    });
+    await completeResearchJob(job.subjectHash);
+    console.log(`[INFO][MEMORY_RESEARCH] learned: ${job.subject}`);
+  } catch (error) {
+    const backoffMs = Math.min(MAX_BACKOFF_MS, 2 ** job.attempts * 60_000);
+    // 調べられなくてもリプライは既に「知らない」と答えて成立している。
+    // ここで失敗しても利用者には何も起きない。
+    await failResearchJob({
+      subjectHash: job.subjectHash,
+      attempts: job.attempts,
+      maxAttempts: MAX_ATTEMPTS,
+      backoffMs,
+      error,
+    });
+    console.warn(
+      `[WARN][MEMORY_RESEARCH] attempt=${job.attempts} 失敗`,
+      error instanceof Error ? error.message : error,
+    );
+  }
+}
+
+async function pruneOnce() {
+  const count = await pruneResearchJobs(JOB_RETENTION_MS);
+  if (count) console.log(`[INFO][MEMORY_RESEARCH] pruned ${count} jobs`);
+}
 
 /**
  * 非同期リサーチワーカー。
@@ -56,58 +118,16 @@ export function startBotMemoryResearchWorker() {
   }
   running = true;
 
-  const run = async () => {
-    const job = await leaseResearchJob(LEASE_DURATION_MS);
-    if (!job) return;
-
-    try {
-      // ジョブに入っているのは調べる語そのもの。何を調べるかは既に決まっているので
-      // planner は要らず、非同期側の LLM 呼び出しは最後の要約 1 回だけ。
-      //
-      // 素の固有名詞は検索クエリとしてよく効く（実測:「薬屋のひとりごと」で公式
-      // サイトと Wikipedia の infobox が取れる）。
-      const research = await researchKnowledgeCardSelfHosted(job.subject);
-
-      // sourceId をジョブのハッシュに揃える。再調査すると同じ行が更新され、
-      // bot_memory_source_key_idx の unique がそのまま重複防止になる。
-      await tryUpsertBotMemoryDocument({
-        sourceType: "web_research",
-        sourceId: job.subjectHash,
-        // 語そのものを本文に含める。次に同じ語が出たとき、意味検索でも
-        // 部分一致検索でも引けるようにするため。
-        content: `${job.subject}\n${research}`,
-        occurredAt: new Date(),
-        metadata: { term: job.subject, format: "knowledge_card_v1" },
-      });
-      await completeResearchJob(job.subjectHash);
-      console.log(`[INFO][MEMORY_RESEARCH] learned: ${job.subject}`);
-    } catch (error) {
-      const backoffMs = Math.min(MAX_BACKOFF_MS, 2 ** job.attempts * 60_000);
-      // 調べられなくてもリプライは既に「知らない」と答えて成立している。
-      // ここで失敗しても利用者には何も起きない。
-      await failResearchJob({
-        subjectHash: job.subjectHash,
-        attempts: job.attempts,
-        maxAttempts: MAX_ATTEMPTS,
-        backoffMs,
-        error,
-      });
-      console.warn(
-        `[WARN][MEMORY_RESEARCH] attempt=${job.attempts} 失敗`,
-        error instanceof Error ? error.message : error,
-      );
-    }
-  };
-
-  setInterval(() => {
-    void run().catch(console.error);
-  }, WORKER_INTERVAL_MS).unref();
-
-  setInterval(() => {
-    void pruneResearchJobs(JOB_RETENTION_MS)
-      .then((count) => {
-        if (count) console.log(`[INFO][MEMORY_RESEARCH] pruned ${count} jobs`);
-      })
-      .catch(console.error);
-  }, PRUNE_INTERVAL_MS).unref();
+  // setInterval で直接回さないこと（AGENTS.md「定期ワーカーの回し方」）。
+  // 前回の完了を待たないので、調査が間隔を超えた分だけ Ollama への同時要求が増える。
+  startWorkerLoop({
+    name: "MEMORY_RESEARCH",
+    intervalMs: WORKER_INTERVAL_MS,
+    tick: researchOnce,
+  }).unref();
+  startWorkerLoop({
+    name: "MEMORY_RESEARCH_PRUNE",
+    intervalMs: PRUNE_INTERVAL_MS,
+    tick: pruneOnce,
+  }).unref();
 }
