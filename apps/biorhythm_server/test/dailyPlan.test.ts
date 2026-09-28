@@ -8,6 +8,8 @@ import {
   parseDailyPlan,
   selectDailyCompanion,
   takePlannedEvent,
+  timeSlotForHour,
+  TIME_SLOTS,
   type DailyPlan,
 } from "../src/dailyPlan.js";
 
@@ -17,32 +19,32 @@ const plan = (overrides: Partial<DailyPlan> = {}): DailyPlan => ({
   companion: "ことみちゃん",
   moodDirection: "のんびりしたい気分",
   events: [
-    { status: "FreeTime", activity: "蒼穹のカノンの最新話を見る", durationMinutes: 45 },
-    { status: "FreeTime", activity: "モルフォと散歩する", durationMinutes: 30 },
-    { status: "Study", activity: "数学の課題をやる", durationMinutes: 60 },
+    { status: "FreeTime", activity: "蒼穹のカノンの最新話を見る", durationMinutes: 45, timeSlots: [...TIME_SLOTS] },
+    { status: "FreeTime", activity: "モルフォと散歩する", durationMinutes: 30, timeSlots: [...TIME_SLOTS] },
+    { status: "Study", activity: "数学の課題をやる", durationMinutes: 60, timeSlots: [...TIME_SLOTS] },
   ],
   usedEventIds: [],
   ...overrides,
 });
 
 test("ステータスに合うイベントだけを返す", () => {
-  const picked = takePlannedEvent(plan(), "Study");
+  const picked = takePlannedEvent(plan(), "Study", 20);
   assert.equal(picked?.event.activity, "数学の課題をやる");
   assert.equal(picked?.index, 2);
 });
 
 test("そのステータスのイベントが無ければ undefined（Geminiフォールバックに落ちる）", () => {
-  assert.equal(takePlannedEvent(plan(), "Sleep"), undefined);
-  assert.equal(takePlannedEvent(undefined, "Study"), undefined);
+  assert.equal(takePlannedEvent(plan(), "Sleep", 20), undefined);
+  assert.equal(takePlannedEvent(undefined, "Study", 20), undefined);
 });
 
 test("未消化を優先して選ぶ", () => {
-  const picked = takePlannedEvent(plan({ usedEventIds: [0] }), "FreeTime");
+  const picked = takePlannedEvent(plan({ usedEventIds: [0] }), "FreeTime", 20);
   assert.equal(picked?.index, 1);
 });
 
 test("未消化が尽きたら消化済みを再利用する", () => {
-  const picked = takePlannedEvent(plan({ usedEventIds: [0, 1, 2] }), "FreeTime");
+  const picked = takePlannedEvent(plan({ usedEventIds: [0, 1, 2] }), "FreeTime", 20);
   assert.ok(picked);
   assert.ok([0, 1].includes(picked.index));
 });
@@ -59,13 +61,80 @@ test("直前に選んだ予定は選ばない", () => {
 test("候補が1件しか無ければ直前と同じでもそれを返す", () => {
   const picked = takePlannedEvent(
     plan({
-      events: [{ status: "Study", activity: "数学の課題をやる", durationMinutes: 60 }],
+      events: [
+        { status: "Study", activity: "数学の課題をやる", durationMinutes: 60, timeSlots: [...TIME_SLOTS] },
+      ],
       usedEventIds: [0],
       lastEventIndex: 0,
     }),
     "Study",
+    20,
   );
   assert.equal(picked?.event.activity, "数学の課題をやる");
+});
+
+test("時(JST)を時間帯へ振り分ける", () => {
+  assert.deepEqual(
+    [3, 4, 8, 9, 16, 17, 20, 21, 23, 0].map(timeSlotForHour),
+    ["midnight", "morning", "morning", "daytime", "daytime", "evening", "evening", "night", "night", "midnight"],
+  );
+});
+
+test("今の時間帯に合わない予定は、使い回しのときも選ばない", () => {
+  // 2026-09-28: FreeTime の5件を夕方までに使い切り、23時に「カフェで新作スイーツ」を再利用した。
+  const nightPlan = plan({
+    events: [
+      { status: "FreeTime", activity: "ことみちゃんとカフェで新作スイーツを食べる", durationMinutes: 60, timeSlots: ["daytime", "evening"] },
+      { status: "FreeTime", activity: "自室で蒼穹のカノンの最新話を見る", durationMinutes: 45, timeSlots: ["evening", "night", "midnight"] },
+    ],
+    usedEventIds: [0, 1],
+    lastEventIndex: 1,
+  });
+
+  for (let i = 0; i < 20; i += 1) {
+    assert.equal(takePlannedEvent(nightPlan, "FreeTime", 23)?.index, 1);
+  }
+  assert.equal(takePlannedEvent(nightPlan, "FreeTime", 15)?.index, 0);
+});
+
+test("今の時間帯に合う予定が無ければ undefined（予定なしの描写へ落ちる）", () => {
+  const dayOnly = plan({
+    events: [
+      { status: "FreeTime", activity: "ことみちゃんと雑貨屋を巡る", durationMinutes: 90, timeSlots: ["daytime"] },
+    ],
+  });
+  assert.equal(takePlannedEvent(dayOnly, "FreeTime", 23), undefined);
+});
+
+test("timeSlots が欠けた・不正な予定はいつでも可として読む", () => {
+  const parsed = parseDailyPlan(
+    {
+      events: [
+        { status: "Relax", activity: "お茶を飲む", durationMinutes: 10 },
+        { status: "Relax", activity: "日記を書く", durationMinutes: 10, timeSlots: ["late", "night", "night"] },
+      ],
+    },
+    "2026-08-10",
+  );
+  assert.deepEqual(parsed?.events.map((event) => event.timeSlots), [
+    [...TIME_SLOTS],
+    ["night"],
+  ]);
+});
+
+test("予定生成で時間帯と、夜の自宅向けの予定を指示する", () => {
+  const prompt = buildDailyPlanPrompt({
+    botDate: "2026-08-20",
+    isWeekend: false,
+    companion: "ことみちゃん",
+    whatDay: [],
+    eventSamples: {},
+    worksSection: "",
+  });
+  assert.match(prompt, /"timeSlots"/);
+  assert.match(prompt, /night（21〜24時）/);
+  assert.match(prompt, /夜遅くや深夜のカフェ・買い物は不可/);
+  assert.match(prompt, /FreeTime と Relax には、night と midnight を含む/);
 });
 
 test("bot日が変わったプランは失効する", () => {
@@ -126,6 +195,7 @@ test("Gemini フォールバックにも今日の予定を渡す", () => {
     status: "FreeTime",
     activity: "パトレイバーの日だから、ロボットアニメについて語り合うよ",
     durationMinutes: 60,
+    timeSlots: [...TIME_SLOTS],
   });
 
   assert.match(section, /予定: パトレイバーの日だから/);
@@ -192,7 +262,7 @@ test("予定生成と描写の両方で、同行者の固定と学校のモル�
   });
   const section = buildPlannedEventSection(
     plan({ companion: "モルフォ" }),
-    { status: "Study", activity: "教室で数学を勉強する", durationMinutes: 60 },
+    { status: "Study", activity: "教室で数学を勉強する", durationMinutes: 60, timeSlots: ["daytime"] },
   );
 
   assert.match(prompt, /必ず「ラテちゃん」と出力/);

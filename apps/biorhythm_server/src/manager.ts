@@ -485,6 +485,7 @@ export class BiorhythmManager extends EventEmitter {
     try {
       const result = await this.resolveStatus({
         plan,
+        hour,
         isWeekend,
         weather,
         unreadReply,
@@ -630,6 +631,7 @@ export class BiorhythmManager extends EventEmitter {
    */
   private async resolveStatus(input: {
     plan: DailyPlan | undefined;
+    hour: number;
     isWeekend: boolean;
     weather: string;
     unreadReply?: string[];
@@ -642,7 +644,7 @@ export class BiorhythmManager extends EventEmitter {
   }> {
     // 予定を引いてからプロンプトを組む。takePlannedEvent は候補からの乱択なので、
     // 「予定があるか」を知るために先に一度呼んで結果を使い回すこと（二度引くと別の予定になる）。
-    const picked = takePlannedEvent(input.plan, this.status);
+    const picked = takePlannedEvent(input.plan, this.status, input.hour);
     const result = await this.generateStatus(
       this.buildPrompt(
         getFullDateAndTimeString(),
