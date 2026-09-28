@@ -165,7 +165,8 @@ gemma4 の視覚エンコーダは**実効896px相当で頭打ち**になる。2
 ## 定期ワーカーの回し方
 
 **`setInterval` で tick を直に回してはいけない。**
-`apps/nagi_bot_server/src/workerLoop.ts` の `startWorkerLoop` を使う。
+`@bsky-affirmative-bot/bot-runtime` の `startWorkerLoop`（`packages/bot-runtime/src/workerLoop.ts`）を使う。
+Nagi 以外のサーバ（biorhythm_server など）のワーカーも同じ。
 
 `setInterval` は前回の完了を待たない。1件ずつ掴むキューワーカーをこれで回すと、
 ジョブが溜まっているとき「1回の処理時間 ÷ 間隔」本が同時に走る。総評生成は実測3.2秒

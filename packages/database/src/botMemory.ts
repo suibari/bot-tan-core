@@ -206,6 +206,8 @@ export interface BotMemorySearchResult {
   relevance: number;
   semanticRank?: number;
   lexicalRank?: number;
+  /** 意味検索で拾われたときのコサイン距離（`<=>`）。語彙一致だけの行には無い。 */
+  semanticDistance?: number;
 }
 
 export type BotMemoryImpressionKind = "work" | "word";
@@ -908,6 +910,12 @@ export function addBotMemoryRanks(
     // （selectReplyMemoryContext の semanticRank 判定）が弱まらないようにする。
     if (kind === "semantic") {
       current.semanticRank = Math.min(current.semanticRank ?? rank, rank);
+      if (row.semanticDistance !== undefined) {
+        current.semanticDistance = Math.min(
+          current.semanticDistance ?? row.semanticDistance,
+          row.semanticDistance,
+        );
+      }
     } else {
       current.lexicalRank = Math.min(current.lexicalRank ?? rank, rank);
     }
@@ -978,6 +986,7 @@ function toRanked(row: any): RankedRow {
     affirmationScore: row.affirmationScore,
     salience: row.salience ?? null,
     metadata: row.metadata as Record<string, unknown> | null,
+    ...(row.semanticDistance != null ? { semanticDistance: Number(row.semanticDistance) } : {}),
   };
 }
 
@@ -1013,7 +1022,10 @@ export async function searchBotMemoryLegs(
       ? (() => {
           const vec = sql`${`[${embedding.join(",")}]`}::vector`;
           return db
-            .select(selection)
+            .select({
+              ...selection,
+              semanticDistance: sql<number>`${bot_memory_documents.embedding} <=> ${vec}`,
+            })
             .from(bot_memory_documents)
             .where(and(...base, sql`${bot_memory_documents.embedding} is not null`))
             .orderBy(sql`${bot_memory_documents.embedding} <=> ${vec}`)
@@ -1293,6 +1305,49 @@ export interface MemoryContext {
 const DEFAULT_SUBJECT_WEIGHT = 2;
 
 /**
+ * web_research を「今回の話に関係がある」とみなす意味距離の上限（コサイン距離）。
+ *
+ * 距離だけで関係の有無は分けられない。2026-09-28 に本番の直近40投稿で測ると、
+ * 無関係な「AIイラスト」が 0.401（カスタム絵文字の投稿）、関係のある「称号」が 0.540、
+ * 「Codex」が 0.525 だった。そこで主の判定は「カードの語が投稿に出ているか」に置き、
+ * 距離は語の表記ゆれを拾う補助としてだけ使う。語を含まずに 0.35 以下だった行は、
+ * 実測では関係のあるものだけだった（「転生重騎士アニメ」と #転生重騎士 の投稿など）。
+ */
+const RESEARCH_MAX_SEMANTIC_DISTANCE = 0.35;
+
+/** 照合用の正規化。全角半角と大文字小文字の違いで取りこぼさない。 */
+function normalizeForTermMatch(text: string): string {
+  return text.normalize("NFKC").toLowerCase().replace(/\s+/g, "");
+}
+
+/** カードが何についての知識か。metadata.term が無い古い行は本文の1行目（保存時に語を先頭へ置いている）。 */
+function researchTerm(row: BotMemorySearchResult): string {
+  const term = row.metadata?.term;
+  if (typeof term === "string" && term.trim()) return term;
+  return row.content.split("\n", 1)[0] ?? "";
+}
+
+/**
+ * web_research のうち、今回の話に関係するものだけを残す。
+ *
+ * 検索は「web_research の中で近い順に上位 N 件」を返すだけなので、関係の無い知識カードも
+ * 必ず埋まる。それがそのまま <grounding_research> に入り、しかも RESEARCH_ONLY_NOTE で
+ * 「固有名詞はここからだけ使え」と縛られるため、無関係なカードは話題を逸らす材料になる。
+ */
+export function selectRelevantResearch(
+  rows: BotMemorySearchResult[],
+  query: string,
+  maxDistance = RESEARCH_MAX_SEMANTIC_DISTANCE,
+): BotMemorySearchResult[] {
+  const normalizedQuery = normalizeForTermMatch(query);
+  return rows.filter((row) => {
+    const term = normalizeForTermMatch(researchTerm(row));
+    if (term && normalizedQuery.includes(term)) return true;
+    return row.semanticDistance !== undefined && row.semanticDistance <= maxDistance;
+  });
+}
+
+/**
  * 「この前の話」に触れてよいと判断する印象度の下限。
  *
  * botMemoryImpressions のプロンプトでは 80 以上が「本人にとって大きな出来事」。
@@ -1453,14 +1508,19 @@ export async function buildMemoryContext(
     [request.subjectKey, ...(request.excludeAuthorIds ?? [])],
   );
 
-  const research = finalizeBotMemoryRanks(
-    addBotMemoryRanks(
-      new Map<number, BotMemorySearchResult>(),
-      researchLeg.semanticRows,
-      researchLeg.lexicalRows,
+  // 足切りしてから枠数へ詰める。先に詰めると、上位の無関係なカードに枠を取られて
+  // 下位の関係あるカードが落ちる。
+  const research = selectRelevantResearch(
+    finalizeBotMemoryRanks(
+      addBotMemoryRanks(
+        new Map<number, BotMemorySearchResult>(),
+        researchLeg.semanticRows,
+        researchLeg.lexicalRows,
+      ),
+      candidateLimit,
     ),
-    Math.max(1, researchLimit),
-  );
+    query,
+  ).slice(0, Math.max(1, researchLimit));
 
   return {
     recent,

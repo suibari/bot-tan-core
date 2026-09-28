@@ -15,6 +15,7 @@
   "dependencies": {
     "@atproto/api": "^0.18.21",
     "@bsky-affirmative-bot/bot-brain": "workspace:*",
+    "@bsky-affirmative-bot/bot-runtime": "workspace:*",
     "@bsky-affirmative-bot/clients": "workspace:*",
     "@bsky-affirmative-bot/database": "workspace:*",
     "@bsky-affirmative-bot/shared-configs": "workspace:*",
