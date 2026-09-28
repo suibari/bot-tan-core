@@ -37,10 +37,42 @@ import {
  * パースが不安定になるが、「botたん自身の意志で行動時間が決まる」という性質は崩したくない。
  * 予定表を立てる時点で botたん（Gemini）が決めておけば、両方を満たせる。
  */
-export const DAILY_PLAN_STATE_KEY = "biorhythm_daily_plan_v3";
+// v4: 各予定に timeSlots を持たせた。v3 の予定表は時間帯を持たないので読み捨てて作り直す。
+export const DAILY_PLAN_STATE_KEY = "biorhythm_daily_plan_v4";
 
 /** 予定表が扱うステータス。Sleep も夢の描写があるので含める。 */
 const PLANNED_STATUSES: Status[] = ["WakeUp", "Study", "FreeTime", "Relax", "Sleep"];
+
+/**
+ * 予定を実行できる時間帯。
+ *
+ * UtilityAI は夜更かし傾向（FreeTime が22時ピーク）なので、同じステータスが夕方から深夜まで
+ * 続く。予定表が時間帯を持たないと、カフェや買い物のような外出の予定が23時に引かれる
+ * （2026-09-28 に実際に「23時にことみちゃんとカフェで新作スイーツ」を描写した）。
+ * 時刻の範囲ではなく区分の列挙にしているのは、LLM に日付またぎの時刻を数値で出させると崩れるため。
+ */
+export const TIME_SLOTS = ["morning", "daytime", "evening", "night", "midnight"] as const;
+export type TimeSlot = (typeof TIME_SLOTS)[number];
+
+const TIME_SLOT_LABELS: Record<TimeSlot, string> = {
+  morning: "4〜9時",
+  daytime: "9〜17時",
+  evening: "17〜21時",
+  night: "21〜24時",
+  midnight: "0〜4時",
+};
+
+/** JST の時（0〜23）が属する時間帯。 */
+export function timeSlotForHour(hour: number): TimeSlot {
+  if (hour >= 4 && hour < 9) return "morning";
+  if (hour >= 9 && hour < 17) return "daytime";
+  if (hour >= 17 && hour < 21) return "evening";
+  if (hour >= 21) return "night";
+  return "midnight";
+}
+
+const isTimeSlot = (value: unknown): value is TimeSlot =>
+  typeof value === "string" && (TIME_SLOTS as readonly string[]).includes(value);
 
 const EVENTS_PER_STATUS = 5;
 const MIN_DURATION = 5;
@@ -88,6 +120,8 @@ export interface PlannedEvent {
   status: Status;
   activity: string;
   durationMinutes: number;
+  /** この予定をやってもおかしくない時間帯。 */
+  timeSlots: TimeSlot[];
 }
 
 export interface DailyPlan {
@@ -106,6 +140,15 @@ const clampDuration = (value: unknown): number => {
   const numeric = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(numeric)) return 30;
   return Math.max(MIN_DURATION, Math.min(Math.round(numeric), MAX_DURATION));
+};
+
+/**
+ * 不正値や空配列は「いつでも可」として扱う。予定そのものを捨てるより、
+ * 時間帯の制約が無い従来の挙動へ戻るほうが1日の筋書きを保てる。
+ */
+const parseTimeSlots = (value: unknown): TimeSlot[] => {
+  const slots = Array.isArray(value) ? [...new Set(value.filter(isTimeSlot))] : [];
+  return slots.length > 0 ? slots : [...TIME_SLOTS];
 };
 
 const isStatus = (value: unknown): value is Status =>
@@ -131,6 +174,7 @@ export function parseDailyPlan(raw: unknown, botDate: string): DailyPlan | undef
           status: event.status as Status,
           activity: String(event.activity).trim(),
           durationMinutes: clampDuration(event.durationMinutes),
+          timeSlots: parseTimeSlots(event.timeSlots),
         }))
         .filter((event) => event.activity.length > 0)
     : [];
@@ -155,7 +199,7 @@ export function isPlanFresh(
 }
 
 /**
- * ステータスに合う予定を1件取り出す。
+ * ステータスと時刻に合う予定を1件取り出す。
  *
  * UtilityAI の行動選択はエネルギー依存の Softmax なので時刻固定のスケジュールは組めない。
  * 予定表は「ステータス別のプール」として持ち、選ばれたステータスに合うものをここで引く。
@@ -164,16 +208,23 @@ export function isPlanFresh(
  * ただし直前に選んだものは避ける。同じ描写が2回続くと記憶としても不自然になる。
  * 直前の判定に moodPrev（生成された描写文）を使わないのは、描写は予定文そのままではなく
  * 語尾も語彙も変わっているため。文字列一致では当たらないので、インデックスで持つ。
+ *
+ * 時間帯は使い回しのときも外さない。今の時間帯に合う予定が1件も無ければ undefined を返し、
+ * 呼び出し側は予定なしのプロンプト（時間帯ごとの行動例つき）で描写する。
  */
 export function takePlannedEvent(
   plan: DailyPlan | undefined,
   status: Status,
+  hour: number,
 ): { event: PlannedEvent; index: number } | undefined {
   if (!plan) return undefined;
+  const slot = timeSlotForHour(hour);
   const used = new Set(plan.usedEventIds);
   const matching = plan.events
     .map((event, index) => ({ event, index }))
-    .filter((entry) => entry.event.status === status);
+    .filter(
+      (entry) => entry.event.status === status && entry.event.timeSlots.includes(slot),
+    );
   if (matching.length === 0) return undefined;
 
   const unused = matching.filter((entry) => !used.has(entry.index));
@@ -227,8 +278,13 @@ const DAILY_PLAN_SCHEMA = {
           },
           activity: { type: Type.STRING, description: "具体的な予定（40文字以内）" },
           durationMinutes: { type: Type.INTEGER, description: "5〜90" },
+          timeSlots: {
+            type: Type.ARRAY,
+            items: { type: Type.STRING, enum: [...TIME_SLOTS] },
+            description: "この行動をしてもおかしくない時間帯（複数可）",
+          },
         },
-        required: ["status", "activity", "durationMinutes"],
+        required: ["status", "activity", "durationMinutes", "timeSlots"],
       },
     },
   },
@@ -260,6 +316,14 @@ export function buildDailyPlanPrompt(input: {
   - "status" は ${PLANNED_STATUSES.join(" / ")} のいずれか。WakeUpは起床時、Studyは勉強中、FreeTimeは余暇、Relaxは休憩、Sleepは就寝中（夢の中）。
   - "activity" はその行動を40文字以内で具体的に。「アニメを見る」ではなく何をどうするのかまで書く。
   - "durationMinutes" はその行動にかかる時間。行動の内容に合わせて${MIN_DURATION}〜${MAX_DURATION}分の範囲で、あなた自身が決めてください。
+  - "timeSlots" はその行動をしてもおかしくない時間帯。${TIME_SLOTS.map((slot) => `${slot}（${TIME_SLOT_LABELS[slot]}）`).join(" / ")} から当てはまるものをすべて選ぶこと。
+
+# 時間帯のルール
+- どのステータスがいつ選ばれるかは決まっていない。botたんは夜更かしなので、FreeTime は夕方から深夜0時過ぎまで続くことがある。
+- お店・カフェ・買い物・公園・外出・友達と会う行動は、その時間に実際にできる時間帯だけを選ぶこと（夜遅くや深夜のカフェ・買い物は不可）。
+- FreeTime と Relax には、night と midnight を含む「自宅でひとりでもできる行動」をそれぞれ2件以上入れること。
+- WakeUp は寝坊して昼に起きることもあるので、daytime を含む行動も1件以上入れること。
+- Sleep は夢の中なので、原則すべての時間帯を選んでよい。
 
 # ルール
 - ステータスに合わない行動を混ぜないこと（Sleep は夢の中の出来事だけ、Study は勉強だけ）。

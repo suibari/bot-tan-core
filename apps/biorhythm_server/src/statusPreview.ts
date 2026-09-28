@@ -18,6 +18,7 @@ import {
   type PlannedEvent,
 } from "./dailyPlan.js";
 import { buildRoomEventsSection, type RoomEventForPrompt } from "./roomEventPrompt.js";
+import { stepClock } from "./scheduledPostGate.js";
 import {
   WORK_KINDS,
   ensureSeasonalWorks,
@@ -136,10 +137,10 @@ ${buildPlannedEventSection(input.plan, input.event)}`;
 }
 
 async function previewStatus(plan: DailyPlan, status: Status, withRoomEvents: boolean) {
-  const picked = takePlannedEvent(plan, status);
+  const picked = takePlannedEvent(plan, status, stepClock(new Date()).hour);
   console.log(`\n===== ${status}${withRoomEvents ? " (+ room gift)" : ""} =====`);
   if (!picked) {
-    console.log("(予定表にこのステータスのイベントがありません)");
+    console.log("(予定表に、このステータスで今の時間帯に合うイベントがありません)");
     return;
   }
   console.log(`予定: ${picked.event.activity}  /  ${picked.event.durationMinutes}分`);
@@ -200,7 +201,9 @@ async function main() {
   console.log(`気分: ${plan.moodDirection}`);
   console.log(`イベント数: ${plan.events.length}`);
   for (const event of plan.events) {
-    console.log(`  - [${event.status}] ${event.activity} (${event.durationMinutes}分)`);
+    console.log(
+      `  - [${event.status}] ${event.activity} (${event.durationMinutes}分 / ${event.timeSlots.join(",")})`,
+    );
   }
   console.log(
     `\n=== ペルソナの大きさ === brief=${BOT_SCENE_BRIEF_JA.length}字 / full=${SYSTEM_INSTRUCTION.length}字`,
