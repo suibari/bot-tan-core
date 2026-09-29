@@ -137,13 +137,16 @@ ${buildPlannedEventSection(input.plan, input.event)}`;
 }
 
 async function previewStatus(plan: DailyPlan, status: Status, withRoomEvents: boolean) {
-  const picked = takePlannedEvent(plan, status, stepClock(new Date()).hour);
+  const { hour, isWeekend } = stepClock(new Date());
+  const picked = takePlannedEvent(plan, status, hour, isWeekend);
   console.log(`\n===== ${status}${withRoomEvents ? " (+ room gift)" : ""} =====`);
   if (!picked) {
     console.log("(予定表に、このステータスで今の時間帯に合うイベントがありません)");
     return;
   }
-  console.log(`予定: ${picked.event.activity}  /  ${picked.event.durationMinutes}分`);
+  console.log(
+    `予定: ${picked.event.activity}  /  ${picked.event.place}（${picked.event.placeKind}）  /  ${picked.event.durationMinutes}分`,
+  );
 
   const prompt = buildPreviewPrompt({
     status,
@@ -172,10 +175,7 @@ async function main() {
     console.log("(--fresh: 今日の予定表を作り直します)");
   }
 
-  const plan = await ensureDailyPlan({
-    isWeekend: [0, 6].includes(new Date().getDay()),
-    eventSamples: {},
-  });
+  const plan = await ensureDailyPlan({ eventSamples: {} });
   if (!plan) {
     console.error("日次予定表を作れませんでした。GEMINI_API_KEY と DB 接続を確認してください。");
     process.exitCode = 1;
@@ -198,11 +198,12 @@ async function main() {
   console.log("\n=== 今日の予定表 ===");
   console.log(`服装: ${plan.outfit}`);
   console.log(`いっしょにいる人: ${plan.companion}`);
+  console.log(`おでかけ先: ${plan.outingPlaces.join(" / ")}`);
   console.log(`気分: ${plan.moodDirection}`);
   console.log(`イベント数: ${plan.events.length}`);
   for (const event of plan.events) {
     console.log(
-      `  - [${event.status}] ${event.activity} (${event.durationMinutes}分 / ${event.timeSlots.join(",")})`,
+      `  - [${event.status}] ${event.activity} @${event.place}（${event.placeKind}） (${event.durationMinutes}分 / ${event.timeSlots.join(",")})`,
     );
   }
   console.log(

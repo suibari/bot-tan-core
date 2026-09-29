@@ -1,5 +1,6 @@
 import rawWhatday from '../json/anniversary.json' with { type: 'json' };
 import { WhatDayMap } from '../types.js';
+import { equinoxDays } from './jpHolidays.js';
 
 const whatday: WhatDayMap = rawWhatday as unknown as WhatDayMap;
 
@@ -135,14 +136,7 @@ export function getWhatDayForCalendarDate(
   if (isNthWeekday(9, 1, 3)) names.push("敬老の日");
   if (isNthWeekday(10, 1, 2)) names.push("スポーツの日");
 
-  // 1980〜2099年の祝日判定に使える近似式。現在のbot運用期間を十分に含む。
-  const yearsSince1980 = numericYear - 1980;
-  const vernalEquinox = Math.floor(
-    20.8431 + 0.242194 * yearsSince1980 - Math.floor(yearsSince1980 / 4),
-  );
-  const autumnalEquinox = Math.floor(
-    23.2488 + 0.242194 * yearsSince1980 - Math.floor(yearsSince1980 / 4),
-  );
+  const { vernal: vernalEquinox, autumnal: autumnalEquinox } = equinoxDays(numericYear);
   if (numericMonth === 3 && numericDate === vernalEquinox) names.push("春分の日");
   if (numericMonth === 9 && numericDate === autumnalEquinox) names.push("秋分の日");
 
