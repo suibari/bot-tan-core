@@ -1,4 +1,4 @@
-import { botDayRange, type Status } from "@bsky-affirmative-bot/shared-configs";
+import { botDayRange, isJapaneseDayOff, type Status } from "@bsky-affirmative-bot/shared-configs";
 
 /**
  * 定期ポストを撃つかどうかの判定だけを切り出したもの。
@@ -17,13 +17,15 @@ const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
  * なのに `today` は 04:00 を越えた翌 bot 日になった。その結果おやすみを二重に撃ち、しかも
  * 翌 bot 日の日付で記録したため、同じ日の朝のおはようと日付が並んで isSleepingPeriod() が
  * 一日中 true になり、定期つぶやきが止まった。判定材料の時刻は必ずここから取ること。
+ *
+ * `isWeekend` は名前に反して「学校が休みの日」＝土日と祝日。UtilityAI・予定表・描写の
+ * どれもが「平日なら学校」の意味で読んでいるので、祝日だけ登校日扱いになるのを防ぐ。
  */
 export function stepClock(now: Date): { hour: number; isWeekend: boolean; today: string } {
   const jst = new Date(now.getTime() + JST_OFFSET_MS);
-  const day = jst.getUTCDay();
   return {
     hour: jst.getUTCHours(),
-    isWeekend: day === 0 || day === 6,
+    isWeekend: isJapaneseDayOff(jst.getUTCFullYear(), jst.getUTCMonth() + 1, jst.getUTCDate()),
     today: botDayRange(now).date,
   };
 }

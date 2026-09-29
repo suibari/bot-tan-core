@@ -468,11 +468,10 @@ export class BiorhythmManager extends EventEmitter {
       return;
     }
 
-    // 今日の予定表。bot日が変わったときだけ Gemini を1回叩く（内部で作品リストも週1で更新）。
+    // 今日の予定表。bot日が変わったときだけ LLM を1回叩く（内部で作品リストも週1で更新）。
     // 失敗しても undefined が返るだけで、その場合は予定なしの従来プロンプトで生成する。
     const plan = await ensureDailyPlan({
-      isWeekend,
-      eventSamples: this.eventSamplesForPlan(),
+      eventSamples: this.eventSamplesForPlan(isWeekend),
     }).catch((error) => {
       console.error("[ERROR][BIORHYTHM] ensureDailyPlan threw:", error);
       return undefined;
@@ -608,8 +607,7 @@ export class BiorhythmManager extends EventEmitter {
   }
 
   /** 日次予定表を立てるときの雰囲気の参考。これまで各stepに丸ごと渡していた例文を1日1回に移した。 */
-  private eventSamplesForPlan(): Record<string, unknown> {
-    const isWeekend = [0, 6].includes(new Date().getDay());
+  private eventSamplesForPlan(isWeekend: boolean): Record<string, unknown> {
     return {
       WakeUp: isWeekend ? eventsMorningDayoff : eventsMorningWorkday,
       Study: isWeekend ? eventsNoonDayoff : eventsNoonWorkday,
@@ -644,7 +642,7 @@ export class BiorhythmManager extends EventEmitter {
   }> {
     // 予定を引いてからプロンプトを組む。takePlannedEvent は候補からの乱択なので、
     // 「予定があるか」を知るために先に一度呼んで結果を使い回すこと（二度引くと別の予定になる）。
-    const picked = takePlannedEvent(input.plan, this.status, input.hour);
+    const picked = takePlannedEvent(input.plan, this.status, input.hour, input.isWeekend);
     const result = await this.generateStatus(
       this.buildPrompt(
         getFullDateAndTimeString(),
@@ -683,7 +681,7 @@ export class BiorhythmManager extends EventEmitter {
 - 重要: status_textは必ず現在のステータス（${this.status}）に合った行動を描写すること。Sleepなら就寝・夢の中、Studyなら勉強中、FreeTimeなら余暇活動、Relaxなら休憩、WakeUpなら起床直後の行動のみとすること。
 - 重要: クラスメイトはことみちゃんだけ。ラテちゃんは学校・教室・授業・校庭には登場させず、放課後や休日など学校の外だけで交流させること。
 - 重要: モルフォは学校へ連れて行かない。学校・教室・授業・校庭の場面には、モルフォを絶対に登場させないこと。
-- 重要: 「お部屋でのできごと」に gift（プレゼント）がある場合は、現在のステータスに合う形で、必ずその贈り物への言及を status_text に入れること。Sleep中なら夢に出てくる、といった扱いにすればよい。
+${isWeekend ? "" : "- 重要: 今日は平日。9〜17時は学校にいる時間なので、その時間の FreeTime と Relax は休み時間・昼休みの過ごし方として学校の中で描くこと（自宅にいる描写にしない）。\n"}- 重要: 「お部屋でのできごと」に gift（プレゼント）がある場合は、現在のステータスに合う形で、必ずその贈り物への言及を status_text に入れること。Sleep中なら夢に出てくる、といった扱いにすればよい。
 - 行動欲求は、あなたがどの行動をしたいか、です。たとえばSleepが一番高いのに、ステータスがFreeTimeの場合、眠いのに遊んでいる状態です。
 - 以下の日にはその日にふさわしい行動をさせること
   * 元旦 (1月1日)

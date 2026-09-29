@@ -11,6 +11,7 @@ import {
   botDayRange,
   getWhatDayForCalendarDate,
   getWeekdayJaForCalendarDate,
+  isJapaneseDayOff,
   type Status,
 } from "@bsky-affirmative-bot/shared-configs";
 import { Type } from "@google/genai";
@@ -29,16 +30,16 @@ import {
 /**
  * botたんの「今日の予定表」。
  *
- * 各 step の描写はローカルの小型モデルが担当するが、4b モデルに「誰と何をするか」まで
- * 決めさせるとキャラクターが持たない。そこで1日1回だけ Gemini に筋書きを立てさせ、
- * step 側は「その予定を描写するだけ」にする。
+ * step ごとの描写で「誰と何をするか」まで毎回決めさせると、1日の筋書きがつながらない。
+ * そこで1日1回だけ筋書きを立てさせ、step 側は「その予定を描写するだけ」にする。
+ * どちらもモデルは aiRoutes の機能キーで決まる（本番は AI_TEXT_PROVIDER=ollama でローカル LLM）。
  *
  * duration_minutes をここで決めるのも要点。step ごとの小型モデルに数値を出させると
  * パースが不安定になるが、「botたん自身の意志で行動時間が決まる」という性質は崩したくない。
- * 予定表を立てる時点で botたん（Gemini）が決めておけば、両方を満たせる。
+ * 予定表を立てる時点で botたんが決めておけば、両方を満たせる。
  */
-// v4: 各予定に timeSlots を持たせた。v3 の予定表は時間帯を持たないので読み捨てて作り直す。
-export const DAILY_PLAN_STATE_KEY = "biorhythm_daily_plan_v4";
+// v5: 各予定に place / placeKind を持たせた。v4 の予定表は場所を持たないので読み捨てて作り直す。
+export const DAILY_PLAN_STATE_KEY = "biorhythm_daily_plan_v5";
 
 /** 予定表が扱うステータス。Sleep も夢の描写があるので含める。 */
 const PLANNED_STATUSES: Status[] = ["WakeUp", "Study", "FreeTime", "Relax", "Sleep"];
@@ -73,6 +74,69 @@ export function timeSlotForHour(hour: number): TimeSlot {
 
 const isTimeSlot = (value: unknown): value is TimeSlot =>
   typeof value === "string" && (TIME_SLOTS as readonly string[]).includes(value);
+
+/**
+ * 予定の場所の区分。場所の名前（place）は自由記述だが、「平日の日中は学校」をプロンプト任せに
+ * せずコードで守るには区分が要る。以前は平日の昼に自宅でゲームをする描写が出ていた。
+ */
+export const PLACE_KINDS = ["school", "home", "outing"] as const;
+export type PlaceKind = (typeof PLACE_KINDS)[number];
+
+const isPlaceKind = (value: unknown): value is PlaceKind =>
+  typeof value === "string" && (PLACE_KINDS as readonly string[]).includes(value);
+
+/**
+ * 学校にいるべき時間の縛りを受けるステータス。WakeUp（寝坊して昼に起きる）と
+ * Sleep（夢の中）は場所を問わず成立するので外す。
+ */
+const SCHOOL_BOUND_STATUSES: ReadonlySet<Status> = new Set(["Study", "FreeTime", "Relax"]);
+
+/**
+ * おでかけ先の候補。その日の行き先はここからコードで振る。
+ *
+ * ローカルの 12B モデルに「いろんな場所へ」と頼んでも、自室・カフェ・公園に寄る。
+ * 同行者と同じく、偏りはサイコロで崩す。季節を選ぶ場所（プール・スキー場など）は入れない。
+ */
+export const DAILY_OUTING_PLACES = [
+  "遊園地",
+  "水族館",
+  "動物園",
+  "植物園",
+  "科学館",
+  "美術館",
+  "博物館",
+  "プラネタリウム",
+  "映画館",
+  "ゲームセンター",
+  "カラオケ",
+  "ボウリング場",
+  "バッティングセンター",
+  "ショッピングモール",
+  "商店街",
+  "本屋",
+  "古本屋",
+  "雑貨屋",
+  "手芸店",
+  "楽器店",
+  "アニメショップ",
+  "図書館",
+  "河川敷",
+  "海辺",
+  "ハイキングコース",
+  "神社",
+  "銭湯",
+  "駄菓子屋",
+  "純喫茶",
+  "パン屋",
+  "クレープ屋",
+  "回転寿司",
+  "猫カフェ",
+  "フリーマーケット",
+  "釣り堀",
+  "牧場",
+] as const;
+
+const OUTING_PLACES_PER_DAY = 2;
 
 const EVENTS_PER_STATUS = 5;
 const MIN_DURATION = 5;
@@ -116,18 +180,42 @@ export function selectDailyCompanion(
   return candidates[Math.floor(random() * candidates.length)] ?? candidates[0];
 }
 
+/**
+ * 今日のおでかけ先を振る。保存済みプランの行き先は（前日かどうかを問わず）候補から外す。
+ * 保存しているプランは直近の1日分だけなので、連日同じ場所へ行くことだけを防げればよい。
+ */
+export function selectDailyOutingPlaces(
+  previousPlan?: Pick<DailyPlan, "outingPlaces">,
+  random: () => number = Math.random,
+  count = OUTING_PLACES_PER_DAY,
+): string[] {
+  const previous = new Set(previousPlan?.outingPlaces ?? []);
+  const pool: string[] = DAILY_OUTING_PLACES.filter((place) => !previous.has(place));
+  const picked: string[] = [];
+  while (picked.length < count && pool.length > 0) {
+    const index = Math.min(Math.floor(random() * pool.length), pool.length - 1);
+    picked.push(...pool.splice(index, 1));
+  }
+  return picked;
+}
+
 export interface PlannedEvent {
   status: Status;
   activity: string;
   durationMinutes: number;
   /** この予定をやってもおかしくない時間帯。 */
   timeSlots: TimeSlot[];
+  /** 具体的な場所の名前（例: 駅前の水族館）。描写の材料。 */
+  place: string;
+  placeKind: PlaceKind;
 }
 
 export interface DailyPlan {
   botDate: string;
   outfit: string;
   companion: string;
+  /** コードで振った今日のおでかけ先。翌日の抽選で同じ場所を外すために持つ。 */
+  outingPlaces: string[];
   moodDirection: string;
   events: PlannedEvent[];
   /** 消化済みイベントの events 内インデックス。 */
@@ -155,8 +243,8 @@ const isStatus = (value: unknown): value is Status =>
   typeof value === "string" && (PLANNED_STATUSES as string[]).includes(value);
 
 /**
- * Gemini の構造化 JSON をプランへ落とす。
- * events が空のときは undefined を返し、呼び出し側は従来の Gemini 毎 step 生成へ落ちる。
+ * モデルの構造化 JSON をプランへ落とす。
+ * events が空のときは undefined を返し、呼び出し側は予定なしの step 生成へ落ちる。
  */
 export function parseDailyPlan(raw: unknown, botDate: string): DailyPlan | undefined {
   if (!raw || typeof raw !== "object") return undefined;
@@ -175,6 +263,9 @@ export function parseDailyPlan(raw: unknown, botDate: string): DailyPlan | undef
           activity: String(event.activity).trim(),
           durationMinutes: clampDuration(event.durationMinutes),
           timeSlots: parseTimeSlots(event.timeSlots),
+          place: typeof event.place === "string" ? event.place.trim() : "",
+          // 区分が読めない予定は outing として扱う。平日の日中には引かれない側へ倒れる。
+          placeKind: isPlaceKind(event.placeKind) ? event.placeKind : "outing",
         }))
         .filter((event) => event.activity.length > 0)
     : [];
@@ -184,6 +275,9 @@ export function parseDailyPlan(raw: unknown, botDate: string): DailyPlan | undef
     botDate,
     outfit: typeof value.outfit === "string" ? value.outfit.trim() : "",
     companion: typeof value.companion === "string" ? value.companion.trim() : "",
+    outingPlaces: Array.isArray(value.outingPlaces)
+      ? value.outingPlaces.filter((place): place is string => typeof place === "string")
+      : [],
     moodDirection:
       typeof value.moodDirection === "string" ? value.moodDirection.trim() : "",
     events,
@@ -209,13 +303,14 @@ export function isPlanFresh(
  * 直前の判定に moodPrev（生成された描写文）を使わないのは、描写は予定文そのままではなく
  * 語尾も語彙も変わっているため。文字列一致では当たらないので、インデックスで持つ。
  *
- * 時間帯は使い回しのときも外さない。今の時間帯に合う予定が1件も無ければ undefined を返し、
+ * 時間帯と場所は使い回しのときも外さない。今に合う予定が1件も無ければ undefined を返し、
  * 呼び出し側は予定なしのプロンプト（時間帯ごとの行動例つき）で描写する。
  */
 export function takePlannedEvent(
   plan: DailyPlan | undefined,
   status: Status,
   hour: number,
+  isDayOff: boolean,
 ): { event: PlannedEvent; index: number } | undefined {
   if (!plan) return undefined;
   const slot = timeSlotForHour(hour);
@@ -223,7 +318,10 @@ export function takePlannedEvent(
   const matching = plan.events
     .map((event, index) => ({ event, index }))
     .filter(
-      (entry) => entry.event.status === status && entry.event.timeSlots.includes(slot),
+      (entry) =>
+        entry.event.status === status &&
+        entry.event.timeSlots.includes(slot) &&
+        isPlaceAllowed(entry.event, slot, isDayOff),
     );
   if (matching.length === 0) return undefined;
 
@@ -236,10 +334,29 @@ export function takePlannedEvent(
 }
 
 /**
- * Gemini フォールバック側のプロンプトへ足す、今日の予定のブロック。
+ * その場所にいてよい時間か。
  *
- * buildPrompt は予定表を知らないので、これが無いとローカルが落ちた回だけ今日の筋書き
- * （服装・同行者・作品）から外れた描写になり、記憶の中で1日が途切れる。
+ * - 平日の daytime（9〜17時）は学校の予定だけ。
+ * - 学校の予定は平日の morning（朝練）・daytime・evening（部活・放課後）だけ。
+ * - WakeUp と Sleep はどこでも可（SCHOOL_BOUND_STATUSES 参照）。
+ */
+export function isPlaceAllowed(
+  event: Pick<PlannedEvent, "status" | "placeKind">,
+  slot: TimeSlot,
+  isDayOff: boolean,
+): boolean {
+  if (!SCHOOL_BOUND_STATUSES.has(event.status)) return true;
+  const atSchool = event.placeKind === "school";
+  if (!isDayOff && slot === "daytime") return atSchool;
+  if (!atSchool) return true;
+  return !isDayOff && (slot === "morning" || slot === "evening");
+}
+
+/**
+ * step の描写プロンプトへ足す、今日の予定のブロック。
+ *
+ * buildPrompt は予定表を知らないので、これが無いと今日の筋書き
+ * （服装・同行者・作品・場所）から外れた描写になり、記憶の中で1日が途切れる。
  */
 export function buildPlannedEventSection(
   plan: DailyPlan | undefined,
@@ -249,7 +366,7 @@ export function buildPlannedEventSection(
   return `
 -----今日の予定-----
 * 今日1日ぶんの筋書きです。status_text はこの予定を描写に起こしてください。
-  - 予定: ${event.activity}
+  - 予定: ${event.activity}${event.place ? `\n  - 場所: ${event.place}（この場所にいる場面として描写すること）` : ""}
   - 今日の主な同行者: ${plan.companion || "とくにいない"}
   - 今日の気分: ${plan.moodDirection || "ふつう"}
   - 主な同行者がすべての予定にいるとは限りません。予定に名前がない場面へ無理に登場させないこと。
@@ -283,8 +400,14 @@ const DAILY_PLAN_SCHEMA = {
             items: { type: Type.STRING, enum: [...TIME_SLOTS] },
             description: "この行動をしてもおかしくない時間帯（複数可）",
           },
+          place: { type: Type.STRING, description: "具体的な場所の名前" },
+          placeKind: {
+            type: Type.STRING,
+            enum: [...PLACE_KINDS],
+            description: "school=学校 / home=自宅 / outing=それ以外",
+          },
         },
-        required: ["status", "activity", "durationMinutes", "timeSlots"],
+        required: ["status", "activity", "durationMinutes", "timeSlots", "place", "placeKind"],
       },
     },
   },
@@ -295,6 +418,7 @@ export function buildDailyPlanPrompt(input: {
   botDate: string;
   isWeekend: boolean;
   companion: string;
+  outingPlaces: string[];
   whatDay: string[];
   eventSamples: Record<string, unknown>;
   worksSection: string;
@@ -317,6 +441,8 @@ export function buildDailyPlanPrompt(input: {
   - "activity" はその行動を40文字以内で具体的に。「アニメを見る」ではなく何をどうするのかまで書く。
   - "durationMinutes" はその行動にかかる時間。行動の内容に合わせて${MIN_DURATION}〜${MAX_DURATION}分の範囲で、あなた自身が決めてください。
   - "timeSlots" はその行動をしてもおかしくない時間帯。${TIME_SLOTS.map((slot) => `${slot}（${TIME_SLOT_LABELS[slot]}）`).join(" / ")} から当てはまるものをすべて選ぶこと。
+  - "place" はその行動をする場所を具体的に（「駅前の水族館」「自室のベッドの上」「教室の窓際の席」など）。
+  - "placeKind" は place の区分。school（学校：教室・図書室・校庭・部室など）/ home（自宅）/ outing（それ以外のおでかけ先）のいずれか。
 
 # 時間帯のルール
 - どのステータスがいつ選ばれるかは決まっていない。botたんは夜更かしなので、FreeTime は夕方から深夜0時過ぎまで続くことがある。
@@ -324,6 +450,15 @@ export function buildDailyPlanPrompt(input: {
 - FreeTime と Relax には、night と midnight を含む「自宅でひとりでもできる行動」をそれぞれ2件以上入れること。
 - WakeUp は寝坊して昼に起きることもあるので、daytime を含む行動も1件以上入れること。
 - Sleep は夢の中なので、原則すべての時間帯を選んでよい。
+
+# 場所のルール
+${input.isWeekend
+  ? `- 今日は学校が休み。school の行動は作らないこと。`
+  : `- 今日は平日なので、daytime（9〜17時）は学校にいる。Study・FreeTime・Relax にはそれぞれ、placeKind が school で daytime を含む行動を1件以上入れること。FreeTime と Relax の学校の行動は、休み時間・昼休みの過ごし方にすること。
+- school の行動の timeSlots は daytime を中心に、朝練なら morning、部活や放課後の教室なら evening だけを足すこと。
+- Study・FreeTime・Relax の home と outing の行動に daytime を付けないこと（平日の昼は学校にいるため）。寝坊の WakeUp と夢の中の Sleep はこの限りではない。`}
+- 今日のおでかけ先は「${input.outingPlaces.join("」「")}」。それぞれを place にした outing の行動を1件以上作ること（${input.isWeekend ? "休日なので daytime が中心" : "平日なので放課後の evening が中心"}）。place は「遊園地」ではなく「隣町の遊園地」「駅ビルの水族館」のように、その場所を具体的に書くこと。
+- ほかの outing（コンビニ・近所の公園など身近な場所）を足してもよい。
 
 # ルール
 - ステータスに合わない行動を混ぜないこと（Sleep は夢の中の出来事だけ、Study は勉強だけ）。
@@ -379,19 +514,57 @@ export async function markPlannedEventUsed(
 }
 
 /**
+ * 場所のルールのうち、コードで確かめられる不足を文で返す（やり直しの指示にそのまま使う）。
+ *
+ * - 平日なのに、Study / FreeTime / Relax に「学校で daytime」の予定が無い。
+ *   takePlannedEvent は平日の日中に学校以外を引かないので、無ければその時間は予定なしの
+ *   描写に落ち、予定表の筋書き（服装・同行者）から外れる。
+ * - コードで振ったおでかけ先が、どの予定の場所にも出てこない。
+ */
+export function findPlanPlaceShortfalls(
+  events: readonly PlannedEvent[],
+  isDayOff: boolean,
+  outingPlaces: readonly string[],
+): string[] {
+  const shortfalls: string[] = [];
+  if (!isDayOff) {
+    for (const status of SCHOOL_BOUND_STATUSES) {
+      const hasSchoolDaytime = events.some(
+        (event) =>
+          event.status === status &&
+          event.placeKind === "school" &&
+          event.timeSlots.includes("daytime"),
+      );
+      if (!hasSchoolDaytime) {
+        shortfalls.push(`${status} に、placeKind が school で daytime を含む行動がありません`);
+      }
+    }
+  }
+  const places = events.map((event) => normalizeForMatch(`${event.place} ${event.activity}`));
+  for (const outing of outingPlaces) {
+    const needle = normalizeForMatch(outing);
+    if (!places.some((text) => text.includes(needle))) {
+      shortfalls.push(`今日のおでかけ先「${outing}」を place にした行動がありません`);
+    }
+  }
+  return shortfalls;
+}
+
+/**
  * 今日の予定表。bot 日が変わっていれば作り直す。
  *
  * 生成に失敗しても投げない。前日のプランがあれば日付だけ差し替えて再利用し、
- * それも無ければ undefined を返す。呼び出し側は従来の Gemini 毎 step 生成へ落ちる。
+ * それも無ければ undefined を返す。呼び出し側は予定なしの step 生成へ落ちる。
  */
 export async function ensureDailyPlan(
-  input: { isWeekend: boolean; eventSamples: Record<string, unknown> },
+  input: { eventSamples: Record<string, unknown> },
   now: Date = new Date(),
 ): Promise<DailyPlan | undefined> {
   const botDate = botDayRange(now).date;
   const existing = await loadPlan();
   if (isPlanFresh(existing, botDate)) return existing;
   const companion = selectDailyCompanion(botDate, existing);
+  const outingPlaces = selectDailyOutingPlaces(existing);
 
   try {
     const [works, memoryCandidates] = await Promise.all([
@@ -403,10 +576,13 @@ export async function ensureDailyPlan(
     ]);
     const memoryImpressions = selectDailyMemoryImpressions(memoryCandidates, botDate);
     const [year, month, date] = botDate.split("-").map(Number);
+    // 平日か休日かは step の時計ではなく bot 日から決める。予定表は bot 日の1日分なので。
+    const isDayOff = isJapaneseDayOff(year, month, date);
     const basePrompt = buildDailyPlanPrompt({
       botDate,
-      isWeekend: input.isWeekend,
+      isWeekend: isDayOff,
       companion,
+      outingPlaces,
       whatDay: getWhatDayForCalendarDate(year, month, date),
       eventSamples: input.eventSamples,
       worksSection: buildSeasonalWorksSection(works, now),
@@ -430,38 +606,48 @@ export async function ensureDailyPlan(
       });
       const parsed = parseDailyPlan(JSON.parse(response.text || "{}"), botDate);
       // schema とプロンプトに加えてコード側でも固定し、モデルの選択バイアスを残さない。
-      return parsed ? { ...parsed, companion } : undefined;
+      return parsed ? { ...parsed, companion, outingPlaces } : undefined;
     };
 
     let plan = await generate(basePrompt);
     if (!plan) throw new Error("Daily plan had no usable events");
 
     // 「お気に入りのアニソンを聴きながら」のような一般名詞のままの予定が残ると、描写側は
-    // それを情景に起こすだけなので固有名詞にしようがない。指示だけでは守られなかったので
-    // 生成後に検査し、1回だけ直させる。1日1回の呼び出しなので追加コストは小さい。
+    // それを情景に起こすだけなので固有名詞にしようがない。場所のルール（平日の学校・今日の
+    // おでかけ先）も同じで、ローカルモデルは指示だけでは守りきらない。生成後に検査し、
+    // 1回だけまとめて直させる。1日1回の呼び出しなので追加コストは小さい。
     const memoryLabels = memoryImpressions.map((item) => item.label);
-    const generic = findGenericMediaEvents(plan.events, works, memoryLabels);
-    if (generic.length > 0) {
+    const inspect = (candidate: DailyPlan) => ({
+      generic: findGenericMediaEvents(candidate.events, works, memoryLabels),
+      shortfalls: findPlanPlaceShortfalls(candidate.events, isDayOff, outingPlaces),
+    });
+    const countIssues = (issues: ReturnType<typeof inspect>) =>
+      issues.generic.length + issues.shortfalls.length;
+    const first = inspect(plan);
+    if (countIssues(first) > 0) {
       console.warn(
-        `[WARN][BIORHYTHM] Daily plan had ${generic.length} generic media event(s); retrying once: ` +
-          generic.map((event) => event.activity).join(" / "),
+        `[WARN][BIORHYTHM] Daily plan had ${countIssues(first)} issue(s); retrying once: ` +
+          [...first.generic.map((event) => event.activity), ...first.shortfalls].join(" / "),
       );
       const retried = await generate(
         `${basePrompt}
 
 -----やり直しの指示-----
-* 前回の予定表には、作品名の無い一般名詞だけの予定が残っていました:
-${generic.map((event) => `  - ${event.activity}`).join("\n")}
+${first.generic.length > 0 ? `* 前回の予定表には、作品名の無い一般名詞だけの予定が残っていました:
+${first.generic.map((event) => `  - ${event.activity}`).join("\n")}
 * これらは「いま話題のもの」または「みんなとのやりとり」の候補から**具体的な名前を入れて書き直す**か、作品に触れない別の予定に差し替えてください。
-* ほかの予定はそのままでかまいません。予定表全体をもう一度出力してください。`,
+` : ""}${first.shortfalls.length > 0 ? `* 前回の予定表は、場所のルールを満たしていませんでした:
+${first.shortfalls.map((line) => `  - ${line}`).join("\n")}
+* 足りない行動を、同じステータスのほかの予定と差し替えて入れてください。
+` : ""}* ほかの予定はそのままでかまいません。予定表全体をもう一度出力してください。`,
       );
-      const stillGeneric = retried
-        ? findGenericMediaEvents(retried.events, works, memoryLabels)
-        : [];
-      if (retried && stillGeneric.length <= generic.length) plan = retried;
-      if (stillGeneric.length > 0) {
+      const second = retried ? inspect(retried) : undefined;
+      const adopted = Boolean(retried && second && countIssues(second) <= countIssues(first));
+      if (adopted && retried) plan = retried;
+      const remaining = adopted && second ? second : first;
+      if (countIssues(remaining) > 0) {
         console.warn(
-          `[WARN][BIORHYTHM] ${stillGeneric.length} generic media event(s) remain after retry; keeping the plan`,
+          `[WARN][BIORHYTHM] ${countIssues(remaining)} issue(s) remain after retry; keeping the plan`,
         );
       }
     }
@@ -491,14 +677,14 @@ ${generic.map((event) => `  - ${event.activity}`).join("\n")}
       console.error("[WARN][BIORHYTHM] Failed to mark seasonal works used", error);
     });
     console.log(
-      `[INFO][BIORHYTHM] Daily plan for ${botDate}: ${plan.events.length} events, companion=${plan.companion}`,
+      `[INFO][BIORHYTHM] Daily plan for ${botDate}: ${plan.events.length} events, companion=${plan.companion}, outing=${plan.outingPlaces.join("/")}`,
     );
     return plan;
   } catch (error) {
     console.error("[ERROR][BIORHYTHM] Failed to build daily plan:", error);
     if (!existing) return undefined;
     // 前日のプランを today として引き継ぐ。同じ服・同じ相手で1日過ごすことになるが、
-    // プラン無しで全 step を Gemini に落とすよりは一貫性が保てる。
+    // プラン無しで全 step を描写させるよりは一貫性が保てる。
     const carried: DailyPlan = {
       ...existing,
       botDate,

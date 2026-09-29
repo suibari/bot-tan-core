@@ -4,47 +4,53 @@ import {
   buildDailyPlanPrompt,
   buildPlannedEventSection,
   DAILY_COMPANION_OPTIONS,
+  DAILY_OUTING_PLACES,
+  findPlanPlaceShortfalls,
+  isPlaceAllowed,
   isPlanFresh,
   parseDailyPlan,
   selectDailyCompanion,
+  selectDailyOutingPlaces,
   takePlannedEvent,
   timeSlotForHour,
   TIME_SLOTS,
   type DailyPlan,
+  type PlannedEvent,
 } from "../src/dailyPlan.js";
 
 const plan = (overrides: Partial<DailyPlan> = {}): DailyPlan => ({
   botDate: "2026-08-10",
   outfit: "水色のワンピース",
   companion: "ことみちゃん",
+  outingPlaces: ["水族館"],
   moodDirection: "のんびりしたい気分",
   events: [
-    { status: "FreeTime", activity: "蒼穹のカノンの最新話を見る", durationMinutes: 45, timeSlots: [...TIME_SLOTS] },
-    { status: "FreeTime", activity: "モルフォと散歩する", durationMinutes: 30, timeSlots: [...TIME_SLOTS] },
-    { status: "Study", activity: "数学の課題をやる", durationMinutes: 60, timeSlots: [...TIME_SLOTS] },
+    { status: "FreeTime", activity: "蒼穹のカノンの最新話を見る", durationMinutes: 45, timeSlots: [...TIME_SLOTS], place: "自室", placeKind: "home" },
+    { status: "FreeTime", activity: "モルフォと散歩する", durationMinutes: 30, timeSlots: [...TIME_SLOTS], place: "自室", placeKind: "home" },
+    { status: "Study", activity: "数学の課題をやる", durationMinutes: 60, timeSlots: [...TIME_SLOTS], place: "自室", placeKind: "home" },
   ],
   usedEventIds: [],
   ...overrides,
 });
 
 test("ステータスに合うイベントだけを返す", () => {
-  const picked = takePlannedEvent(plan(), "Study", 20);
+  const picked = takePlannedEvent(plan(), "Study", 20, true);
   assert.equal(picked?.event.activity, "数学の課題をやる");
   assert.equal(picked?.index, 2);
 });
 
 test("そのステータスのイベントが無ければ undefined（Geminiフォールバックに落ちる）", () => {
-  assert.equal(takePlannedEvent(plan(), "Sleep", 20), undefined);
-  assert.equal(takePlannedEvent(undefined, "Study", 20), undefined);
+  assert.equal(takePlannedEvent(plan(), "Sleep", 20, true), undefined);
+  assert.equal(takePlannedEvent(undefined, "Study", 20, true), undefined);
 });
 
 test("未消化を優先して選ぶ", () => {
-  const picked = takePlannedEvent(plan({ usedEventIds: [0] }), "FreeTime", 20);
+  const picked = takePlannedEvent(plan({ usedEventIds: [0] }), "FreeTime", 20, true);
   assert.equal(picked?.index, 1);
 });
 
 test("未消化が尽きたら消化済みを再利用する", () => {
-  const picked = takePlannedEvent(plan({ usedEventIds: [0, 1, 2] }), "FreeTime", 20);
+  const picked = takePlannedEvent(plan({ usedEventIds: [0, 1, 2] }), "FreeTime", 20, true);
   assert.ok(picked);
   assert.ok([0, 1].includes(picked.index));
 });
@@ -54,6 +60,8 @@ test("直前に選んだ予定は選ばない", () => {
   const picked = takePlannedEvent(
     plan({ usedEventIds: [0, 1], lastEventIndex: 0 }),
     "FreeTime",
+    20,
+    true,
   );
   assert.equal(picked?.index, 1);
 });
@@ -62,13 +70,14 @@ test("候補が1件しか無ければ直前と同じでもそれを返す", () =
   const picked = takePlannedEvent(
     plan({
       events: [
-        { status: "Study", activity: "数学の課題をやる", durationMinutes: 60, timeSlots: [...TIME_SLOTS] },
+        { status: "Study", activity: "数学の課題をやる", durationMinutes: 60, timeSlots: [...TIME_SLOTS], place: "自室", placeKind: "home" },
       ],
       usedEventIds: [0],
       lastEventIndex: 0,
     }),
     "Study",
     20,
+    true,
   );
   assert.equal(picked?.event.activity, "数学の課題をやる");
 });
@@ -84,26 +93,26 @@ test("今の時間帯に合わない予定は、使い回しのときも選ば�
   // 2026-09-28: FreeTime の5件を夕方までに使い切り、23時に「カフェで新作スイーツ」を再利用した。
   const nightPlan = plan({
     events: [
-      { status: "FreeTime", activity: "ことみちゃんとカフェで新作スイーツを食べる", durationMinutes: 60, timeSlots: ["daytime", "evening"] },
-      { status: "FreeTime", activity: "自室で蒼穹のカノンの最新話を見る", durationMinutes: 45, timeSlots: ["evening", "night", "midnight"] },
+      { status: "FreeTime", activity: "ことみちゃんとカフェで新作スイーツを食べる", durationMinutes: 60, timeSlots: ["daytime", "evening"], place: "自室", placeKind: "home" },
+      { status: "FreeTime", activity: "自室で蒼穹のカノンの最新話を見る", durationMinutes: 45, timeSlots: ["evening", "night", "midnight"], place: "自室", placeKind: "home" },
     ],
     usedEventIds: [0, 1],
     lastEventIndex: 1,
   });
 
   for (let i = 0; i < 20; i += 1) {
-    assert.equal(takePlannedEvent(nightPlan, "FreeTime", 23)?.index, 1);
+    assert.equal(takePlannedEvent(nightPlan, "FreeTime", 23, true)?.index, 1);
   }
-  assert.equal(takePlannedEvent(nightPlan, "FreeTime", 15)?.index, 0);
+  assert.equal(takePlannedEvent(nightPlan, "FreeTime", 15, true)?.index, 0);
 });
 
 test("今の時間帯に合う予定が無ければ undefined（予定なしの描写へ落ちる）", () => {
   const dayOnly = plan({
     events: [
-      { status: "FreeTime", activity: "ことみちゃんと雑貨屋を巡る", durationMinutes: 90, timeSlots: ["daytime"] },
+      { status: "FreeTime", activity: "ことみちゃんと雑貨屋を巡る", durationMinutes: 90, timeSlots: ["daytime"], place: "自室", placeKind: "home" },
     ],
   });
-  assert.equal(takePlannedEvent(dayOnly, "FreeTime", 23), undefined);
+  assert.equal(takePlannedEvent(dayOnly, "FreeTime", 23, true), undefined);
 });
 
 test("timeSlots が欠けた・不正な予定はいつでも可として読む", () => {
@@ -111,7 +120,7 @@ test("timeSlots が欠けた・不正な予定はいつでも可として読む"
     {
       events: [
         { status: "Relax", activity: "お茶を飲む", durationMinutes: 10 },
-        { status: "Relax", activity: "日記を書く", durationMinutes: 10, timeSlots: ["late", "night", "night"] },
+        { status: "Relax", activity: "日記を書く", durationMinutes: 10, timeSlots: ["late", "night", "night"], place: "自室", placeKind: "home" },
       ],
     },
     "2026-08-10",
@@ -127,6 +136,7 @@ test("予定生成で時間帯と、夜の自宅向けの予定を指示する",
     botDate: "2026-08-20",
     isWeekend: false,
     companion: "ことみちゃん",
+    outingPlaces: ["水族館", "古本屋"],
     whatDay: [],
     eventSamples: {},
     worksSection: "",
@@ -256,13 +266,14 @@ test("予定生成と描写の両方で、同行者の固定と学校のモル�
     botDate: "2026-08-20",
     isWeekend: false,
     companion: "ラテちゃん",
+    outingPlaces: ["水族館", "古本屋"],
     whatDay: [],
     eventSamples: {},
     worksSection: "",
   });
   const section = buildPlannedEventSection(
     plan({ companion: "モルフォ" }),
-    { status: "Study", activity: "教室で数学を勉強する", durationMinutes: 60, timeSlots: ["daytime"] },
+    { status: "Study", activity: "教室で数学を勉強する", durationMinutes: 60, timeSlots: ["daytime"], place: "自室", placeKind: "home" },
   );
 
   assert.match(prompt, /必ず「ラテちゃん」と出力/);
@@ -282,6 +293,7 @@ test("会話由来のテーマを検索由来作品とは別セクションで�
     botDate: "2026-08-22",
     isWeekend: true,
     companion: "ひとり",
+    outingPlaces: ["水族館", "古本屋"],
     whatDay: [],
     eventSamples: {},
     worksSection: "\n-----いま話題のもの-----\n作品A",
@@ -297,6 +309,7 @@ test("日次予定プロンプトはbotDateから曜日を確定する", () => {
     botDate: "2026-08-29",
     isWeekend: true,
     companion: "ひとり",
+    outingPlaces: ["水族館", "古本屋"],
     whatDay: ["焼き肉の日"],
     eventSamples: {},
     worksSection: "",
@@ -304,4 +317,137 @@ test("日次予定プロンプトはbotDateから曜日を確定する", () => {
 
   assert.match(prompt, /2026-08-29（土曜日・休日）/);
   assert.doesNotMatch(prompt, /金曜日/);
+});
+
+// --- 場所 ---
+
+const event = (overrides: Partial<PlannedEvent>): PlannedEvent => ({
+  status: "FreeTime",
+  activity: "予定",
+  durationMinutes: 30,
+  timeSlots: [...TIME_SLOTS],
+  place: "",
+  placeKind: "home",
+  ...overrides,
+});
+
+test("平日の日中は学校の予定だけを引く", () => {
+  // 以前は平日の昼に FreeTime が選ばれると、自宅でゲームをする描写になっていた。
+  const weekdayPlan = plan({
+    events: [
+      event({ activity: "自室でゲームする", placeKind: "home" }),
+      event({ activity: "昼休みに屋上でことみちゃんとおしゃべり", placeKind: "school" }),
+      event({ activity: "駅前の水族館に行く", placeKind: "outing" }),
+    ],
+  });
+  for (let i = 0; i < 20; i += 1) {
+    assert.equal(takePlannedEvent(weekdayPlan, "FreeTime", 12, false)?.index, 1);
+  }
+});
+
+test("平日の日中に学校の予定が無ければ undefined（予定なしの描写へ落ちる）", () => {
+  const homeOnly = plan({ events: [event({ placeKind: "home" }), event({ placeKind: "outing" })] });
+  assert.equal(takePlannedEvent(homeOnly, "FreeTime", 12, false), undefined);
+  assert.equal(takePlannedEvent(homeOnly, "Relax", 12, false), undefined);
+});
+
+test("学校の予定は休日と夜には引かない", () => {
+  const school = event({ placeKind: "school" });
+  assert.equal(isPlaceAllowed(school, "daytime", true), false);
+  assert.equal(isPlaceAllowed(school, "night", false), false);
+  assert.equal(isPlaceAllowed(school, "midnight", false), false);
+  // 朝練・部活は平日だけ。
+  assert.equal(isPlaceAllowed(school, "morning", false), true);
+  assert.equal(isPlaceAllowed(school, "evening", false), true);
+  assert.equal(isPlaceAllowed(school, "evening", true), false);
+});
+
+test("休日と平日の放課後は自宅・おでかけ先を引ける", () => {
+  assert.equal(isPlaceAllowed(event({ placeKind: "outing" }), "daytime", true), true);
+  assert.equal(isPlaceAllowed(event({ placeKind: "home" }), "evening", false), true);
+  assert.equal(isPlaceAllowed(event({ placeKind: "home" }), "daytime", false), false);
+});
+
+test("WakeUp と Sleep は平日の日中でも場所を問わない", () => {
+  // 寝坊して昼に起きる・夢の中、はどこでも成立する。
+  assert.equal(isPlaceAllowed(event({ status: "WakeUp", placeKind: "home" }), "daytime", false), true);
+  assert.equal(isPlaceAllowed(event({ status: "Sleep", placeKind: "outing" }), "daytime", false), true);
+});
+
+test("placeKind が不正なら outing として読み、place が無ければ空文字", () => {
+  const parsed = parseDailyPlan(
+    {
+      events: [
+        { status: "Relax", activity: "お茶を飲む", durationMinutes: 10, place: " 縁側 ", placeKind: "garden" },
+        { status: "Relax", activity: "日記を書く", durationMinutes: 10 },
+      ],
+    },
+    "2026-08-10",
+  );
+  assert.deepEqual(
+    parsed?.events.map((item) => [item.place, item.placeKind]),
+    [["縁側", "outing"], ["", "outing"]],
+  );
+});
+
+test("おでかけ先は候補から重複なく振り、前回の行き先は外す", () => {
+  const first = selectDailyOutingPlaces(undefined, () => 0);
+  assert.deepEqual(first, [DAILY_OUTING_PLACES[0], DAILY_OUTING_PLACES[1]]);
+
+  const next = selectDailyOutingPlaces({ outingPlaces: first }, () => 0);
+  assert.equal(next.length, 2);
+  assert.equal(next.some((place) => first.includes(place)), false);
+  assert.equal(new Set(next).size, 2);
+
+  // random() が 1 に張り付いても範囲外を引かない。
+  assert.equal(selectDailyOutingPlaces(undefined, () => 0.9999999).length, 2);
+});
+
+test("平日の学校の予定とおでかけ先の不足を指摘する", () => {
+  const events = [
+    event({ status: "Study", placeKind: "school", timeSlots: ["daytime"] }),
+    event({ status: "FreeTime", placeKind: "school", timeSlots: ["evening"] }),
+    event({ status: "Relax", placeKind: "home", timeSlots: ["daytime"] }),
+    event({ status: "FreeTime", placeKind: "outing", place: "駅ビルの水族館", timeSlots: ["evening"] }),
+  ];
+  assert.deepEqual(findPlanPlaceShortfalls(events, false, ["水族館", "古本屋"]), [
+    "FreeTime に、placeKind が school で daytime を含む行動がありません",
+    "Relax に、placeKind が school で daytime を含む行動がありません",
+    "今日のおでかけ先「古本屋」を place にした行動がありません",
+  ]);
+  // 休日は学校の予定を求めない。
+  assert.deepEqual(findPlanPlaceShortfalls(events, true, ["水族館"]), []);
+});
+
+test("予定生成で場所の区分・平日の学校・今日のおでかけ先を指示する", () => {
+  const input = {
+    botDate: "2026-08-20",
+    companion: "ひとり",
+    outingPlaces: ["水族館", "古本屋"],
+    whatDay: [],
+    eventSamples: {},
+    worksSection: "",
+  };
+  const weekday = buildDailyPlanPrompt({ ...input, isWeekend: false });
+  const dayOff = buildDailyPlanPrompt({ ...input, isWeekend: true });
+
+  assert.match(weekday, /"placeKind"/);
+  assert.match(weekday, /daytime（9〜17時）は学校にいる/);
+  assert.match(weekday, /休み時間・昼休みの過ごし方/);
+  assert.match(weekday, /今日のおでかけ先は「水族館」「古本屋」/);
+  assert.doesNotMatch(weekday, /school の行動は作らないこと/);
+  assert.match(dayOff, /school の行動は作らないこと/);
+  assert.doesNotMatch(dayOff, /daytime（9〜17時）は学校にいる/);
+});
+
+test("描写プロンプトに予定の場所を渡し、場所が無ければ行を出さない", () => {
+  const withPlace = buildPlannedEventSection(
+    plan(),
+    event({ activity: "イルカショーを見る", place: "駅ビルの水族館", placeKind: "outing" }),
+  );
+  assert.match(withPlace, /予定: イルカショーを見る\n  - 場所: 駅ビルの水族館/);
+
+  const withoutPlace = buildPlannedEventSection(plan(), event({ activity: "お茶を飲む" }));
+  assert.doesNotMatch(withoutPlace, /場所:/);
+  assert.match(withoutPlace, /予定: お茶を飲む\n  - 今日の主な同行者/);
 });

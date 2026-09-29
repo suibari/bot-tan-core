@@ -220,6 +220,12 @@ test("4時ちょうどからは翌 bot 日で、夜の時間帯からも外れ�
   assert.deepEqual(clock, { hour: 4, isWeekend: false, today: "2026-09-28" });
 });
 
+test("祝日は平日でも休日として扱う", () => {
+  // 2026-09-22（火）は敬老の日と秋分の日に挟まれた国民の休日。登校日にしない。
+  assert.equal(stepClock(new Date("2026-09-22T12:00:00+09:00")).isWeekend, true);
+  assert.equal(stepClock(new Date("2026-09-29T12:00:00+09:00")).isWeekend, false);
+});
+
 test("hour と曜日は JST で決まる", () => {
   // UTC では土曜 15:30、JST では日曜 0:30。
   const clock = stepClock(new Date("2026-09-26T15:30:00Z"));
