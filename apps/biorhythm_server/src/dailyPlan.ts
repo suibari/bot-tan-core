@@ -92,49 +92,121 @@ const isPlaceKind = (value: unknown): value is PlaceKind =>
 const SCHOOL_BOUND_STATUSES: ReadonlySet<Status> = new Set(["Study", "FreeTime", "Relax"]);
 
 /**
- * おでかけ先の候補。その日の行き先はここからコードで振る。
+ * おでかけ先の種類。step で予定を引くときの「出かけやすさ」を種類ごとに変える。
+ *
+ * - quietEasy: ひとりでも気軽に行ける（本屋・CDショップなど）。インドア派のおでかけ。
+ * - quietEffort: ひとりでも行けるが、人と接する場面が多く敷居が高い。元気が要る。
+ * - lively: にぎやかな遊び。誰かと一緒だと行きやすい。
+ * - active: 屋外で体を動かす。元気が無いとまず行かない。
+ */
+export const OUTING_STYLES = ["quietEasy", "quietEffort", "lively", "active"] as const;
+export type OutingStyle = (typeof OUTING_STYLES)[number];
+
+/**
+ * おでかけ先の候補と種類。その日の行き先はここからコードで振る。
  *
  * ローカルの 12B モデルに「いろんな場所へ」と頼んでも、自室・カフェ・公園に寄る。
  * 同行者と同じく、偏りはサイコロで崩す。季節を選ぶ場所（プール・スキー場など）は入れない。
  */
-export const DAILY_OUTING_PLACES = [
-  "遊園地",
-  "水族館",
-  "動物園",
-  "植物園",
-  "科学館",
-  "美術館",
-  "博物館",
-  "プラネタリウム",
-  "映画館",
-  "ゲームセンター",
-  "カラオケ",
-  "ボウリング場",
-  "バッティングセンター",
-  "ショッピングモール",
-  "商店街",
-  "本屋",
-  "古本屋",
-  "雑貨屋",
-  "手芸店",
-  "楽器店",
-  "アニメショップ",
-  "図書館",
-  "河川敷",
-  "海辺",
-  "ハイキングコース",
-  "神社",
-  "銭湯",
-  "駄菓子屋",
-  "純喫茶",
-  "パン屋",
-  "クレープ屋",
-  "回転寿司",
-  "猫カフェ",
-  "フリーマーケット",
-  "釣り堀",
-  "牧場",
-] as const;
+export const DAILY_OUTING_PLACE_STYLES = {
+  アニメイト: "quietEasy",
+  図書館: "quietEasy",
+  本屋: "quietEasy",
+  古本屋: "quietEasy",
+  雑貨屋: "quietEasy",
+  手芸店: "quietEasy",
+  楽器屋: "quietEasy",
+  パン屋: "quietEasy",
+  駄菓子屋: "quietEasy",
+  猫カフェ: "quietEasy",
+  CDショップ: "quietEasy",
+  レコード屋: "quietEasy",
+  中古ゲーム屋: "quietEasy",
+  文房具屋: "quietEasy",
+  画材屋: "quietEasy",
+  家電量販店: "quietEasy",
+  喫茶店: "quietEffort",
+  美術館: "quietEffort",
+  博物館: "quietEffort",
+  科学館: "quietEffort",
+  プラネタリウム: "quietEffort",
+  映画館: "quietEffort",
+  遊園地: "lively",
+  動物園: "lively",
+  水族館: "lively",
+  ゲームセンター: "lively",
+  カラオケ: "lively",
+  ボウリング場: "lively",
+  ショッピングモール: "lively",
+  商店街: "lively",
+  クレープ屋: "lively",
+  回転寿司: "lively",
+  フリーマーケット: "lively",
+  銭湯: "lively",
+  野球場: "lively",
+  河川敷: "active",
+  海辺: "active",
+  ハイキングコース: "active",
+  植物園: "active",
+  神社: "active",
+  釣り堀: "active",
+  牧場: "active",
+  バッティングセンター: "active",
+  聖地巡礼: "active",
+} as const satisfies Record<string, OutingStyle>;
+
+export const DAILY_OUTING_PLACES = Object.keys(DAILY_OUTING_PLACE_STYLES) as Array<
+  keyof typeof DAILY_OUTING_PLACE_STYLES
+>;
+
+/** 「本屋」が「古本屋」の中で当たらないよう、長い名前から照合する。 */
+const OUTING_PLACES_BY_LENGTH = [...DAILY_OUTING_PLACES].sort((a, b) => b.length - a.length);
+
+/**
+ * おでかけの予定がどの種類か。今日のおでかけ先を先に照合する
+ * （「聖地巡礼」の予定は place が「〇〇の舞台の商店街」のようになりうるため）。
+ * 一覧に無い身近な場所（コンビニ・近所の公園など）は quietEasy として扱う。
+ */
+export function outingStyleOf(
+  event: Pick<PlannedEvent, "place" | "activity">,
+  outingPlaces: readonly string[] = [],
+): OutingStyle {
+  const text = normalizeForMatch(`${event.place} ${event.activity}`);
+  const styles: Record<string, OutingStyle> = DAILY_OUTING_PLACE_STYLES;
+  for (const name of [...outingPlaces, ...OUTING_PLACES_BY_LENGTH]) {
+    const style = styles[name];
+    if (style && text.includes(normalizeForMatch(name))) return style;
+  }
+  return "quietEasy";
+}
+
+/**
+ * おでかけの予定1件の重み。とどまる側（自宅・学校）は合計1に対する比で効く。
+ *
+ * botたんはインドア派なので、元気（energy）と同行者の有無で外出しやすさを変える。
+ * energy は 15 以下で最小、50 以上で最大。本番の energy は 0〜60 にほぼ収まり、
+ * 中央値は35前後（2026-09-30 時点・直近14日）なので、その幅で効くように置いている。
+ *
+ * とどまる予定1件とおでかけ1件を比べたときのおでかけ率（ひとり 低→高 / 同行者あり 低→高）:
+ * - quietEasy:   29%→41% / 34%→48%
+ * - quietEffort:  9%→38% / 13%→47%
+ * - lively:       7%→32% / 19%→59%
+ * - active:       3%→35% /  6%→52%
+ */
+const OUTING_WEIGHTS: Record<OutingStyle, { base: number; slope: number; companion: number }> = {
+  quietEasy: { base: 0.4, slope: 0.3, companion: 1.3 },
+  quietEffort: { base: 0.1, slope: 0.5, companion: 1.5 },
+  lively: { base: 0.08, slope: 0.4, companion: 3 },
+  active: { base: 0.03, slope: 0.5, companion: 2 },
+};
+const ENERGY_LOW = 15;
+const ENERGY_HIGH = 50;
+
+export function outingWeight(style: OutingStyle, energy: number, withCompanion: boolean): number {
+  const t = Math.max(0, Math.min((energy - ENERGY_LOW) / (ENERGY_HIGH - ENERGY_LOW), 1));
+  const weight = OUTING_WEIGHTS[style];
+  return (weight.base + weight.slope * t) * (withCompanion ? weight.companion : 1);
+}
 
 const OUTING_PLACES_PER_DAY = 2;
 
@@ -208,6 +280,8 @@ export interface PlannedEvent {
   /** 具体的な場所の名前（例: 駅前の水族館）。描写の材料。 */
   place: string;
   placeKind: PlaceKind;
+  /** その日の companion が登場する予定か。おでかけの出やすさに効く。 */
+  withCompanion: boolean;
 }
 
 export interface DailyPlan {
@@ -266,6 +340,7 @@ export function parseDailyPlan(raw: unknown, botDate: string): DailyPlan | undef
           place: typeof event.place === "string" ? event.place.trim() : "",
           // 区分が読めない予定は outing として扱う。平日の日中には引かれない側へ倒れる。
           placeKind: isPlaceKind(event.placeKind) ? event.placeKind : "outing",
+          withCompanion: event.withCompanion === true,
         }))
         .filter((event) => event.activity.length > 0)
     : [];
@@ -305,12 +380,17 @@ export function isPlanFresh(
  *
  * 時間帯と場所は使い回しのときも外さない。今に合う予定が1件も無ければ undefined を返し、
  * 呼び出し側は予定なしのプロンプト（時間帯ごとの行動例つき）で描写する。
+ *
+ * 自宅・学校とおでかけの両方が候補にあるときは、energy と同行者で重みを付ける
+ * （pickWeightedEvent 参照）。
  */
 export function takePlannedEvent(
   plan: DailyPlan | undefined,
   status: Status,
   hour: number,
   isDayOff: boolean,
+  energy: number,
+  random: () => number = Math.random,
 ): { event: PlannedEvent; index: number } | undefined {
   if (!plan) return undefined;
   const slot = timeSlotForHour(hour);
@@ -330,7 +410,45 @@ export function takePlannedEvent(
   // 直前と同じ予定を避ける。候補がそれしか無ければ諦めてそのまま返す。
   const distinct = pool.filter((entry) => entry.index !== plan.lastEventIndex);
   const candidates = distinct.length > 0 ? distinct : pool;
-  return candidates[Math.floor(Math.random() * candidates.length)];
+  return pickWeightedEvent(candidates, plan.outingPlaces, energy, random);
+}
+
+/**
+ * とどまる側（自宅・学校）とおでかけ側を、まずどちらにするかで選び、次にその中から1件選ぶ。
+ *
+ * 2段にしているのは、LLM が書いた件数で比率が揺れないようにするため。とどまる側は合計1、
+ * おでかけ側は各予定の重みの平均で比べるので、おでかけが3件あっても外出率は3倍にならない。
+ * 片側しか無ければ、従来どおり等確率。
+ */
+function pickWeightedEvent<T extends { event: PlannedEvent }>(
+  candidates: T[],
+  outingPlaces: readonly string[],
+  energy: number,
+  random: () => number,
+): T {
+  const pickUniform = (items: T[]) =>
+    items[Math.min(Math.floor(random() * items.length), items.length - 1)];
+  const outings = candidates.filter((entry) => entry.event.placeKind === "outing");
+  const stays = candidates.filter((entry) => entry.event.placeKind !== "outing");
+  if (outings.length === 0 || stays.length === 0) return pickUniform(candidates);
+
+  const weights = outings.map((entry) =>
+    outingWeight(
+      outingStyleOf(entry.event, outingPlaces),
+      energy,
+      entry.event.withCompanion,
+    ),
+  );
+  const total = weights.reduce((sum, weight) => sum + weight, 0);
+  const outingShare = total / outings.length;
+  if (random() * (1 + outingShare) < 1) return pickUniform(stays);
+
+  let r = random() * total;
+  for (let i = 0; i < outings.length; i += 1) {
+    r -= weights[i];
+    if (r < 0) return outings[i];
+  }
+  return outings[outings.length - 1];
 }
 
 /**
@@ -406,8 +524,20 @@ const DAILY_PLAN_SCHEMA = {
             enum: [...PLACE_KINDS],
             description: "school=学校 / home=自宅 / outing=それ以外",
           },
+          withCompanion: {
+            type: Type.BOOLEAN,
+            description: "今日の companion に含まれる相手が登場する行動なら true",
+          },
         },
-        required: ["status", "activity", "durationMinutes", "timeSlots", "place", "placeKind"],
+        required: [
+          "status",
+          "activity",
+          "durationMinutes",
+          "timeSlots",
+          "place",
+          "placeKind",
+          "withCompanion",
+        ],
       },
     },
   },
@@ -443,6 +573,7 @@ export function buildDailyPlanPrompt(input: {
   - "timeSlots" はその行動をしてもおかしくない時間帯。${TIME_SLOTS.map((slot) => `${slot}（${TIME_SLOT_LABELS[slot]}）`).join(" / ")} から当てはまるものをすべて選ぶこと。
   - "place" はその行動をする場所を具体的に（「駅前の水族館」「自室のベッドの上」「教室の窓際の席」など）。
   - "placeKind" は place の区分。school（学校：教室・図書室・校庭・部室など）/ home（自宅）/ outing（それ以外のおでかけ先）のいずれか。
+  - "withCompanion" は、今日の companion に含まれる相手が登場する行動なら true、ひとりの行動なら false。
 
 # 時間帯のルール
 - どのステータスがいつ選ばれるかは決まっていない。botたんは夜更かしなので、FreeTime は夕方から深夜0時過ぎまで続くことがある。
@@ -459,6 +590,9 @@ ${input.isWeekend
 - Study・FreeTime・Relax の home と outing の行動に daytime を付けないこと（平日の昼は学校にいるため）。寝坊の WakeUp と夢の中の Sleep はこの限りではない。`}
 - 今日のおでかけ先は「${input.outingPlaces.join("」「")}」。それぞれを place にした outing の行動を1件以上作ること（${input.isWeekend ? "休日なので daytime が中心" : "平日なので放課後の evening が中心"}）。place は「遊園地」ではなく「隣町の遊園地」「駅ビルの水族館」のように、その場所を具体的に書くこと。
 - ほかの outing（コンビニ・近所の公園など身近な場所）を足してもよい。
+- botたんはインドア派。FreeTime には、おでかけ先の行動と同じ時間帯（${input.isWeekend ? "daytime" : "evening"}）に、${input.isWeekend ? "自宅（home）" : "自宅（home）か学校（school）"}で過ごす行動も1件以上入れること。出かけるかどうかは、その時の元気で決まる。
+- 野球場は観戦、聖地巡礼は好きな作品の舞台になった場所めぐりとして描くこと。${input.companion === "ひとり" ? "" : `
+- outing の行動には、companion と一緒のもの（withCompanion: true）と、ひとりで出かけるもの（withCompanion: false）の両方を入れること。`}
 
 # ルール
 - ステータスに合わない行動を混ぜないこと（Sleep は夢の中の出来事だけ、Study は勉強だけ）。
@@ -525,8 +659,10 @@ export function findPlanPlaceShortfalls(
   events: readonly PlannedEvent[],
   isDayOff: boolean,
   outingPlaces: readonly string[],
+  companion = "ひとり",
 ): string[] {
   const shortfalls: string[] = [];
+  const has = (predicate: (event: PlannedEvent) => boolean) => events.some(predicate);
   if (!isDayOff) {
     for (const status of SCHOOL_BOUND_STATUSES) {
       const hasSchoolDaytime = events.some(
@@ -545,6 +681,39 @@ export function findPlanPlaceShortfalls(
     const needle = normalizeForMatch(outing);
     if (!places.some((text) => text.includes(needle))) {
       shortfalls.push(`今日のおでかけ先「${outing}」を place にした行動がありません`);
+    }
+  }
+  for (const status of ["FreeTime", "Relax"] as const) {
+    const nightHome = events.filter(
+      (event) =>
+        event.status === status &&
+        event.placeKind === "home" &&
+        (event.timeSlots.includes("night") || event.timeSlots.includes("midnight")),
+    );
+    if (nightHome.length < 2) {
+      shortfalls.push(`${status} に、placeKind が home で night か midnight を含む行動が2件ありません`);
+    }
+  }
+  // おでかけの時間帯に「出かけない」選択肢が無いと、元気が無くても必ず外出してしまう。
+  const outingSlot: TimeSlot = isDayOff ? "daytime" : "evening";
+  if (
+    !has(
+      (event) =>
+        event.status === "FreeTime" &&
+        event.placeKind !== "outing" &&
+        event.timeSlots.includes(outingSlot) &&
+        isPlaceAllowed(event, outingSlot, isDayOff),
+    )
+  ) {
+    shortfalls.push(`FreeTime に、${outingSlot} を含む自宅${isDayOff ? "" : "か学校"}の行動がありません`);
+  }
+  if (companion !== "ひとり") {
+    const outings = events.filter((event) => event.placeKind === "outing");
+    if (!outings.some((event) => event.withCompanion)) {
+      shortfalls.push("companion と一緒の outing の行動（withCompanion: true）がありません");
+    }
+    if (!outings.some((event) => !event.withCompanion)) {
+      shortfalls.push("ひとりで出かける outing の行動（withCompanion: false）がありません");
     }
   }
   return shortfalls;
@@ -606,7 +775,13 @@ export async function ensureDailyPlan(
       });
       const parsed = parseDailyPlan(JSON.parse(response.text || "{}"), botDate);
       // schema とプロンプトに加えてコード側でも固定し、モデルの選択バイアスを残さない。
-      return parsed ? { ...parsed, companion, outingPlaces } : undefined;
+      if (!parsed) return undefined;
+      // 「ひとり」の日に同行者つきの予定が混ざると、おでかけの重みだけが上がってしまう。
+      const events =
+        companion === "ひとり"
+          ? parsed.events.map((event) => ({ ...event, withCompanion: false }))
+          : parsed.events;
+      return { ...parsed, companion, outingPlaces, events };
     };
 
     let plan = await generate(basePrompt);
@@ -619,7 +794,7 @@ export async function ensureDailyPlan(
     const memoryLabels = memoryImpressions.map((item) => item.label);
     const inspect = (candidate: DailyPlan) => ({
       generic: findGenericMediaEvents(candidate.events, works, memoryLabels),
-      shortfalls: findPlanPlaceShortfalls(candidate.events, isDayOff, outingPlaces),
+      shortfalls: findPlanPlaceShortfalls(candidate.events, isDayOff, outingPlaces, companion),
     });
     const countIssues = (issues: ReturnType<typeof inspect>) =>
       issues.generic.length + issues.shortfalls.length;
