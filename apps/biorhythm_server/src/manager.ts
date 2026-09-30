@@ -643,13 +643,12 @@ export class BiorhythmManager extends EventEmitter {
   }> {
     // 予定を引いてからプロンプトを組む。takePlannedEvent は候補からの乱択なので、
     // 「予定があるか」を知るために先に一度呼んで結果を使い回すこと（二度引くと別の予定になる）。
-    const picked = takePlannedEvent(
-      input.plan,
-      this.status,
-      input.hour,
-      input.isWeekend,
-      this.getEnergy,
-    );
+    const picked = takePlannedEvent(input.plan, this.status, {
+      hour: input.hour,
+      isDayOff: input.isWeekend,
+      energy: this.getEnergy,
+      weather: input.weather,
+    });
     if (picked) {
       console.log(
         `[INFO][BIORHYTHM] planned event: ${picked.event.place}（${picked.event.placeKind}${picked.event.placeKind === "outing" ? `/${outingStyleOf(picked.event, input.plan?.outingPlaces)}` : ""}${picked.event.withCompanion ? "/with companion" : ""}）`,
@@ -668,7 +667,7 @@ export class BiorhythmManager extends EventEmitter {
     );
     if (input.plan && picked) {
       // 消化を記録するのは生成に成功した回だけ。失敗した回の予定は次の step に残す。
-      await markPlannedEventUsed(input.plan, picked.index);
+      await markPlannedEventUsed(input.plan, picked.index, input.hour);
       return { ...result, duration_minutes: picked.event.durationMinutes };
     }
     return result;
