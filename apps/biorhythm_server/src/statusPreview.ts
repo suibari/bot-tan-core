@@ -37,6 +37,9 @@ import {
  * 注意: 日次予定表だけは bot_state を読み書きする（ensureDailyPlan）。
  */
 
+/** プレビューで描写とおでかけの重みに使う元気。 */
+const PREVIEW_ENERGY = 62;
+
 const PREVIEW_STATUSES: Status[] = ["WakeUp", "Study", "FreeTime", "Relax", "Sleep"];
 
 /** お部屋のできごとが混ざったときの挙動も見たいので、1件だけ用意する。 */
@@ -131,14 +134,14 @@ ${buildRoomEventsSection(input.roomEvents)}
 現在時刻：${getFullDateAndTimeString()}
 天候：晴れ
 ステータス：${input.status}
-体力気力（0～100）：62
+体力気力（0～100）：${PREVIEW_ENERGY}
 前回した行動：全肯定たんは、机に向かって課題のノートを開いています。
 ${buildPlannedEventSection(input.plan, input.event)}`;
 }
 
 async function previewStatus(plan: DailyPlan, status: Status, withRoomEvents: boolean) {
   const { hour, isWeekend } = stepClock(new Date());
-  const picked = takePlannedEvent(plan, status, hour, isWeekend);
+  const picked = takePlannedEvent(plan, status, hour, isWeekend, PREVIEW_ENERGY);
   console.log(`\n===== ${status}${withRoomEvents ? " (+ room gift)" : ""} =====`);
   if (!picked) {
     console.log("(予定表に、このステータスで今の時間帯に合うイベントがありません)");

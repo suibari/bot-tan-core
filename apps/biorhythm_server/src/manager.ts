@@ -29,6 +29,7 @@ import {
   buildPlannedEventSection,
   ensureDailyPlan,
   markPlannedEventUsed,
+  outingStyleOf,
   takePlannedEvent,
   type DailyPlan,
 } from "./dailyPlan.js";
@@ -642,7 +643,18 @@ export class BiorhythmManager extends EventEmitter {
   }> {
     // 予定を引いてからプロンプトを組む。takePlannedEvent は候補からの乱択なので、
     // 「予定があるか」を知るために先に一度呼んで結果を使い回すこと（二度引くと別の予定になる）。
-    const picked = takePlannedEvent(input.plan, this.status, input.hour, input.isWeekend);
+    const picked = takePlannedEvent(
+      input.plan,
+      this.status,
+      input.hour,
+      input.isWeekend,
+      this.getEnergy,
+    );
+    if (picked) {
+      console.log(
+        `[INFO][BIORHYTHM] planned event: ${picked.event.place}（${picked.event.placeKind}${picked.event.placeKind === "outing" ? `/${outingStyleOf(picked.event, input.plan?.outingPlaces)}` : ""}${picked.event.withCompanion ? "/with companion" : ""}）`,
+      );
+    }
     const result = await this.generateStatus(
       this.buildPrompt(
         getFullDateAndTimeString(),
