@@ -282,6 +282,8 @@ export interface PlannedEvent {
   placeKind: PlaceKind;
   /** その日の companion が登場する予定か。おでかけの出やすさに効く。 */
   withCompanion: boolean;
+  /** 屋外の行動か。雨や雪の日は引かない（isOutdoorEvent 参照）。 */
+  outdoor: boolean;
 }
 
 export interface DailyPlan {
@@ -296,6 +298,67 @@ export interface DailyPlan {
   usedEventIds: number[];
   /** 直前に選んだイベント。同じ行動を2回続けて描写しないためだけに持つ。 */
   lastEventIndex?: number;
+  /** その時間帯の区切りで、どこまで進んだか（placeStage 参照）。 */
+  placeProgress?: PlaceProgress;
+}
+
+/**
+ * 居場所の段階。予定は時間帯に合う候補からの乱択なので、放っておくと
+ * 「家で風呂に入ったあと、学校でことみちゃんと再会」（2026-09-30 の実例）のように居場所が戻る。
+ *
+ * - morning（4〜9時）: 家・おでかけ → 学校。朝練のあとに家へは戻らない。
+ * - afterSchool（17〜翌4時）: 学校 → おでかけ → 家。帰宅したらもう出かけない。
+ * - daytime は追わない。平日の昼は学校だけで、休日の昼はどこへ行っても自然なため。
+ *
+ * Sleep は夢の中の描写でも本人は家にいるので、家として数える。
+ */
+export type PlacePhase = "morning" | "afterSchool";
+export interface PlaceProgress {
+  phase: PlacePhase;
+  stage: number;
+}
+
+export function placePhaseOf(slot: TimeSlot): PlacePhase | undefined {
+  if (slot === "morning") return "morning";
+  if (slot === "daytime") return undefined;
+  return "afterSchool";
+}
+
+export function placeStage(
+  event: Pick<PlannedEvent, "status" | "placeKind">,
+  phase: PlacePhase,
+): number {
+  const kind = event.status === "Sleep" ? "home" : event.placeKind;
+  if (phase === "morning") return kind === "school" ? 1 : 0;
+  return kind === "school" ? 0 : kind === "outing" ? 1 : 2;
+}
+
+const isPlaceProgress = (value: unknown): value is PlaceProgress => {
+  if (!value || typeof value !== "object") return false;
+  const { phase, stage } = value as Record<string, unknown>;
+  return (phase === "morning" || phase === "afterSchool") && typeof stage === "number";
+};
+
+/**
+ * 屋外だと見分ける場所の語。LLM が outdoor を付け忘れたときの保険。
+ * 「公園のそばのカフェ」のような屋内も当たるが、雨の日に候補から外れるだけなので害は小さい。
+ */
+const OUTDOOR_PATTERN = /公園|校庭|屋上|グラウンド|河川敷|海辺|砂浜|ベランダ|散歩|ピクニック|ハイキング/;
+
+/** 屋外の予定か。WakeUp（起き抜け）と Sleep（夢の中）は天気に左右されない。 */
+export function isOutdoorEvent(
+  event: Pick<PlannedEvent, "status" | "place" | "activity" | "placeKind" | "outdoor">,
+  outingPlaces: readonly string[] = [],
+): boolean {
+  if (event.status === "WakeUp" || event.status === "Sleep") return false;
+  if (event.outdoor) return true;
+  if (event.placeKind === "outing" && outingStyleOf(event, outingPlaces) === "active") return true;
+  return OUTDOOR_PATTERN.test(`${event.place} ${event.activity}`);
+}
+
+/** 屋外の予定を避ける天気か。getYokohamaWeather の 雨・霧雨・にわか雨・雷雨・雪 が当たる。 */
+export function isBadWeather(weather: string | undefined): boolean {
+  return Boolean(weather && /雨|雪/.test(weather));
 }
 
 const clampDuration = (value: unknown): number => {
@@ -341,6 +404,7 @@ export function parseDailyPlan(raw: unknown, botDate: string): DailyPlan | undef
           // 区分が読めない予定は outing として扱う。平日の日中には引かれない側へ倒れる。
           placeKind: isPlaceKind(event.placeKind) ? event.placeKind : "outing",
           withCompanion: event.withCompanion === true,
+          outdoor: event.outdoor === true,
         }))
         .filter((event) => event.activity.length > 0)
     : [];
@@ -378,6 +442,9 @@ export function isPlanFresh(
  * 直前の判定に moodPrev（生成された描写文）を使わないのは、描写は予定文そのままではなく
  * 語尾も語彙も変わっているため。文字列一致では当たらないので、インデックスで持つ。
  *
+ * 居場所は placeProgress より前の段階へ戻さない（朝は 家 → 学校、放課後は 学校 → おでかけ → 家）。
+ * おでかけの予定は使い回さない。雨や雪の日は屋外の予定を引かない。
+ *
  * 時間帯と場所は使い回しのときも外さない。今に合う予定が1件も無ければ undefined を返し、
  * 呼び出し側は予定なしのプロンプト（時間帯ごとの行動例つき）で描写する。
  *
@@ -387,13 +454,16 @@ export function isPlanFresh(
 export function takePlannedEvent(
   plan: DailyPlan | undefined,
   status: Status,
-  hour: number,
-  isDayOff: boolean,
-  energy: number,
+  context: { hour: number; isDayOff: boolean; energy: number; weather?: string },
   random: () => number = Math.random,
 ): { event: PlannedEvent; index: number } | undefined {
   if (!plan) return undefined;
+  const { hour, isDayOff, energy } = context;
   const slot = timeSlotForHour(hour);
+  const phase = placePhaseOf(slot);
+  const minStage =
+    phase && plan.placeProgress?.phase === phase ? plan.placeProgress.stage : 0;
+  const avoidOutdoor = isBadWeather(context.weather);
   const used = new Set(plan.usedEventIds);
   const matching = plan.events
     .map((event, index) => ({ event, index }))
@@ -401,7 +471,11 @@ export function takePlannedEvent(
       (entry) =>
         entry.event.status === status &&
         entry.event.timeSlots.includes(slot) &&
-        isPlaceAllowed(entry.event, slot, isDayOff),
+        isPlaceAllowed(entry.event, slot, isDayOff) &&
+        (!phase || placeStage(entry.event, phase) >= minStage) &&
+        // 同じおでかけ先へ1日に2回行くことになるので、おでかけだけは使い回さない。
+        !(used.has(entry.index) && entry.event.placeKind === "outing" && entry.event.status !== "Sleep") &&
+        !(avoidOutdoor && isOutdoorEvent(entry.event, plan.outingPlaces)),
     );
   if (matching.length === 0) return undefined;
 
@@ -528,6 +602,10 @@ const DAILY_PLAN_SCHEMA = {
             type: Type.BOOLEAN,
             description: "今日の companion に含まれる相手が登場する行動なら true",
           },
+          outdoor: {
+            type: Type.BOOLEAN,
+            description: "屋外で過ごす行動なら true（公園・校庭・河川敷など）",
+          },
         },
         required: [
           "status",
@@ -537,6 +615,7 @@ const DAILY_PLAN_SCHEMA = {
           "place",
           "placeKind",
           "withCompanion",
+          "outdoor",
         ],
       },
     },
@@ -574,6 +653,7 @@ export function buildDailyPlanPrompt(input: {
   - "place" はその行動をする場所を具体的に（「駅前の水族館」「自室のベッドの上」「教室の窓際の席」など）。
   - "placeKind" は place の区分。school（学校：教室・図書室・校庭・部室など）/ home（自宅）/ outing（それ以外のおでかけ先）のいずれか。
   - "withCompanion" は、今日の companion に含まれる相手が登場する行動なら true、ひとりの行動なら false。
+  - "outdoor" は、屋外で過ごす行動（公園・校庭・屋上・河川敷・散歩など）なら true、屋内なら false。雨や雪の日は屋外の行動が選ばれなくなる。
 
 # 時間帯のルール
 - どのステータスがいつ選ばれるかは決まっていない。botたんは夜更かしなので、FreeTime は夕方から深夜0時過ぎまで続くことがある。
@@ -630,6 +710,7 @@ async function loadPlan(): Promise<DailyPlan | undefined> {
     ...(typeof value.lastEventIndex === "number"
       ? { lastEventIndex: value.lastEventIndex }
       : {}),
+    ...(isPlaceProgress(value.placeProgress) ? { placeProgress: value.placeProgress } : {}),
   };
 }
 
@@ -637,13 +718,26 @@ export async function savePlan(plan: DailyPlan): Promise<void> {
   await MemoryService.setBotState(DAILY_PLAN_STATE_KEY, plan);
 }
 
-/** 消化済みを記録する。取り出しと分けているのは、生成に成功した回だけ消費したいため。 */
+/**
+ * 消化済みを記録する。取り出しと分けているのは、生成に成功した回だけ消費したいため。
+ * あわせて居場所の段階を進める（区切りが変わっていれば、その区切りの最初から数え直す）。
+ */
+export function recordPlannedEventUsed(plan: DailyPlan, index: number, hour: number): void {
+  if (!plan.usedEventIds.includes(index)) plan.usedEventIds.push(index);
+  plan.lastEventIndex = index;
+  const event = plan.events[index];
+  const phase = placePhaseOf(timeSlotForHour(hour));
+  if (!event || !phase) return;
+  const previous = plan.placeProgress?.phase === phase ? plan.placeProgress.stage : 0;
+  plan.placeProgress = { phase, stage: Math.max(previous, placeStage(event, phase)) };
+}
+
 export async function markPlannedEventUsed(
   plan: DailyPlan,
   index: number,
+  hour: number,
 ): Promise<void> {
-  if (!plan.usedEventIds.includes(index)) plan.usedEventIds.push(index);
-  plan.lastEventIndex = index;
+  recordPlannedEventUsed(plan, index, hour);
   await savePlan(plan);
 }
 
@@ -865,6 +959,7 @@ ${first.shortfalls.map((line) => `  - ${line}`).join("\n")}
       botDate,
       usedEventIds: [],
       lastEventIndex: undefined,
+      placeProgress: undefined,
     };
     await savePlan(carried).catch(() => {});
     return carried;

@@ -7,12 +7,15 @@ import {
   DAILY_OUTING_PLACE_STYLES,
   DAILY_OUTING_PLACES,
   findPlanPlaceShortfalls,
+  isBadWeather,
+  isOutdoorEvent,
   isPlaceAllowed,
   isPlanFresh,
   OUTING_STYLES,
   outingStyleOf,
   outingWeight,
   parseDailyPlan,
+  recordPlannedEventUsed,
   selectDailyCompanion,
   selectDailyOutingPlaces,
   takePlannedEvent,
@@ -29,32 +32,32 @@ const plan = (overrides: Partial<DailyPlan> = {}): DailyPlan => ({
   outingPlaces: ["水族館"],
   moodDirection: "のんびりしたい気分",
   events: [
-    { status: "FreeTime", activity: "蒼穹のカノンの最新話を見る", durationMinutes: 45, timeSlots: [...TIME_SLOTS], place: "自室", placeKind: "home", withCompanion: false },
-    { status: "FreeTime", activity: "モルフォと散歩する", durationMinutes: 30, timeSlots: [...TIME_SLOTS], place: "自室", placeKind: "home", withCompanion: false },
-    { status: "Study", activity: "数学の課題をやる", durationMinutes: 60, timeSlots: [...TIME_SLOTS], place: "自室", placeKind: "home", withCompanion: false },
+    { status: "FreeTime", activity: "蒼穹のカノンの最新話を見る", durationMinutes: 45, timeSlots: [...TIME_SLOTS], place: "自室", placeKind: "home", withCompanion: false, outdoor: false },
+    { status: "FreeTime", activity: "モルフォと散歩する", durationMinutes: 30, timeSlots: [...TIME_SLOTS], place: "自室", placeKind: "home", withCompanion: false, outdoor: false },
+    { status: "Study", activity: "数学の課題をやる", durationMinutes: 60, timeSlots: [...TIME_SLOTS], place: "自室", placeKind: "home", withCompanion: false, outdoor: false },
   ],
   usedEventIds: [],
   ...overrides,
 });
 
 test("ステータスに合うイベントだけを返す", () => {
-  const picked = takePlannedEvent(plan(), "Study", 20, true, 35);
+  const picked = takePlannedEvent(plan(), "Study", { hour: 20, isDayOff: true, energy: 35 });
   assert.equal(picked?.event.activity, "数学の課題をやる");
   assert.equal(picked?.index, 2);
 });
 
 test("そのステータスのイベントが無ければ undefined（Geminiフォールバックに落ちる）", () => {
-  assert.equal(takePlannedEvent(plan(), "Sleep", 20, true, 35), undefined);
-  assert.equal(takePlannedEvent(undefined, "Study", 20, true, 35), undefined);
+  assert.equal(takePlannedEvent(plan(), "Sleep", { hour: 20, isDayOff: true, energy: 35 }), undefined);
+  assert.equal(takePlannedEvent(undefined, "Study", { hour: 20, isDayOff: true, energy: 35 }), undefined);
 });
 
 test("未消化を優先して選ぶ", () => {
-  const picked = takePlannedEvent(plan({ usedEventIds: [0] }), "FreeTime", 20, true, 35);
+  const picked = takePlannedEvent(plan({ usedEventIds: [0] }), "FreeTime", { hour: 20, isDayOff: true, energy: 35 });
   assert.equal(picked?.index, 1);
 });
 
 test("未消化が尽きたら消化済みを再利用する", () => {
-  const picked = takePlannedEvent(plan({ usedEventIds: [0, 1, 2] }), "FreeTime", 20, true, 35);
+  const picked = takePlannedEvent(plan({ usedEventIds: [0, 1, 2] }), "FreeTime", { hour: 20, isDayOff: true, energy: 35 });
   assert.ok(picked);
   assert.ok([0, 1].includes(picked.index));
 });
@@ -64,9 +67,7 @@ test("直前に選んだ予定は選ばない", () => {
   const picked = takePlannedEvent(
     plan({ usedEventIds: [0, 1], lastEventIndex: 0 }),
     "FreeTime",
-    20,
-    true,
-    35,
+    { hour: 20, isDayOff: true, energy: 35 },
   );
   assert.equal(picked?.index, 1);
 });
@@ -75,15 +76,13 @@ test("候補が1件しか無ければ直前と同じでもそれを返す", () =
   const picked = takePlannedEvent(
     plan({
       events: [
-        { status: "Study", activity: "数学の課題をやる", durationMinutes: 60, timeSlots: [...TIME_SLOTS], place: "自室", placeKind: "home", withCompanion: false },
+        { status: "Study", activity: "数学の課題をやる", durationMinutes: 60, timeSlots: [...TIME_SLOTS], place: "自室", placeKind: "home", withCompanion: false, outdoor: false },
       ],
       usedEventIds: [0],
       lastEventIndex: 0,
     }),
     "Study",
-    20,
-    true,
-    35,
+    { hour: 20, isDayOff: true, energy: 35 },
   );
   assert.equal(picked?.event.activity, "数学の課題をやる");
 });
@@ -99,26 +98,26 @@ test("今の時間帯に合わない予定は、使い回しのときも選ば�
   // 2026-09-28: FreeTime の5件を夕方までに使い切り、23時に「カフェで新作スイーツ」を再利用した。
   const nightPlan = plan({
     events: [
-      { status: "FreeTime", activity: "ことみちゃんとカフェで新作スイーツを食べる", durationMinutes: 60, timeSlots: ["daytime", "evening"], place: "自室", placeKind: "home", withCompanion: false },
-      { status: "FreeTime", activity: "自室で蒼穹のカノンの最新話を見る", durationMinutes: 45, timeSlots: ["evening", "night", "midnight"], place: "自室", placeKind: "home", withCompanion: false },
+      { status: "FreeTime", activity: "ことみちゃんとカフェで新作スイーツを食べる", durationMinutes: 60, timeSlots: ["daytime", "evening"], place: "自室", placeKind: "home", withCompanion: false, outdoor: false },
+      { status: "FreeTime", activity: "自室で蒼穹のカノンの最新話を見る", durationMinutes: 45, timeSlots: ["evening", "night", "midnight"], place: "自室", placeKind: "home", withCompanion: false, outdoor: false },
     ],
     usedEventIds: [0, 1],
     lastEventIndex: 1,
   });
 
   for (let i = 0; i < 20; i += 1) {
-    assert.equal(takePlannedEvent(nightPlan, "FreeTime", 23, true, 35)?.index, 1);
+    assert.equal(takePlannedEvent(nightPlan, "FreeTime", { hour: 23, isDayOff: true, energy: 35 })?.index, 1);
   }
-  assert.equal(takePlannedEvent(nightPlan, "FreeTime", 15, true, 35)?.index, 0);
+  assert.equal(takePlannedEvent(nightPlan, "FreeTime", { hour: 15, isDayOff: true, energy: 35 })?.index, 0);
 });
 
 test("今の時間帯に合う予定が無ければ undefined（予定なしの描写へ落ちる）", () => {
   const dayOnly = plan({
     events: [
-      { status: "FreeTime", activity: "ことみちゃんと雑貨屋を巡る", durationMinutes: 90, timeSlots: ["daytime"], place: "自室", placeKind: "home", withCompanion: false },
+      { status: "FreeTime", activity: "ことみちゃんと雑貨屋を巡る", durationMinutes: 90, timeSlots: ["daytime"], place: "自室", placeKind: "home", withCompanion: false, outdoor: false },
     ],
   });
-  assert.equal(takePlannedEvent(dayOnly, "FreeTime", 23, true, 35), undefined);
+  assert.equal(takePlannedEvent(dayOnly, "FreeTime", { hour: 23, isDayOff: true, energy: 35 }), undefined);
 });
 
 test("timeSlots が欠けた・不正な予定はいつでも可として読む", () => {
@@ -126,7 +125,7 @@ test("timeSlots が欠けた・不正な予定はいつでも可として読む"
     {
       events: [
         { status: "Relax", activity: "お茶を飲む", durationMinutes: 10 },
-        { status: "Relax", activity: "日記を書く", durationMinutes: 10, timeSlots: ["late", "night", "night"], place: "自室", placeKind: "home", withCompanion: false },
+        { status: "Relax", activity: "日記を書く", durationMinutes: 10, timeSlots: ["late", "night", "night"], place: "自室", placeKind: "home", withCompanion: false, outdoor: false },
       ],
     },
     "2026-08-10",
@@ -279,7 +278,7 @@ test("予定生成と描写の両方で、同行者の固定と学校のモル�
   });
   const section = buildPlannedEventSection(
     plan({ companion: "モルフォ" }),
-    { status: "Study", activity: "教室で数学を勉強する", durationMinutes: 60, timeSlots: ["daytime"], place: "自室", placeKind: "home", withCompanion: false },
+    { status: "Study", activity: "教室で数学を勉強する", durationMinutes: 60, timeSlots: ["daytime"], place: "自室", placeKind: "home", withCompanion: false, outdoor: false },
   );
 
   assert.match(prompt, /必ず「ラテちゃん」と出力/);
@@ -335,6 +334,7 @@ const event = (overrides: Partial<PlannedEvent>): PlannedEvent => ({
   place: "",
   placeKind: "home",
   withCompanion: false,
+  outdoor: false,
   ...overrides,
 });
 
@@ -348,14 +348,147 @@ test("平日の日中は学校の予定だけを引く", () => {
     ],
   });
   for (let i = 0; i < 20; i += 1) {
-    assert.equal(takePlannedEvent(weekdayPlan, "FreeTime", 12, false, 35)?.index, 1);
+    assert.equal(takePlannedEvent(weekdayPlan, "FreeTime", { hour: 12, isDayOff: false, energy: 35 })?.index, 1);
+  }
+});
+
+const WEEKDAY = { isDayOff: false, energy: 35 };
+
+test("放課後に一度帰宅したら、その日はもう学校にもおでかけにも行かない", () => {
+  // 2026-09-30 に「家で風呂に入ったあと、学校でことみちゃんと再会」を描写した。
+  const afterSchool = plan({
+    events: [
+      event({ status: "Relax", activity: "お風呂に入る", placeKind: "home" }),
+      event({ activity: "放課後の教室でことみちゃんとおしゃべり", placeKind: "school", timeSlots: ["daytime", "evening"] }),
+      event({ activity: "自室で漫画を読む", placeKind: "home" }),
+      event({ activity: "駅前の本屋に寄る", placeKind: "outing", timeSlots: ["evening"] }),
+    ],
+  });
+  recordPlannedEventUsed(afterSchool, 0, 18);
+  assert.deepEqual(afterSchool.placeProgress, { phase: "afterSchool", stage: 2 });
+  for (let i = 0; i < 20; i += 1) {
+    assert.equal(takePlannedEvent(afterSchool, "FreeTime", { hour: 19, ...WEEKDAY }, () => i / 20)?.index, 2);
+  }
+});
+
+test("放課後は 学校 → おでかけ の順には進めるが、おでかけから学校へは戻らない", () => {
+  const events = [
+    event({ activity: "部室で練習", placeKind: "school", timeSlots: ["evening"] }),
+    event({ activity: "駅前の本屋に寄る", placeKind: "outing", timeSlots: ["evening"] }),
+  ];
+  const fromSchool = plan({ events });
+  recordPlannedEventUsed(fromSchool, 0, 17);
+  assert.deepEqual(fromSchool.placeProgress, { phase: "afterSchool", stage: 0 });
+  assert.equal(takePlannedEvent(fromSchool, "FreeTime", { hour: 18, ...WEEKDAY }, () => 0.99)?.index, 1);
+
+  const fromOuting = plan({ events });
+  recordPlannedEventUsed(fromOuting, 1, 17);
+  for (let i = 0; i < 20; i += 1) {
+    assert.equal(takePlannedEvent(fromOuting, "FreeTime", { hour: 18, ...WEEKDAY }, () => i / 20), undefined);
+  }
+});
+
+test("夕方に Sleep を消化したら家にいる扱いになる", () => {
+  const nap = plan({
+    events: [
+      event({ status: "Sleep", activity: "夢の中で空を飛ぶ", placeKind: "outing" }),
+      event({ activity: "部室で練習", placeKind: "school", timeSlots: ["evening"] }),
+    ],
+  });
+  recordPlannedEventUsed(nap, 0, 18);
+  assert.deepEqual(nap.placeProgress, { phase: "afterSchool", stage: 2 });
+  assert.equal(takePlannedEvent(nap, "FreeTime", { hour: 19, ...WEEKDAY }), undefined);
+});
+
+test("朝は 家 → 学校 に進めるが、朝練のあとに家へは戻らない", () => {
+  const events = [
+    event({ activity: "自室で朝ごはん", placeKind: "home", timeSlots: ["morning"] }),
+    event({ activity: "朝練で体育館を走る", placeKind: "school", timeSlots: ["morning"] }),
+  ];
+  const fromHome = plan({ events });
+  recordPlannedEventUsed(fromHome, 0, 6);
+  assert.equal(takePlannedEvent(fromHome, "FreeTime", { hour: 7, ...WEEKDAY })?.index, 1);
+
+  const fromSchool = plan({ events });
+  recordPlannedEventUsed(fromSchool, 1, 6);
+  for (let i = 0; i < 20; i += 1) {
+    assert.equal(takePlannedEvent(fromSchool, "FreeTime", { hour: 7, ...WEEKDAY }, () => i / 20)?.index, 1);
+  }
+});
+
+test("区切りが変われば居場所の段階は数え直す（朝の家・日中は放課後を縛らない）", () => {
+  const day = plan({
+    events: [
+      event({ status: "WakeUp", activity: "寝坊して飛び起きる", placeKind: "home" }),
+      event({ activity: "放課後の教室でことみちゃんとおしゃべり", placeKind: "school", timeSlots: ["evening"] }),
+    ],
+  });
+  recordPlannedEventUsed(day, 0, 7);
+  assert.deepEqual(day.placeProgress, { phase: "morning", stage: 0 });
+  recordPlannedEventUsed(day, 0, 11);
+  assert.deepEqual(day.placeProgress, { phase: "morning", stage: 0 });
+  assert.equal(takePlannedEvent(day, "FreeTime", { hour: 18, ...WEEKDAY })?.index, 1);
+});
+
+test("消化済みのおでかけ予定は使い回さないが、家の予定は使い回す", () => {
+  const outings = plan({
+    events: [
+      event({ activity: "隣町の水族館へ行く", placeKind: "outing", timeSlots: ["daytime"] }),
+      event({ activity: "自室でゲームする", placeKind: "home", timeSlots: ["daytime"] }),
+    ],
+    usedEventIds: [0, 1],
+  });
+  for (let i = 0; i < 20; i += 1) {
+    assert.equal(takePlannedEvent(outings, "FreeTime", { hour: 13, isDayOff: true, energy: 60 }, () => i / 20)?.index, 1);
+  }
+});
+
+test("雨や雪の日は屋外の予定を引かない", () => {
+  const rainy = plan({
+    events: [
+      event({ activity: "近所の公園でブランコ", placeKind: "outing", timeSlots: ["daytime"] }),
+      event({ activity: "駅前の本屋で立ち読み", placeKind: "outing", timeSlots: ["daytime"] }),
+    ],
+  });
+  for (const weather of ["雨", "霧雨", "にわか雨", "雷雨", "雪"]) {
+    for (let i = 0; i < 10; i += 1) {
+      assert.equal(takePlannedEvent(rainy, "FreeTime", { hour: 13, isDayOff: true, energy: 35, weather }, () => i / 10)?.index, 1);
+    }
+  }
+  const seen = new Set<number | undefined>();
+  for (let i = 0; i < 10; i += 1) {
+    seen.add(takePlannedEvent(rainy, "FreeTime", { hour: 13, isDayOff: true, energy: 35, weather: "曇り" }, () => i / 10)?.index);
+  }
+  assert.deepEqual([...seen].sort(), [0, 1]);
+});
+
+test("雨の日に屋外の予定しか無ければ undefined（予定なしの描写へ落ちる）", () => {
+  const outdoorOnly = plan({ events: [event({ activity: "校庭でお昼", placeKind: "school", timeSlots: ["daytime"] })] });
+  assert.equal(takePlannedEvent(outdoorOnly, "FreeTime", { hour: 12, ...WEEKDAY, weather: "雨" }), undefined);
+  assert.equal(takePlannedEvent(outdoorOnly, "FreeTime", { hour: 12, ...WEEKDAY, weather: "晴れ" })?.index, 0);
+});
+
+test("屋外の判定はフラグ・体を動かすおでかけ先・場所の語で行い、起床と夢は含めない", () => {
+  assert.equal(isOutdoorEvent(event({ activity: "ベンチで休む", outdoor: true })), true);
+  assert.equal(isOutdoorEvent(event({ activity: "河川敷を歩く", placeKind: "outing" })), true);
+  assert.equal(isOutdoorEvent(event({ activity: "海辺で貝殻拾い", placeKind: "outing" }), ["海辺"]), true);
+  assert.equal(isOutdoorEvent(event({ activity: "屋上でパンを食べる", placeKind: "school" })), true);
+  assert.equal(isOutdoorEvent(event({ activity: "教室で読書", placeKind: "school" })), false);
+  assert.equal(isOutdoorEvent(event({ status: "Sleep", activity: "夢の中で公園を走る", outdoor: true })), false);
+  assert.equal(isOutdoorEvent(event({ status: "WakeUp", activity: "ベランダで伸び", outdoor: true })), false);
+});
+
+test("悪天候の判定", () => {
+  for (const weather of ["雨", "霧雨", "にわか雨", "雷雨", "雪"]) assert.equal(isBadWeather(weather), true);
+  for (const weather of ["快晴", "晴れ", "晴れ時々曇り", "曇り", "霧", "不明", "", undefined]) {
+    assert.equal(isBadWeather(weather), false);
   }
 });
 
 test("平日の日中に学校の予定が無ければ undefined（予定なしの描写へ落ちる）", () => {
   const homeOnly = plan({ events: [event({ placeKind: "home" }), event({ placeKind: "outing" })] });
-  assert.equal(takePlannedEvent(homeOnly, "FreeTime", 12, false, 35), undefined);
-  assert.equal(takePlannedEvent(homeOnly, "Relax", 12, false, 35), undefined);
+  assert.equal(takePlannedEvent(homeOnly, "FreeTime", { hour: 12, isDayOff: false, energy: 35 }), undefined);
+  assert.equal(takePlannedEvent(homeOnly, "Relax", { hour: 12, isDayOff: false, energy: 35 }), undefined);
 });
 
 test("学校の予定は休日と夜には引かない", () => {
@@ -395,6 +528,19 @@ test("placeKind が不正なら outing として読み、place が無ければ�
     parsed?.events.map((item) => [item.place, item.placeKind]),
     [["縁側", "outing"], ["", "outing"]],
   );
+});
+
+test("outdoor が無い既存の予定表は屋内として読む", () => {
+  const parsed = parseDailyPlan(
+    {
+      events: [
+        { status: "FreeTime", activity: "公園でバドミントン", durationMinutes: 30, outdoor: true },
+        { status: "FreeTime", activity: "自室で読書", durationMinutes: 30 },
+      ],
+    },
+    "2026-08-10",
+  );
+  assert.deepEqual(parsed?.events.map((item) => item.outdoor), [true, false]);
 });
 
 test("おでかけ先は候補から重複なく振り、前回の行き先は外す", () => {
@@ -459,7 +605,7 @@ test("夜の自宅の予定と、おでかけしない選択肢の不足を指�
 test("同行者がいる日は、同行者ありとひとりのおでかけを両方求める", () => {
   const base = [...nightHome, event({ status: "FreeTime", placeKind: "home", timeSlots: ["daytime"] })];
   const together = event({ status: "FreeTime", placeKind: "outing", place: "水族館", withCompanion: true });
-  const alone = event({ status: "FreeTime", placeKind: "outing", place: "本屋", withCompanion: false });
+  const alone = event({ status: "FreeTime", placeKind: "outing", place: "本屋", withCompanion: false, outdoor: false });
   assert.deepEqual(findPlanPlaceShortfalls([...base, together], true, [], "ことみちゃん"), [
     "ひとりで出かける outing の行動（withCompanion: false）がありません",
   ]);
@@ -519,7 +665,7 @@ const sequence = (...values: number[]) => {
 const outingRate = (target: DailyPlan, energy: number, runs = 4000) => {
   let outings = 0;
   for (let i = 0; i < runs; i += 1) {
-    const picked = takePlannedEvent(target, "FreeTime", 15, true, energy, sequence(i / runs, 0.5, 0.5));
+    const picked = takePlannedEvent(target, "FreeTime", { hour: 15, isDayOff: true, energy: energy }, sequence(i / runs, 0.5, 0.5));
     if (picked?.event.placeKind === "outing") outings += 1;
   }
   return outings / runs;
@@ -558,8 +704,8 @@ test("片側しか候補が無ければ、重みを付けずに等確率で選�
       event({ place: "海辺", placeKind: "outing" }),
     ],
   });
-  assert.equal(takePlannedEvent(outingsOnly, "FreeTime", 15, true, 0, () => 0)?.index, 0);
-  assert.equal(takePlannedEvent(outingsOnly, "FreeTime", 15, true, 0, () => 0.99)?.index, 1);
+  assert.equal(takePlannedEvent(outingsOnly, "FreeTime", { hour: 15, isDayOff: true, energy: 0 }, () => 0)?.index, 0);
+  assert.equal(takePlannedEvent(outingsOnly, "FreeTime", { hour: 15, isDayOff: true, energy: 0 }, () => 0.99)?.index, 1);
 });
 
 test("予定生成で場所の区分・平日の学校・今日のおでかけ先を指示する", () => {

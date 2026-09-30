@@ -141,7 +141,11 @@ ${buildPlannedEventSection(input.plan, input.event)}`;
 
 async function previewStatus(plan: DailyPlan, status: Status, withRoomEvents: boolean) {
   const { hour, isWeekend } = stepClock(new Date());
-  const picked = takePlannedEvent(plan, status, hour, isWeekend, PREVIEW_ENERGY);
+  const picked = takePlannedEvent(plan, status, {
+    hour,
+    isDayOff: isWeekend,
+    energy: PREVIEW_ENERGY,
+  });
   console.log(`\n===== ${status}${withRoomEvents ? " (+ room gift)" : ""} =====`);
   if (!picked) {
     console.log("(予定表に、このステータスで今の時間帯に合うイベントがありません)");
