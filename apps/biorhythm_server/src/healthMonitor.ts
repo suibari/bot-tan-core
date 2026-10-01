@@ -395,6 +395,79 @@ export function jetstreamEndpointPart(
   };
 }
 
+/** botたんの書き込みが Jetstream から届くまでの遅れが、これを超えたら注意表示にする。 */
+const BOT_WRITE_LAG_WARN_MS = 60_000;
+
+const minutes = (ms: number) => Math.max(1, Math.round(ms / 60_000));
+
+/**
+ * AppView の Jetstream が実際に追いついているか。
+ *
+ * 接続の生死（servicePart）だけでは「繋がっているが数十分遅れて配っている」状態を
+ * 見逃す（2026-10-01 に約52分）。AppView は botたんの書き込みを目印に、取り込み依頼から
+ * Jetstream 到着までの時間を測ってハートビートに載せているので、それを出す。
+ * 最後に測った値なので、回復後もしばらく遅れが残って見えることがある。down にはしない。
+ */
+export function appviewDeliveryLagPart(
+  record: HeartbeatRecord | undefined,
+): HealthPart {
+  const name = "AppView 配送遅延";
+  const detail = record?.detail ?? {};
+  const pending = Number(detail.oldestPendingMs);
+  const lag = Number(detail.lastBotWriteLagMs);
+  if (Number.isFinite(pending) && pending > BOT_WRITE_LAG_WARN_MS) {
+    return {
+      name,
+      state: "stale",
+      lastError: `botたんの書き込みが${minutes(pending)}分届いていません`,
+    };
+  }
+  if (!Number.isFinite(lag)) return { name, state: "unknown" };
+  if (lag > BOT_WRITE_LAG_WARN_MS) {
+    return {
+      name,
+      state: "stale",
+      lastError: `直近のbotたんの書き込みは${minutes(lag)}分遅れて届きました`,
+    };
+  }
+  return {
+    name,
+    state: "ok",
+    ...(typeof detail.lastBotWriteSeenAt === "string"
+      ? { lastOkAt: detail.lastBotWriteSeenAt }
+      : {}),
+  };
+}
+
+/**
+ * 投稿済みなのに AppView に載っていない botたんの返信。
+ *
+ * 返信は投稿直後に取り込みを依頼するので通常は0件。AppView のワーカーが見つけ次第
+ * 回収するが、0 でないこと自体が即時反映の経路の故障を示すので注意表示にする。
+ */
+export function botReplyIndexPart(
+  record: HeartbeatRecord | undefined,
+): HealthPart {
+  const name = "botたん返信の反映";
+  const count = Number(record?.detail?.unindexedBotReplies);
+  if (!Number.isFinite(count)) return { name, state: "unknown" };
+  if (count === 0) {
+    return {
+      name,
+      state: "ok",
+      ...(record?.lastOkAt ? { lastOkAt: record.lastOkAt } : {}),
+    };
+  }
+  const oldest = Number(record?.detail?.oldestUnindexedReplyMs);
+  return {
+    name,
+    state: "stale",
+    lastError:
+      `${count}件が AppView に未反映` +
+      (Number.isFinite(oldest) ? `（最古 ${minutes(oldest)}分前）` : ""),
+  };
+}
+
 const tile = (parts: HealthPart[]): HealthTileStatus => ({
   state: worstState(parts.map((part) => part.state)),
   parts,
@@ -487,12 +560,14 @@ export async function buildHealthSnapshot(): Promise<HealthSnapshot> {
       upstreamPart([bskyStream, nagiStream, appviewStream]),
       jetstreamActivityPart(get("jetstream-bsky")),
       jetstreamEndpointPart(get("jetstream-appview")),
+      appviewDeliveryLagPart(get("jetstream-appview")),
       partFromProbe("PDS → Relay", repoRelayProbe),
     ]),
     botServer: tile([
       servicePart("Bluesky botたん", get("bsky-bot"), get("jetstream-bsky")),
       servicePart("Nagi botたん", get("nagi-bot"), get("jetstream-nagi")),
       servicePart("Nagi AppView", get("nagi-appview"), get("jetstream-appview")),
+      botReplyIndexPart(get("nagi-appview")),
     ]),
     localLlm: tile([partFromProbe("Ollama", localLlmProbe)]),
     webSearch: tile([partFromProbe("SearXNG", searxngProbe)]),

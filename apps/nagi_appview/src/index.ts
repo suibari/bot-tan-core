@@ -17,6 +17,10 @@ import { emojiAssetNoStoreHeaders } from "./util/emojiAssetHeaders.js";
 import { errorHandler, notFound } from "./middleware/errors.js";
 import { startCommunityAffirmationDismissalCleanup } from "./queries/communityAffirmationDismissals.js";
 import { startJetstream } from "./ingest/jetstream.js";
+import {
+  startBotReplyIndexWorker,
+  unindexedBotReplies,
+} from "./ingest/botReplyIndexWorker.js";
 import { startEmbeddingWorker } from "./ingest/embeddingWorker.js";
 import { startModerationWorker } from "./ingest/moderationWorker.js";
 import { startActorResolveWorker } from "./ingest/actorResolveWorker.js";
@@ -112,7 +116,8 @@ logAiRouteTable({ prefixes: ["OLLAMA_"] });
 await initializeDatabases();
 const stream = await startJetstream();
 const appviewHeartbeat = setInterval(() => {
-  reportHeartbeat("nagi-appview").catch((error) =>
+  // 投稿済みなのに AppView に無い botたんの返信数。監視ダッシュボードが読む。
+  reportHeartbeat("nagi-appview", { ...unindexedBotReplies() }).catch((error) =>
     console.error("[ERROR][APPVIEW] Failed to report heartbeat:", error),
   );
 }, 30_000);
@@ -125,6 +130,8 @@ startModerationWorker();
 // did→handle/pds を解決して nagiActors をインデックス（searchActors とハンドル表示に必要）。
 startActorResolveWorker();
 startReconcileWorker();
+// botたんの返信が AppView に載り損ねていないかの監視と回収。
+const botReplyIndexWorker = startBotReplyIndexWorker();
 const communityDismissalCleanup = startCommunityAffirmationDismissalCleanup();
 // 本番機がうっかり NODE_ENV=development で起動していたら、ここで気づけるようにする。
 // 開発補助は config.dev に集約してあるので、この1行が「何が開いているか」の一覧になる。
@@ -162,6 +169,7 @@ const shutdown = async () => {
   if (shuttingDown) return;
   shuttingDown = true;
   clearInterval(appviewHeartbeat);
+  clearInterval(botReplyIndexWorker);
   clearInterval(communityDismissalCleanup);
   const serverClosed = new Promise<void>((resolve) =>
     server.close(() => resolve()),

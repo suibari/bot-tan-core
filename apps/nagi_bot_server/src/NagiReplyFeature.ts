@@ -2,7 +2,7 @@ import {
   db,
   nagiBotReplyJobs,
   nagiPosts,
-  MemoryService,
+  recordNagiReplyToBot,
 } from "@bsky-affirmative-bot/database";
 import {
   NAGI,
@@ -11,6 +11,7 @@ import {
 } from "@bsky-affirmative-bot/nagi-lexicon";
 import {
   classifyPostThread,
+  decideNagiReplyJob,
   didFromAtUri,
   mentionsDid,
 } from "@bsky-affirmative-bot/bot-runtime";
@@ -87,41 +88,35 @@ export async function onNagiPost(evt: any) {
       : sourceRecord;
   const botDid = process.env.NAGI_BOT_DID;
 
-  if (!botDid || did === botDid || record?.$type !== NAGI.post) {
+  if (!botDid || record?.$type !== NAGI.post) {
     return;
   }
-  // botたんサイレント機能がONの投稿には返信しない。
-  if (record.botSilent) {
-    console.log(`[INFO][NAGI][${did}] Skipping reply: botSilent flag enabled`);
-    return;
-  }
-
-  const topLevel = !record.reply;
-  const toBot = isReplyToBot(record, botDid);
-
-  if (!topLevel && !toBot) {
-    return;
-  }
-
-  // 他人のスレッド内で bot に話しかけられても割り込まない。
-  if (isThirdPartyThread(record, did, botDid)) {
-    console.log(`[INFO][NAGI][${did}] Skipping reply: third-party thread root`);
+  const decision = decideNagiReplyJob(record, did, botDid);
+  if (!decision.enqueue) {
+    if (decision.reason === "bot-silent")
+      console.log(`[INFO][NAGI][${did}] Skipping reply: botSilent flag enabled`);
+    if (decision.reason === "third-party-thread")
+      console.log(`[INFO][NAGI][${did}] Skipping reply: third-party thread root`);
     return;
   }
 
   const uri = `at://${did}/${collection}/${evt.commit.rkey}`;
 
-  if (toBot) {
-    // bot 宛リプライは Bluesky 側と同じく Gemini を使う前に記憶・計上しておく。
-    await MemoryService.upsertReply(did, {
-      reply: record.text,
-      uri,
-      isRead: 0,
-    });
-    await MemoryService.logUsage("reply", did);
+  // こちらの Jetstream が遅れて届く間に、AppView のモデレーションが投稿を落として
+  // ジョブを消していることがある。そこへ積み直すと、非表示の投稿に返信してしまう。
+  const [indexed] = await db
+    .select({ deletedAt: nagiPosts.deletedAt })
+    .from(nagiPosts)
+    .where(eq(nagiPosts.uri, uri))
+    .limit(1);
+  if (indexed?.deletedAt) {
+    console.log(`[INFO][NAGI][${did}] Skipping reply: post already removed`);
+    return;
   }
 
-  await db
+  // AppView も取り込み時に同じジョブを積む（こちらの Jetstream が遅れても返信を
+  // 待たせないため）。先に積んだ側だけが記憶・計上するので、二重計上にならない。
+  const inserted = await db
     .insert(nagiBotReplyJobs)
     .values({
       sourceUri: uri,
@@ -129,5 +124,10 @@ export async function onNagiPost(evt: any) {
       authorDid: did,
       recordJson: record,
     })
-    .onConflictDoNothing();
+    .onConflictDoNothing()
+    .returning({ sourceUri: nagiBotReplyJobs.sourceUri });
+
+  if (inserted.length && decision.toBot) {
+    await recordNagiReplyToBot(did, uri, record.text);
+  }
 }

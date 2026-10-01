@@ -38,6 +38,8 @@ type ReconcileStats = {
   deleted: number;
   unchanged: number;
   invalid: number;
+  /** PDS が一覧を返せず照合を飛ばしたコレクション数。 */
+  skipped: number;
 };
 
 export type BluemojiAudit = {
@@ -49,6 +51,28 @@ export type BluemojiAudit = {
 };
 
 class RecordNotFound extends Error {}
+
+/** PDS が返した XRPC エラー。状態コードで「待てば直るか」を見分けるために持つ。 */
+export class XrpcError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
+
+/**
+ * 1コレクションの一覧取得が 400 で失敗したら、その DID の照合全体は止めずに
+ * そのコレクションだけ飛ばす。
+ *
+ * Bridgy Fed の PDS は、規格外の site.standard.document（tags が128書記素超）を1件でも
+ * 含むページを listRecords で返せず 400 InvalidRequest になる。何度やり直しても同じなので、
+ * 全体を失敗にすると Nagi の投稿まで永久に照合されない（2026-10-01 は1日に1,759回失敗）。
+ * 5xx・タイムアウトは一時的なので、これまでどおり失敗として再試行に回す。
+ */
+export const isPermanentListFailure = (error: unknown): boolean =>
+  error instanceof XrpcError && error.status === 400;
 
 const USER_COLLECTIONS = [
   NAGI.profile,
@@ -104,8 +128,9 @@ async function xrpc<T>(
     ) {
       throw new RecordNotFound();
     }
-    throw new Error(
+    throw new XrpcError(
       `${method} failed (${response.status}): ${body.error ?? body.message ?? "unknown error"}`,
+      response.status,
     );
   }
   return response.json() as Promise<T>;
@@ -382,13 +407,27 @@ export async function reconcileRepo(
     deleted: 0,
     unchanged: 0,
     invalid: 0,
+    skipped: 0,
   };
 
   for (const collection of collections) {
-    const [remote, local] = await Promise.all([
-      listRecords(pds, did, collection),
-      localRecords(did, collection),
-    ]);
+    let remote: RepoRecord[];
+    let local: Awaited<ReturnType<typeof localRecords>>;
+    try {
+      [remote, local] = await Promise.all([
+        listRecords(pds, did, collection),
+        localRecords(did, collection),
+      ]);
+    } catch (error) {
+      if (!isPermanentListFailure(error)) throw error;
+      stats.skipped++;
+      console.warn("[WARN][reconcile] Skipping collection the PDS cannot list", {
+        did,
+        collection,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      continue;
+    }
     const remoteUris = new Set(remote.map((record) => record.uri));
 
     // listRecords が全ページ成功した後にだけ、欠落候補を個別確認する。

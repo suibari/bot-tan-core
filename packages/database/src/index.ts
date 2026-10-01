@@ -1540,3 +1540,18 @@ static async getPost(did: string): Promise<any> {
     }
   }
 }
+
+/**
+ * botたん宛の Nagi リプライを、返信ジョブを積んだ側が記憶・計上する。
+ *
+ * ジョブは nagi_bot_server の Jetstream と nagi_appview の取り込みの両方から積まれる。
+ * 実際に行を挿入できた側だけがこれを呼ぶことで、計上が二重にならない。
+ */
+export async function recordNagiReplyToBot(did: string, uri: string, text: unknown) {
+  await MemoryService.upsertReply(did, {
+    reply: typeof text === 'string' ? text : '',
+    uri,
+    isRead: 0,
+  });
+  await MemoryService.logUsage('reply', did);
+}

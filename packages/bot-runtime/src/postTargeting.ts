@@ -65,3 +65,40 @@ export function classifyPostThread(
   }
   return "third-party-thread";
 }
+
+export type NagiReplyJobRecord = PostRecordLike & { botSilent?: unknown };
+
+export type NagiReplyJobDecision =
+  | { enqueue: true; toBot: boolean }
+  | {
+      enqueue: false;
+      reason: "own-post" | "bot-silent" | "not-addressed" | "third-party-thread";
+    };
+
+/**
+ * Nagi の公開投稿に botたんの返信ジョブを積むかを決める。
+ *
+ * 積む側が nagi_bot_server（Jetstream）と nagi_appview（取り込み）の2か所にあるので、
+ * 条件がずれると片方だけ返信する投稿ができてしまう。判定はここ1か所に置く。
+ * こっそり投稿は URI から親の書き手を辿れないため対象外（AppView の作成経路が積む）。
+ */
+export function decideNagiReplyJob(
+  record: NagiReplyJobRecord,
+  authorDid: string,
+  botDid: string,
+): NagiReplyJobDecision {
+  if (authorDid === botDid) return { enqueue: false, reason: "own-post" };
+  // botたんサイレント機能がONの投稿には返信しない。
+  if (record.botSilent) return { enqueue: false, reason: "bot-silent" };
+  if (!record.reply) return { enqueue: true, toBot: false };
+
+  const parentDid = didFromAtUri(record.reply.parent?.uri);
+  const toBot = parentDid === botDid || mentionsDid(record, botDid);
+  if (!toBot) return { enqueue: false, reason: "not-addressed" };
+  // 他人のスレッド内で bot に話しかけられても割り込まない。bot の定期ポストへの返信は
+  // 会話に乗せたいので、root が bot の場合は許可する。
+  const kind = classifyPostThread(record, authorDid, botDid);
+  if (kind === "third-party-thread" || kind === "bot-thread-third-party")
+    return { enqueue: false, reason: "third-party-thread" };
+  return { enqueue: true, toBot: true };
+}
