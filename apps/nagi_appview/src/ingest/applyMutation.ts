@@ -5,6 +5,7 @@ import {
   db,
   nagiActorAnalyses,
   nagiAnalysisJobs,
+  nagiBotReplyJobs,
   nagiCardGets,
   nagiChannels,
   nagiCommunityAffirmations,
@@ -22,7 +23,9 @@ import {
   nagiTranslations,
   nagiZenkatsuCards,
   nagiZenkatsuSubmissions,
+  recordNagiReplyToBot,
 } from "@bsky-affirmative-bot/database";
+import { decideNagiReplyJob } from "@bsky-affirmative-bot/bot-runtime";
 import {
   BLUEMOJI_ITEM,
   NAGI,
@@ -52,6 +55,7 @@ import {
 } from "../services/translation.js";
 import { requestArticleClientRebuild } from "../services/clientRebuildScheduler.js";
 import { reconciledIndexedAt } from "./reconcileOrder.js";
+import { shouldEnqueueBotReply } from "./botReplyJob.js";
 import { shouldAcceptSemanticRecord } from "./semanticRecord.js";
 import { validateRecord } from "./validateRecord.js";
 import {
@@ -276,6 +280,7 @@ export async function applyMutation(
   const englishPrewarmUris: string[] = [];
   let zenkatsuCommentUri: string | undefined;
   let articleChanged = false;
+  let botReplyMemory: { did: string; uri: string; text: unknown } | undefined;
   await db.transaction(async (tx) => {
     let semanticRecordAccepted = true;
     const processed = id
@@ -616,6 +621,32 @@ export async function applyMutation(
                 postCountAt: count,
               })
               .onConflictDoNothing();
+          }
+        }
+        if (
+          shouldEnqueueBotReply({
+            isNewPost: !existingPost[0],
+            reconcile,
+            appviewOnly,
+            trackJetstream,
+            operation: commit.operation,
+            kossori: value.kossori === true,
+          })
+        ) {
+          const decision = decideNagiReplyJob(value, did, config.botDid);
+          if (decision.enqueue) {
+            const inserted = await tx
+              .insert(nagiBotReplyJobs)
+              .values({
+                sourceUri: uri,
+                sourceCid: commit.cid,
+                authorDid: did,
+                recordJson: value,
+              })
+              .onConflictDoNothing()
+              .returning({ sourceUri: nagiBotReplyJobs.sourceUri });
+            if (inserted.length && decision.toBot)
+              botReplyMemory = { did, uri, text: value.text };
           }
         }
       }
@@ -1143,6 +1174,16 @@ export async function applyMutation(
     }
   });
   if (zenkatsuCommentUri) void startZenkatsuComment(zenkatsuCommentUri);
+  // 記憶・計上は返信に必須ではないので、取り込みを待たせず失敗も握る。
+  if (botReplyMemory) {
+    const { did: authorDid, uri: sourceUri, text } = botReplyMemory;
+    void recordNagiReplyToBot(authorDid, sourceUri, text).catch((error) =>
+      console.error("[ERROR][APPVIEW] Failed to record reply to bot", {
+        uri: sourceUri,
+        error,
+      }),
+    );
+  }
   if (articleChanged)
     await requestArticleClientRebuild(`blog article=${uri}`);
   // コミット後に配信。送信失敗はイングェストに影響させない。

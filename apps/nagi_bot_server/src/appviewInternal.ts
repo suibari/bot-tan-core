@@ -98,6 +98,21 @@ export function createDiary(input: {
   return postInternalJson("/internal/diaries", input);
 }
 
+/**
+ * botたんが PDS へ書いた直後に、AppView へ取り込みを依頼する。
+ *
+ * 書いたレコードは本来 Jetstream 経由で AppView に入るが、上流のインスタンスが遅れると
+ * そのぶん返信が表示されない（2026-10-01 に約52分）。ユーザーの投稿はクライアントが
+ * ensureRecord で即時反映しているので、botたんの書き込みも同じ扱いにそろえる。
+ * AppView 側はこれを Jetstream の遅延を測る目印にも使う。
+ */
+export function ensureNagiBotRecordIndexed(record: {
+  uri: string;
+  cid: string;
+}): Promise<boolean> {
+  return postInternal("/internal/bot-records/ensure", record, "ENSURE_RECORD");
+}
+
 /** 名刺（自動分析）が更新されたことを伝えて通知を作らせる。 */
 export function notifyAnalysisUpdated(
   did: string,

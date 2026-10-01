@@ -212,6 +212,27 @@ startWorkerLoop({ name: "ZENKATSU", intervalMs: WORKER_INTERVAL_MS, tick: run })
   ワーカーなら、その本数がそのまま Ollama への同時リクエストになる。
 - `setTimeout` チェーンで次を予約する形（`NagiThemeWorker`）は元から重ならないので対象外。
 
+## Nagi AppView への取り込み経路
+
+**botたんが PDS へ書く Nagi の投稿は `publishNagiPost`（`apps/nagi_bot_server/src/nagiPost.ts`）、
+ニュースは `publishNews` を通すこと。** どちらも書き込み直後に `ensureNagiBotRecordIndexed` で
+AppView の `/internal/bot-records/ensure` を呼び、Jetstream を待たずに反映する。
+createRecord / putRecord を直に呼ぶ新しい経路を足すときは、同じ呼び出しを添えること。
+
+Jetstream は「接続は生きているのに数十分遅れて配る」ことがある。2026-10-01 は
+jetstream2.us-east が約52分遅れたまま接続を保ち、切り替えも degraded も起きず、
+bot の返信が52分表示されなかった。イベントの `time_us` は配信側が送出時に付けるので、
+このときも受信時刻との差は0で、遅延の物差しにならない。
+
+そのため AppView は、取り込み依頼を受けた bot の書き込みを目印に（`ingest/jetstreamLag.ts`）、
+`NAGI_JETSTREAM_STALL_SECONDS`（既定300秒）を過ぎても Jetstream から届かなければ
+接続先を切り替え、PDS 直読みの短周期巡回（degraded）へ移る。bot の書き込みが即時反映の
+経路を通らないと、この検知も効かなくなる。
+
+返信ジョブ（`nagi_bot_reply_jobs`）は nagi_bot_server の Jetstream と AppView の取り込みの
+両方が積む。積むかどうかの判定は `decideNagiReplyJob`（bot-runtime）の1か所に置き、
+片方だけ条件を変えないこと。
+
 ## 本番環境への接続
 
 本番は `ssh 192.168.1.200` で確認できる（2026-09-24 ユーザー指定）。

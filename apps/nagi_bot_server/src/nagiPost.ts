@@ -4,6 +4,7 @@ import { trackedCreateRecord, trackedPutRecord } from "@bsky-affirmative-bot/cli
 import { buildNagiPostAttachments } from "./nagiLinkCards.js";
 import { clipNagiPostText } from "./nagiPostText.js";
 import type { EmojiResolver } from "./nagiBluemojiFacets.js";
+import { ensureNagiBotRecordIndexed } from "./appviewInternal.js";
 
 type NagiPostFields = Omit<
   NagiPost,
@@ -83,5 +84,10 @@ export async function publishNagiPost(request: PublishNagiPostRequest) {
       } as any, source)
     : await trackedCreateRecord(agent, common as any, source);
 
-  return { uri: response.data.uri, cid: response.data.cid };
+  const created = { uri: response.data.uri, cid: response.data.cid };
+  // Jetstream を待たずに AppView へ載せる。上流の Jetstream が数十分遅れても、
+  // 返信がユーザーの画面に出るまでの時間がそれに引きずられないようにするため。
+  // 失敗しても投稿自体は成立しているので、Jetstream と再同期に任せて先へ進む。
+  await ensureNagiBotRecordIndexed(created);
+  return created;
 }

@@ -160,6 +160,14 @@ export const config = {
     0,
     3_600,
   ),
+  // botたんの書き込みがこの秒数を過ぎても Jetstream から届かなければ、接続は生きていても
+  // 上流が遅れているとみなして接続先を切り替え、PDS 直読みの短周期巡回へ移る。
+  jetstreamStallSeconds: integer(
+    "NAGI_JETSTREAM_STALL_SECONDS",
+    300,
+    60,
+    3_600,
+  ),
   reconcileIntervalMinutes: integer(
     "NAGI_RECONCILE_INTERVAL_MINUTES",
     360,

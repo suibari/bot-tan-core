@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   classifyPostThread,
+  decideNagiReplyJob,
   mentionedDids,
   mentionsDid,
 } from "../src/postTargeting.js";
@@ -44,5 +45,42 @@ test("botルート内の第三者返信と第三者ルートを安全側で分�
   assert.equal(
     classifyPostThread({ reply: { root: {}, parent: {} } }, USER, BOT),
     "third-party-thread",
+  );
+});
+
+test("Nagi返信ジョブ: トップレベル投稿は積み、bot宛ではない", () => {
+  assert.deepEqual(decideNagiReplyJob({}, USER, BOT), {
+    enqueue: true,
+    toBot: false,
+  });
+});
+
+test("Nagi返信ジョブ: bot自身・サイレント・宛先違いは積まない", () => {
+  assert.deepEqual(decideNagiReplyJob({}, BOT, BOT), {
+    enqueue: false,
+    reason: "own-post",
+  });
+  assert.deepEqual(
+    decideNagiReplyJob({ botSilent: true } as any, USER, BOT),
+    { enqueue: false, reason: "bot-silent" },
+  );
+  assert.deepEqual(
+    decideNagiReplyJob({ reply: { root: ref(USER), parent: ref(OTHER) } }, USER, BOT),
+    { enqueue: false, reason: "not-addressed" },
+  );
+});
+
+test("Nagi返信ジョブ: bot宛の返信は積み、第三者スレッドへの割り込みは積まない", () => {
+  assert.deepEqual(
+    decideNagiReplyJob({ reply: { root: ref(BOT), parent: ref(BOT) } }, USER, BOT),
+    { enqueue: true, toBot: true },
+  );
+  assert.deepEqual(
+    decideNagiReplyJob(
+      { reply: { root: ref(OTHER), parent: ref(OTHER) }, facets: [mention(BOT)] },
+      USER,
+      BOT,
+    ),
+    { enqueue: false, reason: "third-party-thread" },
   );
 });

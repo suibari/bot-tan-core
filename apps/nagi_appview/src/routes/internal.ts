@@ -4,10 +4,17 @@ import { db, nagiNotifications } from "@bsky-affirmative-bot/database";
 import {
   BLUEMOJI_NAME_RE,
   NAGI,
+  NAGI_INGEST_COLLECTIONS,
   appviewRecordUri,
 } from "@bsky-affirmative-bot/nagi-lexicon";
 import { config } from "../config.js";
 import { applyMutation } from "../ingest/applyMutation.js";
+import { botWriteWatch } from "../ingest/botWriteWatch.js";
+import {
+  ensurePdsRecord,
+  isReconcilableCollection,
+} from "../ingest/reconcileRepo.js";
+import { parseRecordUri } from "../ingest/recordUri.js";
 import { createKossoriPost } from "../queries/kossoriPosts.js";
 import { overrideModerationDecision } from "../services/moderation/override.js";
 import { dispatchPush } from "../services/pushDispatch.js";
@@ -240,6 +247,51 @@ internal.post("/diaries", async (req, res, next) => {
       { appviewOnly: true, emitPush: true },
     );
     res.status(200).json({ uri: appviewRecordUri(NAGI.diary, rkey), cid });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * botたんが PDS へ書いた直後の取り込み依頼。
+ *
+ * ユーザーの書き込みはクライアントが ensureRecord で即時反映しているが、botたんの返信は
+ * Jetstream 待ちだったため、上流が遅れるとそのまま表示が遅れた（2026-10-01 に約52分）。
+ * 同じ ensurePdsRecord で PDS の正本を読み直して取り込む。
+ *
+ * あわせて、この commit が Jetstream から届くはずだと botWriteWatch に登録する。
+ * 届くまでの時間が「接続は生きているのに遅れている」状態の唯一の物差しになる。
+ */
+internal.post("/bot-records/ensure", async (req, res, next) => {
+  try {
+    const uri = req.body?.uri;
+    const cid = req.body?.cid;
+    const parsed = parseRecordUri(uri);
+    if (!parsed || typeof cid !== "string" || !cid) {
+      res.status(400).json({ error: "uri and cid are required" });
+      return;
+    }
+    if (parsed.did !== config.botDid) {
+      res.status(403).json({ error: "only bot records can be ensured here" });
+      return;
+    }
+    if (!isReconcilableCollection(parsed.did, parsed.collection)) {
+      res.status(400).json({ error: "collection is not supported" });
+      return;
+    }
+    // 取り込みの成否とは独立に、Jetstream の到着を待つ目印として先に登録する。
+    if ((NAGI_INGEST_COLLECTIONS as readonly string[]).includes(parsed.collection))
+      botWriteWatch.expect(uri, cid);
+    const ensured = await ensurePdsRecord(
+      parsed.did,
+      parsed.collection,
+      parsed.rkey,
+    );
+    res.status(200).json({
+      uri,
+      cid: ensured.status === "present" ? ensured.record.cid : cid,
+      indexed: true,
+    });
   } catch (e) {
     next(e);
   }
