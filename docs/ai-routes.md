@@ -208,6 +208,7 @@ Ollama既定とGemini切り戻しの両方を全機能ぶんピン留めして�
 | `BSKY_ROOM_WELCOME` | `lite-flex` | お部屋招待のお出迎え |
 | `COMMON_MOOD_SONG_LOCAL` | `ollama-chat` | 作品名抽出・気分タグ分類・候補の安全確認・紹介文 |
 | `BSKY_IMAGE_PROMPT` | `ollama-chat` | 画像生成用に日本語の情景文を booru タグへ直す（必ずローカル） |
+| `BSKY_IMAGE_INSPECT` | `ollama-chat` | 生成した絵の人体破綻（腕の左右逆・本数違いなど）を投稿前に検査する |
 | `BSKY_DRAWING_REQUEST` | `ollama-chat` | お絵描き: botたんに絵を頼んでいるか・題材・描いてよい依頼かの判定（Nagi の依頼も共用） |
 
 肯定返信（`generateAffirmativeWord`）と会話（`conversation`）の実装は Nagi からも呼ばれるが、

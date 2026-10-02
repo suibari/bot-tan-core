@@ -8,6 +8,7 @@ import {
 import { generateImageGemini } from "./generateImageGemini.js";
 import { isImageGenConfigured, requestImage, type GeneratedImage } from "./imageGenClient.js";
 import { applyBotSignature } from "./botSignature.js";
+import { imageInspectionRedraws, inspectGeneratedImage } from "./inspectImage.js";
 import { resolveCharacters } from "./characterLookup.js";
 
 /**
@@ -32,6 +33,8 @@ export function isImageGenerationAvailable(): boolean {
  *  2. タグにキャラ固定部を **TypeScript 側の定数として** 連結する。外見を LLM に
  *     書かせないのは、揺れると同一性が壊れるため。2キャラなら領域プロンプトを組む。
  *  3. GPU 機のサイドカーへ HTTP。
+ *  4. 出てきた絵の人体破綻（腕の左右逆・本数違いなど）を gemma で検査する（inspectImage.ts）。
+ *     不合格なら同じプロンプトで描き直し、それでも駄目なら絵を添えない。
  *
  * ## 失敗しても throw しない
  * 呼び出し元はおやすみポストの経路。ここで例外を投げると投稿そのものが飛ぶ。
@@ -81,16 +84,32 @@ export async function generateImage(
     if (!built) return null;
 
     console.log(`[INFO][IMGGEN] style=${style} regions=${built.regions.length} prompt=${built.prompt}`);
-    const generated = await requestImage({
-      prompt: built.prompt,
-      negativePrompt: built.negativePrompt,
-      width: built.width,
-      height: built.height,
-      regions: built.regions,
-      loras: built.loras,
-      ...(maxBytes ? { maxBytes } : {}),
-    });
-    return generated ? await applyBotSignature(generated, maxBytes) : null;
+    // 描き直しは requestImage の「リトライしない」とは別物。あちらはサイドカーの失敗で、
+    // ここは描けた絵が検査で落ちた場合。シードはサイドカーが毎回変えるので別の絵になる。
+    const redraws = imageInspectionRedraws();
+    for (let attempt = 0; attempt <= redraws; attempt++) {
+      const generated = await requestImage({
+        prompt: built.prompt,
+        negativePrompt: built.negativePrompt,
+        width: built.width,
+        height: built.height,
+        regions: built.regions,
+        loras: built.loras,
+        ...(maxBytes ? { maxBytes } : {}),
+      });
+      if (!generated) return null;
+
+      // 署名を入れる前に見る。署名の文字を破綻と取り違えさせないため。
+      const inspection = await inspectGeneratedImage(generated);
+      if (inspection.ok) return await applyBotSignature(generated, maxBytes);
+
+      console.warn(
+        `[WARN][IMGGEN_INSPECT] 絵を不合格にした (${attempt + 1}/${redraws + 1}): ${inspection.reasons.join(" / ")}`,
+      );
+      if (inspection.inspectionFailed) return null;
+    }
+    console.warn("[WARN][IMGGEN_INSPECT] 描き直しても検査を通らなかったので、絵は添えない。");
+    return null;
   } catch (error) {
     console.error("[ERROR][IMGGEN] 画像生成に失敗した。絵は添えずに進める:", error);
     return null;

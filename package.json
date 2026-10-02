@@ -17,6 +17,7 @@
     "searxng:probe": "tsx --env-file=.env scripts/probeSearxng.mts",
     "reply:probe": "tsx --env-file=.env scripts/probeReply.mts",
     "imagegen:probe": "tsx --env-file=.env scripts/probeImageGen.mts",
+    "imagegen:inspect-probe": "tsx --env-file=.env scripts/probeImageInspection.mts",
     "fortune:probe": "tsx --env-file=.env scripts/probeFortune.mts",
     "reading:evaluate": "tsx --env-file=.env scripts/evaluateLocalModels.mts --cases=scripts/fixtures/readingComprehensionCases.json --out=docs/evaluations/reading --only=reply",
     "bot-memory:backfill": "tsx --env-file=.env scripts/backfillBotMemory.ts",

@@ -18,6 +18,7 @@ export * from './generateUserDiaryResilient.js';
 export * from './generateFortuneResult.js';
 export * from './generateGoodNight.js';
 export * from './generateImage.js';
+export * from './inspectImage.js';
 export * from './imageGenClient.js';
 export * from './buildImagePrompt.js';
 export * from './memorySong.js';

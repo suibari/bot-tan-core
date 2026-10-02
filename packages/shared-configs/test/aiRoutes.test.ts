@@ -86,6 +86,7 @@ const EXPECTED: Record<AiFeatureKey, [model: string, tier: "flex" | "standard" |
   // 画像そのもののルーティングは AI_IMAGE_FEATURES 側（この表はテキスト専用）。
   // ここに残るのは、日本語の情景文を booru タグへ直す変換だけ。必ずローカルで回す。
   BSKY_IMAGE_PROMPT: [DEFAULT_OLLAMA_TEXT_MODEL, undefined],
+  BSKY_IMAGE_INSPECT: [DEFAULT_OLLAMA_TEXT_MODEL, undefined],
   // お絵描きの依頼判定。抽出作業なのでローカル。
   BSKY_DRAWING_REQUEST: [DEFAULT_OLLAMA_TEXT_MODEL, undefined],
   // biorhythm_server（定期ポスト）
