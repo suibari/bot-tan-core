@@ -236,6 +236,9 @@ export const AI_FEATURES = {
   // Gemini を使う理由が無く、しかも1日1回しか走らない。
   // 画像そのもののルーティングは AI_IMAGE_FEATURES 側（この表はテキスト専用）。
   BSKY_IMAGE_PROMPT: "ollama-chat",
+  // 画像生成の出口検査: 描けた絵に腕の左右逆・本数違いなどの破綻が無いかを見る（inspectImage.ts）。
+  // 画像生成と同じく1枚ごとに1〜2回しか走らない。生成した絵を外へ出す理由が無いのでローカル。
+  BSKY_IMAGE_INSPECT: "ollama-chat",
   // お絵描き機能: botたんに絵を頼んでいるか・何を描くかの判定（Nagi の依頼もこのキー）。
   // キーワードで足切りした投稿にしか走らず、返信本文も生成しない抽出作業なのでローカルで回す。
   BSKY_DRAWING_REQUEST: "ollama-chat",
