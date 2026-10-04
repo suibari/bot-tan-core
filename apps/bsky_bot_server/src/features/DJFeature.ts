@@ -6,6 +6,7 @@ import { botBiothythmManager } from "@bsky-affirmative-bot/clients";
 import { AppBskyFeedPost } from "@atproto/api"; type Record = AppBskyFeedPost.Record;
 import { handleMode, isPast } from "./utils.js";
 import {
+    interestMusicTags,
     MoodSongResolver,
     resolveLinkedMoodSong,
     type LinkedMoodSong,
@@ -23,7 +24,18 @@ import { UserInfoGemini, GeminiResponseResult } from "@bsky-affirmative-bot/shar
 import { agent } from "../bsky/agent.js";
 import { buildDjSongReply } from "./djSongReply.js";
 
-const moodSongResolver = new MoodSongResolver<LinkedMoodSong>(30, { resolve: resolveLinkedMoodSong });
+const moodSongResolver = new MoodSongResolver<LinkedMoodSong>(30, {
+    // Nagi 利用者なら関心ジャンル（アニメ・アイドル）を指定なしの回の軸にする。明示依頼は抑えない。
+    resolve: async (input, langStr, scope, deps) => resolveLinkedMoodSong(input, langStr, scope, {
+        ...deps,
+        interestMusicTags: scope.purpose === "dj"
+            ? interestMusicTags(await MemoryService.getNagiInterestLabels(scope.subjectDid).catch((error) => {
+                console.warn("[WARN][MOOD_SONG] Failed to load DJ interests", error);
+                return [];
+            }))
+            : [],
+    }),
+});
 
 export class DJFeature implements BotFeature {
     name = "DJ";

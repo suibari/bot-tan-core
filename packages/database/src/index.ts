@@ -15,6 +15,8 @@ import {
   room_events,
   youtube_shorts,
   nagiActors,
+  nagiActorInterestGenres,
+  nagiActorInterestKeywords,
   nagiPosts,
   nagiPostScores,
   nagiProfiles,
@@ -473,22 +475,35 @@ export class MemoryService {
     return rows.map((row) => row.did);
   }
 
-  /** ラジオは新規投稿がない利用者にも、過去の記憶から届ける。 */
-  static async getNagiRadioAudience(): Promise<string[]> {
-    const rows = await db.select({ did: nagiActors.did }).from(nagiActors)
-      .where(and(eq(nagiActors.status, "active"), or(
+  /**
+   * ラジオは since 以降に Nagi へ投稿した利用者へ届ける。
+   * 休眠中の人に記憶だけで放送を作り続けると、数件の記憶を使い回して同じ曲調ばかりになる
+   * （2026-10 に2か月投稿のない人へ1日3回、記憶2件から放送していた）。
+   * 対象になった人の、前回放送以降に新規投稿がない回は記憶から作る。
+   */
+  static async getNagiRadioAudience(since: Date): Promise<string[]> {
+    return (await MemoryService.buildNagiRadioAudienceQuery(since)).map((row) => row.did);
+  }
+
+  static buildNagiRadioAudienceQuery(since: Date) {
+    return db.select({ did: nagiActors.did }).from(nagiActors)
+      .where(and(eq(nagiActors.status, "active"),
         exists(db.select({ uri: nagiPosts.uri }).from(nagiPosts).where(and(
           eq(nagiPosts.did, nagiActors.did), isNull(nagiPosts.deletedAt),
+          gte(nagiPosts.recordCreatedAt, since),
           sql`length(trim(${nagiPosts.text})) > 0`,
-        ))),
-        exists(db.select({ id: bot_memory_documents.id }).from(bot_memory_documents).where(and(
-          eq(bot_memory_documents.author_id, nagiActors.did),
-          inArray(bot_memory_documents.source_type, ["nagi_affirmed_post", "bsky_affirmed_post"]),
-          isNull(bot_memory_documents.deleted_at),
-          sql`length(trim(${bot_memory_documents.content})) > 0`,
-        ))),
-      )));
-    return rows.map((row) => row.did);
+        )))));
+  }
+
+  /** 本人の関心ジャンルとテーマ・ハッシュタグ（NagiThemeWorker が作る）。選曲の軸に使う。 */
+  static async getNagiInterestLabels(did: string): Promise<string[]> {
+    const [genres, keywords] = await Promise.all([
+      db.select({ label: nagiActorInterestGenres.genre }).from(nagiActorInterestGenres)
+        .where(eq(nagiActorInterestGenres.did, did)),
+      db.select({ label: nagiActorInterestKeywords.keyword }).from(nagiActorInterestKeywords)
+        .where(eq(nagiActorInterestKeywords.did, did)),
+    ]);
+    return [...genres, ...keywords].map((row) => row.label);
   }
 
   /** 本人が以前に書いた内容をランダムに1件選ぶ。記憶化前のNagi投稿にも戻れる。 */

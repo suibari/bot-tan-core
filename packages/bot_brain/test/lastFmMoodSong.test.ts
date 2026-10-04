@@ -12,6 +12,9 @@ import { getAnimeThemeSongs, searchAnimeThemes } from "../src/api/animethemes/in
 import {
   classifyLastFmMoodTags,
   analyzeSongDiscovery,
+  discoverLastFmMoodSongCandidates,
+  interestMusicTags,
+  parseSongDiscoveryAnalysis,
   buildLastFmMoodSongComment,
   extractAnimeWorkMention,
   lastFmTrackKey,
@@ -406,7 +409,8 @@ test("履歴曲を除外し、YouTubeで確認できた候補にだけコメン�
     comment: async (_post, _lang, song) => `${song.title}が合いそう！`,
   });
   assert.deepEqual(searched, ["Missing", "Found"]);
-  assert.deepEqual(requestedTags.sort(), ["calm", "j-pop", "japanese"]);
+  // j-pop / japanese は日本の曲の判定にも使うのでページ別に複数回引く。
+  assert.deepEqual([...new Set(requestedTags)].sort(), ["calm", "j-pop", "japanese"]);
   assert.equal(result?.videoId, "video-found");
   assert.equal(result?.comment, "Foundが合いそう！");
   assert.deepEqual(result?.tags, ["calm"]);
@@ -623,4 +627,149 @@ test("アーティスト指定、題材指定、指定なしの各経路で実�
     });
     assert.equal(song?.artist, "穏やかな歌手");
   });
+});
+
+test("曲数の多いアーティストも抽選では最良の1曲ぶんにそろえる", () => {
+  const many = Array.from({ length: 20 }, (_, index) => ({
+    title: `Hit ${index + 1}`, artist: "宇多田ヒカル", lastFmUrl: `u${index}`, rank: index + 1,
+  }));
+  const single = { title: "Only", artist: "Other", lastFmUrl: "o", rank: 1 };
+  // 乱数を固定すると、抽選の重みが大きい順に並ぶ。生の重みは同じでも、合計を分け合う側が負ける。
+  const ranked = rankLastFmTrackPools([{ tag: "j-pop", tracks: [...many, single] }], () => 0.5);
+  assert.equal(ranked[0].artist, "Other");
+  assert.equal(ranked.find((track) => track.title === "Hit 1")?.weight, 1);
+});
+
+test("4つ目以降のタグも捨てず、補正用タグは候補を増やさない", () => {
+  const track = (title: string, rank = 1) => ({ title, artist: title, lastFmUrl: title, rank });
+  const ranked = rankLastFmTrackPools([
+    { tag: "a", tracks: [track("A")] },
+    { tag: "b", tracks: [track("B")] },
+    { tag: "c", tracks: [track("C")] },
+    { tag: "d", tracks: [track("D")] },
+  ], () => 0.5, { boostPools: [{ tag: "calm", tracks: [track("A"), track("Mood only")] }] });
+  assert.deepEqual(ranked.map((song) => song.title).sort(), ["A", "B", "C", "D"]);
+  assert.deepEqual(ranked.find((song) => song.title === "A")?.tags, ["a", "calm"]);
+  assert.equal(ranked.find((song) => song.title === "D")?.weight, 0.2);
+});
+
+test("抽選の重みへ係数を掛けても、返す重みは生の値のまま", () => {
+  const ranked = rankLastFmTrackPools([{ tag: "j-pop", tracks: [
+    { title: "Western", artist: "Band", lastFmUrl: "w", rank: 1 },
+    { title: "邦楽", artist: "歌手", lastFmUrl: "j", rank: 4 },
+  ] }], () => 0.5, { trackFactor: (track) => track.title === "Western" ? 0.3 : 1 });
+  assert.equal(ranked[0].title, "邦楽");
+  assert.equal(ranked[1].weight, 1);
+});
+
+test("ジャンルは言語ごとの許可値だけを採用する", () => {
+  const base = { request: {}, history: {}, tags: ["calm"], titleQuery: null };
+  assert.equal(parseSongDiscoveryAnalysis(JSON.stringify({ ...base, genre: "idol" }), "日本語").genre, "idol");
+  assert.equal(parseSongDiscoveryAnalysis(JSON.stringify({ ...base, genre: "pop" }), "日本語").genre, null);
+  assert.equal(parseSongDiscoveryAnalysis(JSON.stringify({ ...base, genre: "pop" }), "English").genre, "pop");
+  assert.equal(parseSongDiscoveryAnalysis(JSON.stringify(base), "日本語").genre, null);
+});
+
+test("関心の語からアニメとアイドルだけを曲のジャンルへ対応づける", () => {
+  assert.deepEqual(interestMusicTags(["料理", "地下アイドル", "nagiアニメ部", "アイドル", "ゲーム"]), ["anime", "idol"]);
+  assert.deepEqual(interestMusicTags(["ゲーム", "AI"]), []);
+});
+
+/** ムード枠の検証用。タグごとの上位曲を固定し、安全確認は全件通す。 */
+const moodDeps = (charts: Record<string, Array<{ title: string; artist: string }>>, requested: Array<{ tag: string; page?: number }> = []) => ({
+  analyze: async () => ({
+    request: { anime: null, artist: null, topic: null },
+    history: { anime: null, artist: null, topic: null },
+    tags: ["calm" as const],
+    genre: "j-pop",
+  }),
+  topTracks: async (tag: string, options?: { page?: number }) => {
+    requested.push({ tag, page: options?.page });
+    return (charts[tag] ?? []).map((track, index) => ({ ...track, lastFmUrl: `${tag}-${index}`, rank: index + 1 }));
+  },
+  trackInfo: async () => ({ listeners: 100, summary: "", topTags: [] }),
+  screen: async (_post: string, candidates: unknown[]) => ({ allowedIndices: candidates.map((_, index) => index) }),
+  random: () => 0.5,
+});
+
+test("日本語のムード枠はジャンルと japanese を候補にし、ムードタグは補正だけにする", async () => {
+  const requested: Array<{ tag: string; page?: number }> = [];
+  const { allowed } = await discoverLastFmMoodSongCandidates("穏やかな午後", "日本語", moodDeps({
+    "j-pop": [{ title: "First Love", artist: "宇多田ヒカル" }],
+    japanese: [{ title: "ポリリズム", artist: "Perfume" }],
+    calm: [{ title: "Western calm", artist: "Somebody" }, { title: "ポリリズム", artist: "Perfume" }],
+  }, requested));
+  assert.deepEqual(allowed.map((song) => song.title).sort(), ["First Love", "ポリリズム"]);
+  assert.deepEqual(allowed.find((song) => song.title === "ポリリズム")?.tags, ["japanese", "calm"]);
+  // random 0.5 なら 2 ページ目。j-pop / japanese は日本の曲の判定にも使うので全ページ引く。
+  assert.deepEqual([...new Set(requested.filter((call) => call.tag === "j-pop").map((call) => call.page))].sort(), [1, 2, 3]);
+});
+
+test("投稿判定が j-pop の回は、本人の関心ジャンルを言語タグなしで軸にする", async () => {
+  const requested: Array<{ tag: string; page?: number }> = [];
+  const { allowed } = await discoverLastFmMoodSongCandidates("今日もがんばった", "日本語", {
+    ...moodDeps({
+      "j-pop": [{ title: "First Love", artist: "宇多田ヒカル" }],
+      japanese: [{ title: "ポリリズム", artist: "Perfume" }],
+      idol: [{ title: "会いたかった", artist: "AKB48" }],
+    }, requested),
+    interestMusicTags: ["idol"],
+  });
+  assert.deepEqual(allowed.map((song) => song.title), ["会いたかった"]);
+  assert.ok(requested.some((call) => call.tag === "idol" && call.page === 2));
+});
+
+test("投稿からジャンルが判定できたら、関心ジャンルより投稿を優先する", async () => {
+  const deps = moodDeps({
+    japanese: [{ title: "ポリリズム", artist: "Perfume" }],
+    vocaloid: [{ title: "メルト", artist: "ryo" }],
+    idol: [{ title: "会いたかった", artist: "AKB48" }],
+  });
+  const { allowed } = await discoverLastFmMoodSongCandidates("ボカロ聴いてる", "日本語", {
+    ...deps,
+    analyze: async () => ({ ...(await deps.analyze()), genre: "vocaloid" }),
+    interestMusicTags: ["idol"],
+  });
+  assert.deepEqual(allowed.map((song) => song.title).sort(), ["ポリリズム", "メルト"]);
+});
+
+test("7日以内に流した歌手はムード枠から外し、尽きるなら戻す", async () => {
+  const charts = {
+    "j-pop": [{ title: "First Love", artist: "宇多田ヒカル" }, { title: "ブルーバード", artist: "いきものがかり" }],
+  };
+  const avoided = await discoverLastFmMoodSongCandidates("穏やか", "日本語", {
+    ...moodDeps(charts),
+    recentArtists: { avoid: new Set(["宇多田ヒカル"]), demote: new Set() },
+  });
+  assert.deepEqual(avoided.allowed.map((song) => song.artist), ["いきものがかり"]);
+  const exhausted = await discoverLastFmMoodSongCandidates("穏やか", "日本語", {
+    ...moodDeps(charts),
+    recentArtists: { avoid: new Set(["宇多田ヒカル", "いきものがかり"]), demote: new Set() },
+  });
+  assert.equal(exhausted.allowed.length, 2);
+});
+
+test("直近3回に流した歌手の指定はムード枠の後ろへ回し、DJの明示依頼は抑えない", async () => {
+  const deps = (source: "request" | "history") => ({
+    ...moodDeps({ "j-pop": [{ title: "ブルーバード", artist: "いきものがかり" }] }),
+    analyze: async () => {
+      const artist = { mentionedName: "The Pillows", searchQuery: "The Pillows" };
+      return {
+        request: { anime: null, artist: source === "request" ? artist : null, topic: null },
+        history: { anime: null, artist: source === "history" ? artist : null, topic: null },
+        tags: ["calm" as const],
+        genre: "j-pop",
+      };
+    },
+    searchArtists: async () => [{ name: "The Pillows", lastFmUrl: "https://last.fm/pillows", mbid: "" }],
+    artistTopTracks: async () => [{ title: "Funny Bunny", artist: "The Pillows", lastFmUrl: "fb", rank: 1 }],
+  });
+  const recentArtists = { avoid: new Set<string>(), demote: new Set(["thepillows"]) };
+  const order = async (source: "request" | "history", demoteRequest?: boolean) =>
+    (await discoverLastFmMoodSongCandidates("さわおさん", "日本語", {
+      ...deps(source), recentArtists: { ...recentArtists, demoteRequest },
+    })).allowed.map((song) => song.artist);
+  assert.deepEqual(await order("history"), ["いきものがかり", "The Pillows"]);
+  assert.deepEqual(await order("request"), ["The Pillows", "いきものがかり"]);
+  assert.deepEqual(await order("request", true), ["いきものがかり", "The Pillows"]);
 });
