@@ -127,17 +127,24 @@ export function communityAffirmationRetry(attempts: number) {
   };
 }
 
+/**
+ * 投稿についた人間のリアクション数。botたんの呼び水リアクション（NagiAutoReactionWorker）は
+ * 「まだ誰にも拾われていない」ことを変えないので数えない。
+ */
+const humanReactionCount = () => sql`(
+  select count(*)
+  from nagi.reactions as community_reaction
+  where community_reaction.subject_uri = ${nagiPosts.uri}
+    and community_reaction.did <> ${process.env.NAGI_BOT_DID!}
+)`;
+
 async function eligibleCandidates(now: Date): Promise<Candidate[]> {
   const generationWindow = communityAffirmationGenerationWindow(now);
   const rows = await db
     .select({
       post: nagiPosts,
       pdsUrl: nagiActors.pdsUrl,
-      reactionCount: sql<number>`(
-        select count(*)::int
-        from nagi.reactions as community_reaction
-        where community_reaction.subject_uri = ${nagiPosts.uri}
-      )`,
+      reactionCount: sql<number>`${humanReactionCount()}::int`,
     })
     .from(nagiPosts)
     .leftJoin(nagiActors, eq(nagiActors.did, nagiPosts.did))
@@ -150,11 +157,7 @@ async function eligibleCandidates(now: Date): Promise<Candidate[]> {
         gte(nagiPosts.recordCreatedAt, generationWindow.oldest),
         // 「まだ拾われていない投稿を拾う」というこの機能の選定思想。読み出し側では
         // 判定しないので（一覧に出たあとで反応が付いても消えない）、ここが唯一の関門。
-        sql`(
-          select count(*)
-          from nagi.reactions as community_reaction
-          where community_reaction.subject_uri = ${nagiPosts.uri}
-        ) <= 1`,
+        sql`${humanReactionCount()} <= 1`,
         // ストック済みの投稿は二度と候補にしない。走査に上限を付けても
         // 新しい候補まで届くようにするため、SQL 側で落としておく。
         sql`not exists (
@@ -165,11 +168,7 @@ async function eligibleCandidates(now: Date): Promise<Candidate[]> {
       ),
     )
     .orderBy(
-      sql`(
-        select count(*)
-        from nagi.reactions as community_reaction
-        where community_reaction.subject_uri = ${nagiPosts.uri}
-      )`,
+      humanReactionCount(),
       asc(nagiPosts.recordCreatedAt),
       asc(nagiPosts.uri),
     )

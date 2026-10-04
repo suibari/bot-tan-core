@@ -778,6 +778,53 @@ export const nagiCommunityAffirmations = nagiSchema.table(
   ],
 );
 /**
+ * botたんの「最初の1件」リアクションの予定表兼リースジョブ（NagiAutoReactionWorker）。
+ *
+ * 投稿から1〜6時間のランダムな時刻（scheduledAt）に、人間のリアクションがまだ無ければ
+ * botたんが絵文字を1つ付ける。送り主が見えるのは受け取った本人だけなので、
+ * 第三者には「誰かが最初に反応した」ようにしか見えない。
+ * 行は skipped / reacted になっても残し、同じ subject を二度判定しない。
+ */
+export const nagiBotAutoReactions = nagiSchema.table(
+  "bot_auto_reactions",
+  {
+    subjectUri: text("subject_uri").primaryKey(),
+    subjectCid: text("subject_cid").notNull(),
+    subjectDid: text("subject_did").notNull(),
+    /** "post" | "zenkatsu"。ブログ記事は投稿テーブルに入るので "post"。 */
+    kind: text("kind").notNull(),
+    /** "pending" | "processing" | "reacted" | "skipped" | "failed" */
+    state: text("state").default("pending").notNull(),
+    scheduledAt: timestamp("scheduled_at", { withTimezone: true }).notNull(),
+    attempts: integer("attempts").default(0).notNull(),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    reactionUri: text("reaction_uri"),
+    /** 付けた絵文字の表示上の値（":name:" か Unicode）。同じ人へ同じ絵文字を続けないために見る。 */
+    emojiKey: text("emoji_key"),
+    /** skipped の理由、または failed の最後のエラー。 */
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    index("nagi_bot_auto_reactions_ready_idx").on(
+      t.state,
+      t.scheduledAt,
+      t.leaseExpiresAt,
+    ),
+    /** 同じ人へ直近に付けた絵文字を引くため。 */
+    index("nagi_bot_auto_reactions_recipient_idx").on(
+      t.subjectDid,
+      t.state,
+      t.updatedAt,
+    ),
+  ],
+);
+/**
  * Nagi の有料AI返信が Gemini へ実際に送信される直前の予約台帳。
  * サービス全体枠だけに使うため、DID・投稿URI・本文は保存しない。
  */
