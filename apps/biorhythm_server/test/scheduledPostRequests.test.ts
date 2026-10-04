@@ -102,7 +102,7 @@ test("気まぐれ：ニュースなし・曲ありでもニュース枠や画�
 
 for (const network of ["bsky", "nagi"] as const) {
   for (const withImage of [true, false]) {
-    test(`おやすみ：${network}選出・画像${withImage ? "あり" : "なし"}、本文・引用元・任意の絵だけ`, () => {
+    test(`おやすみ：${network}選出・画像${withImage ? "あり" : "なし"}、本文・紹介元・任意の絵だけ`, () => {
       const sourcePost = {
         network,
         uri: network === "nagi"
@@ -123,7 +123,7 @@ for (const network of ["bsky", "nagi"] as const) {
           nagi: {
             text: network === "nagi"
               ? "日本語の生成本文\n\nhttps://nagi.suibari.com/thread/did%3Aplc%3Aexample/stub"
-              : "日本語の生成本文",
+              : "日本語の生成本文\n\nhttps://bsky.app/profile/did%3Aplc%3Aexample/post/stub",
             langs: ["ja"],
             translations: [{ lang: "en", text: "Generated English text" }],
             ...(withImage ? { image } : {}),

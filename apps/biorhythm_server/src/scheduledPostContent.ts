@@ -27,7 +27,23 @@ export function getNagiThreadUrl(uri: string): string | undefined {
   return `https://nagi.suibari.com/thread/${encodeURIComponent(match[1])}/${encodeURIComponent(match[2])}`;
 }
 
-/** Nagi選出時だけ、両ネットワークの本文末尾へ公開スレッドURLを1回付ける。 */
+/** standard.site形式のブログは専用ページへ、通常投稿はスレッドへ。 */
+export function getNagiPostUrl(uri: string): string | undefined {
+  const article = /^at:\/\/(did:(?:plc|web):[^/]+)\/site\.standard\.document\/([^/]+)$/.exec(uri);
+  if (article) {
+    return `https://nagi.suibari.com/blog/${encodeURIComponent(article[1])}/${encodeURIComponent(article[2])}`;
+  }
+  return getNagiThreadUrl(uri);
+}
+
+export function getBlueskyPostUrl(uri: string): string | undefined {
+  const match =
+    /^at:\/\/(did:(?:plc|web):[^/]+)\/app\.bsky\.feed\.post\/([^/]+)$/.exec(uri);
+  if (!match) return undefined;
+  return `https://bsky.app/profile/${encodeURIComponent(match[1])}/post/${encodeURIComponent(match[2])}`;
+}
+
+/** 紹介元の公開URLを添える。Bluesky同士だけはリポストで紹介する。 */
 export function buildGoodNightPostTexts(params: {
   textJa: string;
   textEn: string;
@@ -35,10 +51,14 @@ export function buildGoodNightPostTexts(params: {
 }): GoodNightPostTexts {
   const sourceUrl =
     params.sourcePost.network === "nagi"
-      ? getNagiThreadUrl(params.sourcePost.uri)
-      : undefined;
+      ? getNagiPostUrl(params.sourcePost.uri)
+      : getBlueskyPostUrl(params.sourcePost.uri);
   return {
-    bsky: sections(params.textJa, params.textEn, sourceUrl),
+    bsky: sections(
+      params.textJa,
+      params.textEn,
+      params.sourcePost.network === "nagi" ? sourceUrl : undefined,
+    ),
     nagiJa: sections(params.textJa, sourceUrl),
     nagiEn: params.textEn,
     ...(sourceUrl ? { sourceUrl } : {}),
