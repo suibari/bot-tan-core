@@ -10,6 +10,7 @@ import {
   nagiBookmarkFolders,
   nagiBookmarkPreferences,
   nagiBookmarks,
+  nagiBotAutoReactions,
   nagiActorAnalyses,
   nagiAnalysisJobs,
   nagiCardCommentJobs,
@@ -192,6 +193,10 @@ export async function deleteAccountData(did: string) {
     await tx
       .delete(nagiBotReplyJobs)
       .where(eq(nagiBotReplyJobs.authorDid, did));
+    // botたんの自動リアクションの台帳。題材は本人の投稿・ゼンカツなので subject_did で全件引ける。
+    await tx
+      .delete(nagiBotAutoReactions)
+      .where(eq(nagiBotAutoReactions.subjectDid, did));
     await tx
       .delete(nagiNotifications)
       .where(

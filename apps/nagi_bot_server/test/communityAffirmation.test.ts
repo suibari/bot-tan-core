@@ -172,3 +172,14 @@ test("構造化要約は完成文をそのまま使い、日英の空・文字�
   assert.equal(tooLong.publishable, false);
   assert.equal(tooLong.reasonCode, "invalid_length");
 });
+
+test("みんなで全肯定の候補判定は botたん のリアクションを数えない", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const source = await readFile(
+    new URL("../src/NagiCommunityAffirmationWorker.ts", import.meta.url),
+    "utf8",
+  );
+  // 相関サブクエリは humanReactionCount の1か所だけに置き、bot を除外している。
+  assert.equal(source.match(/from nagi\.reactions as community_reaction/g)?.length, 1);
+  assert.match(source, /community_reaction\.did <> \$\{process\.env\.NAGI_BOT_DID!\}/);
+});

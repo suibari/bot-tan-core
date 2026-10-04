@@ -120,6 +120,7 @@ const EXPECTED: Record<AiFeatureKey, [model: string, tier: "flex" | "standard" |
   NAGI_CHRONICLE_MONTH: [DEFAULT_OLLAMA_TEXT_MODEL, undefined],
   NAGI_CHRONICLE_NEWS: [DEFAULT_OLLAMA_TEXT_MODEL, undefined],
   NAGI_POST_MOOD: [DEFAULT_OLLAMA_TEXT_MODEL, undefined],
+  NAGI_AUTO_REACTION: [DEFAULT_OLLAMA_TEXT_MODEL, undefined],
   // ニュース
   NEWS_POSITIVE_GATE: [LITE, "flex"],
   NEWS_POSITIVE_COMMENT: [LITE, "flex"],
