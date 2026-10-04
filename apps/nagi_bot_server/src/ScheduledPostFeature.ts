@@ -42,21 +42,10 @@ export async function publishScheduledPost(request: ScheduledPostRequest): Promi
   const nagiImage = request.image ? await uploadScheduledImage(request.image) : null;
 
   return retry(async () => {
-    // おやすみポストは Nagi の投稿を引用することがある。引用の embed は images も持てるので、
-    // 引用と絵は両立する。引用が無いときは #images をそのまま使う。
-    const quote =
-      request.kind === "good-night" && request.sourcePost?.network === "nagi"
-        ? { uri: request.sourcePost.uri, cid: request.sourcePost.cid }
-        : null;
-    const embed = quote
-      ? {
-          $type: `${NAGI.post}#quote` as const,
-          record: quote,
-          ...(nagiImage ? { images: [nagiImage] } : {}),
-        }
-      : nagiImage
-        ? { $type: `${NAGI.post}#images` as const, images: [nagiImage] }
-        : undefined;
+    // 紹介元は本文のURLから共通処理でリンクカードにする。絵は独立したembedで併用できる。
+    const embed = nagiImage
+      ? { $type: `${NAGI.post}#images` as const, images: [nagiImage] }
+      : undefined;
 
     const post = await publishNagiPost({
       text: request.text,

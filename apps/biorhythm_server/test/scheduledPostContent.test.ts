@@ -4,6 +4,7 @@ import {
   buildGoodNightPostTexts,
   buildWhimsicalPostTexts,
   getNagiThreadUrl,
+  getBlueskyPostUrl,
   selectGoodNightLearnedTerms,
 } from "../src/scheduledPostContent.js";
 
@@ -54,7 +55,7 @@ test("Nagi選出時は両方のおやすみ本文へスレッドURLを1回追加
   assert.doesNotMatch(result.nagiEn, /nagi\.suibari\.com\/thread/);
 });
 
-test("Bluesky選出時はおやすみ本文へNagi URLを追加しない", () => {
+test("Bluesky選出時はNagi本文だけにBluesky投稿URLを追加する", () => {
   const result = buildGoodNightPostTexts({
     textJa: "今日もありがとう。おやすみー！",
     textEn: "Thank you for today. Good night!",
@@ -64,12 +65,13 @@ test("Bluesky選出時はおやすみ本文へNagi URLを追加しない", () =>
     },
   });
 
-  assert.equal(result.sourceUrl, undefined);
+  assert.equal(result.sourceUrl, "https://bsky.app/profile/did%3Aplc%3Aexample/post/3mexample");
   assert.equal(
     result.bsky,
     "今日もありがとう。おやすみー！\n\nThank you for today. Good night!",
   );
-  assert.equal(result.nagiJa, "今日もありがとう。おやすみー！");
+  assert.equal(result.nagiJa, "今日もありがとう。おやすみー！\n\nhttps://bsky.app/profile/did%3Aplc%3Aexample/post/3mexample");
+  assert.equal(result.nagiEn, "Thank you for today. Good night!");
 });
 
 test("不正なAT URIからNagiスレッドURLを作らない", () => {
@@ -108,4 +110,25 @@ test("長い言葉は飛ばして後続を拾い、日本語文字数の上限�
 
 test("候補が無ければ空のまま返す", () => {
   assert.deepEqual(selectGoodNightLearnedTerms([]), []);
+});
+
+test("Bluesky投稿URLはDIDを使い、別collectionや不正なURIを拒否する", () => {
+  assert.equal(getBlueskyPostUrl("at://did:web:example.com/app.bsky.feed.post/abc"),
+    "https://bsky.app/profile/did%3Aweb%3Aexample.com/post/abc");
+  for (const uri of ["https://example.com/post", "at://did:plc:example/com.suibari.nagi.post/abc",
+    "at://did:plc:example/app.bsky.feed.post/", "at://did:plc:example/app.bsky.feed.post/abc/extra"]) {
+    assert.equal(getBlueskyPostUrl(uri), undefined);
+  }
+});
+
+test("Nagiブログ選出時は両方の本文にブログ専用URLを追加する", () => {
+  const result = buildGoodNightPostTexts({
+    textJa: "おやすみ！", textEn: "Good night!",
+    sourcePost: { network: "nagi", uri: "at://did:plc:example/site.standard.document/article" },
+  });
+  const url = "https://nagi.suibari.com/blog/did%3Aplc%3Aexample/article";
+  assert.equal(result.sourceUrl, url);
+  assert.equal(result.bsky, `おやすみ！\n\nGood night!\n\n${url}`);
+  assert.equal(result.nagiJa, `おやすみ！\n\n${url}`);
+  assert.equal(result.nagiEn, "Good night!");
 });
