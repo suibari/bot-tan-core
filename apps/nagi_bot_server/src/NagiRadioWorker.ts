@@ -12,7 +12,16 @@ import {
   reserveBotSongSelection,
   type BotSongReservation,
 } from "@bsky-affirmative-bot/database";
-import { generateNagiRadioComments, researchNagiRadioSong, resolveNagiRadioSong, selectNagiRadioCandidate, selectNagiRadioPostContext, type NagiRadioSong } from "@bsky-affirmative-bot/bot-brain";
+import {
+  generateNagiRadioComments,
+  interestMusicTags,
+  researchNagiRadioSong,
+  resolveNagiRadioSong,
+  selectNagiRadioCandidate,
+  selectNagiRadioPostContext,
+  type NagiRadioSong,
+  type SongSelectionBasis,
+} from "@bsky-affirmative-bot/bot-brain";
 import { getLangStr } from "@bsky-affirmative-bot/clients";
 import { currentRadioSlotKey } from "@bsky-affirmative-bot/nagi-lexicon";
 import { startWorkerLoop } from "./workerLoop.js";
@@ -71,12 +80,23 @@ export async function generateNagiRadioForUser(
     const language = commentPost ? detectLanguage(commentPost.text,
       Array.isArray(commentPost.langs) ? commentPost.langs as string[] : undefined) : initialLanguage;
     const scope = djSongSelectionScope(did);
+    // 関心が読めなくても放送は止めない。軸がj-popに戻るだけ。
+    const interests = interestMusicTags(await MemoryService.getNagiInterestLabels(did).catch((error) => {
+      console.warn(`[WARN][NAGI][RADIO] Failed to load interests for ${did}`, error);
+      return [];
+    }));
     const selected = await selectNagiRadioCandidate(
       async (attempt, excludedSongKeys) => {
         const candidate = attempt === 0 && options.preferredSong ? options.preferredSong : await resolveNagiRadioSong(songText, language, scope, {
           excludeSongKeys: excludedSongKeys,
+          interestMusicTags: interests,
         });
-        if (candidate) console.info(`[INFO][NAGI][RADIO] Candidate ${attempt + 1} for ${did}: ${candidate.artist} - ${candidate.title}`);
+        if (candidate) {
+          // 手動指定の曲（preferredSong）には経路がない。
+          const basis = (candidate as { selectionBasis?: SongSelectionBasis }).selectionBasis;
+          const via = basis ? ` via ${basis.source}/${basis.kind}:${basis.label}` : "";
+          console.info(`[INFO][NAGI][RADIO] Candidate ${attempt + 1} for ${did}: ${candidate.artist} - ${candidate.title}${via}`);
+        }
         return candidate;
       },
       (candidate) => researchNagiRadioSong(candidate, language),
@@ -134,7 +154,7 @@ export async function generateNagiRadioForUser(
 
 export async function updateNagiRadio(now = new Date()): Promise<void> {
   const slotKey = currentRadioSlotKey(now);
-  const dids = await MemoryService.getNagiRadioAudience();
+  const dids = await MemoryService.getNagiRadioAudience(new Date(now.getTime() - WEEK_MS));
   // 1件ずつでは利用者数に比例して放送枠が遅れる。ローカル推論への負荷を抑えつつ2並列で進める。
   let cursor = 0;
   await Promise.all(Array.from({ length: Math.min(2, dids.length) }, async () => {

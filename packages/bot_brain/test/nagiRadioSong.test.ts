@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { getLastFmTrackInfo, lastFmAlbumImage, lastFmSongUrl } from "../src/api/lastfm/index.js";
-import { resolveLinkedMoodSong, resolveNagiRadioSong, resolveNagiRadioSongLink } from "../src/ai/linkedMoodSong.js";
+import { recentArtistSets, resolveLinkedMoodSong, resolveNagiRadioSong, resolveNagiRadioSongLink } from "../src/ai/linkedMoodSong.js";
 import { discoverLastFmMoodSongCandidates, type RankedLastFmTrack } from "../src/ai/lastFmMoodSong.js";
 import { songIdentityKey } from "../src/ai/songIdentity.js";
 import { selectNagiRadioCandidate } from "../src/ai/nagiRadioCandidate.js";
@@ -114,4 +114,36 @@ test("リンク型DJも投稿前に予約し、動画IDなしの複数曲を記�
   resolver.remember(scope, { ...song, songKey: "other-song" });
   await resolver.resolve("Hello", "English", scope);
   assert.deepEqual(excluded, new Set([song.songKey, "other-song"]));
+});
+
+test("直近7日の歌手はムード枠から外し、直近3回の歌手は指定経路を後回しにする", () => {
+  const now = new Date("2026-10-04T12:00:00Z");
+  const daysAgo = (days: number) => new Date(now.getTime() - days * 24 * 60 * 60 * 1_000);
+  const sets = recentArtistSets([
+    { artist: "The Pillows", selectedAt: daysAgo(0.5) },
+    { artist: "宇多田ヒカル", selectedAt: daysAgo(1) },
+    { artist: "Perfume", selectedAt: daysAgo(2) },
+    { artist: "YUI", selectedAt: daysAgo(6.9) },
+    { artist: "AKB48", selectedAt: daysAgo(8) },
+  ], now);
+  assert.deepEqual([...sets.avoid], ["thepillows", "宇多田ヒカル", "perfume", "yui"]);
+  assert.deepEqual([...sets.demote], ["thepillows", "宇多田ヒカル", "perfume"]);
+});
+
+test("ラジオは依頼の歌手指定も後回しの対象にし、DJは抑えない", async () => {
+  const seen: Array<boolean | undefined> = [];
+  const discover: Parameters<typeof resolveLinkedMoodSong>[3]["discover"] = async (_input, _language, options) => {
+    seen.push(options?.recentArtists?.demoteRequest);
+    assert.deepEqual(options?.interestMusicTags, ["idol"]);
+    return pool([candidate]);
+  };
+  const recent = async () => [{
+    videoId: null, songKey: "x", title: "X", artist: "AKB48", purpose: "dj" as const, subjectDid: scope.subjectDid,
+    outputRef: null, status: "published" as const, reservationExpiresAt: null, selectedAt: new Date(),
+  }];
+  await resolveNagiRadioSong("Hello", "English", scope, { getRecentSelections: recent, discover, interestMusicTags: ["idol"] });
+  await resolveLinkedMoodSong("Hello", "English", scope, {
+    getRecentSelections: recent, discover, interestMusicTags: ["idol"], comment: async () => "",
+  });
+  assert.deepEqual(seen, [true, undefined]);
 });
