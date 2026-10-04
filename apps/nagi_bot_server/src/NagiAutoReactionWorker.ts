@@ -37,7 +37,7 @@ import {
   getThemeDef,
   resolveCardDef,
 } from "@bsky-affirmative-bot/shared-configs";
-import { trackedCreateRecord } from "@bsky-affirmative-bot/clients";
+import { TID, trackedPutRecord } from "@bsky-affirmative-bot/clients";
 import {
   type Column,
   and,
@@ -92,6 +92,14 @@ export function autoReactionScheduledAt(
   );
 }
 
+/**
+ * 書き込み先の rkey。前回の試行で予約した URI があればその rkey を使い回す。
+ * 同じ rkey への putRecord は上書きなので、再試行でリアクションが2件にならない。
+ */
+export function autoReactionRkey(reservedUri: string | null | undefined) {
+  return reservedUri ? reservedUri.slice(reservedUri.lastIndexOf("/") + 1) : TID.nextStr();
+}
+
 export function autoReactionRetry(attempts: number) {
   return {
     failed: attempts >= MAX_ATTEMPTS,
@@ -112,7 +120,6 @@ type PostRow = Pick<
   | "kossori"
   | "moderationLabels"
   | "selfLabels"
-  | "recordCreatedAt"
 >;
 
 /**
@@ -238,7 +245,9 @@ export function postStockQuery(now: Date) {
       kossori: nagiPosts.kossori,
       moderationLabels: nagiPosts.moderationLabels,
       selfLabels: nagiPosts.selfLabels,
-      recordCreatedAt: nagiPosts.recordCreatedAt,
+      // createdAt は利用者が書ける値で、遡らせれば予定時刻が即過去になり待機を迂回できる。
+      // ゼンカツと同じく、サーバが付ける索引時刻を投稿時刻とみなす。
+      postedAt: nagiPosts.indexedAt,
     })
     .from(nagiPosts)
     .leftJoin(
@@ -251,17 +260,14 @@ export function postStockQuery(now: Date) {
         isNull(nagiPosts.deletedAt),
         isNull(nagiPosts.replyParentUri),
         ne(nagiPosts.did, botDid()),
-        // recordCreatedAt は利用者が自由に書けるが、未来・過去どちらへずらしても
-        // この窓から外れるだけで、予定が早まることはない。
         gte(
-          nagiPosts.recordCreatedAt,
+          nagiPosts.indexedAt,
           new Date(now.getTime() - AUTO_REACTION_MAX_DELAY_MS),
         ),
-        lte(nagiPosts.recordCreatedAt, now),
         notMutingBot(nagiPosts.did),
       ),
     )
-    .orderBy(asc(nagiPosts.recordCreatedAt))
+    .orderBy(asc(nagiPosts.indexedAt))
     .limit(STOCK_SCAN_LIMIT);
 }
 
@@ -309,7 +315,7 @@ async function stockCandidates(now: Date) {
         subjectCid: post.cid,
         subjectDid: post.did,
         kind: "post",
-        scheduledAt: autoReactionScheduledAt(post.recordCreatedAt),
+        scheduledAt: autoReactionScheduledAt(post.postedAt),
         // 対象外も行として残し、窓を抜けるまで毎分走査し直さない。
         ...(reason ? { state: "skipped", lastError: reason } : {}),
       };
@@ -448,7 +454,6 @@ async function loadSubject(
       kossori: nagiPosts.kossori,
       moderationLabels: nagiPosts.moderationLabels,
       selfLabels: nagiPosts.selfLabels,
-      recordCreatedAt: nagiPosts.recordCreatedAt,
     })
     .from(nagiPosts)
     .where(eq(nagiPosts.uri, job.subjectUri))
@@ -460,12 +465,20 @@ async function loadSubject(
   return { cid: post.cid, text: postSubjectText(post) };
 }
 
-/** 人間（または botたん自身の既存分）のリアクションがすでにあるか。 */
-async function hasAnyReaction(subjectUri: string) {
+/**
+ * 人間（または botたん自身の既存分）のリアクションがすでにあるか。
+ * ownUri は前回の試行で書いた自分のリアクションで、これは数えない（完了させるため）。
+ */
+async function hasAnyReaction(subjectUri: string, ownUri: string | null) {
   const [row] = await db
     .select({ uri: nagiReactions.uri })
     .from(nagiReactions)
-    .where(eq(nagiReactions.subjectUri, subjectUri))
+    .where(
+      and(
+        eq(nagiReactions.subjectUri, subjectUri),
+        ownUri ? ne(nagiReactions.uri, ownUri) : undefined,
+      ),
+    )
     .limit(1);
   return Boolean(row);
 }
@@ -578,7 +591,9 @@ async function processOne(now: Date) {
   try {
     const subject = await loadSubject(job);
     if ("skip" in subject) return await skip(subject.skip);
-    if (await hasAnyReaction(job.subjectUri)) return await skip("already_reacted");
+    if (await hasAnyReaction(job.subjectUri, job.reactionUri)) {
+      return await skip("already_reacted");
+    }
     if (await isMutedByAuthor(job.subjectDid)) return await skip("muted");
 
     const custom = await loadCustomEmojiOptions();
@@ -599,13 +614,30 @@ async function processOne(now: Date) {
     if (!record) return await skip("no_choice");
 
     // モデルが考えている数秒の間に誰かが先に反応していたら、そちらを最初の1件にする。
-    if (await hasAnyReaction(job.subjectUri)) return await skip("already_reacted");
+    if (await hasAnyReaction(job.subjectUri, job.reactionUri)) {
+      return await skip("already_reacted");
+    }
 
-    const response = await trackedCreateRecord(
+    // 書く前に URI を予約する。PDS へは書けたのに台帳の更新が落ちても、
+    // 次の試行は同じ rkey へ上書きするだけになる。
+    const rkey = autoReactionRkey(job.reactionUri);
+    const reservedUri = `at://${botDid()}/${NAGI.reaction}/${rkey}`;
+    if (reservedUri !== job.reactionUri) {
+      const reserved = await db
+        .update(nagiBotAutoReactions)
+        .set({ reactionUri: reservedUri, updatedAt: new Date() })
+        .where(ownsLease(job))
+        .returning({ subjectUri: nagiBotAutoReactions.subjectUri });
+      // 別プロセスにリースを奪われていたら、そちらに任せる。
+      if (!reserved.length) return;
+    }
+
+    const response = await trackedPutRecord(
       agent,
       {
         repo: botDid(),
         collection: NAGI.reaction,
+        rkey,
         validate: false,
         record,
       } as any,

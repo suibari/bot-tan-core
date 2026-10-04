@@ -8,6 +8,7 @@ const {
   AUTO_REACTION_MAX_DELAY_MS,
   AUTO_REACTION_MIN_DELAY_MS,
   autoReactionScheduledAt,
+  autoReactionRkey,
   buildAutoReactionRecord,
   autoReactionCandidates,
   isAutoReactionEnabled,
@@ -123,6 +124,22 @@ test("走査クエリは Date を timestamp 列のエンコーダ経由で渡す
     assert.match(sql, /"nagi"\."mutes"/);
     assert.match(sql, /"nagi"\."bot_auto_reactions"\."subject_uri" is null/);
   }
+});
+
+test("投稿の走査窓は利用者が書ける createdAt ではなく索引時刻で切る", () => {
+  // createdAt を遡らせると予定時刻が即過去になり、1時間待たずに反応してしまう。
+  const { sql } = postStockQuery(new Date("2026-10-04T06:00:00.000Z")).toSQL();
+  assert.match(sql, /"nagi"\."posts"\."indexed_at" >= \$/);
+  assert.match(sql, /order by "nagi"\."posts"\."indexed_at"/);
+  assert.doesNotMatch(sql, /record_created_at/);
+});
+
+test("再試行は予約済みの rkey へ書き、2件目を作らない", () => {
+  const reserved = "at://did:plc:bot/com.suibari.nagi.reaction/3lzabcdefgh22";
+  assert.equal(autoReactionRkey(reserved), "3lzabcdefgh22");
+  const fresh = autoReactionRkey(null);
+  assert.match(fresh, /^[234567abcdefghij][234567abcdefghijklmnopqrstuvwxyz]{12}$/);
+  assert.notEqual(autoReactionRkey(undefined), fresh);
 });
 
 test("有効化は env で切り替えられる", () => {

@@ -13,6 +13,7 @@ export * from './userDiaryContext.js';
 export * from './preferredName.js';
 export * from './seasonalWorksState.js';
 export * from './userDiaryMediaReference.js';
+export { TID } from '@atproto/common-web';
 export {
   getTimezoneFromLang,
   getLangStr,

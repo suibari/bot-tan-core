@@ -798,6 +798,10 @@ export const nagiBotAutoReactions = nagiSchema.table(
     scheduledAt: timestamp("scheduled_at", { withTimezone: true }).notNull(),
     attempts: integer("attempts").default(0).notNull(),
     leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    /**
+     * botたんのリアクションの URI。PDS へ書く前に予約して入れ、再試行では同じ rkey へ
+     * putRecord する（書けたのに台帳の更新だけ落ちても、2件目を作らない）。
+     */
     reactionUri: text("reaction_uri"),
     /** 付けた絵文字の表示上の値（":name:" か Unicode）。同じ人へ同じ絵文字を続けないために見る。 */
     emojiKey: text("emoji_key"),
