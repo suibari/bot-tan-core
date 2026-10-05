@@ -40,7 +40,9 @@ export function getBlueskyPostUrl(uri: string): string | undefined {
   const match =
     /^at:\/\/(did:(?:plc|web):[^/]+)\/app\.bsky\.feed\.post\/([^/]+)$/.exec(uri);
   if (!match) return undefined;
-  return `https://bsky.app/profile/${encodeURIComponent(match[1])}/post/${encodeURIComponent(match[2])}`;
+  // Bluesky のルーターはDIDのコロンが %3A だと識別子として受け付けない。
+  const actor = encodeURIComponent(match[1]).replace(/%3A/g, ":");
+  return `https://bsky.app/profile/${actor}/post/${encodeURIComponent(match[2])}`;
 }
 
 /** 紹介元の公開URLを添える。Bluesky同士だけはリポストで紹介する。 */

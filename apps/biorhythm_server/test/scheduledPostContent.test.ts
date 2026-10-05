@@ -65,12 +65,12 @@ test("Bluesky選出時はNagi本文だけにBluesky投稿URLを追加する", ()
     },
   });
 
-  assert.equal(result.sourceUrl, "https://bsky.app/profile/did%3Aplc%3Aexample/post/3mexample");
+  assert.equal(result.sourceUrl, "https://bsky.app/profile/did:plc:example/post/3mexample");
   assert.equal(
     result.bsky,
     "今日もありがとう。おやすみー！\n\nThank you for today. Good night!",
   );
-  assert.equal(result.nagiJa, "今日もありがとう。おやすみー！\n\nhttps://bsky.app/profile/did%3Aplc%3Aexample/post/3mexample");
+  assert.equal(result.nagiJa, "今日もありがとう。おやすみー！\n\nhttps://bsky.app/profile/did:plc:example/post/3mexample");
   assert.equal(result.nagiEn, "Thank you for today. Good night!");
 });
 
@@ -114,7 +114,7 @@ test("候補が無ければ空のまま返す", () => {
 
 test("Bluesky投稿URLはDIDを使い、別collectionや不正なURIを拒否する", () => {
   assert.equal(getBlueskyPostUrl("at://did:web:example.com/app.bsky.feed.post/abc"),
-    "https://bsky.app/profile/did%3Aweb%3Aexample.com/post/abc");
+    "https://bsky.app/profile/did:web:example.com/post/abc");
   for (const uri of ["https://example.com/post", "at://did:plc:example/com.suibari.nagi.post/abc",
     "at://did:plc:example/app.bsky.feed.post/", "at://did:plc:example/app.bsky.feed.post/abc/extra"]) {
     assert.equal(getBlueskyPostUrl(uri), undefined);
