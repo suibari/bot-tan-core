@@ -128,7 +128,7 @@ export function communityAffirmationRetry(attempts: number) {
 }
 
 /**
- * 投稿についた人間のリアクション数。botたんの呼び水リアクション（NagiAutoReactionWorker）は
+ * 投稿についた人間のリアクション数。botたんの呼び水リアクション（nagiAutoReaction.ts）は
  * 「まだ誰にも拾われていない」ことを変えないので数えない。
  */
 const humanReactionCount = () => sql`(

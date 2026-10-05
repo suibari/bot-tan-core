@@ -36,6 +36,7 @@ import {
   nagiAiRouteForAttempt,
   nextNagiReplyAttemptAt,
 } from "./nagiReplyRetry.js";
+import { reactAfterBotPost } from "./nagiAutoReaction.js";
 import { startWorkerLoop } from "./workerLoop.js";
 
 const LEASE_DURATION_MS = 15 * 60_000;
@@ -302,6 +303,12 @@ export function startNagiReplyWorker() {
         } catch (error) {
           console.error(`[ERROR][NAGI][DRAWING] Failed to enqueue ${job.sourceUri}:`, error);
         }
+      }
+
+      // 返信と同時に、botたんが最初の絵文字リアクションを付ける。会話ターン（返信付き投稿）は対象外。
+      // 失敗しても投げない（ジョブは既に posted）。
+      if (!record?.reply) {
+        await reactAfterBotPost("post", job.sourceUri);
       }
 
       // 超ポジティブLvはBlueskyと共通のカウンタ（followers.positivity_level）。

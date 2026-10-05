@@ -778,12 +778,14 @@ export const nagiCommunityAffirmations = nagiSchema.table(
   ],
 );
 /**
- * botたんの「最初の1件」リアクションの予定表兼リースジョブ（NagiAutoReactionWorker）。
+ * botたんの「最初の1件」リアクションの台帳（nagi_bot_server の nagiAutoReaction.ts）。
  *
- * 投稿から1〜6時間のランダムな時刻（scheduledAt）に、人間のリアクションがまだ無ければ
- * botたんが絵文字を1つ付ける。送り主が見えるのは受け取った本人だけなので、
- * 第三者には「誰かが最初に反応した」ようにしか見えない。
- * 行は skipped / reacted になっても残し、同じ subject を二度判定しない。
+ * botたんが返信・ゼンカツ総評を書いた直後に、絵文字を1つ付ける。送り主が見えるのは
+ * 受け取った本人だけなので、第三者には「誰かが最初に反応した」ようにしか見えない。
+ * 行は skipped / reacted / failed になっても残し、同じ subject を二度判定しない。
+ *
+ * scheduledAt / attempts / leaseExpiresAt は投稿後1〜6時間に遅らせていた頃の名残で、
+ * いまは判定時刻を入れるだけ（attempts と lease は使わない）。
  */
 export const nagiBotAutoReactions = nagiSchema.table(
   "bot_auto_reactions",
@@ -793,15 +795,12 @@ export const nagiBotAutoReactions = nagiSchema.table(
     subjectDid: text("subject_did").notNull(),
     /** "post" | "zenkatsu"。ブログ記事は投稿テーブルに入るので "post"。 */
     kind: text("kind").notNull(),
-    /** "pending" | "processing" | "reacted" | "skipped" | "failed" */
+    /** "processing" | "reacted" | "skipped" | "failed" */
     state: text("state").default("pending").notNull(),
     scheduledAt: timestamp("scheduled_at", { withTimezone: true }).notNull(),
     attempts: integer("attempts").default(0).notNull(),
     leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
-    /**
-     * botたんのリアクションの URI。PDS へ書く前に予約して入れ、再試行では同じ rkey へ
-     * putRecord する（書けたのに台帳の更新だけ落ちても、2件目を作らない）。
-     */
+    /** botたんのリアクションの URI。 */
     reactionUri: text("reaction_uri"),
     /** 付けた絵文字の表示上の値（":name:" か Unicode）。同じ人へ同じ絵文字を続けないために見る。 */
     emojiKey: text("emoji_key"),

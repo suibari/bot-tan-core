@@ -1,5 +1,6 @@
 import { and, asc, eq, lte, or } from "drizzle-orm";
 import { db, nagiZenkatsuCommentJobs } from "@bsky-affirmative-bot/database";
+import { reactAfterBotPost } from "./nagiAutoReaction.js";
 import { runNagiZenkatsu } from "./NagiZenkatsuFeature.js";
 import { startWorkerLoop } from "./workerLoop.js";
 
@@ -22,14 +23,19 @@ let running = false;
 interface ZenkatsuJobDependencies {
   db: typeof db;
   generate: typeof runNagiZenkatsu;
+  react?: (submissionUri: string) => Promise<void>;
 }
 
 /** 提出直後の起動と、取りこぼしの定期回収で同じリースを使う。 */
 export async function processNagiZenkatsuJob(
   submissionUri?: string,
-  dependencies: ZenkatsuJobDependencies = { db, generate: runNagiZenkatsu },
+  dependencies: ZenkatsuJobDependencies = {
+    db,
+    generate: runNagiZenkatsu,
+    react: (uri) => reactAfterBotPost("zenkatsu", uri),
+  },
 ) {
-  const { db, generate } = dependencies;
+  const { db, generate, react } = dependencies;
   const now = new Date();
   const jobs = await db
     .select()
@@ -87,6 +93,8 @@ export async function processNagiZenkatsuJob(
         eq(nagiZenkatsuCommentJobs.state, "processing"),
         eq(nagiZenkatsuCommentJobs.attempts, job.attempts + 1),
       ));
+    // 総評と同時に、botたんが最初の絵文字リアクションを付ける。失敗しても投げない。
+    await react?.(job.submissionUri);
   } catch (error) {
     const attempts = job.attempts + 1;
     const backoffMs = Math.min(MAX_BACKOFF_MS, 2 ** attempts * 5_000);
