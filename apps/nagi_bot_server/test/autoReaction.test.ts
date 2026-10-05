@@ -5,31 +5,16 @@ process.env.DATABASE_URL ??= "postgres://user:pass@localhost:5432/test";
 process.env.NAGI_BOT_DID ??= "did:plc:bot";
 
 const {
-  AUTO_REACTION_MAX_DELAY_MS,
-  AUTO_REACTION_MIN_DELAY_MS,
-  autoReactionScheduledAt,
-  autoReactionRkey,
   buildAutoReactionRecord,
   autoReactionCandidates,
   isAutoReactionEnabled,
-  postStockQuery,
   postSubjectText,
   skipReasonForPost,
-  zenkatsuStockQuery,
+  TRANSIENT_SKIP_REASONS,
   zenkatsuSubjectText,
-} = await import("../src/NagiAutoReactionWorker.js");
+} = await import("../src/nagiAutoReaction.js");
 
 const postedAt = new Date("2026-10-04T00:00:00.000Z");
-
-test("判定時刻は投稿から1〜6時間の間に収まる", () => {
-  for (const r of [0, 0.25, 0.5, 0.999999]) {
-    const at = autoReactionScheduledAt(postedAt, () => r).getTime() - postedAt.getTime();
-    assert.ok(at >= AUTO_REACTION_MIN_DELAY_MS, String(r));
-    assert.ok(at < AUTO_REACTION_MAX_DELAY_MS, String(r));
-  }
-  assert.equal(AUTO_REACTION_MIN_DELAY_MS, 60 * 60 * 1000);
-  assert.equal(AUTO_REACTION_MAX_DELAY_MS, 6 * 60 * 60 * 1000);
-});
 
 const emoji = (name: string, uri = `at://did:example:a/blue.moji.collection.item/${name}`) => ({
   uri,
@@ -82,18 +67,23 @@ const post = (overrides: Record<string, unknown> = {}) =>
     ...overrides,
   }) as any;
 
-test("返信・こっそり・ラベル付き・CW付き・botたん自身の投稿は対象外", () => {
+test("返信・こっそり・botたん自身の投稿は対象外", () => {
   assert.equal(skipReasonForPost(post()), undefined);
   assert.equal(skipReasonForPost(post({ deletedAt: postedAt })), "deleted");
   assert.equal(skipReasonForPost(post({ replyParentUri: "at://x" })), "reply");
   assert.equal(skipReasonForPost(post({ did: process.env.NAGI_BOT_DID })), "bot_post");
   assert.equal(skipReasonForPost(post({ kossori: true })), "kossori");
-  assert.equal(skipReasonForPost(post({ moderationLabels: ["sexual"] })), "labeled");
-  assert.equal(skipReasonForPost(post({ selfLabels: ["nudity"] })), "labeled");
-  assert.equal(skipReasonForPost(post({ text: "||ネタバレ||" })), "content_warning");
+  assert.deepEqual(TRANSIENT_SKIP_REASONS, ["not_indexed"]);
+});
+
+test("ラベル・CW・モデレーション判定待ちは返信と同じく見ない", () => {
+  assert.equal(skipReasonForPost(post({ moderationVersion: null })), undefined);
+  assert.equal(skipReasonForPost(post({ moderationLabels: ["sexual"] })), undefined);
+  assert.equal(skipReasonForPost(post({ selfLabels: ["nudity"] })), undefined);
+  assert.equal(skipReasonForPost(post({ text: "||ネタバレ||" })), undefined);
   assert.equal(
     skipReasonForPost(post({ embedImages: [{ contentWarning: true }] })),
-    "content_warning",
+    undefined,
   );
 });
 
@@ -112,34 +102,6 @@ test("モデルへ渡す題材は本文・リンク題名・画像の有無", ()
     zenkatsuSubjectText("朝ごはん", ["トースト", "目玉焼き"]),
     "ゼンカツ（お題に合わせて手札のカードを出すゲーム）のプレイ記録。\nお題: 朝ごはん\n出したカード: トースト、目玉焼き",
   );
-});
-
-test("走査クエリは Date を timestamp 列のエンコーダ経由で渡す", () => {
-  // AGENTS.md: raw sql へ Date を直接補間すると postgres.js の送信時に落ちる。
-  // drizzle の型付き演算子なら params には ISO 文字列が入る。
-  const now = new Date("2026-10-04T06:00:00.000Z");
-  for (const query of [postStockQuery(now), zenkatsuStockQuery(now)]) {
-    const { sql, params } = query.toSQL();
-    assert.ok(params.every((param) => !(param instanceof Date)), sql);
-    assert.match(sql, /"nagi"\."mutes"/);
-    assert.match(sql, /"nagi"\."bot_auto_reactions"\."subject_uri" is null/);
-  }
-});
-
-test("投稿の走査窓は利用者が書ける createdAt ではなく索引時刻で切る", () => {
-  // createdAt を遡らせると予定時刻が即過去になり、1時間待たずに反応してしまう。
-  const { sql } = postStockQuery(new Date("2026-10-04T06:00:00.000Z")).toSQL();
-  assert.match(sql, /"nagi"\."posts"\."indexed_at" >= \$/);
-  assert.match(sql, /order by "nagi"\."posts"\."indexed_at"/);
-  assert.doesNotMatch(sql, /record_created_at/);
-});
-
-test("再試行は予約済みの rkey へ書き、2件目を作らない", () => {
-  const reserved = "at://did:plc:bot/com.suibari.nagi.reaction/3lzabcdefgh22";
-  assert.equal(autoReactionRkey(reserved), "3lzabcdefgh22");
-  const fresh = autoReactionRkey(null);
-  assert.match(fresh, /^[234567abcdefghij][234567abcdefghijklmnopqrstuvwxyz]{12}$/);
-  assert.notEqual(autoReactionRkey(undefined), fresh);
 });
 
 test("有効化は env で切り替えられる", () => {

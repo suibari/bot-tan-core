@@ -9,7 +9,7 @@ import { fitOllamaMessages } from "./generationClient.js";
 /**
  * botたんの「最初の1件」リアクションで、投稿に付ける絵文字を候補から1つ選ぶ。
  *
- * 候補はカスタム絵文字だけ（NagiAutoReactionWorker が安全なものを選んで渡す）。
+ * 候補はカスタム絵文字だけ（nagi_bot_server の nagiAutoReaction.ts が安全なものを選んで渡す）。
  * 出力は JSON スキーマの enum で候補に縛るが、念のため parse でも照合する。
  */
 

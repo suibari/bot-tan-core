@@ -24,7 +24,6 @@ import { startNagiChronicleWorker } from "./NagiChronicleWorker.js";
 import { startNagiPostMoodWorker } from "./NagiPostMoodWorker.js";
 import { processChronicleMonth } from "./NagiChronicleFeature.js";
 import { startNagiCommunityAffirmationWorker } from "./NagiCommunityAffirmationWorker.js";
-import { startNagiAutoReactionWorker } from "./NagiAutoReactionWorker.js";
 import { startNagiThemeWorker } from "./NagiThemeWorker.js";
 import { startNewsInterestWorker } from "./NewsInterestWorker.js";
 import { enqueueAnalysis, runNagiAnalysis } from "./NagiAnalysisFeature.js";
@@ -108,8 +107,6 @@ async function start() {
   startNagiPostMoodWorker();
   // 右サイドバー「みんなで全肯定」の匿名要約。候補選出と生成を作者単位で行う。
   startNagiCommunityAffirmationWorker();
-  // 投稿後1〜6時間たっても反応が無いポスト・ブログ・ゼンカツに、botたんが最初の絵文字を付ける。
-  startNagiAutoReactionWorker();
   // 動的枠の「おすすめの理由」を先に計算しておく（リクエスト経路でLLMを呼ばないため）。
   startNagiThemeWorker();
 
