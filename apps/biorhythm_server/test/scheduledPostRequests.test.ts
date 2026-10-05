@@ -123,7 +123,7 @@ for (const network of ["bsky", "nagi"] as const) {
           nagi: {
             text: network === "nagi"
               ? "日本語の生成本文\n\nhttps://nagi.suibari.com/thread/did%3Aplc%3Aexample/stub"
-              : "日本語の生成本文\n\nhttps://bsky.app/profile/did%3Aplc%3Aexample/post/stub",
+              : "日本語の生成本文\n\nhttps://bsky.app/profile/did:plc:example/post/stub",
             langs: ["ja"],
             translations: [{ lang: "en", text: "Generated English text" }],
             ...(withImage ? { image } : {}),
