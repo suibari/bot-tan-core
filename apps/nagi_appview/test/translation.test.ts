@@ -19,9 +19,11 @@ const {
   startEnglishPrewarm,
   TRANSLATION_CACHE_VERSION,
   TranslationMissQuota,
+  translatablePosts,
   translatePosts,
   translationPrompt,
 } = await import("../src/services/translation.js");
+const { db, nagiPosts } = await import("@bsky-affirmative-bot/database");
 const { config } = await import("../src/config.js");
 
 const validUri = "at://did:plc:example/com.suibari.nagi.post/3mtranslation";
@@ -361,4 +363,24 @@ test("only Nagi post URIs may be seeded", () => {
   assert.equal(isNagiPostUri("at://did:plc:example/app.bsky.feed.post/3m"), false);
   assert.equal(isNagiPostUri("https://example.com/post"), false);
   assert.equal(isNagiPostUri(undefined), false);
+});
+
+test("kossori threads and deleted posts are never translated, even from cache", () => {
+  // 翻訳 API は未サインインでも叩けるので、他人の PDS に残ったリアクションレコードから
+  // こっそり投稿の URI を拾われても、本文（とその訳）を返してはいけない。
+  const rendered = db
+    .select({ uri: nagiPosts.uri })
+    .from(nagiPosts)
+    .where(translatablePosts([validUri]))
+    .toSQL();
+  const text = rendered.sql.replace(/\s+/g, " ");
+  assert.ok(text.includes('"nagi"."posts"."deleted_at" is null'), text);
+  // viewer なしの kossoriVisibility：ルートのこっそりは誰にも当たらず、返信はルートで判定する。
+  assert.ok(text.includes('not "nagi"."posts"."kossori" or false'), text);
+  assert.ok(text.includes("thread_root.kossori"), text);
+  assert.ok(
+    rendered.params.every((param) => !(param instanceof Date)),
+    "Date を raw SQL に渡さない",
+  );
+  assert.deepEqual(rendered.params, [validUri]);
 });

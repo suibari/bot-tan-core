@@ -23,7 +23,6 @@ import { startNagiZenkatsuAwardWorker } from "./NagiZenkatsuAwardWorker.js";
 import { startNagiChronicleWorker } from "./NagiChronicleWorker.js";
 import { startNagiPostMoodWorker } from "./NagiPostMoodWorker.js";
 import { processChronicleMonth } from "./NagiChronicleFeature.js";
-import { startNagiCommunityAffirmationWorker } from "./NagiCommunityAffirmationWorker.js";
 import { startNagiThemeWorker } from "./NagiThemeWorker.js";
 import { startNewsInterestWorker } from "./NewsInterestWorker.js";
 import { enqueueAnalysis, runNagiAnalysis } from "./NagiAnalysisFeature.js";
@@ -105,8 +104,6 @@ async function start() {
   startNagiChronicleWorker();
   // 日記の感情グラフ。投稿ごとの気分を採点する（過去分のバックフィルも兼ねる）。
   startNagiPostMoodWorker();
-  // 右サイドバー「みんなで全肯定」の匿名要約。候補選出と生成を作者単位で行う。
-  startNagiCommunityAffirmationWorker();
   // 動的枠の「おすすめの理由」を先に計算しておく（リクエスト経路でLLMを呼ばないため）。
   startNagiThemeWorker();
 

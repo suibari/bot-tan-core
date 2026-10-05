@@ -15,7 +15,6 @@ import { getBlob } from "./routes/blob.js";
 import { getEmojiAsset } from "./routes/emojiAsset.js";
 import { emojiAssetNoStoreHeaders } from "./util/emojiAssetHeaders.js";
 import { errorHandler, notFound } from "./middleware/errors.js";
-import { startCommunityAffirmationDismissalCleanup } from "./queries/communityAffirmationDismissals.js";
 import { startJetstream } from "./ingest/jetstream.js";
 import {
   startBotReplyIndexWorker,
@@ -132,7 +131,6 @@ startActorResolveWorker();
 startReconcileWorker();
 // botたんの返信が AppView に載り損ねていないかの監視と回収。
 const botReplyIndexWorker = startBotReplyIndexWorker();
-const communityDismissalCleanup = startCommunityAffirmationDismissalCleanup();
 // 本番機がうっかり NODE_ENV=development で起動していたら、ここで気づけるようにする。
 // 開発補助は config.dev に集約してあるので、この1行が「何が開いているか」の一覧になる。
 if (config.dev) {
@@ -170,7 +168,6 @@ const shutdown = async () => {
   shuttingDown = true;
   clearInterval(appviewHeartbeat);
   clearInterval(botReplyIndexWorker);
-  clearInterval(communityDismissalCleanup);
   const serverClosed = new Promise<void>((resolve) =>
     server.close(() => resolve()),
   );

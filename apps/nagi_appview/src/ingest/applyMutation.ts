@@ -8,7 +8,6 @@ import {
   nagiBotReplyJobs,
   nagiCardGets,
   nagiChannels,
-  nagiCommunityAffirmations,
   nagiDiaries,
   nagiEmojis,
   nagiIngestState,
@@ -138,8 +137,7 @@ export type ApplyMutationOptions = {
    * botたん返信、プライベート日記だけがこれに当たる。
    *
    * URI の authority が著者ではなく AppView の DID になる（著者 DID を URI に出さないため。
-   * 「みんなで全肯定」の匿名要約や、それに付いた他人のリアクションレコードから著者を
-   * 辿れなくする）。行の did は従来どおり著者のまま。
+   * 他人のリアクションレコードなどに URI が載っても著者を辿れなくする）。行の did は従来どおり著者のまま。
    *
    * firehose 経路からは絶対に立たない。内部の XRPC 手続きと internal ルーターだけが渡す。
    */
@@ -328,12 +326,6 @@ export async function applyMutation(
           .delete(nagiModerationDecisions)
           .where(eq(nagiModerationDecisions.uri, uri));
       if (collection === NAGI.post) {
-        const quotingSourceUris = (
-          await tx
-            .select({ uri: nagiPosts.uri })
-            .from(nagiPosts)
-            .where(eq(nagiPosts.quoteUri, uri))
-        ).map((row) => row.uri);
         await tx
           .update(nagiPosts)
           .set({
@@ -359,15 +351,6 @@ export async function applyMutation(
             updated_at: new Date(),
           })
           .where(eq(bot_memory_documents.source_uri, uri));
-        await tx
-          .delete(nagiCommunityAffirmations)
-          .where(eq(nagiCommunityAffirmations.sourceUri, uri));
-        if (quotingSourceUris.length)
-          await tx
-            .delete(nagiCommunityAffirmations)
-            .where(
-              inArray(nagiCommunityAffirmations.sourceUri, quotingSourceUris),
-            );
       }
       if (collection === NAGI.reaction) {
         await tx.delete(nagiReactions).where(eq(nagiReactions.uri, uri));
@@ -438,42 +421,9 @@ export async function applyMutation(
             )[0]?.channelUri ?? null)
           : (value.channel?.uri ?? null);
         if (isEdit) {
-          const quotingSourceUris = (
-            await tx
-              .select({ uri: nagiPosts.uri })
-              .from(nagiPosts)
-              .where(eq(nagiPosts.quoteUri, uri))
-          ).map((row) => row.uri);
           await tx
             .delete(nagiTranslations)
             .where(eq(nagiTranslations.postUri, uri));
-          // 旧CIDの要約は即時非表示にするが、作者24時間1生成のクールダウンは残す。
-          // 行を消すと編集直後に再生成できてしまうため、期限後にworkerが新CIDへ差し替える。
-          await tx
-            .update(nagiCommunityAffirmations)
-            .set({
-              state: "rejected",
-              summaryJa: null,
-              summaryEn: null,
-              leaseExpiresAt: null,
-              lastError: "source_edited",
-              updatedAt: new Date(),
-            })
-            .where(eq(nagiCommunityAffirmations.sourceUri, uri));
-          if (quotingSourceUris.length)
-            await tx
-              .update(nagiCommunityAffirmations)
-              .set({
-                state: "rejected",
-                summaryJa: null,
-                summaryEn: null,
-                leaseExpiresAt: null,
-                lastError: "quoted_source_edited",
-                updatedAt: new Date(),
-              })
-              .where(
-                inArray(nagiCommunityAffirmations.sourceUri, quotingSourceUris),
-              );
         }
         await tx
           .insert(nagiPosts)
