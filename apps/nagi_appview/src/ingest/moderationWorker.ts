@@ -2,7 +2,6 @@ import {
   db,
   nagiBotReplyJobs,
   nagiChannels,
-  nagiCommunityAffirmations,
   nagiEmojis,
   nagiModerationDecisions,
   nagiNews,
@@ -305,9 +304,6 @@ async function rejectPost(uri: string): Promise<void> {
     await tx
       .delete(nagiNotifications)
       .where(eq(nagiNotifications.subjectUri, uri));
-    await tx
-      .delete(nagiCommunityAffirmations)
-      .where(eq(nagiCommunityAffirmations.sourceUri, uri));
     // まだ返信していないジョブは止める。投稿済みの返信は botたん自身のレコードなので
     // ここでは触らない（botたんの投稿は botたんの判定に従う）。
     await tx.delete(nagiBotReplyJobs).where(eq(nagiBotReplyJobs.sourceUri, uri));

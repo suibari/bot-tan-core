@@ -112,7 +112,6 @@ const EXPECTED: Record<AiFeatureKey, [model: string, tier: "flex" | "standard" |
   NAGI_CARD_COMMENT: [LITE, "standard"],
   NAGI_ZENKATSU: [LITE, "standard"],
   NAGI_ZENKATSU_AWARD: [LITE, "standard"],
-  NAGI_COMMUNITY_AFFIRMATION: [LITE, "flex"],
   NAGI_CHANNEL_WELCOME: [LITE, "flex"],
   NAGI_CHANNEL_TOPIC: [LITE, "flex"],
   NAGI_NAME_INTENT: [LITE, "standard"],

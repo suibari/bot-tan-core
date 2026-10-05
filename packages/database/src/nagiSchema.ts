@@ -54,10 +54,6 @@ export const botJobState = nagiSchema.enum("bot_job_state", [
   "posted",
   "failed",
 ]);
-export const communityAffirmationState = nagiSchema.enum(
-  "community_affirmation_state",
-  ["pending", "processing", "posted", "rejected", "failed"],
-);
 export const newsReviewState = nagiSchema.enum("news_review_state", [
   "pending",
   "processing",
@@ -727,57 +723,6 @@ export const nagiBotReplyJobs = nagiSchema.table(
   ],
 );
 /**
- * 「みんなで全肯定」の匿名要約兼リースジョブ。
- *
- * 主キーは投稿の URI。以前は authorDid が主キーで「1作者につき生涯1行」だったため、
- * ストック総量がアクティブ作者数で頭打ちになり、一覧がほとんど更新されなかった。
- * いまは1作者から複数ストックでき、占有防止は
- * 「直近24hに作った行数」（NagiCommunityAffirmationWorker の AUTHOR_STOCK_LIMIT）で担保する。
- */
-export const nagiCommunityAffirmations = nagiSchema.table(
-  "community_affirmations",
-  {
-    authorDid: text("author_did").notNull(),
-    sourceUri: text("source_uri").primaryKey(),
-    sourceCid: text("source_cid").notNull(),
-    summaryJa: text("summary_ja"),
-    summaryEn: text("summary_en"),
-    state: communityAffirmationState("state").default("pending").notNull(),
-    attempts: integer("attempts").default(0).notNull(),
-    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
-    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true })
-      .defaultNow()
-      .notNull(),
-    nextEligibleAt: timestamp("next_eligible_at", { withTimezone: true })
-      .defaultNow()
-      .notNull(),
-    lastError: text("last_error"),
-    model: text("model"),
-    promptVersion: text("prompt_version"),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .defaultNow()
-      .notNull(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .defaultNow()
-      .notNull(),
-  },
-  (t) => [
-    index("nagi_community_affirmations_ready_idx").on(
-      t.state,
-      t.nextAttemptAt,
-      t.leaseExpiresAt,
-    ),
-    index("nagi_community_affirmations_eligible_idx").on(t.nextEligibleAt),
-    /** 作者ごとの直近ストック数を数えるため（1作者による占有の防止）。 */
-    index("nagi_community_affirmations_author_created_idx").on(
-      t.authorDid,
-      t.createdAt,
-    ),
-    /** 読み出しは「生成が新しい順」なので、posted だけを更新時刻で引く。 */
-    index("nagi_community_affirmations_posted_idx").on(t.state, t.updatedAt),
-  ],
-);
-/**
  * botたんの「最初の1件」リアクションの台帳（nagi_bot_server の nagiAutoReaction.ts）。
  *
  * botたんが返信・ゼンカツ総評を書いた直後に、絵文字を1つ付ける。送り主が見えるのは
@@ -1176,25 +1121,6 @@ export const nagiDrafts = nagiSchema.table(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
   },
   (t) => [index("nagi_drafts_owner_updated_idx").on(t.ownerDid, t.updatedAt)],
-);
-
-/** 「みんなで全肯定」で本人が見送った候補。候補期間と同時に失効する。 */
-export const nagiCommunityAffirmationDismissals = nagiSchema.table(
-  "community_affirmation_dismissals",
-  {
-    viewerDid: text("viewer_did").notNull(),
-    sourceUri: text("source_uri")
-      .notNull()
-      .references(() => nagiPosts.uri, { onDelete: "cascade" }),
-    dismissedAt: timestamp("dismissed_at", { withTimezone: true })
-      .defaultNow()
-      .notNull(),
-    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-  },
-  (t) => [
-    primaryKey({ columns: [t.viewerDid, t.sourceUri] }),
-    index("nagi_community_dismissals_expiry_idx").on(t.expiresAt),
-  ],
 );
 
 /** 投稿・翻訳に関するアカウント設定。UI言語とテーマは端末設定のまま。 */

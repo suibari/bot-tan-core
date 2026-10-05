@@ -11,7 +11,6 @@ export * from './generateChronicleMonth.js';
 export * from './generateChronicleNews.js';
 export * from './scorePostMood.js';
 export * from './chooseAutoReactionEmoji.js';
-export * from './generateCommunityAffirmation.js';
 export * from './generateAnniversary.js';
 export * from './generateCheerResult.js';
 export * from './generateUserDiary.js';

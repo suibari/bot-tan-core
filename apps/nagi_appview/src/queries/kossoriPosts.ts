@@ -29,7 +29,8 @@ import { mentionsDid } from "@bsky-affirmative-bot/bot-runtime";
 
 /**
  * rkey は TID ではなくランダムにする。TID は先頭に投稿時刻を含むので、
- * 「みんなで全肯定」の匿名要約に URI が出た時点で投稿時刻が漏れてしまう。
+ * URI がどこかに出た時点で（過去に「みんなで全肯定」経由で押されたリアクションの
+ * レコードなど）投稿時刻が漏れてしまう。
  */
 const opaqueRkey = () => randomBytes(16).toString("base64url");
 
@@ -162,7 +163,7 @@ export async function createKossoriPost(
 
   const rkey = input.rkey ?? opaqueRkey();
   // 実 CID を計算しておくと、編集で CID が変わる前提の既存ロジック
-  // （community_affirmations の source_cid 突合、edited フラグ）がそのまま効く。
+  // （edited フラグなど）がそのまま効く。
   const cid = (await cidForCbor(record)).toString();
   await applyMutation(
     {

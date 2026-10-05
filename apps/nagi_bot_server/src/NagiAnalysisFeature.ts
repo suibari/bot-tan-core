@@ -152,7 +152,15 @@ async function gatherNagiInput(did: string): Promise<NagiAnalysisInput> {
     db
       .select({ text: nagiPosts.text })
       .from(nagiPosts)
-      .where(and(eq(nagiPosts.did, did), isNull(nagiPosts.deletedAt)))
+      .where(
+        and(
+          eq(nagiPosts.did, did),
+          isNull(nagiPosts.deletedAt),
+          // 分析はプロフィールに公開される。こっそりは本人とbotたんだけのものなので、
+          // 言い換えた形でも他人の目に触れる材料にしない。
+          eq(nagiPosts.kossori, false),
+        ),
+      )
       .orderBy(desc(nagiPosts.recordCreatedAt))
       .limit(100),
     db
@@ -163,6 +171,9 @@ async function gatherNagiInput(did: string): Promise<NagiAnalysisInput> {
         and(
           eq(nagiReactions.did, did),
           isNull(nagiPosts.deletedAt),
+          // 他人のこっそり投稿の本文を、リアクションした人の分析（プロフィールに出る）へ
+          // 混ぜない。こっそりスレッドは返信レコードにも kossori が付くのでこの列で足りる。
+          eq(nagiPosts.kossori, false),
           ...botDids().map((botDid) => ne(nagiPosts.did, botDid)),
         ),
       )

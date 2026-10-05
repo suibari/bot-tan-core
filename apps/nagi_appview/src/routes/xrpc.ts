@@ -88,11 +88,9 @@ import {
   resetZenkatsuForDev,
 } from "../queries/zenkatsu.js";
 import { getCardNews } from "../queries/cardNews.js";
-import { getCommunityAffirmations } from "../queries/communityAffirmations.js";
 import { loadPersonalizationContext } from "../queries/personalizedFeed.js";
 
 /** 全肯定ニュースの動的枠の件数。一覧の頭に置くので、多いと時系列が押し下げられる。 */
-import { putCommunityAffirmationDismissals } from "../queries/communityAffirmationDismissals.js";
 import {
   deleteDraft,
   getDraft,
@@ -162,7 +160,7 @@ const pushInstallationInput = (body: any) => {
 };
 
 // DIDを持たない利用者向け。既存のこっそり投稿APIの認証は緩めず、短命な返信ジョブだけを
-// 別の低レート経路で受ける。本文はタイムライン・検索・みんなで全肯定へ取り込まれない。
+// 別の低レート経路で受ける。本文はタイムライン・検索へ取り込まれない。
 const guestAffirmationLimiter = rateLimit({
   windowMs: 10 * 60_000,
   limit: 10,
@@ -214,43 +212,6 @@ const searchMode = (value: unknown): SearchMode => {
   const raw = String(value ?? "");
   return raw === "exact" || raw === "semantic" ? raw : "hybrid";
 };
-
-xrpc.get(
-  `/${NAGI.getCommunityAffirmations}`,
-  requiredServiceAuth(NAGI.getCommunityAffirmations),
-  async (req, res, next) => {
-    try {
-      const lang = String(req.query.lang ?? "ja");
-      if (lang !== "ja" && lang !== "en")
-        throw new ApiError(400, "invalid_request", "lang must be ja or en");
-      const data = await getCommunityAffirmations({
-        viewerDid: req.viewerDid!,
-        lang,
-        limit: Math.min(20, limit(req.query.limit)),
-        cursor: String(req.query.cursor ?? "") || undefined,
-      });
-      res.set("Cache-Control", "private, no-store").json(data);
-    } catch (error) {
-      next(error);
-    }
-  },
-);
-
-xrpc.post(
-  `/${NAGI.putCommunityAffirmationDismissals}`,
-  requiredServiceAuth(NAGI.putCommunityAffirmationDismissals),
-  async (req, res, next) => {
-    try {
-      res
-        .set("Cache-Control", "private, no-store")
-        .json(
-          await putCommunityAffirmationDismissals(req.viewerDid!, req.body),
-        );
-    } catch (error) {
-      next(error);
-    }
-  },
-);
 
 xrpc.get(
   `/${NAGI.getDrafts}`,

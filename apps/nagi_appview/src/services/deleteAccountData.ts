@@ -25,8 +25,6 @@ import {
   nagiChronicleEvents,
   nagiChronicleJobs,
   nagiChannelSubscriptions,
-  nagiCommunityAffirmations,
-  nagiCommunityAffirmationDismissals,
   nagiDiaries,
   nagiRadioReadStates,
   nagiRadioTracks,
@@ -56,7 +54,7 @@ import {
   nagiTranslations,
 } from "@bsky-affirmative-bot/database";
 import { NAGI } from "@bsky-affirmative-bot/nagi-lexicon";
-import { eq, inArray, like, or } from "drizzle-orm";
+import { and, eq, inArray, like, or } from "drizzle-orm";
 
 const NAGI_BOT_SERVER_URL =
   process.env.NAGI_BOT_SERVER_URL || "http://localhost:3003";
@@ -128,17 +126,19 @@ export async function deleteAccountData(did: string) {
     const reactionUri = `at://${did}/${NAGI.reaction}/%`;
     const channelUri = `at://${did}/${NAGI.channel}/%`;
     const newsUri = `at://${did}/${NAGI.news}/%`;
-    const quotingSourceUris = (
-      await tx
-        .select({ uri: nagiPosts.uri })
-        .from(nagiPosts)
-        .where(like(nagiPosts.quoteUri, postUri))
-    ).map((row) => row.uri);
     const diaryUris = (
       await tx
         .select({ uri: nagiDiaries.uri })
         .from(nagiDiaries)
         .where(eq(nagiDiaries.subjectDid, did))
+    ).map((row) => row.uri);
+    // こっそり投稿の URI は AppView の authority で発行されるので、下の
+    // `at://${did}/...` の前方一致には掛からない。投稿行を消す前に引いておく。
+    const appviewPostUris = (
+      await tx
+        .select({ uri: nagiPosts.uri })
+        .from(nagiPosts)
+        .where(and(eq(nagiPosts.did, did), eq(nagiPosts.appviewOnly, true)))
     ).map((row) => row.uri);
 
     // ミュートは2方向消す。自分がしたミュートだけでなく、他人が自分/自分の CH に対して
@@ -190,6 +190,17 @@ export async function deleteAccountData(did: string) {
     await tx
       .delete(nagiReactions)
       .where(like(nagiReactions.subjectUri, newsUri));
+    if (appviewPostUris.length) {
+      await tx
+        .delete(nagiTranslations)
+        .where(inArray(nagiTranslations.postUri, appviewPostUris));
+      await tx
+        .delete(nagiPostScores)
+        .where(inArray(nagiPostScores.postUri, appviewPostUris));
+      await tx
+        .delete(nagiReactions)
+        .where(inArray(nagiReactions.subjectUri, appviewPostUris));
+    }
     await tx
       .delete(nagiBotReplyJobs)
       .where(eq(nagiBotReplyJobs.authorDid, did));
@@ -209,13 +220,6 @@ export async function deleteAccountData(did: string) {
         ),
       );
     await tx.delete(nagiReactions).where(eq(nagiReactions.did, did));
-    await tx
-      .delete(nagiCommunityAffirmations)
-      .where(eq(nagiCommunityAffirmations.authorDid, did));
-    if (quotingSourceUris.length)
-      await tx
-        .delete(nagiCommunityAffirmations)
-        .where(inArray(nagiCommunityAffirmations.sourceUri, quotingSourceUris));
     // 本人所有 Bluemoji の複製は消すが、それを使った他ユーザーのリアクションは
     // そのユーザーのデータなので残す。表示時は emoji のフォールバック文字列を使う。
     await tx.delete(nagiEmojis).where(eq(nagiEmojis.did, did));
@@ -322,9 +326,6 @@ export async function deleteAccountData(did: string) {
     await tx.delete(nagiEmojiFavorites).where(eq(nagiEmojiFavorites.did, did));
     await tx.delete(nagiFeedTabs).where(eq(nagiFeedTabs.did, did));
     await tx.delete(nagiDrafts).where(eq(nagiDrafts.ownerDid, did));
-    await tx
-      .delete(nagiCommunityAffirmationDismissals)
-      .where(eq(nagiCommunityAffirmationDismissals.viewerDid, did));
     await tx
       .delete(nagiLanguagePreferences)
       .where(eq(nagiLanguagePreferences.did, did));

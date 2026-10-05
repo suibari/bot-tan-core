@@ -21,6 +21,7 @@ import {
 import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { config } from "../config.js";
 import { ApiError } from "../middleware/errors.js";
+import { kossoriVisibility } from "../queries/timeline.js";
 import { hasContentWarning } from "../util/contentWarning.js";
 
 export const TRANSLATION_CACHE_VERSION = 4;
@@ -66,6 +67,20 @@ export const shouldStartEnglishPrewarm = (
   reconcile: boolean,
   langs: unknown,
 ) => !existing && !reconcile && shouldPrewarmEnglish(langs);
+
+/**
+ * 翻訳してよい投稿の条件。翻訳 API は未サインインでも使える（viewer が居ない）ので、
+ * こっそりスレッドと削除済みの投稿は誰が叩いても訳さない。キャッシュ済みの訳も返さない。
+ *
+ * 他人の PDS に残ったリアクションレコードには、こっそり投稿の URI が載っていることがある。
+ * URI を知っていても本文を引けないことは、ここが担保する。
+ */
+export const translatablePosts = (uris: string[]) =>
+  and(
+    inArray(nagiPosts.uri, uris),
+    isNull(nagiPosts.deletedAt),
+    kossoriVisibility(undefined),
+  );
 
 function targetLanguage(value: unknown): Language {
   if (typeof value !== "string") {
@@ -548,7 +563,7 @@ export async function prewarmEnglishTranslation(uri: string): Promise<void> {
   const posts = await db
     .select()
     .from(nagiPosts)
-    .where(and(eq(nagiPosts.uri, uri), isNull(nagiPosts.deletedAt)))
+    .where(translatablePosts([uri]))
     .limit(1);
   const post = posts[0];
   if (
@@ -594,7 +609,7 @@ export async function translatePosts(
   const posts = await db
     .select()
     .from(nagiPosts)
-    .where(inArray(nagiPosts.uri, normalizedUris));
+    .where(translatablePosts(normalizedUris));
   const postsByUri = new Map(posts.map((post) => [post.uri, post]));
   const failures = new Map<string, TranslationFailureCode>();
   const eligibleUris = normalizedUris.filter((uri) => {

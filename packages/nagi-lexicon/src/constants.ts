@@ -16,10 +16,6 @@ export const NAGI = {
   /** 認証した本人向けの、自分・botたん・非公開リストからなるホーム。 */
   getHomeTimeline: "com.suibari.nagi.getHomeTimeline",
   getAffirmation: "com.suibari.nagi.getAffirmation",
-  /** 作者名や本文を出さない、右サイドバー用の匿名要約候補。 */
-  getCommunityAffirmations: "com.suibari.nagi.getCommunityAffirmations",
-  putCommunityAffirmationDismissals:
-    "com.suibari.nagi.putCommunityAffirmationDismissals",
   getDrafts: "com.suibari.nagi.getDrafts",
   getDraft: "com.suibari.nagi.getDraft",
   putDraft: "com.suibari.nagi.putDraft",
@@ -248,8 +244,7 @@ export const NAGI_APPVIEW_DID =
   process.env.NAGI_APPVIEW_DID ?? "did:web:nagi-api.suibari.com";
 /**
  * AppView が正本を持つレコードの URI に使う authority。著者の DID を URI に出さないための
- * もので、「みんなで全肯定」の匿名要約や、それに付いた他人のリアクションレコードから
- * 著者を辿れないようにする。実体は AppView の Postgres にしかなく、この DID の
+ * もので、他人のリアクションレコードなどに URI が載っても著者を辿れないようにする。実体は AppView の Postgres にしかなく、この DID の
  * リポジトリを引いても何も出てこない。
  */
 export const NAGI_APPVIEW_URI_AUTHORITY = NAGI_APPVIEW_DID;

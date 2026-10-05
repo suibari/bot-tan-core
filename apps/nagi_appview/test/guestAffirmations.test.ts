@@ -17,7 +17,7 @@ test("guest affirmations are separate from authenticated kossori creation", () =
 });
 
 test("guest jobs cannot enter post or community-affirmation tables", () => {
-  assert.doesNotMatch(query, /nagiPosts|nagiCommunityAffirmations|applyMutation/);
+  assert.doesNotMatch(query, /nagiPosts|applyMutation/);
   assert.match(query, /nagiGuestAffirmationJobs/);
 });
 

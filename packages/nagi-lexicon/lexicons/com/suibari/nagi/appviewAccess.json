@@ -30,8 +30,6 @@
             "com.suibari.nagi.getTimeline",
             "com.suibari.nagi.getHomeTimeline",
             "com.suibari.nagi.getAffirmation",
-            "com.suibari.nagi.getCommunityAffirmations",
-            "com.suibari.nagi.putCommunityAffirmationDismissals",
             "com.suibari.nagi.getDrafts",
             "com.suibari.nagi.getDraft",
             "com.suibari.nagi.putDraft",
