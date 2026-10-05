@@ -10,6 +10,7 @@ const {
   isAutoReactionEnabled,
   postSubjectText,
   skipReasonForPost,
+  TRANSIENT_SKIP_REASONS,
   zenkatsuSubjectText,
 } = await import("../src/nagiAutoReaction.js");
 
@@ -61,18 +62,23 @@ const post = (overrides: Record<string, unknown> = {}) =>
     replyParentUri: null,
     kossori: false,
     moderationLabels: [],
+    moderationVersion: "v1",
     selfLabels: [],
     recordCreatedAt: postedAt,
     ...overrides,
   }) as any;
 
-test("返信・こっそり・ラベル付き・CW付き・botたん自身の投稿は対象外", () => {
+test("返信・こっそり・判定待ち・ラベル付き・CW付き・botたん自身の投稿は対象外", () => {
   assert.equal(skipReasonForPost(post()), undefined);
   assert.equal(skipReasonForPost(post({ deletedAt: postedAt })), "deleted");
   assert.equal(skipReasonForPost(post({ replyParentUri: "at://x" })), "reply");
   assert.equal(skipReasonForPost(post({ did: process.env.NAGI_BOT_DID })), "bot_post");
   assert.equal(skipReasonForPost(post({ kossori: true })), "kossori");
   assert.equal(skipReasonForPost(post({ moderationLabels: ["sexual"] })), "labeled");
+  // 判定待ちは安全とみなさない。待てば解消する一時状態なので台帳にも積まない。
+  assert.equal(skipReasonForPost(post({ moderationVersion: null })), "moderation_pending");
+  assert.ok(TRANSIENT_SKIP_REASONS.includes("moderation_pending"));
+  assert.ok(TRANSIENT_SKIP_REASONS.includes("not_indexed"));
   assert.equal(skipReasonForPost(post({ selfLabels: ["nudity"] })), "labeled");
   assert.equal(skipReasonForPost(post({ text: "||ネタバレ||" })), "content_warning");
   assert.equal(

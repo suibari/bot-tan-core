@@ -795,8 +795,11 @@ export const nagiBotAutoReactions = nagiSchema.table(
     subjectDid: text("subject_did").notNull(),
     /** "post" | "zenkatsu"。ブログ記事は投稿テーブルに入るので "post"。 */
     kind: text("kind").notNull(),
-    /** "processing" | "reacted" | "skipped" | "failed" */
-    state: text("state").default("pending").notNull(),
+    /**
+     * "processing" | "reacted" | "skipped" | "failed"。回収するワーカーが無いので既定値は持たせず、
+     * 書き手に明示させる（省略して宙に浮いた行を作らない）。
+     */
+    state: text("state").notNull(),
     scheduledAt: timestamp("scheduled_at", { withTimezone: true }).notNull(),
     attempts: integer("attempts").default(0).notNull(),
     leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),

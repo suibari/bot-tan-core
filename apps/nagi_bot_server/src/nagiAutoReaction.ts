@@ -58,6 +58,16 @@ const TOP_CUSTOM_EMOJIS = 20;
 const RANDOM_CUSTOM_EMOJIS = 20;
 const LOG_PREFIX = "[nagi-auto-reaction]";
 
+/**
+ * 索引・モデレーション判定が済むのを待つ上限。判定は取り込みと非同期（AppView の moderationWorker、
+ * 空き時5秒間隔）で、返信の生成中に済んでいることが多い。済んでいなければ少しだけ待ち、
+ * それでも済まなければ付けない。呼び出し元の返信ワーカーを止めるので長くはしない。
+ */
+const READY_WAIT_MS = 15_000;
+const READY_POLL_MS = 1_000;
+/** 待てば解消しうる一時状態。台帳には積まない（完了扱いにしない）。 */
+export const TRANSIENT_SKIP_REASONS: readonly string[] = ["not_indexed", "moderation_pending"];
+
 const log = (event: string, details: Record<string, unknown> = {}) =>
   console.info(LOG_PREFIX, { event, ...details });
 
@@ -75,6 +85,7 @@ type PostRow = Pick<
   | "replyParentUri"
   | "kossori"
   | "moderationLabels"
+  | "moderationVersion"
   | "selfLabels"
 >;
 
@@ -84,6 +95,8 @@ export function skipReasonForPost(post: PostRow): string | undefined {
   if (post.replyParentUri) return "reply";
   if (post.did === botDid()) return "bot_post";
   if (post.kossori) return "kossori";
+  // 判定待ちは安全とみなさない（後でラベルが付く内容へ先に反応してしまう）。
+  if (post.moderationVersion === null) return "moderation_pending";
   if (post.moderationLabels.length || post.selfLabels.length) return "labeled";
   if (hasCommunityAffirmationContentWarning(post)) return "content_warning";
   return undefined;
@@ -292,6 +305,7 @@ async function loadSubject(
       replyParentUri: nagiPosts.replyParentUri,
       kossori: nagiPosts.kossori,
       moderationLabels: nagiPosts.moderationLabels,
+      moderationVersion: nagiPosts.moderationVersion,
       selfLabels: nagiPosts.selfLabels,
     })
     .from(nagiPosts)
@@ -392,7 +406,16 @@ const setResult = (
 export async function reactAfterBotPost(kind: AutoReactionKind, subjectUri: string) {
   if (!isAutoReactionAvailable()) return;
   try {
-    const subject = await loadSubject(kind, subjectUri);
+    const deadline = Date.now() + READY_WAIT_MS;
+    let subject = await loadSubject(kind, subjectUri);
+    while (
+      "skip" in subject &&
+      TRANSIENT_SKIP_REASONS.includes(subject.skip) &&
+      Date.now() + READY_POLL_MS <= deadline
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, READY_POLL_MS));
+      subject = await loadSubject(kind, subjectUri);
+    }
     const skipReason =
       "skip" in subject
         ? subject.skip
@@ -418,11 +441,12 @@ export async function reactAfterBotPost(kind: AutoReactionKind, subjectUri: stri
       .onConflictDoNothing({ target: nagiBotAutoReactions.subjectUri })
       .returning({ subjectUri: nagiBotAutoReactions.subjectUri });
     if (!claimed.length) return;
-
     const skip = async (reason: string) => {
       await setResult(subjectUri, { state: "skipped", lastError: reason });
       log("skipped", { subjectUri, reason });
     };
+    // 返信の生成中に人間が先に反応していれば、候補集めと Ollama を使わずに終える。
+    if (await hasAnyReaction(subjectUri)) return await skip("already_reacted");
 
     try {
       const custom = await loadCustomEmojiOptions();
