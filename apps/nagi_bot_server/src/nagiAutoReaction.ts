@@ -52,21 +52,23 @@ import {
 } from "drizzle-orm";
 import { agent } from "./agent.js";
 import { ensureNagiBotRecordIndexed } from "./appviewInternal.js";
-import { hasCommunityAffirmationContentWarning } from "./NagiCommunityAffirmationWorker.js";
 
 const TOP_CUSTOM_EMOJIS = 20;
 const RANDOM_CUSTOM_EMOJIS = 20;
 const LOG_PREFIX = "[nagi-auto-reaction]";
 
 /**
- * 索引・モデレーション判定が済むのを待つ上限。判定は取り込みと非同期（AppView の moderationWorker、
- * 空き時5秒間隔）で、返信の生成中に済んでいることが多い。済んでいなければ少しだけ待ち、
- * それでも済まなければ付けない。呼び出し元の返信ワーカーを止めるので長くはしない。
+ * AppView の索引を待つ上限。返信ジョブは Jetstream からも積まれるので索引より先に来ることがあるが、
+ * 返信の生成中にたいてい追いつく。追いつかなければ付けない。呼び出し元の返信ワーカーを
+ * 止めるので長くはしない。
+ *
+ * モデレーション判定は待たない。あれは危ない投稿を AppView の表示から外すための機構で、
+ * 返信と同じく botたんが反応するかどうかとは別。
  */
 const READY_WAIT_MS = 15_000;
 const READY_POLL_MS = 1_000;
 /** 待てば解消しうる一時状態。台帳には積まない（完了扱いにしない）。 */
-export const TRANSIENT_SKIP_REASONS: readonly string[] = ["not_indexed", "moderation_pending"];
+export const TRANSIENT_SKIP_REASONS: readonly string[] = ["not_indexed"];
 
 const log = (event: string, details: Record<string, unknown> = {}) =>
   console.info(LOG_PREFIX, { event, ...details });
@@ -84,21 +86,17 @@ type PostRow = Pick<
   | "deletedAt"
   | "replyParentUri"
   | "kossori"
-  | "moderationLabels"
-  | "moderationVersion"
-  | "selfLabels"
 >;
 
-/** 対象外の理由。こっそり投稿は「静かに置いておきたい」意思表示なので触らない。 */
+/**
+ * 対象外の理由。こっそり投稿は「静かに置いておきたい」意思表示なので触らない。
+ * ラベル・CW は見ない。返信と同じ扱いにそろえる（モデレーションは AppView の表示側の仕事）。
+ */
 export function skipReasonForPost(post: PostRow): string | undefined {
   if (post.deletedAt) return "deleted";
   if (post.replyParentUri) return "reply";
   if (post.did === botDid()) return "bot_post";
   if (post.kossori) return "kossori";
-  // 判定待ちは安全とみなさない（後でラベルが付く内容へ先に反応してしまう）。
-  if (post.moderationVersion === null) return "moderation_pending";
-  if (post.moderationLabels.length || post.selfLabels.length) return "labeled";
-  if (hasCommunityAffirmationContentWarning(post)) return "content_warning";
   return undefined;
 }
 
@@ -304,9 +302,6 @@ async function loadSubject(
       deletedAt: nagiPosts.deletedAt,
       replyParentUri: nagiPosts.replyParentUri,
       kossori: nagiPosts.kossori,
-      moderationLabels: nagiPosts.moderationLabels,
-      moderationVersion: nagiPosts.moderationVersion,
-      selfLabels: nagiPosts.selfLabels,
     })
     .from(nagiPosts)
     .where(eq(nagiPosts.uri, uri))
