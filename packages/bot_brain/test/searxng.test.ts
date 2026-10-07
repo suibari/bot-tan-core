@@ -130,7 +130,7 @@ test("keeps infoboxes, which are the Wikidata/Wikipedia signal for proper nouns"
   ]);
 });
 
-test("queries bing for lists and wikipedia/wikidata for proper nouns by default", async () => {
+test("queries yahoo and bing for lists and wikipedia/wikidata for proper nouns by default", async () => {
   let requested: URL | undefined;
   globalThis.fetch = async (input: any) => {
     requested = new URL(String(input));
@@ -139,6 +139,8 @@ test("queries bing for lists and wikipedia/wikidata for proper nouns by default"
 
   await searxngSearch("q");
   const engines = requested?.searchParams.get("engines") ?? "";
+  // bing は曲名を無視した結果を返すことがある。yahoo を主索引として必ず併記する。
+  assert.match(engines, /\byahoo\b/);
   assert.match(engines, /\bbing\b/);
   assert.match(engines, /\bwikipedia\b/);
   // duckduckgo は自前インスタンスに CAPTCHA (jp-jp) を返し続けるので既定から外した。

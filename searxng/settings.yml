@@ -7,7 +7,7 @@
 # - google は自前インスタンスからだと CAPTCHA / ブロックを食らいやすいので入れない。
 # - wikipedia / wikidata は infobox の供給源。固有名詞の実在確認に効くので必須。
 #   （この2つは results を返さず infobox だけを返す。0件に見えても働いている）
-# - bing が一覧・時事の索引。実質これ1本なので、詰まったら真っ先に疑う。
+# - yahoo が一覧・時事・曲名の主索引。bing は yahoo が薄いときの補完（下の weight）。
 # engines= と categories=general を併記するとカテゴリ内の全エンジンが追加される。
 # gateway がこの併記を解消するので、engines= による送信先の限定が実際に効く。
 #
@@ -23,7 +23,17 @@
 #
 # 2026-09-27: Bingは曲名を無視/無関係なHTMLを返す不具合を再現。
 # 最新版でも再現した。件数だけで正常判定しない。詳細は docs/search-egress.md。
-# 日本語の索引は Bing 単独依存。詰まったら真っ先にここを疑う。
+#
+# 2026-10-07 の再実測（2026.10.4-d48c4b555、本番回線）:
+#   yahoo      ✅ 曲名・一覧・固有名詞の6クエリ全てで関連結果（7件）
+#   bing       △ 6クエリ中2つで無関係な結果（ROOKiEZ→大学の質問、技術書典→韓ドラ）
+#   duckduckgo △ 一部クエリで CAPTCHA（上流 #6779）
+#   brave      ❌ 1回目から too many requests（上流 #6819。IPでなく brave.py の
+#                 Accept-Encoding と curl_cffi の組み合わせが原因との分析あり）
+#   google     ❌ access denied
+#   qwant      ❌ 全クエリ CAPTCHA
+# Yahoo の結果も Bing の索引由来だが、取得と解析の経路が別なので Bing の
+# 無関係応答を今回は踏まなかった。索引の多様化ではなく、取得経路の冗長化として扱う。
 # 代替を試すときは keep_only に足して `docker compose up -d --force-recreate`。
 #
 # エンジンを増やすほど 1 リクエストの所要時間が伸びる。増やす前に
@@ -34,6 +44,7 @@ use_default_settings:
       - bing
       - wikipedia
       - wikidata
+      - yahoo
 
 general:
   instance_name: "nagi-searxng"
@@ -74,3 +85,9 @@ engines:
     language: ja
   - name: bing
     timeout: 5.0
+  # 併用するだけだと bing の無関係な1位が上位5件に混ざる。スコアは weight/順位の
+  # 和なので、10 にすると yahoo の7位（10/7）も bing の1位（1）より上に来る。
+  # bing は yahoo が返さなかった分の補完になり、両方が返した結果は合算で上がる。
+  - name: yahoo
+    timeout: 5.0
+    weight: 10
