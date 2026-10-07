@@ -10,6 +10,7 @@ import {
   normalizeUrlSpacing,
   stripJsonFences,
 } from "./util.js";
+import { assertSourcedUrls, createUrlAllowance } from "./urlGuard.js";
 
 /** 今日の会話で覚えた言葉。DB の印象語（bot_memory_impressions）から来る。 */
 export interface GoodNightLearnedTerm {
@@ -70,6 +71,14 @@ export async function generateGoodNight(param: GoodNightInfo): Promise<GoodNight
 }
 
 /**
+ * おやすみ本文に書いてよい URL。プロンプトで渡しているのはお部屋の URL だけで、
+ * 選出ポストの URL はシステムが別に付ける（Bluesky はリポスト、Nagi は末尾追記）。
+ * 選出ポストの本文も材料に含めないのは、引用元の URL を紹介文へ写す理由が無いため。
+ * 2026-10-06 の x.com 捏造の経緯は urlGuard.ts を参照。
+ */
+const GOOD_NIGHT_URL_ALLOWANCE = createUrlAllowance({ origins: ["https://room.bot-tan.com"] });
+
+/**
  * 生成結果を検査して初めて GoodNightResult にする。
  *
  * ここでフォールバックを持ってはいけない。以前は JSON.parse 失敗時に生の応答を
@@ -99,6 +108,8 @@ export function parseGoodNightResponse(responseText: string): GoodNightResult {
   if (/\btext(Ja|En)\b/.test(textJa) || /\btext(Ja|En)\b/.test(textEn)) {
     throw new Error("generateGoodNight leaked a field name into the post text");
   }
+
+  assertSourcedUrls([textJa, textEn], GOOD_NIGHT_URL_ALLOWANCE, "generateGoodNight");
 
   // 構造が正しくても中身が入れ違っていることがある。両欄の文字種を数えて弾く。
   if (checkPredominantLanguage(textJa, true) !== "ok") {
@@ -166,7 +177,7 @@ export const buildGoodNightPrompt = (param: GoodNightInfo) => {
 
   const sharingInstruction = param.topPostNetwork === "nagi"
     ? `* 全肯定されたポストはNagiの投稿です。リポスト済みとは書かないでください。スレッドURLはシステムが本文末尾に追加するので、textJaとtextEnにはURLを書かず、感想だけを書いてください。`
-    : `* **全肯定されたポスト本文をそのまま記載することは不要です**。リポスト済みなので、感想のみでよいです。`;
+    : `* **全肯定されたポスト本文をそのまま記載することは不要です**。リポスト済みなので、感想のみでよいです。ポストやユーザのURLも書かないでください。`;
 
   return `あなたはこれから就寝します。フォロワーへのおやすみのあいさつをしてください。` +
     `あいさつには以下を含めること:` +
@@ -183,7 +194,8 @@ export const buildGoodNightPrompt = (param: GoodNightInfo) => {
     sharingInstruction +
     `* ポストを紹介する際はフォロワーを楽しませることを考えてください。**正義感にもとづいて特定个人、団体への攻撃を扇動したりしてはなりません。**` +
     `* 読みやすくするために、適切に改行を入れてください。` +
-    `* **絶対厳守**: textJaとtextEnのテキストにマークダウン記法を一切使わないでください。見出し(#)、太字(**)、斜体(*)、リスト(-)、リンク([text](url))などは禁止です。URLはそのまま https://... の形式で本文中に含めてください。` +
+    `* **絶対厳守**: textJaとtextEnのテキストにマークダウン記法を一切使わないでください。見出し(#)、太字(**)、斜体(*)、リスト(-)、リンク([text](url))などは禁止です。` +
+    `* **URLは、この指示の中で書くよう示されたもの以外は一切書かないでください。** ユーザ名から X(Twitter) などのSNSアカウントのURLを推測して作ることも禁止です。ユーザに触れるときは表示名を名前として書いてください。` +
     `\n# 口調\n紹介するポストがどんな文体でも、textJa は必ずあなた自身の口調にしてください。\n${TONE_RULES_JA}\n` +
     `---今日のあなたが全肯定されたポスト---` +
     `* ポストしたユーザ名: ${param.topFollower?.displayName ?? ""}` +

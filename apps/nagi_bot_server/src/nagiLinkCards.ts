@@ -1,4 +1,5 @@
 import { RichText } from "@atproto/api";
+import { sanitizeBotPostFacets } from "@bsky-affirmative-bot/shared-configs";
 import { getLinkMetadata, getLinkThumbnail } from "@bsky-affirmative-bot/nagi-linkcard";
 import type { NagiPost } from "@bsky-affirmative-bot/nagi-lexicon";
 import { agent } from "./agent.js";
@@ -47,7 +48,8 @@ function maskAutoLinkExclusions(text: string, exclusions: readonly string[]) {
 /**
  * 本文から解決なしで安全に作れる facet を検出する。
  * mention は detectFacetsWithoutResolution だと did が handle のままの無効な facet になるため
- * 除外するが、link と tag はそのまま Nagi のレコードに保存できる。
+ * 除外する。link は Bluesky 側と同じ sanitizeBotPostFacets の規則で、本文に `https://` から
+ * 書かれたものだけを、後ろに続く日本語を含めずに残す。
  */
 export function detectNagiFacets(
   text: string,
@@ -59,7 +61,7 @@ export function detectNagiFacets(
 
   const facets: NagiFacet[] = [];
   const urls: string[] = [];
-  for (const facet of rt.facets ?? []) {
+  for (const facet of sanitizeBotPostFacets(text, rt.facets)) {
     const features = facet.features.filter(
       (feature: any) =>
         (feature?.$type === "app.bsky.richtext.facet#link" &&

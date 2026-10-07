@@ -35,6 +35,12 @@ export async function postContinuous(
   const MAX_LENGTH = 300;
   const parts = splitTextSmart(text, MAX_LENGTH);
 
+  // 本文中のメンションは返信相手だけ残す（post.ts の sanitizeBotPostFacets）。
+  // 分割した2本目以降の親は bot 自身なので、親ではなく元の返信先から決める。
+  // AtUri は形が崩れていると投げるので、返信そのものを落とさないよう正規表現で取る。
+  const recipientDid = replyTo?.uri.match(/^at:\/\/([^/]+)/)?.[1];
+  const mentionDids = recipientDid ? [recipientDid] : [];
+
   let root: Main | undefined = undefined;
   let parentPost: Main | undefined = undefined;
   let firstPostResult: { uri: string; cid: string; } | undefined = undefined;
@@ -117,7 +123,7 @@ export async function postContinuous(
       newRecord.embed = { $type: "app.bsky.embed.external", external };
     }
 
-    const result = await postImpl(newRecord);
+    const result = await postImpl(newRecord, undefined, { mentionDids });
     if (isFirst) {
       firstPostResult = result;
     }

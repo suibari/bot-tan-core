@@ -41,6 +41,7 @@ export * from './judgePositiveNewsBatch.js';
 export * from './generateRoomWelcomeMessage.js';
 export * from './util.js';
 export * from './replyGuard.js';
+export * from './urlGuard.js';
 export * from './generationClient.js';
 export * from './grounding.js';
 export * from './routedGeneration.js';

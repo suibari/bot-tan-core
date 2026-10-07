@@ -49,15 +49,13 @@ test("the common post record builder applies reply handle exclusions", async () 
   assert.equal(record.linkCards, undefined);
 });
 
-test("keeps ordinary links when excluding a reply recipient handle", () => {
+test("keeps scheme links when excluding a reply recipient handle", () => {
   const handle = "elle139.bsky.social";
   const text = `${handle}、リンクはこちら https://${handle}/profile と example.com を見てね。`;
   const { facets, urls } = detectNagiFacets(text, [handle]);
 
-  assert.deepEqual(urls, [
-    `https://${handle}/profile`,
-    "https://example.com",
-  ]);
+  // スキーム無しのドメイン（example.com）はリンクにしない（sanitizeBotPostFacets）。
+  assert.deepEqual(urls, [`https://${handle}/profile`]);
   assert.deepEqual(
     facets.flatMap((facet) => facet.features),
     urls.map((uri) => ({
@@ -190,4 +188,11 @@ test("does not turn an alias inside a detected URL into Bluemoji", () => {
   );
 
   assert.deepEqual(facets, []);
+});
+
+test("does not auto-link bare domains in display names or Japanese text", () => {
+  const text = "Marko @ admin.education さん、last.fmと連携すれば楽しいね。 https://room.bot-tan.comだよ";
+  const { urls } = detectNagiFacets(text);
+
+  assert.deepEqual(urls, ["https://room.bot-tan.com"]);
 });

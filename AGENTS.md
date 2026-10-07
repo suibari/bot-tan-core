@@ -162,6 +162,31 @@ gemma4 の視覚エンコーダは**実効896px相当で頭打ち**になる。2
   乗る。ネイティブ `/api/chat` を使うのは `think: false` を送るためであって、
   num_ctx を送るためではない。
 
+## 生成文の URL とリンク
+
+**投稿する生成文は `assertSourcedUrls`（`packages/bot_brain/src/ai/urlGuard.ts`）を通すこと。**
+プロンプトへ入れた材料を `createUrlAllowance({ materials, origins })` に渡し、材料に無い URL が
+本文にあれば `UnsourcedUrlError` を投げて再生成へ回す。
+
+モデルは指示に無い URL を「ありそうな形」で作る。2026-10-06 のおやすみポストでは、表示名
+「📛 Transgender Mahou Shoujo」が `https://x.com/TransgenderMahouShoujo` に化け、X アカウントを
+持たない人のリンクが Bluesky と Nagi に公開された。プロンプトで禁じても 0 にはならない。
+
+投稿時の facet は `sanitizeBotPostFacets`（shared-configs）で絞っている。Bluesky の `post.ts` と
+Nagi の `detectNagiFacets` の両方がこれを通る。
+
+- リンクは本文に `https://` から書かれたものだけ。スキーム無しのドメイン（名前に使ったハンドル
+  `xxx.bsky.social`、表示名の `admin.education` など）はリンクにしない。
+- URL の直後の日本語と句読点はリンクに含めない。
+- メンションは返信相手の DID だけ残す。生成文が写した第三者の `@ハンドル` で通知を飛ばさない。
+
+### レビューとテスト
+
+- 公開テキストを生成する経路を足したら、`assertSourcedUrls` を通しているか確認する。
+  `origins` は自前サービスの固定 URL に限る。
+- `createUrlAllowance` の材料にモデル自身の出力（2段生成の1段目など）を入れない。
+  捏造した URL が出典扱いになる。
+
 ## 定期ワーカーの回し方
 
 **`setInterval` で tick を直に回してはいけない。**

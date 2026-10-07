@@ -125,3 +125,30 @@ test("壊れた生成は投稿させず投げる", () => {
     /leaked a field name/,
   );
 });
+
+test("手元に無いURLを書いた生成は投げ、お部屋のURLだけは通す", () => {
+  // 2026-10-06 の現物。表示名「📛 Transgender Mahou Shoujo」が x.com のリンクに化けた。
+  const leaked = "https://x.com/TransgenderMahouShoujo 🦊|🌹🌙🌲";
+  assert.throws(
+    () => parseGoodNightResponse(JSON.stringify({ textJa: `${ja}\n\n${leaked}`, textEn: en })),
+    /unexpected URL: https:\/\/x\.com\/TransgenderMahouShoujo/,
+  );
+  assert.throws(
+    () => parseGoodNightResponse(JSON.stringify({ textJa: ja, textEn: `${en}\n\n${leaked}` })),
+    /unexpected URL/,
+  );
+
+  const room = parseGoodNightResponse(JSON.stringify({
+    textJa: `${ja}\nお部屋はこちら https://room.bot-tan.com だよ`,
+    textEn: `${en}\nMy room: https://room.bot-tan.com/`,
+  }));
+  assert.match(room.textJa, /https:\/\/room\.bot-tan\.com/);
+});
+
+test("ユーザ名からSNSのURLを作らないようプロンプトで明示する", () => {
+  for (const topPostNetwork of ["bsky", "nagi"] as const) {
+    const prompt = buildGoodNightPrompt({ ...base, topPostNetwork });
+    assert.match(prompt, /SNSアカウントのURLを推測して作ることも禁止/);
+    assert.doesNotMatch(prompt, /URLはそのまま https:\/\/\.\.\. の形式で本文中に含めて/);
+  }
+});
