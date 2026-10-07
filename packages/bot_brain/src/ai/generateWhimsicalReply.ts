@@ -3,6 +3,7 @@ import { UserInfoGemini, GeminiScore } from "@bsky-affirmative-bot/shared-config
 import { generateSingleResponse } from "./util.js";
 import { addressName, getRandomItems } from "@bsky-affirmative-bot/shared-configs";
 import { assertUsableReply } from "./replyGuard.js";
+import { assertSourcedUrls, createUrlAllowance } from "./urlGuard.js";
 
 const MAX_ATTEMPTS = 3;
 
@@ -16,6 +17,7 @@ export async function generateWhimsicalReply(userinfo: UserInfoGemini) {
     const response = await generateSingleResponse(prompt, userinfo, "BSKY_WHIMSICAL_REPLY");
     try {
       assertUsableReply(response ?? "", addressName(userinfo));
+      assertSourcedUrls(response ?? "", createUrlAllowance({ materials: [userinfo] }), "whimsical reply");
       return response;
     } catch (error: any) {
       console.warn(`[WARN][WHIMSICAL] attempt ${attempt}/${MAX_ATTEMPTS} unusable reply: ${error.message}`);

@@ -1,5 +1,6 @@
 import { UserInfoGemini, GeminiScore } from '@bsky-affirmative-bot/shared-configs';
 import { generateSingleResponseWithScore, memoryAgeLabel } from './util.js';
+import { assertSourcedUrls, createUrlAllowance } from './urlGuard.js';
 import type { GeminiRequestOptions } from './util.js';
 import {
   getWhatDay,
@@ -60,6 +61,10 @@ export async function generateAffirmativeWord(userinfo: UserInfoGemini, requestO
     requestOptions,
     { maxTextLength: AFFIRMATIVE_REPLY_RUNAWAY_LIMIT },
   );
+
+  // 投稿・共有リンク・引用など、渡した材料に無い URL はモデルの創作。
+  // 投げれば Bluesky は replyAI の再試行→定型文、Nagi はジョブの再試行に乗る。
+  assertSourcedUrls(result?.comment ?? '', createUrlAllowance({ materials: [userinfo] }), 'affirmative reply');
 
   if (process.env.NODE_ENV === 'development') {
     console.log(`[DEBUG][${userinfo.follower.did}] Score: ${result.score}`);

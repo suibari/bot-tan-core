@@ -12,6 +12,7 @@ import {
 } from '@bsky-affirmative-bot/shared-configs';
 import { UserInfoGemini, GeminiScore } from '@bsky-affirmative-bot/shared-configs';
 import { formatBotContext, memoryAgeLabel, ollamaUsageFields } from './util.js';
+import { assertSourcedUrls, createUrlAllowance } from './urlGuard.js';
 import type { GeminiRequestOptions } from './util.js';
 import { toServiceTier } from './aiRoute.js';
 import { generateContentForProvider } from './generationClient.js';
@@ -127,6 +128,8 @@ export async function conversation(
     text_bot = unwrapped.reply;
     reportUnknownTerms(unwrapped.terms);
   }
+  // 会話履歴も userinfo に入っているので、過去のやりとりに出た URL は書いてよい。
+  assertSourcedUrls(text_bot ?? '', createUrlAllowance({ materials: [userinfo] }), 'conversation');
   const new_history = [
     ...historyForGemini,
     { role: 'user', parts: message },

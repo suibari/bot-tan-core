@@ -1,28 +1,41 @@
 import { AppBskyFeedPost } from "@atproto/api"; type Record = AppBskyFeedPost.Record;
 import { recordRepoWritePoint } from '@bsky-affirmative-bot/clients';
 import { agent } from './agent.js';
-import { BlobRef, RichText } from "@atproto/api";
+import { AppBskyRichtextFacet, BlobRef, RichText } from "@atproto/api";
 import ogs from 'open-graph-scraper'; // ← これを使ってOGP取得
-import { assertPublicUrl, safeFetch } from "@bsky-affirmative-bot/shared-configs";
+import { assertPublicUrl, safeFetch, sanitizeBotPostFacets } from "@bsky-affirmative-bot/shared-configs";
+
+export interface PostOptions {
+  /** メンションとして残してよい DID。返信相手以外への通知を飛ばさないため。 */
+  mentionDids?: readonly string[];
+}
 
 /**
  * postのオーバーライド
  * 開発環境ではなにもしない
  * @param {*} record 
  */
-export async function post(record: Record, embedRecord?: Record): Promise<{
+export async function post(record: Record, embedRecord?: Record, options: PostOptions = {}): Promise<{
   uri: string,
   cid: string,
 }> {
   if (process.env.NODE_ENV === "production") {
-    // リッチテキスト解釈
+    // リッチテキスト解釈。detectFacets の推測をそのまま使うと、名前に使ったハンドルが
+    // リンクになったり、第三者へメンション通知が飛んだりするので、bot 投稿の規則で絞る。
     const rt = new RichText({ text: record.text });
     await rt.detectFacets(agent);
     record.text = rt.text;
-    record.facets = rt.facets;
+    const facets = sanitizeBotPostFacets(rt.text, rt.facets, {
+      allowedMentionDids: options.mentionDids,
+    });
+    record.facets = facets.length ? facets : undefined;
 
-    const urls = record.text.match(/https?:\/\/[^\s]+/);
-    const urlMatch = urls?.find(url => !url.includes(process.env.SPOTIFY_PLAYLIST_ID!)) ?? null; // Spotifyプレイリストのみは除外(なぜか404が返る)
+    // リンクカードは facet と同じ URL から選ぶ。本文を正規表現で拾い直すと、
+    // URL の直後に続く日本語まで含んだ開けない URL で OGP を取りに行ってしまう。
+    const urlMatch = facets
+      .flatMap((facet) => facet.features)
+      .flatMap((feature) => (AppBskyRichtextFacet.isLink(feature) ? [feature.uri] : []))
+      .find(url => !url.includes(process.env.SPOTIFY_PLAYLIST_ID!)) ?? null; // Spotifyプレイリストのみは除外(なぜか404が返る)
     // embed: 引用ポスト付与
     if (embedRecord) {
       record.embed = embedRecord;

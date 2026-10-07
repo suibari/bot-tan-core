@@ -1,5 +1,6 @@
 import { ProfileView } from "@atproto/api/dist/client/types/app/bsky/actor/defs.js";
 import { formatBotContext, generateContentWithRetry, normalizeUrlSpacing } from "./util.js";
+import { assertSourcedUrls, createUrlAllowance } from "./urlGuard.js";
 import { getFullDateAndTimeString, getRandomItems, getWhatDay } from "@bsky-affirmative-bot/shared-configs";
 import { LanguageName } from "@bsky-affirmative-bot/shared-configs";
 import type { BotContext } from "@bsky-affirmative-bot/shared-configs";
@@ -198,21 +199,20 @@ export class WhimsicalPostGenerator {
     } = this.getBotFunctions(generationParams);
 
     // --- Step 1 各パーツ生成 ---
+    const planPrompt = buildWhimsicalPlanPrompt({
+      params: generationParams,
+      history,
+      whatDay: wantElement.whatDay,
+      positiveNewsCandidates: wantElement.positiveNewsCandidates,
+      botFunction,
+    });
     const first = await generateContentWithRetry({
       feature: "BIORHYTHM_WHIMSICAL_POST_PLAN",
       config: { tools: this.tools, systemInstruction: SYSTEM_INSTRUCTION },
       contents: [
         {
           role: "user",
-          parts: [{
-            text: buildWhimsicalPlanPrompt({
-              params: generationParams,
-              history,
-              whatDay: wantElement.whatDay,
-              positiveNewsCandidates: wantElement.positiveNewsCandidates,
-              botFunction,
-            }),
-          }]
+          parts: [{ text: planPrompt }]
         }
       ],
     });
@@ -289,6 +289,11 @@ Structure: ${JSON.stringify(structure)}`
       normalizeUrlSpacing(parsed.textEn ?? ""),
       selectedUrl,
     );
+
+    // 書いてよい URL は Step 1 に渡した材料（機能紹介・ニュース候補・過去の投稿など）にあるものだけ。
+    // Step 1 の出力（structure）はモデルが書いたものなので材料に数えない。
+    // 投げれば呼び出し側の retry に乗り、尽きればその回は投稿しない。
+    assertSourcedUrls([textJa, textEn], createUrlAllowance({ materials: [planPrompt] }), "whimsical post");
 
     this.saveHistory("日本語", textJa);
     this.saveHistory("English", textEn);
