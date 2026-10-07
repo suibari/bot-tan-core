@@ -264,6 +264,14 @@ bot の返信が52分表示されなかった。イベントの `time_us` は配
 リポジトリは `/home/suibari/work/bsky-affirmative-bot`。
 ラジオのログは `journalctl -u nagi-bot`、Bluesky bot は `journalctl -u bsky-bot`。
 
+本番の Postgres は `127.0.0.1:5432` だけで待ち受ける（2026-10-07）。ほかのマシンからは
+SSH トンネルで入る。開発機（.220）では user サービス `pi-postgres-tunnel.service` が
+`127.0.0.1:15432` に常駐し、.220 で動く別プロジェクト（NowPlayingAt など）はそこへつなぐ。
+`docker-compose.yml` の公開先を `0.0.0.0` に戻さないこと。
+
+本番機のバックアップは `scripts/backup/`（restic → Google Drive）。手順と鍵の置き場所は
+`scripts/backup/README.md`。本番機へは `sudo scripts/backup/install.sh` で配置する。
+
 ## 曲リンクの使い分け
 
 - 気まぐれ定期ポストは YouTube リンク（`MoodSongResolver` の既定経路）。
