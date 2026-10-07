@@ -15,7 +15,10 @@
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_RESULTS = 5;
 /**
- * bing = 一覧・時事の索引。wikipedia / wikidata = 固有名詞の実在確認。
+ * yahoo = 一覧・時事・曲名の主索引。bing = yahoo が薄いときの補完。
+ * 優先度は searxng/settings.yml の weight が決める（ここでの並び順は効かない）。
+ * bing は曲名を無視した無関係な結果を返すことがあるので単独に戻さないこと。
+ * wikipedia / wikidata = 固有名詞の実在確認。
  *
  * wikipedia と wikidata は `results` ではなく **infobox** を返す。
  * 「薬屋のひとりごと」で『日向夏による日本のライトノベル』という定義が取れるので、
@@ -24,7 +27,7 @@ const DEFAULT_MAX_RESULTS = 5;
  * duckduckgo は外してある。自前インスタンスからだと CAPTCHA (jp-jp) を返し続け、
  * 実測では全クエリで応答なし。残すと毎回タイムアウト待ちが乗るだけになる。
  */
-export const DEFAULT_ENGINES = "bing,wikipedia,wikidata";
+export const DEFAULT_ENGINES = "yahoo,bing,wikipedia,wikidata";
 
 /** 実際に問い合わせるエンジン。プローブと表示を揃えるために公開する。 */
 export function searxngEngines(): string {

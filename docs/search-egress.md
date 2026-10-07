@@ -10,7 +10,7 @@ flowchart LR
   G --> Q[共有キュー・キャッシュ]
   Q --> S[SearXNG 検索]
   Q --> W[Wikipedia 記事・カテゴリ取得]
-  S --> E[Bing / Wikipedia / Wikidata]
+  S --> E[Yahoo / Bing / Wikipedia / Wikidata]
 ```
 
 ## APIと制御
@@ -58,7 +58,7 @@ SEARXNG_PORT=8080
 ```dotenv
 SEARXNG_BASE_URL=http://192.168.1.200:8080
 SEARXNG_API_KEY=<上のSEARCH_GATEWAY_API_KEYと同じ値>
-SEARXNG_ENGINES=bing,wikipedia,wikidata
+SEARXNG_ENGINES=yahoo,bing,wikipedia,wikidata
 ```
 
 bsky側は `SEARXNG_TIMEOUT_MS=30000`、calendar側は `SEARXNG_TIMEOUT_S=30`。
@@ -132,6 +132,41 @@ WikipediaのSearXNGエンジンは作品名の要約には有効だが、`秋ア
 Bing側の地域・接続元・応答制御のどれが原因かまでは未確定。
 背景情報が無いときに捏造したり検索回数を増やしたりせず、出典のある素材だけを利用する。
 `pnpm searxng:probe -- --query="MINMI Who's Theme"` 等で件数に加えてタイトルと本文の関連性を見る。
+
+## 10月7日の再調査: Yahooを主索引にする
+
+本番のSearXNGは `2026.10.4-d48c4b555`。本番回線から、本番コンテナとは別の使い捨て
+コンテナで各エンジンを個別に確認した（クエリ間3秒）。
+
+| エンジン | 結果 | 上流issue |
+|---|---|---|
+| yahoo | ✅ 6クエリ全てで関連結果（7件）。曲名も一覧も取れる | — |
+| bing | △ `ROOKiEZ is PUNK'D IN MY WORLD` は早稲田大学の質問、`技術書典` は韓国ドラマの記事。他4件は正常 | [#4964](https://github.com/searxng/searxng/issues/4964)（修正済みとされる） |
+| duckduckgo | △ `秋アニメ 2026` でCAPTCHA。他は結果あり | [#6779](https://github.com/searxng/searxng/issues/6779)、[#6596](https://github.com/searxng/searxng/issues/6596) |
+| brave | ❌ 初回から too many requests | [#6819](https://github.com/searxng/searxng/issues/6819) |
+| google | ❌ access denied | — |
+| qwant | ❌ 全クエリCAPTCHA | [#3929](https://github.com/searxng/searxng/issues/3929)、[#6358](https://github.com/searxng/searxng/issues/6358) |
+| startpage / mojeek / presearch | 未確定（設定で有効化しても読み込まれず、`engines=` 指定が無視された） | startpageは [#6520](https://github.com/searxng/searxng/issues/6520) |
+
+Braveは#6819で、IPブロックではなく `brave.py` が付ける `Accept-Encoding: gzip, deflate` と
+curl_cffiのChrome偽装の組み合わせで429になる、という分析がある。上流の修正後に再評価する。
+
+**`engines=` に読み込まれていないエンジン名だけを指定すると、SearXNGはエラーにせず
+既定エンジンの結果を返す。** エンジンを絞って測るときは、件数ではなく各結果の
+`engine` / `engines` を見ること。
+
+Yahooを足すだけでは、Bingの無関係な1位が上位5件に残った。SearXNGのスコアは
+エンジンの `weight ÷ 順位` の和なので、`settings.yml` でYahooを `weight: 10` にした。
+Yahooの7位（10/7）もBingの1位（1）より上になり、Bingは補完に回る。
+同じ6クエリで上位6件から無関係な結果が消えた。レイテンシはBing単独の約0.9〜1.6秒に対し、
+併用でも約0.8〜1.3秒で増えなかった（エンジンは並列に問い合わせる）。
+
+YahooもBingの索引を使うので、索引の多様化ではない。Bingの取得・解析経路の異常を
+迂回できる冗長化として扱う。Yahooが詰まった場合はBingの結果だけが残るので、
+引き続き件数ではなく関連性で監視する。
+
+クライアントは `engines=` を明示して送るため、`SEARXNG_ENGINES` を設定している環境は
+`yahoo` を足さないと反映されない（本番の `.env` とcalendar側も同様）。
 
 ## 検証
 
