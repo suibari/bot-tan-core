@@ -1,0 +1,6 @@
+[Unit]
+Description=Notify raspi-backup failure
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/raspi-backup-notify.sh raspi-backup.service

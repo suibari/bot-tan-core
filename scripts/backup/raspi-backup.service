@@ -1,0 +1,12 @@
+[Unit]
+Description=Raspberry Pi Backup (restic -> Google Drive)
+Wants=network-online.target
+After=network-online.target docker.service
+OnFailure=raspi-backup-failed.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/raspi-backup.sh
+TimeoutStartSec=3h
+Nice=10
+IOSchedulingClass=idle
