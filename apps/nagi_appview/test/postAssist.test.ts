@@ -283,3 +283,23 @@ test("uses affirmation for nonempty drafts and questions for empty or deleted dr
   const question = postAssistPrompt({ ...writing, mode: "question" }, { kind: "question", key: "question" });
   assert.match(question, /疑問形で発想を促す/);
 });
+
+test("stays with drafts that express distress and invites the user to keep writing", () => {
+  const writing = { ...emptyInput, text: "今日は疲れた。ごはんだけは食べた" };
+  for (const lang of ["ja", "en"] as const) {
+    const prompt = postAssistPrompt({ ...writing, lang }, { kind: "affirmation", key: "affirmation" });
+    assert.ok(prompt.endsWith(writing.text));
+    if (lang === "ja") {
+      assert.match(prompt, /# つらさが書かれているとき/);
+      assert.match(prompt, /ここに吐き出していい/);
+      assert.match(prompt, /言葉の出来の評価や/);
+      // 浅い「伝わってくる」型の返しを例として教えない。
+      assert.equal(prompt.includes("今日のひと場面が伝わってくるね"), false);
+    } else {
+      assert.match(prompt, /# When the draft expresses distress/);
+      assert.match(prompt, /okay to let it all out here/);
+    }
+  }
+  const question = postAssistPrompt({ ...writing, mode: "question" }, { kind: "interest", key: "interest:登山", keyword: "登山" });
+  assert.match(question, /明るい話題へそらさない/);
+});
