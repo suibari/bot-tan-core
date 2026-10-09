@@ -5,12 +5,11 @@ export type ScheduledPostNetwork = "bsky" | "nagi";
 
 /**
  * おやすみポストで紹介する夜の動画（bot-tan-youtuber が 18:00 に Bluesky へ投稿したもの）。
- * Bluesky サーバは動画ポストを RP し、commentText を動画ポストへのリプライにする。
+ * Bluesky サーバは動画ポストを RP する。
  */
 export interface ScheduledPostNightVideo {
   uri: string;
   cid: string;
-  commentText: string;
 }
 
 /**
@@ -64,8 +63,8 @@ export interface ScheduledPostPublishRequest {
 export interface ScheduledPostResult {
   uri: string;
   cid: string;
-  /** nightVideo を受け取ったとき、動画ポストへリプライしたコメント。失敗したら無い。 */
-  nightVideoComment?: { uri: string; cid: string };
+  /** nightVideo を受け取ったときのリポスト。失敗したら無い。 */
+  nightVideoRepost?: { uri: string; cid: string };
 }
 
 const BSKY_BOT_SERVER_URL = process.env.BSKY_BOT_SERVER_URL || "http://localhost:3001";
@@ -142,7 +141,7 @@ export class ScheduledPostService {
         results[target] = {
           uri: result.value.uri,
           cid: result.value.cid,
-          ...(result.value.nightVideoComment ? { nightVideoComment: result.value.nightVideoComment } : {}),
+          ...(result.value.nightVideoRepost ? { nightVideoRepost: result.value.nightVideoRepost } : {}),
         };
       } else {
         console.error(

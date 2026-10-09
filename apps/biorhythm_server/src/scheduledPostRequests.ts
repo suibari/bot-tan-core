@@ -48,7 +48,7 @@ export function buildWhimsicalPostRequest(params: {
 }
 
 export function buildGoodNightPostRequest(params: {
-  generated: GeneratedTexts & { videoCommentJa?: string; videoCommentEn?: string };
+  generated: GeneratedTexts;
   nightVideo?: { uri: string; cid: string } | null;
   image?: ScheduledPostImage | null;
 }): ScheduledPostPublishRequest {
@@ -56,8 +56,6 @@ export function buildGoodNightPostRequest(params: {
   const texts = buildGoodNightPostTexts({
     textJa: generated.textJa,
     textEn: generated.textEn,
-    videoCommentJa: generated.videoCommentJa,
-    videoCommentEn: generated.videoCommentEn,
   });
   return {
     kind: "good-night",
@@ -66,8 +64,8 @@ export function buildGoodNightPostRequest(params: {
       bsky: {
         text: texts.bsky,
         ...(image ? { image } : {}),
-        ...(nightVideo && texts.bskyVideoComment
-          ? { nightVideo: { uri: nightVideo.uri, cid: nightVideo.cid, commentText: texts.bskyVideoComment } }
+        ...(nightVideo
+          ? { nightVideo: { uri: nightVideo.uri, cid: nightVideo.cid } }
           : {}),
       },
       nagi: {

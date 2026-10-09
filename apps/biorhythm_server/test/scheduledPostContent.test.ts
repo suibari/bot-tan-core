@@ -45,30 +45,11 @@ test("おやすみ本文は出来事だけ。紹介元のURLは足さない", ()
   });
 
   assert.equal(result.bsky, "今日もありがとう。おやすみー！\n\nThank you for today. Good night!");
-  assert.equal(result.bskyVideoComment, undefined);
+  assert.equal("bskyVideoComment" in result, false);
   assert.equal(result.nagiJa, "今日もありがとう。おやすみー！");
   assert.equal(result.nagiEn, "Thank you for today. Good night!");
 });
 
-test("動画へのコメントは Bluesky のリプライ用にだけ日英をまとめる", () => {
-  const result = buildGoodNightPostTexts({
-    textJa: "おやすみ！",
-    textEn: "Good night!",
-    videoCommentJa: "今日の動画も見てね",
-    videoCommentEn: "Check out today's video",
-  });
-
-  assert.equal(result.bskyVideoComment, "今日の動画も見てね\n\nCheck out today's video");
-  assert.equal(result.bsky, "おやすみ！\n\nGood night!");
-  assert.doesNotMatch(result.nagiJa, /動画/);
-
-  // 片方だけでは出さない
-  assert.equal(
-    buildGoodNightPostTexts({ textJa: "おやすみ！", textEn: "Good night!", videoCommentJa: "見てね" })
-      .bskyVideoComment,
-    undefined,
-  );
-});
 
 test("不正なAT URIからNagiスレッドURLを作らない", () => {
   assert.equal(

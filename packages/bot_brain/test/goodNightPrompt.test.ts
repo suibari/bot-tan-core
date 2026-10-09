@@ -5,22 +5,7 @@ import { buildGoodNightPrompt, parseGoodNightResponse } from "../src/ai/generate
 const base = {
   currentMood: "のんびりしていた",
 };
-const nightVideo = {
-  hook: "頑張りすぎた自分を抱きしめて",
-  caption: "すいばりさんの「働き方へのこだわり」という投稿を紹介したよ。",
-};
-
-test("夜の動画がある日は動画へのコメント欄を求め、材料を渡す", () => {
-  const prompt = buildGoodNightPrompt({ ...base, nightVideo });
-
-  assert.match(prompt, /videoCommentJa \/ videoCommentEn/);
-  assert.match(prompt, /頑張りすぎた自分を抱きしめて/);
-  assert.match(prompt, /すいばりさんの「働き方へのこだわり」/);
-  // 出来事スレッドと動画へのコメントで、同じ話が2本に分かれて出ないように。
-  assert.match(prompt, /こちらには混ぜないでください/);
-});
-
-test("夜の動画が無い日は動画にも、以前のトップポストにも触れない", () => {
+test("おやすみ生成では動画へのコメントを求めない", () => {
   const prompt = buildGoodNightPrompt(base);
 
   assert.doesNotMatch(prompt, /videoComment/);
@@ -150,39 +135,17 @@ test("手元に無いURLを書いた生成は投げ、お部屋のURLだけは�
 });
 
 test("ユーザ名からSNSのURLを作らないようプロンプトで明示する", () => {
-  for (const param of [base, { ...base, nightVideo }]) {
+  for (const param of [base]) {
     const prompt = buildGoodNightPrompt(param);
     assert.match(prompt, /SNSアカウントのURLを推測して作ることも禁止/);
     assert.doesNotMatch(prompt, /URLはそのまま https:\/\/\.\.\. の形式で本文中に含めて/);
   }
 });
 
-const commentJa = "今日の動画では、自分を追い込みがちな人に届けたい投稿を紹介したよ。見てね！";
-const commentEn = "In today's video, I shared a post for anyone who pushes themselves too hard. Check it out!";
-
-test("動画がある日は動画へのコメントも日英そろって返す", () => {
-  const result = parseGoodNightResponse(
-    JSON.stringify({ textJa: ja, textEn: en, videoCommentJa: commentJa, videoCommentEn: commentEn }),
-    { withVideo: true },
-  );
-  assert.equal(result.videoCommentJa, commentJa);
-  assert.equal(result.videoCommentEn, commentEn);
-
-  // 動画を渡していない日は、モデルが勝手に書いても使わない。
-  const without = parseGoodNightResponse(
-    JSON.stringify({ textJa: ja, textEn: en, videoCommentJa: commentJa, videoCommentEn: commentEn }),
-  );
-  assert.equal(without.videoCommentJa, undefined);
-});
-
-test("動画へのコメントにも本文と同じ検査を掛ける", () => {
-  const parse = (fields: Record<string, string>) => parseGoodNightResponse(
-    JSON.stringify({ textJa: ja, textEn: en, videoCommentJa: commentJa, videoCommentEn: commentEn, ...fields }),
-    { withVideo: true },
-  );
-  assert.throws(() => parse({ videoCommentEn: "" }), /empty video comment/);
-  assert.throws(() => parse({ videoCommentJa: commentEn }), /not predominantly Japanese/);
-  assert.throws(() => parse({ videoCommentEn: commentJa }), /too much Japanese/);
-  assert.throws(() => parse({ videoCommentJa: `${commentJa}\nvideoCommentEn` }), /leaked a field name/);
-  assert.throws(() => parse({ videoCommentJa: `${commentJa} https://x.com/someone` }));
+test("モデルが余分な動画コメントを返しても投稿用の結果へ含めない", () => {
+  const result = parseGoodNightResponse(JSON.stringify({
+    textJa: ja, textEn: en,
+    videoCommentJa: "動画も見てね", videoCommentEn: "Watch the video",
+  }));
+  assert.deepEqual(result, { textJa: ja, textEn: en });
 });

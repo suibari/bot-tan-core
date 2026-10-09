@@ -427,7 +427,7 @@ export const room_events = affirmativeBotSchema.table(
  * 夜の動画（bot-tan-youtuber が毎日 18:00 に Bluesky へ投稿する）。1 bot日に1行。
  *
  * 書くのは bot-tan-youtuber（shorts/night_videos.py）、読むのはおやすみポスト。
- * おやすみポストはこの動画ポストを RP し、コメントをリプライして紹介する。
+ * おやすみポストはこの動画ポストを RP して紹介する。
  * youtube_shorts とは分けている。あちらは気まぐれポストが「新しい Shorts」として
  * 告知する材料なので、Bluesky の動画が混ざると YouTube として告知されてしまう。
  */
@@ -447,7 +447,7 @@ export const night_videos = affirmativeBotSchema.table("night_videos", {
   themes: jsonb("themes"),
   /** "new": 未紹介, "introduced": おやすみポストで紹介済み */
   status: text("status").default("new").notNull(),
-  /** おやすみポストで動画にリプライしたコメントの URI。 */
+  /** おやすみ投稿時のリポストの URI（旧データは動画へのコメントの URI）。 */
   introduced_uri: text("introduced_uri"),
   created_at: timestamp("created_at").defaultNow().notNull(),
   updated_at: timestamp("updated_at").defaultNow().notNull(),

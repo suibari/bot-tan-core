@@ -426,9 +426,6 @@ export async function postGoodNight(currentMood: string, botContext?: BotContext
     // postWhimsical と同じく、3回とも駄目ならその日のおやすみポストは出さない。
     const generated = await retry(async () => {
       const result = await generateGoodNight({
-        nightVideo: nightVideo
-          ? { hook: nightVideo.hook ?? "", caption: nightVideo.caption ?? "" }
-          : undefined,
         currentMood,
         followerMilestone,
         giftCandidates,
@@ -450,14 +447,12 @@ export async function postGoodNight(currentMood: string, botContext?: BotContext
       nightVideo: nightVideo ? { uri: nightVideo.post_uri, cid: nightVideo.post_cid } : null,
     }));
     if (results.bsky) {
-      // 動画へのコメントへの返信も、出来事スレッドへの返信と同じく拾う。
       await MemoryService.setWhimsicalPostRoots([
         results.bsky.uri,
-        ...(results.bsky.nightVideoComment ? [results.bsky.nightVideoComment.uri] : []),
       ]);
     }
-    if (nightVideo && results.bsky?.nightVideoComment) {
-      await MemoryService.markNightVideoIntroduced(nightVideo.id, results.bsky.nightVideoComment.uri)
+    if (nightVideo && results.bsky?.nightVideoRepost) {
+      await MemoryService.markNightVideoIntroduced(nightVideo.id, results.bsky.nightVideoRepost.uri)
         .catch((error) => console.error("[ERROR][GOOD_NIGHT] Failed to mark night video introduced:", error));
     }
 

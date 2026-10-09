@@ -33,44 +33,23 @@ async function publishLeafletDiaries(coverImage?: ScheduledPostImage) {
   }
 }
 
-/**
- * 夜の動画（bot-tan-youtuber が 18:00 に投稿した動画ポスト）を紹介する。
- * コメントを動画ポストへのリプライにして「動画→コメント」の1スレッドにし、
- * 動画ポストを RP してフォロワーのタイムラインへもう一度出す。
- *
- * ここが失敗しても出来事スレッドは出す（動画の紹介はおやすみポストの一部でしかない）。
- */
+/** 夜の動画をリポストする。失敗してもおやすみ本文は投稿する。 */
 async function introduceNightVideo(
   video: ScheduledPostNightVideo,
 ): Promise<{ uri: string; cid: string } | undefined> {
-  let comment: { uri: string; cid: string } | undefined;
   try {
-    // postContinuous は record.reply の有無だけを見て root を決める。動画ポストは
-    // スレッドの root なので reply を持たない record を渡せば足り、取得し直す必要はない。
-    comment = await retry(
-      () => postContinuous(video.commentText, {
-        uri: video.uri,
-        cid: video.cid,
-        record: { $type: "app.bsky.feed.post", text: "", createdAt: new Date().toISOString() },
-      }),
-      { retries: 2 },
-    );
-  } catch (error) {
-    console.error("[ERROR][GOOD_NIGHT] Failed to reply to night video:", error);
-  }
-  try {
-    await repost(video.uri, video.cid);
+    return await repost(video.uri, video.cid);
   } catch (error) {
     console.error("[ERROR][GOOD_NIGHT] Failed to repost night video:", error);
+    return undefined;
   }
-  return comment;
 }
 
 export async function publishScheduledPost(request: ScheduledPostRequest): Promise<ScheduledPostResult> {
-  let nightVideoComment: { uri: string; cid: string } | undefined;
+  let nightVideoRepost: { uri: string; cid: string } | undefined;
   if (request.kind === "good-night") {
     if (request.nightVideo) {
-      nightVideoComment = await introduceNightVideo(request.nightVideo);
+      nightVideoRepost = await introduceNightVideo(request.nightVideo);
     }
     await publishLeafletDiaries(request.image);
   }
@@ -90,5 +69,5 @@ export async function publishScheduledPost(request: ScheduledPostRequest): Promi
       },
     },
   );
-  return nightVideoComment ? { ...result, nightVideoComment } : result;
+  return nightVideoRepost ? { ...result, nightVideoRepost } : result;
 }
