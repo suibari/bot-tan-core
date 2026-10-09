@@ -86,7 +86,7 @@ export type NagiPost = {
         $type: "com.suibari.nagi.post#quote";
         record: StrongRef;
         images?: NagiImage[];
-        /** images と同時には付けない。 */
+        /** images と併用できる。引用付きの混在は #gallery ではなくここに持つ。 */
         video?: NagiVideo;
       };
 };

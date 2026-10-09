@@ -359,8 +359,7 @@ export function validateRecord(
         if (
           !ref(value.embed.record) ||
           (value.embed.images && !images(value.embed.images)) ||
-          (value.embed.video && !video(value.embed.video)) ||
-          (value.embed.images && value.embed.video)
+          (value.embed.video && !video(value.embed.video))
         )
           return false;
       } else return false;

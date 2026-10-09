@@ -129,7 +129,7 @@
         "video": {
           "type": "ref",
           "ref": "#video",
-          "description": "images と同時には付けない。"
+          "description": "images と併用できる（画像4枚＋動画1本まで）。引用付きで画像と動画を混ぜるときは #gallery ではなくここに持つ。"
         }
       }
     }
