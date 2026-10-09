@@ -175,6 +175,15 @@ Nagi 検索（`hybridSearch.embedQuery`）と botMemory RAG（`searchBotMemory`�
   64→96→192→32 行/分 と振動し、`bot_memory_documents` は 80行で止まった。
   → タイムアウトを件数比例（`OLLAMA_EMBED_TIMEOUT_PER_ITEM_MS`、既定1500ms）にして解消。
   **埋め込みモデルを替えるときは必ずバッチ1回の実測を取ること。**
+- **件数比例の予算は、文が長いと破綻する。** 1件1500ms は短い投稿（1件 約330ms）が前提だった。
+  `bot_memory_documents` の web_research は平均1237字・最大7390字あり、2026-10-09 は
+  長文を含む組が毎回時間切れ → cooldown → 同じ組で時間切れ、を1日約130回繰り返し、
+  共有の埋め込みサーバ（NUM_PARALLEL=1）で他アプリの0.4秒の問い合わせが10秒で落ちた。
+  実測は約5ms/字（1804字=1156トークン、7.6ms/トークン）。
+  → 予算を文字数比例（`OLLAMA_EMBED_TIMEOUT_PER_CHAR_MS`、既定10ms）にし、送信を合計800字で
+  分割、1件は1500字で切る。ワーカーの失敗は利用者の検索の cooldown を開かず、失敗した行は
+  `createEmbeddingRetryBackoff` で待たせて後ろの行へ進む。
+  **1500字の切り詰めは長い記憶の検索に効きうる。** 変えるならこのハーネスで測ること。
 - **評価ハーネスのベースラインを env 追従にしない。** `ENCODERS` の `arctic` は
   `OLLAMA_EMBED_MODEL` を既定にしていたため、本番を qwen3 へ替えた瞬間に
   ベースラインまで qwen3 になり「現行との比較」が成立しなくなった。固定名に直した。

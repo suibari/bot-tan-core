@@ -7,7 +7,9 @@ import {
   filterRelatedHistory,
   generateEmbedding,
   generateEmbeddings,
+  isEmbeddingAvailable,
   searchQueryPrefix,
+  splitEmbeddingBatches,
 } from "../src/ollamaEmbed.js";
 
 const original = {
@@ -201,9 +203,18 @@ test("embedSearchQuery はクエリ前後の空白を落としてから接頭辞
   }
 });
 
-// --- バッチのタイムアウト -----------------------------------------------------
-// 16件バッチに1件ぶんの予算しか与えないと、qwen3 のような重いモデルで常時ぎりぎりになり、
-// 超えるたび cooldown が開いて埋め込みが全面停止する。件数に比例していることを固定する。
+// --- バッチのタイムアウトと分割 ---------------------------------------------
+// 件数比例の予算は短い投稿が前提で、平均1200字の web_research が混ざると毎回時間切れになった
+// （2026-10-09、1日130回）。予算は文字数に比例させ、長い送信は分ける。
+
+const envKeys = [
+  "OLLAMA_EMBED_TIMEOUT_PER_CHAR_MS",
+  "OLLAMA_EMBED_MAX_BATCH_CHARS",
+  "OLLAMA_EMBED_MAX_INPUT_CHARS",
+];
+const clearSizeEnv = () => {
+  for (const key of envKeys) delete process.env[key];
+};
 
 /** delayMs 後に count 件を返す fetch。abort されたら reject する。 */
 const slowFetch = (delayMs: number) =>
@@ -231,46 +242,160 @@ const slowFetch = (delayMs: number) =>
     });
   }) as typeof fetch;
 
-test("埋め込みのタイムアウトは件数に比例する", async () => {
+test("埋め込みのタイムアウトは文字数に比例する", async () => {
   process.env.OLLAMA_BASE_URL = "http://ollama.test/v1";
   delete process.env.OLLAMA_EMBED_BASE_URL;
-  // 1件なら予算 60ms、16件なら 60 + 15*40 = 660ms。応答は 200ms かかる。
+  // 短文なら予算 ≒ 60ms、200字なら 60 + 200*2 = 460ms。応答は 200ms かかる。
   process.env.OLLAMA_EMBED_TIMEOUT_MS = "60";
-  process.env.OLLAMA_EMBED_TIMEOUT_PER_ITEM_MS = "40";
+  process.env.OLLAMA_EMBED_TIMEOUT_PER_CHAR_MS = "2";
   // 1件目の失敗で開くサーキットを、次の検証まで持ち越さない。
   process.env.OLLAMA_EMBED_COOLDOWN_MS = "1";
   globalThis.fetch = slowFetch(200);
 
   try {
     assert.equal(
-      await generateEmbedding("single"),
+      await generateEmbedding("短い"),
       null,
-      "1件は予算60msを超えるので落ちる",
+      "短文は予算60ms強を超えるので落ちる",
     );
 
     await new Promise((r) => setTimeout(r, 10)); // cooldown(1ms) を明ける
-    const batch = await generateEmbeddings(Array.from({ length: 16 }, (_, i) => `t${i}`));
-    assert.equal(batch.length, 16);
     assert.ok(
-      batch.every((v) => Array.isArray(v)),
-      "16件は比例予算(660ms)で通る",
+      Array.isArray(await generateEmbedding("あ".repeat(200))),
+      "200字は比例予算(460ms)で通る",
     );
   } finally {
-    delete process.env.OLLAMA_EMBED_TIMEOUT_PER_ITEM_MS;
+    clearSizeEnv();
     restore();
   }
 });
 
-test("OLLAMA_EMBED_TIMEOUT_PER_ITEM_MS 未設定でも既定で比例する", async () => {
+test("既定の予算でも短文16件は1回の送信で通る", async () => {
   process.env.OLLAMA_BASE_URL = "http://ollama.test/v1";
   delete process.env.OLLAMA_EMBED_BASE_URL;
-  delete process.env.OLLAMA_EMBED_TIMEOUT_PER_ITEM_MS;
-  // 既定は 5000 + 1500*(n-1)。16件なら 27.5秒あるので 200ms の応答は当然通る。
   delete process.env.OLLAMA_EMBED_TIMEOUT_MS;
-  globalThis.fetch = slowFetch(200);
+  clearSizeEnv();
+  const sent: unknown[] = [];
+  captureInput(sent);
   try {
-    const batch = await generateEmbeddings(Array.from({ length: 16 }, (_, i) => `t${i}`));
+    const batch = await generateEmbeddings(Array.from({ length: 16 }, (_, i) => `投稿${i}`));
+    assert.equal(batch.length, 16);
     assert.ok(batch.every((v) => Array.isArray(v)));
+    assert.equal(sent.length, 1);
+  } finally {
+    restore();
+  }
+});
+
+test("合計文字数が上限を超える送信は分け、結果は入力順に並ぶ", async () => {
+  process.env.OLLAMA_EMBED_MAX_BATCH_CHARS = "10";
+  const sent: unknown[] = [];
+  captureInput(sent);
+  // 入力ごとに違うベクトルを返して、並びが崩れていないかを見る。
+  globalThis.fetch = ((_url, init) => {
+    const body = JSON.parse(String(init?.body));
+    sent.push(body.input);
+    return Promise.resolve(
+      new Response(
+        JSON.stringify({
+          data: body.input.map((t: string) => ({
+            embedding: Array.from({ length: 1024 }, () => t.length),
+          })),
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+  }) as typeof fetch;
+  try {
+    const texts = ["aaaa", "bbbb", "cccccccccccccccc", "dd", "eee"];
+    const result = await generateEmbeddings(texts);
+    assert.deepEqual(sent, [
+      ["aaaa", "bbbb"],
+      ["cccccccccccccccc"], // 上限より長い1件は単独
+      ["dd", "eee"],
+    ]);
+    assert.deepEqual(result.map((v) => v?.[0]), [4, 4, 16, 2, 3]);
+  } finally {
+    clearSizeEnv();
+    restore();
+  }
+});
+
+test("splitEmbeddingBatches は空入力で空を返す", () => {
+  assert.deepEqual(splitEmbeddingBatches([], 10), []);
+});
+
+test("1件の入力は上限字数で切ってから送る", async () => {
+  process.env.OLLAMA_EMBED_MAX_INPUT_CHARS = "5";
+  const sent: unknown[] = [];
+  captureInput(sent);
+  try {
+    await generateEmbedding("あいうえおかきくけこ");
+    await generateEmbeddings(["さしすせそたちつてと", "短い"]);
+    assert.deepEqual(sent, ["あいうえお", ["さしすせそ", "短い"]]);
+  } finally {
+    clearSizeEnv();
+    restore();
+  }
+});
+
+// --- cooldown の分離 ------------------------------------------------------------
+// ワーカーの長文バッチが時間切れになるたび、返信前の検索まで60秒止まっていた。
+
+const failingFetch = (calls: string[]) =>
+  ((_url: unknown, init: RequestInit | undefined) => {
+    calls.push(String(init?.body));
+    return Promise.resolve(new Response("bad", { status: 400 }));
+  }) as typeof fetch;
+
+test("ワーカーの失敗では利用者の検索の cooldown を開かない", async () => {
+  process.env.OLLAMA_BASE_URL = "http://ollama.test/v1";
+  delete process.env.OLLAMA_EMBED_BASE_URL;
+  process.env.OLLAMA_EMBED_COOLDOWN_MS = "60000";
+  const calls: string[] = [];
+  globalThis.fetch = failingFetch(calls);
+  try {
+    assert.deepEqual(await generateEmbeddings(["x"], { background: true }), [null]);
+    assert.equal(isEmbeddingAvailable({ background: true }), false);
+    assert.equal(isEmbeddingAvailable(), true);
+
+    const sent: unknown[] = [];
+    captureInput(sent);
+    assert.ok(Array.isArray(await generateEmbedding("検索")), "利用者の検索は通る");
+    assert.equal(
+      isEmbeddingAvailable({ background: true }),
+      false,
+      "利用者側の成功でワーカーの cooldown は閉じない",
+    );
+  } finally {
+    restore();
+  }
+});
+
+test("利用者の経路の失敗はワーカーも止める", async () => {
+  process.env.OLLAMA_BASE_URL = "http://ollama.test/v1";
+  delete process.env.OLLAMA_EMBED_BASE_URL;
+  process.env.OLLAMA_EMBED_COOLDOWN_MS = "60000";
+  let now = 10_000_000;
+  Date.now = () => now;
+  const calls: string[] = [];
+  globalThis.fetch = failingFetch(calls);
+  try {
+    assert.equal(await generateEmbedding("検索"), null);
+    assert.equal(isEmbeddingAvailable({ background: true }), false);
+    assert.deepEqual(await generateEmbeddings(["x"], { background: true }), [null]);
+    assert.equal(calls.length, 1, "cooldown 中のワーカーは送らない");
+  } finally {
+    now += 120_000; // 後続テストへ cooldown を持ち越さない
+    restore();
+  }
+});
+
+test("埋め込み先が未設定なら使えない扱い（ワーカーが行を失敗として記録しない）", () => {
+  delete process.env.OLLAMA_BASE_URL;
+  delete process.env.OLLAMA_EMBED_BASE_URL;
+  try {
+    assert.equal(isEmbeddingAvailable({ background: true }), false);
   } finally {
     restore();
   }
