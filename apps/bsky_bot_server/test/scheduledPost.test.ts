@@ -18,7 +18,7 @@ function productionEnv(t: { after: (fn: () => void) => void }) {
 
 const video = { uri: "at://did:plc:bot/app.bsky.feed.post/video", cid: "video-cid" };
 
-test("夜の動画がある日は、動画へコメントをリプライして RP し、出来事を別スレッドで出す", async (t) => {
+test("夜の動画がある日は、動画を RP だけして、出来事を別スレッドで出す", async (t) => {
   productionEnv(t);
   const calls: string[] = [];
   t.mock.method(agent, "repost", async (uri: string, cid: string) => {
@@ -28,11 +28,6 @@ test("夜の動画がある日は、動画へコメントをリプライして R
     return { uri: "at://repost", cid: "repost-cid" };
   });
   t.mock.method(agent, "post", async (record: any) => {
-    if (record.text === "動画も見てね") {
-      calls.push("comment");
-      assert.deepEqual(record.reply, { root: video, parent: video });
-      return { uri: "at://comment", cid: "comment-cid" };
-    }
     calls.push("post");
     assert.equal(record.text, "おやすみ！");
     assert.equal(record.reply, undefined);
@@ -41,12 +36,12 @@ test("夜の動画がある日は、動画へコメントをリプライして R
   });
   const result = await publishScheduledPost({
     kind: "good-night", text: "おやすみ！",
-    nightVideo: { ...video, commentText: "動画も見てね" },
+    nightVideo: video,
   });
-  assert.deepEqual(calls, ["comment", "repost", "post"]);
+  assert.deepEqual(calls, ["repost", "post"]);
   assert.deepEqual(result, {
     uri: "at://post", cid: "post-cid",
-    nightVideoComment: { uri: "at://comment", cid: "comment-cid" },
+    nightVideoRepost: { uri: "at://repost", cid: "repost-cid" },
   });
 });
 
@@ -60,7 +55,7 @@ test("動画の紹介に失敗しても出来事スレッドは出す", async (t
   t.mock.method(console, "error", () => {});
   const result = await publishScheduledPost({
     kind: "good-night", text: "おやすみ！",
-    nightVideo: { ...video, commentText: "動画も見てね" },
+    nightVideo: video,
   });
   assert.deepEqual(result, { uri: "at://post", cid: "post-cid" });
 });

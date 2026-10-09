@@ -8,8 +8,6 @@ export interface WhimsicalPostTexts {
 export interface GoodNightPostTexts {
   /** 出来事スレッド（Bluesky）。 */
   bsky: string;
-  /** 夜の動画ポストへのリプライ。動画へのコメントが無い日は無い。 */
-  bskyVideoComment?: string;
   nagiJa: string;
   nagiEn: string;
 }
@@ -47,28 +45,13 @@ export function getBlueskyPostUrl(uri: string): string | undefined {
   return `https://bsky.app/profile/${actor}/post/${encodeURIComponent(match[2])}`;
 }
 
-/**
- * おやすみポストは2スレッドに分かれる（見やすさのため）。
- *
- * - 夜の動画ポストへのリプライ: 動画へのコメント（日英）。動画は RP で紹介する
- * - 出来事スレッド: おやすみのあいさつ・出来事・プレゼント・教えてもらった言葉（日英）
- *
- * 以前はその日のトップポストを RP（Nagi はスレッドURLを末尾に追記）していたが、
- * 夜の動画が Bluesky と Nagi の投稿を紹介するようになったので置き換えた。
- * Nagi は動画を再生できないので、出来事の本文だけを出す。
- */
+/** おやすみ本文は出来事とあいさつ。夜の動画は Bluesky でリポストだけする。 */
 export function buildGoodNightPostTexts(params: {
   textJa: string;
   textEn: string;
-  videoCommentJa?: string;
-  videoCommentEn?: string;
 }): GoodNightPostTexts {
-  const videoComment = params.videoCommentJa && params.videoCommentEn
-    ? sections(params.videoCommentJa, params.videoCommentEn)
-    : undefined;
   return {
     bsky: sections(params.textJa, params.textEn),
-    ...(videoComment ? { bskyVideoComment: videoComment } : {}),
     nagiJa: params.textJa,
     nagiEn: params.textEn,
   };

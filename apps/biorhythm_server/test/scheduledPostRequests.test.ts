@@ -102,13 +102,10 @@ test("気まぐれ：ニュースなし・曲ありでもニュース枠や画�
 
 for (const withVideo of [true, false]) {
   for (const withImage of [true, false]) {
-    test(`おやすみ：動画${withVideo ? "あり" : "なし"}・画像${withImage ? "あり" : "なし"}、出来事・動画へのコメント・任意の絵だけ`, () => {
+    test(`おやすみ：動画${withVideo ? "あり" : "なし"}・画像${withImage ? "あり" : "なし"}、出来事・動画のRP先・任意の絵だけ`, () => {
       const nightVideo = { uri: "at://did:plc:bot/app.bsky.feed.post/video", cid: "video-cid" };
       const result = buildGoodNightPostRequest({
-        generated: {
-          ...generated,
-          ...(withVideo ? { videoCommentJa: "動画も見てね", videoCommentEn: "Watch the video" } : {}),
-        },
+        generated,
         nightVideo: withVideo ? nightVideo : null,
         image: withImage ? image : null,
       });
@@ -119,7 +116,7 @@ for (const withVideo of [true, false]) {
             text: "日本語の生成本文\n\nGenerated English text",
             ...(withImage ? { image } : {}),
             ...(withVideo
-              ? { nightVideo: { ...nightVideo, commentText: "動画も見てね\n\nWatch the video" } }
+              ? { nightVideo }
               : {}),
           },
           nagi: {
@@ -134,10 +131,12 @@ for (const withVideo of [true, false]) {
   }
 }
 
-test("おやすみ：動画があってもコメントが生成されなければ動画は紹介しない", () => {
+test("おやすみ：コメントの生成なしで動画をリポスト対象にする", () => {
   const result = buildGoodNightPostRequest({
     generated,
     nightVideo: { uri: "at://did:plc:bot/app.bsky.feed.post/video", cid: "video-cid" },
   });
-  assert.equal(result.contentByTarget.bsky.nightVideo, undefined);
+  assert.deepEqual(result.contentByTarget.bsky.nightVideo, {
+    uri: "at://did:plc:bot/app.bsky.feed.post/video", cid: "video-cid",
+  });
 });
