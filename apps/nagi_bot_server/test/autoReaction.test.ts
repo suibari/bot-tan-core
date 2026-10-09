@@ -99,6 +99,15 @@ test("モデルへ渡す題材は本文・リンク題名・画像の有無", ()
     "行ってきた\n（リンク: 水族館）\n（画像2枚付き。画像の中身は見えない）",
   );
   assert.equal(
+    postSubjectText(
+      post({
+        text: "走った",
+        recordJson: { embed: { $type: "com.suibari.nagi.post#video", video: {} } },
+      }),
+    ),
+    "走った\n（動画付き。動画の中身は見えない）",
+  );
+  assert.equal(
     zenkatsuSubjectText("朝ごはん", ["トースト", "目玉焼き"]),
     "ゼンカツ（お題に合わせて手札のカードを出すゲーム）のプレイ記録。\nお題: 朝ごはん\n出したカード: トースト、目玉焼き",
   );

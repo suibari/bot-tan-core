@@ -12,6 +12,7 @@ import {
 } from "@bsky-affirmative-bot/bot-runtime";
 import { agent } from "./agent.js";
 import e from "express";
+import { blueskyVideoUrls } from "@bsky-affirmative-bot/shared-configs/blueskyVideo";
 
 /**
  * 言語コードからタイムゾーンを取得するヘルパー関数
@@ -218,7 +219,7 @@ export async function getImageUrl(
     const video = (embed as AppBskyEmbedVideo.Main).video;
     if (video) {
       const cid = (video.ref as any).$link ?? video.ref?.toString(); // ref or IPLD
-      const image_url = `https://video.bsky.app/watch/${did}/${cid}/thumbnail.jpg`; // 回避策
+      const image_url = blueskyVideoUrls(did, cid).thumbnail;
       const mimeType = "image/jpeg"; // 動画のサムネイルはJPEG
       result.push({
         image_url,

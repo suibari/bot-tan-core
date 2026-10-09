@@ -35,7 +35,7 @@
             "maxLength": 4,
             "items": { "type": "ref", "ref": "#linkCard" }
           },
-          "embed": { "type": "union", "refs": ["#images", "#quote"] }
+          "embed": { "type": "union", "refs": ["#images", "#video", "#quote"] }
         }
       }
     },
@@ -87,6 +87,21 @@
         "aspectRatio": { "type": "ref", "ref": "app.bsky.embed.defs#aspectRatio" }
       }
     },
+    "video": {
+      "type": "object",
+      "required": ["video"],
+      "description": "video.bsky.app で変換した mp4。再生は同サービスの HLS を使う。",
+      "properties": {
+        "video": {
+          "type": "blob",
+          "accept": ["video/mp4"],
+          "maxSize": 100000000
+        },
+        "alt": { "type": "string", "maxGraphemes": 1000, "maxLength": 10000 },
+        "contentWarning": { "type": "boolean" },
+        "aspectRatio": { "type": "ref", "ref": "app.bsky.embed.defs#aspectRatio" }
+      }
+    },
     "quote": {
       "type": "object",
       "required": ["record"],
@@ -97,6 +112,11 @@
           "minLength": 1,
           "maxLength": 4,
           "items": { "type": "ref", "ref": "#image" }
+        },
+        "video": {
+          "type": "ref",
+          "ref": "#video",
+          "description": "images と同時には付けない。"
         }
       }
     }

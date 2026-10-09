@@ -38,6 +38,7 @@ const NOTIF_URL = "/notifications";
 
 const CONTENT_WARNING_BODY = "Content Warning付き投稿";
 const IMAGE_POST_BODY = "画像付きの投稿";
+const VIDEO_POST_BODY = "動画付きの投稿";
 const QUOTE_POST_BODY = "引用付きの投稿";
 
 /**
@@ -50,6 +51,7 @@ export function postPushBody(input: {
   text: unknown;
   contentWarning?: boolean;
   hasImages?: boolean;
+  hasVideo?: boolean;
   hasQuote?: boolean;
 }): string {
   if (input.contentWarning) return CONTENT_WARNING_BODY;
@@ -59,6 +61,7 @@ export function postPushBody(input: {
       : "";
   if (text) return text.length > 80 ? `${text.slice(0, 80)}…` : text;
   if (input.hasImages) return IMAGE_POST_BODY;
+  if (input.hasVideo) return VIDEO_POST_BODY;
   if (input.hasQuote) return QUOTE_POST_BODY;
   return "";
 }

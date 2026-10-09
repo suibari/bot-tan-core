@@ -275,6 +275,15 @@ export const NAGI_STANDARD_SITE_SCOPES = [
   "repo:site.standard.publication",
   "repo:site.standard.document",
 ];
+/**
+ * 動画は video.bsky.app に変換を任せる。クライアントは PDS から service auth を取り、
+ * uploadBlob（aud はユーザーの PDS）と getUploadLimits（aud は video.bsky.app）を呼ぶ。
+ * どちらも Nagi namespace ではないので permission set に入れられない。
+ */
+export const NAGI_VIDEO_SCOPES = [
+  "rpc:com.atproto.repo.uploadBlob?aud=*",
+  "rpc:app.bsky.video.getUploadLimits?aud=*",
+];
 
 /**
  * Nagi の OAuth スコープ（真実源はこの1箇所）。Nagi namespace の repo/rpc 権限は permission
@@ -298,6 +307,7 @@ export const NAGI_OAUTH_SCOPE = [
   `repo:${BLUEMOJI_ITEM}`,
   NAGI_BLUESKY_PROFILE_SCOPE,
   ...NAGI_STANDARD_SITE_SCOPES,
+  ...NAGI_VIDEO_SCOPES,
 ].join(" ");
 
 /**

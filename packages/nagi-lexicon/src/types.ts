@@ -30,6 +30,19 @@ export type NagiImage = {
   contentWarning?: boolean;
   aspectRatio?: AspectRatio;
 };
+export type NagiVideo = {
+  video: BlobRef;
+  alt?: string;
+  contentWarning?: boolean;
+  aspectRatio?: AspectRatio;
+};
+export type PostVideoView = {
+  playlist: string;
+  thumbnail: string;
+  alt?: string;
+  contentWarning?: boolean;
+  aspectRatio?: AspectRatio;
+};
 export type NagiLinkCard = {
   uri: string;
   title: string;
@@ -63,10 +76,13 @@ export type NagiPost = {
   linkCards?: NagiLinkCard[];
   embed?:
     | { $type: "com.suibari.nagi.post#images"; images: NagiImage[] }
+    | ({ $type: "com.suibari.nagi.post#video" } & NagiVideo)
     | {
         $type: "com.suibari.nagi.post#quote";
         record: StrongRef;
         images?: NagiImage[];
+        /** images と同時には付けない。 */
+        video?: NagiVideo;
       };
 };
 export type SelfLabels = {
@@ -412,6 +428,8 @@ export type PostView = {
     contentWarning?: boolean;
     aspectRatio?: AspectRatio;
   }>;
+  /** video.bsky.app が配信する HLS とサムネイル。 */
+  video?: PostVideoView;
   linkCards?: Array<{
     uri: string;
     title: string;
