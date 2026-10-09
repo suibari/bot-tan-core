@@ -1,5 +1,5 @@
 import { and, asc, eq, lte, or } from "drizzle-orm";
-import { isAppviewOwnedUri } from "@bsky-affirmative-bot/nagi-lexicon";
+import { isAppviewOwnedUri, nagiPostMedia } from "@bsky-affirmative-bot/nagi-lexicon";
 import {
   db,
   nagiBotReplyJobs,
@@ -144,7 +144,7 @@ export function startNagiReplyWorker() {
       // こっそりは返信が PDS に無く、絵をぶら下げる先の cid が取れないので対象外。
       let drawingRequest: PreparedNagiDrawingRequest | undefined;
       if (!isAppviewOwnedUri(job.sourceUri) && typeof incomingRecord?.text === "string") {
-        const attachments = incomingRecord.embed?.images ?? [];
+        const attachments = nagiPostMedia(incomingRecord.embed).images;
         let imageRefs;
         if (attachments.length && hasDrawingHint(incomingRecord.text)) {
           try {

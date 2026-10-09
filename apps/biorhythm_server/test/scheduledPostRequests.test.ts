@@ -102,7 +102,7 @@ test("気まぐれ：ニュースなし・曲ありでもニュース枠や画�
 
 for (const withVideo of [true, false]) {
   for (const withImage of [true, false]) {
-    test(`おやすみ：動画${withVideo ? "あり" : "なし"}・画像${withImage ? "あり" : "なし"}、出来事・動画のRP先・任意の絵だけ`, () => {
+    test(`おやすみ：動画${withVideo ? "あり" : "なし"}・画像${withImage ? "あり" : "なし"}、出来事・動画（BlueskyはRP先、Nagiは埋め込み元）・任意の絵だけ`, () => {
       const nightVideo = { uri: "at://did:plc:bot/app.bsky.feed.post/video", cid: "video-cid" };
       const result = buildGoodNightPostRequest({
         generated,
@@ -124,6 +124,7 @@ for (const withVideo of [true, false]) {
             langs: ["ja"],
             translations: [{ lang: "en", text: "Generated English text" }],
             ...(withImage ? { image } : {}),
+            ...(withVideo ? { nightVideo } : {}),
           },
         },
       });

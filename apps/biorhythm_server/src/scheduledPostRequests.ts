@@ -73,6 +73,10 @@ export function buildGoodNightPostRequest(params: {
         langs: ["ja"],
         translations: [{ lang: "en", text: texts.nagiEn }],
         ...(image ? { image } : {}),
+        // Nagi は動画ポストの blob をそのまま参照して載せる（上げ直さない）。
+        ...(nightVideo
+          ? { nightVideo: { uri: nightVideo.uri, cid: nightVideo.cid } }
+          : {}),
       },
     },
   };

@@ -2,6 +2,7 @@ import {
   BLUEMOJI_ITEM,
   NAGI,
   isAppviewOwnedUri,
+  nagiPostMedia,
 } from "@bsky-affirmative-bot/nagi-lexicon";
 import { blueskyVideoUrls } from "@bsky-affirmative-bot/shared-configs/blueskyVideo";
 import type { ModerationInput } from "./openai.js";
@@ -94,13 +95,7 @@ export function moderationSubject(
   if (!record) return null;
   switch (collection) {
     case NAGI.post: {
-      const images: any[] = Array.isArray(record.embed?.images)
-        ? record.embed.images
-        : [];
-      const video =
-        record.embed?.$type === `${NAGI.post}#video`
-          ? record.embed
-          : record.embed?.video;
+      const { images, video } = nagiPostMedia(record.embed);
       return {
         texts: [
           ...text(record.text),
