@@ -1,5 +1,3 @@
-import { AppBskyActorDefs } from "@atproto/api";
-type ProfileView = AppBskyActorDefs.ProfileView;
 import { Type } from "@google/genai";
 import { SYSTEM_INSTRUCTION, TONE_RULES_JA } from "@bsky-affirmative-bot/shared-configs";
 import type { BotContext } from "@bsky-affirmative-bot/shared-configs";
@@ -18,10 +16,20 @@ export interface GoodNightLearnedTerm {
   relation: "recommended" | "liked" | "discussed";
 }
 
+/**
+ * その日の夜の動画（bot-tan-youtuber が 18:00 に Bluesky へ投稿したもの）。
+ * おやすみポストはこれを RP し、videoCommentJa/En を動画ポストへのリプライにする。
+ */
+export interface GoodNightVideo {
+  /** 動画の冒頭一言（画面上部のテロップ）。 */
+  hook: string;
+  /** 動画ポストの添え文。誰のどんな投稿を紹介した動画かが書いてある。 */
+  caption: string;
+}
+
 export interface GoodNightInfo {
-  topFollower?: ProfileView,
-  topPost?: string,
-  topPostNetwork: "bsky" | "nagi",
+  /** 撮れなかった日は無い。そのときは動画へのコメントを書かせない。 */
+  nightVideo?: GoodNightVideo,
   currentMood: string,
   followerMilestone?: number,
   giftCandidates?: { id: number; content: string; displayName: string }[],
@@ -32,13 +40,18 @@ export interface GoodNightInfo {
 }
 
 export interface GoodNightResult {
+  /** 出来事スレッド（おやすみのあいさつ・出来事・プレゼント・教えてもらった言葉）。 */
   textJa: string;
   textEn: string;
+  /** 動画ポストへのリプライ。nightVideo を渡したときだけ入る。 */
+  videoCommentJa?: string;
+  videoCommentEn?: string;
   selectedGiftIndex?: number;
 }
 
 export async function generateGoodNight(param: GoodNightInfo): Promise<GoodNightResult> {
   const prompt = buildGoodNightPrompt(param);
+  const withVideo = Boolean(param.nightVideo);
 
   const response = await generateContentWithRetry({
     feature: "BIORHYTHM_GOOD_NIGHT",
@@ -57,23 +70,36 @@ export async function generateGoodNight(param: GoodNightInfo): Promise<GoodNight
             type: Type.STRING,
             description: "textJaと同じ内容の自然な英語訳"
           },
+          ...(withVideo
+            ? {
+                videoCommentJa: {
+                  type: Type.STRING,
+                  description: "今日の動画へのひとこと（日本語）",
+                },
+                videoCommentEn: {
+                  type: Type.STRING,
+                  description: "videoCommentJaと同じ内容の自然な英語訳",
+                },
+              }
+            : {}),
           selectedGiftIndex: {
             type: Type.NUMBER,
             description: "giftCandidatesのうちメッセージ内で紹介したプレゼントのインデックス（0始まり）。プレゼントを紹介しない場合は省略"
           },
         },
-        required: ["textJa", "textEn"]
+        required: withVideo
+          ? ["textJa", "textEn", "videoCommentJa", "videoCommentEn"]
+          : ["textJa", "textEn"]
       }
     }
   });
 
-  return parseGoodNightResponse(response.text || "");
+  return parseGoodNightResponse(response.text || "", { withVideo });
 }
 
 /**
- * おやすみ本文に書いてよい URL。プロンプトで渡しているのはお部屋の URL だけで、
- * 選出ポストの URL はシステムが別に付ける（Bluesky はリポスト、Nagi は末尾追記）。
- * 選出ポストの本文も材料に含めないのは、引用元の URL を紹介文へ写す理由が無いため。
+ * おやすみ本文に書いてよい URL。プロンプトで渡しているのはお部屋の URL だけ。
+ * 動画は RP で紹介し、動画へのコメントはその動画ポストへのリプライになるので URL は要らない。
  * 2026-10-06 の x.com 捏造の経緯は urlGuard.ts を参照。
  */
 const GOOD_NIGHT_URL_ALLOWANCE = createUrlAllowance({ origins: ["https://room.bot-tan.com"] });
@@ -87,11 +113,20 @@ const GOOD_NIGHT_URL_ALLOWANCE = createUrlAllowance({ origins: ["https://room.bo
  * textEn が空になるので Nagi 側の英訳 seed も落ち、日英が分かれなくなる。
  * 壊れた生成は投げて、呼び出し側の retry と「その日は出さない」に委ねる。
  */
-export function parseGoodNightResponse(responseText: string): GoodNightResult {
+export function parseGoodNightResponse(
+  responseText: string,
+  options: { withVideo?: boolean } = {},
+): GoodNightResult {
   const cleanText = (text: unknown) =>
     typeof text === "string" ? normalizeUrlSpacing(text.replace(/\[.*?\]/gs, '').trim()) : "";
 
-  let parsed: { textJa?: unknown; textEn?: unknown; selectedGiftIndex?: unknown };
+  let parsed: {
+    textJa?: unknown;
+    textEn?: unknown;
+    videoCommentJa?: unknown;
+    videoCommentEn?: unknown;
+    selectedGiftIndex?: unknown;
+  };
   try {
     parsed = JSON.parse(stripJsonFences(responseText));
   } catch (e) {
@@ -101,27 +136,37 @@ export function parseGoodNightResponse(responseText: string): GoodNightResult {
   const textJa = cleanText(parsed.textJa);
   const textEn = cleanText(parsed.textEn);
   if (!textJa || !textEn) throw new Error("generateGoodNight returned an empty required field");
+  // 動画を渡した日は、動画へのコメントも日英そろって初めて使う（片方だけでは出さない）。
+  const videoCommentJa = options.withVideo ? cleanText(parsed.videoCommentJa) : "";
+  const videoCommentEn = options.withVideo ? cleanText(parsed.videoCommentEn) : "";
+  if (options.withVideo && (!videoCommentJa || !videoCommentEn)) {
+    throw new Error("generateGoodNight returned an empty video comment");
+  }
+  const ja = [textJa, videoCommentJa].filter(Boolean);
+  const en = [textEn, videoCommentEn].filter(Boolean);
 
   // フィールド名が本文へ漏れた形。おやすみのあいさつに textJa / textEn と書く理由は
   // 無いので、文字種の判定より先に、この形だけを名指しで弾く。日英を1つの欄へ
   // 詰めた生成はこのラベルを区切りに使うことが多く、文字種では優勢な方に隠れて通る。
-  if (/\btext(Ja|En)\b/.test(textJa) || /\btext(Ja|En)\b/.test(textEn)) {
+  const leaked = /\b(text|videoComment)(Ja|En)\b/;
+  if ([...ja, ...en].some((text) => leaked.test(text))) {
     throw new Error("generateGoodNight leaked a field name into the post text");
   }
 
-  assertSourcedUrls([textJa, textEn], GOOD_NIGHT_URL_ALLOWANCE, "generateGoodNight");
+  assertSourcedUrls([...ja, ...en], GOOD_NIGHT_URL_ALLOWANCE, "generateGoodNight");
 
-  // 構造が正しくても中身が入れ違っていることがある。両欄の文字種を数えて弾く。
-  if (checkPredominantLanguage(textJa, true) !== "ok") {
+  // 構造が正しくても中身が入れ違っていることがある。各欄の文字種を数えて弾く。
+  if (ja.some((text) => checkPredominantLanguage(text, true) !== "ok")) {
     throw new Error("generateGoodNight textJa is not predominantly Japanese");
   }
-  if (checkPredominantLanguage(textEn, false) !== "ok") {
+  if (en.some((text) => checkPredominantLanguage(text, false) !== "ok")) {
     throw new Error("generateGoodNight textEn contains too much Japanese text");
   }
 
   return {
     textJa,
     textEn,
+    ...(options.withVideo ? { videoCommentJa, videoCommentEn } : {}),
     ...(typeof parsed.selectedGiftIndex === "number"
       ? { selectedGiftIndex: parsed.selectedGiftIndex }
       : {}),
@@ -175,9 +220,18 @@ export const buildGoodNightPrompt = (param: GoodNightInfo) => {
       `今日覚えた言葉:\n${termList}\n`;
   }
 
-  const sharingInstruction = param.topPostNetwork === "nagi"
-    ? `* 全肯定されたポストはNagiの投稿です。リポスト済みとは書かないでください。スレッドURLはシステムが本文末尾に追加するので、textJaとtextEnにはURLを書かず、感想だけを書いてください。`
-    : `* **全肯定されたポスト本文をそのまま記載することは不要です**。リポスト済みなので、感想のみでよいです。ポストやユーザのURLも書かないでください。`;
+  // 動画の紹介は別スレッド（動画ポストへのリプライ）。出来事スレッドに動画の話を混ぜると、
+  // 同じ話が2本に分かれて出る。
+  const videoInstruction = param.nightVideo
+    ? `\n# 今日の動画へのひとこと（videoCommentJa / videoCommentEn）\n` +
+      `今日の夕方、あなたはSNSで見かけた投稿を紹介する短い動画を投稿しました。` +
+      `この動画ポストをリポストし、そこへ返信としてひとこと添えます。\n` +
+      `* 動画で紹介した投稿のどこに心を動かされたかを、フォロワーに向けて1〜2文で書いてください。まだ見ていない人が見たくなるように。\n` +
+      `* 動画ポストへの返信なので、URLは書かないでください。ポストした人の名前は書いてかまいません。\n` +
+      `* 出来事・プレゼント・教えてもらった言葉・おやすみのあいさつは textJa / textEn に書き、こちらには混ぜないでください。\n` +
+      `* 動画の冒頭の一言: ${param.nightVideo.hook}\n` +
+      `* 動画ポストの添え文: ${param.nightVideo.caption}\n`
+    : "";
 
   return `あなたはこれから就寝します。フォロワーへのおやすみのあいさつをしてください。` +
     `あいさつには以下を含めること:` +
@@ -185,20 +239,15 @@ export const buildGoodNightPrompt = (param: GoodNightInfo) => {
     `* 現在の気分、あなたがさっきまでしてたこと: ${param.currentMood}` +
     giftInstruction +
     learnedInstruction +
-    `* 今日のあなたが全肯定されたポストの紹介` +
     milestoneInstruction +
     `あいさつのルール:` +
     `* 同じ内容について、日本語メッセージをtextJa、その自然な英語訳をtextEnに出力してください。` +
     `* **textJaには日本語だけ、textEnには英語だけを書いてください。** 本文に「textJa」「textEn」のようなフィールド名やラベル、前置きを含めてはいけません。1つのフィールドに日英を両方入れることも禁止です。` +
-    `* あなたが全肯定されたポスト紹介については、どこに心を動かされたか、フォロワーに説明してください。` +
-    sharingInstruction +
-    `* ポストを紹介する際はフォロワーを楽しませることを考えてください。**正義感にもとづいて特定个人、団体への攻撃を扇動したりしてはなりません。**` +
+    `* 投稿に触れる際はフォロワーを楽しませることを考えてください。**正義感にもとづいて特定个人、団体への攻撃を扇動したりしてはなりません。**` +
     `* 読みやすくするために、適切に改行を入れてください。` +
     `* **絶対厳守**: textJaとtextEnのテキストにマークダウン記法を一切使わないでください。見出し(#)、太字(**)、斜体(*)、リスト(-)、リンク([text](url))などは禁止です。` +
     `* **URLは、この指示の中で書くよう示されたもの以外は一切書かないでください。** ユーザ名から X(Twitter) などのSNSアカウントのURLを推測して作ることも禁止です。ユーザに触れるときは表示名を名前として書いてください。` +
-    `\n# 口調\n紹介するポストがどんな文体でも、textJa は必ずあなた自身の口調にしてください。\n${TONE_RULES_JA}\n` +
-    `---今日のあなたが全肯定されたポスト---` +
-    `* ポストしたユーザ名: ${param.topFollower?.displayName ?? ""}` +
-    `* ポスト内容: ${param.topPost ?? ""}` +
+    videoInstruction +
+    `\n# 口調\n紹介するポストがどんな文体でも、textJa${param.nightVideo ? " と videoCommentJa" : ""} は必ずあなた自身の口調にしてください。\n${TONE_RULES_JA}\n` +
     formatBotContext(param.botContext, "日本語", { purpose: "scheduledPost" });
 }

@@ -423,6 +423,36 @@ export const room_events = affirmativeBotSchema.table(
   (table) => [index("room_events_unread_idx").on(table.is_read, table.created_at)],
 );
 
+/**
+ * 夜の動画（bot-tan-youtuber が毎日 18:00 に Bluesky へ投稿する）。1 bot日に1行。
+ *
+ * 書くのは bot-tan-youtuber（shorts/night_videos.py）、読むのはおやすみポスト。
+ * おやすみポストはこの動画ポストを RP し、コメントをリプライして紹介する。
+ * youtube_shorts とは分けている。あちらは気まぐれポストが「新しい Shorts」として
+ * 告知する材料なので、Bluesky の動画が混ざると YouTube として告知されてしまう。
+ */
+export const night_videos = affirmativeBotSchema.table("night_videos", {
+  id: serial("id").primaryKey(),
+  /** bot日（JST 4時区切り、YYYY-MM-DD）。botDayRange().date と同じ値。 */
+  video_date: text("video_date").notNull().unique(),
+  post_uri: text("post_uri").notNull(),
+  post_cid: text("post_cid").notNull(),
+  /** 動画の冒頭一言（画面上部のテロップと同じ文言）。 */
+  hook: text("hook"),
+  /** 動画ポストの添え文（日本語）。 */
+  caption: text("caption"),
+  source_network: text("source_network"),
+  source_uri: text("source_uri"),
+  source_display_name: text("source_display_name"),
+  themes: jsonb("themes"),
+  /** "new": 未紹介, "introduced": おやすみポストで紹介済み */
+  status: text("status").default("new").notNull(),
+  /** おやすみポストで動画にリプライしたコメントの URI。 */
+  introduced_uri: text("introduced_uri"),
+  created_at: timestamp("created_at").defaultNow().notNull(),
+  updated_at: timestamp("updated_at").defaultNow().notNull(),
+});
+
 export const youtube_shorts = affirmativeBotSchema.table("youtube_shorts", {
   id: serial("id").primaryKey(),
   url: text("url").notNull().unique(),

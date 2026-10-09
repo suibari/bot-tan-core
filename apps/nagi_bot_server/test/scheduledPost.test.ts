@@ -36,11 +36,6 @@ for (const network of ["bsky", "nagi"] as const) {
         });
         await publishScheduledPost({
           kind: "good-night", text: `おやすみ！\n\n${url}`, langs: ["ja"],
-          sourcePost: {
-            network,
-            uri: `at://did:plc:source/${network === "nagi" ? "com.suibari.nagi.post" : "app.bsky.feed.post"}/source`,
-            cid: "source-cid",
-          },
           ...(withImage ? { image: { dataBase64: "c3R1Yg==", mimeType: "image/png", alt: "今日の絵" } } : {}),
         });
         assert.equal(indexed, true);

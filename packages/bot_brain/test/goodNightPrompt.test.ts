@@ -4,22 +4,27 @@ import { buildGoodNightPrompt, parseGoodNightResponse } from "../src/ai/generate
 
 const base = {
   currentMood: "のんびりしていた",
-  topPost: "今日はいいことがあった",
+};
+const nightVideo = {
+  hook: "頑張りすぎた自分を抱きしめて",
+  caption: "すいばりさんの「働き方へのこだわり」という投稿を紹介したよ。",
 };
 
-test("Nagi選出時はリポスト済みと説明せずURLの追記をシステムへ任せる", () => {
-  const prompt = buildGoodNightPrompt({ ...base, topPostNetwork: "nagi" });
+test("夜の動画がある日は動画へのコメント欄を求め、材料を渡す", () => {
+  const prompt = buildGoodNightPrompt({ ...base, nightVideo });
 
-  assert.match(prompt, /全肯定されたポストはNagiの投稿/);
-  assert.match(prompt, /リポスト済みとは書かない/);
-  assert.match(prompt, /スレッドURLはシステムが本文末尾に追加/);
+  assert.match(prompt, /videoCommentJa \/ videoCommentEn/);
+  assert.match(prompt, /頑張りすぎた自分を抱きしめて/);
+  assert.match(prompt, /すいばりさんの「働き方へのこだわり」/);
+  // 出来事スレッドと動画へのコメントで、同じ話が2本に分かれて出ないように。
+  assert.match(prompt, /こちらには混ぜないでください/);
 });
 
-test("Bluesky選出時は既存どおりリポスト済みの感想を求める", () => {
-  const prompt = buildGoodNightPrompt({ ...base, topPostNetwork: "bsky" });
+test("夜の動画が無い日は動画にも、以前のトップポストにも触れない", () => {
+  const prompt = buildGoodNightPrompt(base);
 
-  assert.match(prompt, /リポスト済みなので、感想のみ/);
-  assert.doesNotMatch(prompt, /全肯定されたポストはNagiの投稿/);
+  assert.doesNotMatch(prompt, /videoComment/);
+  assert.doesNotMatch(prompt, /全肯定されたポスト/);
 });
 
 test("botContext があれば今日の記憶を、無ければ何も足さない", () => {
@@ -38,13 +43,13 @@ test("botContext があれば今日の記憶を、無ければ何も足さない
     ],
   };
 
-  const withMemory = buildGoodNightPrompt({ ...base, topPostNetwork: "bsky", botContext });
+  const withMemory = buildGoodNightPrompt({ ...base, botContext });
   assert.match(withMemory, /botたんの記憶/);
   assert.match(withMemory, /朝ごはん/);
   assert.match(withMemory, /1つか2つだけ拾って/);
 
   assert.doesNotMatch(
-    buildGoodNightPrompt({ ...base, topPostNetwork: "bsky" }),
+    buildGoodNightPrompt(base),
     /botたんの記憶/,
   );
 });
@@ -52,7 +57,6 @@ test("botContext があれば今日の記憶を、無ければ何も足さない
 test("今日覚えた言葉があれば候補と言い回しを渡し、無ければ何も足さない", () => {
   const prompt = buildGoodNightPrompt({
     ...base,
-    topPostNetwork: "bsky",
     learnedTerms: [
       { label: "葬送のフリーレン", relation: "recommended" },
       { label: "ぬい活", relation: "liked" },
@@ -68,17 +72,17 @@ test("今日覚えた言葉があれば候補と言い回しを渡し、無け�
   assert.match(prompt, /名前・投稿内容・URLは書かず/);
 
   assert.doesNotMatch(
-    buildGoodNightPrompt({ ...base, topPostNetwork: "bsky" }),
+    buildGoodNightPrompt(base),
     /今日覚えた言葉/,
   );
   assert.doesNotMatch(
-    buildGoodNightPrompt({ ...base, topPostNetwork: "bsky", learnedTerms: [] }),
+    buildGoodNightPrompt({ ...base, learnedTerms: [] }),
     /今日覚えた言葉/,
   );
 });
 
 test("片方の言語に両方を詰めないようプロンプトで明示する", () => {
-  const prompt = buildGoodNightPrompt({ ...base, topPostNetwork: "bsky" });
+  const prompt = buildGoodNightPrompt(base);
 
   assert.match(prompt, /textJaには日本語だけ、textEnには英語だけ/);
   assert.match(prompt, /フィールド名やラベル、前置きを含めてはいけません/);
@@ -146,9 +150,39 @@ test("手元に無いURLを書いた生成は投げ、お部屋のURLだけは�
 });
 
 test("ユーザ名からSNSのURLを作らないようプロンプトで明示する", () => {
-  for (const topPostNetwork of ["bsky", "nagi"] as const) {
-    const prompt = buildGoodNightPrompt({ ...base, topPostNetwork });
+  for (const param of [base, { ...base, nightVideo }]) {
+    const prompt = buildGoodNightPrompt(param);
     assert.match(prompt, /SNSアカウントのURLを推測して作ることも禁止/);
     assert.doesNotMatch(prompt, /URLはそのまま https:\/\/\.\.\. の形式で本文中に含めて/);
   }
+});
+
+const commentJa = "今日の動画では、自分を追い込みがちな人に届けたい投稿を紹介したよ。見てね！";
+const commentEn = "In today's video, I shared a post for anyone who pushes themselves too hard. Check it out!";
+
+test("動画がある日は動画へのコメントも日英そろって返す", () => {
+  const result = parseGoodNightResponse(
+    JSON.stringify({ textJa: ja, textEn: en, videoCommentJa: commentJa, videoCommentEn: commentEn }),
+    { withVideo: true },
+  );
+  assert.equal(result.videoCommentJa, commentJa);
+  assert.equal(result.videoCommentEn, commentEn);
+
+  // 動画を渡していない日は、モデルが勝手に書いても使わない。
+  const without = parseGoodNightResponse(
+    JSON.stringify({ textJa: ja, textEn: en, videoCommentJa: commentJa, videoCommentEn: commentEn }),
+  );
+  assert.equal(without.videoCommentJa, undefined);
+});
+
+test("動画へのコメントにも本文と同じ検査を掛ける", () => {
+  const parse = (fields: Record<string, string>) => parseGoodNightResponse(
+    JSON.stringify({ textJa: ja, textEn: en, videoCommentJa: commentJa, videoCommentEn: commentEn, ...fields }),
+    { withVideo: true },
+  );
+  assert.throws(() => parse({ videoCommentEn: "" }), /empty video comment/);
+  assert.throws(() => parse({ videoCommentJa: commentEn }), /not predominantly Japanese/);
+  assert.throws(() => parse({ videoCommentEn: commentJa }), /too much Japanese/);
+  assert.throws(() => parse({ videoCommentJa: `${commentJa}\nvideoCommentEn` }), /leaked a field name/);
+  assert.throws(() => parse({ videoCommentJa: `${commentJa} https://x.com/someone` }));
 });

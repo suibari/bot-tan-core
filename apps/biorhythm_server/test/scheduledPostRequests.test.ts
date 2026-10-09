@@ -100,37 +100,44 @@ test("気まぐれ：ニュースなし・曲ありでもニュース枠や画�
   });
 });
 
-for (const network of ["bsky", "nagi"] as const) {
+for (const withVideo of [true, false]) {
   for (const withImage of [true, false]) {
-    test(`おやすみ：${network}選出・画像${withImage ? "あり" : "なし"}、本文・紹介元・任意の絵だけ`, () => {
-      const sourcePost = {
-        network,
-        uri: network === "nagi"
-          ? "at://did:plc:example/com.suibari.nagi.post/stub"
-          : "at://did:plc:example/app.bsky.feed.post/stub",
-        cid: "stub-cid",
-      };
-      const result = buildGoodNightPostRequest({ generated, sourcePost, image: withImage ? image : null });
+    test(`おやすみ：動画${withVideo ? "あり" : "なし"}・画像${withImage ? "あり" : "なし"}、出来事・動画へのコメント・任意の絵だけ`, () => {
+      const nightVideo = { uri: "at://did:plc:bot/app.bsky.feed.post/video", cid: "video-cid" };
+      const result = buildGoodNightPostRequest({
+        generated: {
+          ...generated,
+          ...(withVideo ? { videoCommentJa: "動画も見てね", videoCommentEn: "Watch the video" } : {}),
+        },
+        nightVideo: withVideo ? nightVideo : null,
+        image: withImage ? image : null,
+      });
       assert.deepEqual(result, {
         kind: "good-night",
         contentByTarget: {
           bsky: {
-            text: network === "nagi"
-              ? "日本語の生成本文\n\nGenerated English text\n\nhttps://nagi.suibari.com/thread/did%3Aplc%3Aexample/stub"
-              : "日本語の生成本文\n\nGenerated English text",
+            text: "日本語の生成本文\n\nGenerated English text",
             ...(withImage ? { image } : {}),
+            ...(withVideo
+              ? { nightVideo: { ...nightVideo, commentText: "動画も見てね\n\nWatch the video" } }
+              : {}),
           },
           nagi: {
-            text: network === "nagi"
-              ? "日本語の生成本文\n\nhttps://nagi.suibari.com/thread/did%3Aplc%3Aexample/stub"
-              : "日本語の生成本文\n\nhttps://bsky.app/profile/did:plc:example/post/stub",
+            text: "日本語の生成本文",
             langs: ["ja"],
             translations: [{ lang: "en", text: "Generated English text" }],
             ...(withImage ? { image } : {}),
           },
         },
-        sourcePost,
       });
     });
   }
 }
+
+test("おやすみ：動画があってもコメントが生成されなければ動画は紹介しない", () => {
+  const result = buildGoodNightPostRequest({
+    generated,
+    nightVideo: { uri: "at://did:plc:bot/app.bsky.feed.post/video", cid: "video-cid" },
+  });
+  assert.equal(result.contentByTarget.bsky.nightVideo, undefined);
+});
