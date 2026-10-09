@@ -4,25 +4,61 @@ import { expandSearchQuery } from "./queryExpansion.js";
 
 const DEFAULT_TIMEOUT_MS = 5_000;
 /**
- * バッチ1件あたりの追加猶予。**バッチのタイムアウトを件数に比例させるためのもの。**
+ * 入力1文字あたりの追加猶予。**タイムアウトを文の長さに比例させるためのもの。**
  *
  * OLLAMA_EMBED_TIMEOUT_MS は「返信前の履歴検索を長時間止めない」ための予算で、
- * クエリ1本を測って決めてある。ところが埋め込みワーカーは16件をまとめて投げるので、
- * 同じ予算を当てると件数に比例して破綻する。
+ * クエリ1本を測って決めてある。以前はここを件数比例（1件 1500ms）にしていたが、
+ * それは短い投稿（1件 約330ms）が前提だった。web_research の記憶は平均1200字・最大7000字あり、
+ * 件数では計算量が見えない。
  *
- * 実測（qwen3-embedding:0.6b / CPU の ollama-embed）: 1件 約330ms、16件 約4.4秒。
- * 固定5秒だと16件バッチが常時ぎりぎりで、超えるたびに下の cooldown が60秒開いて
- * **埋め込みが全面停止する**（利用者の検索も巻き込む）。実際 arctic-embed2 から
- * qwen3 へ差し替えた直後、再埋め込みの実効速度が 64行/分 まで落ちた。
+ * 実測（qwen3-embedding:0.6b / CPU の ollama-embed、2026-10-09）:
+ * 1804字 → 1156トークン（0.64 トークン/字）、1524トークン 11.5秒（7.6ms/トークン）。
+ * 日本語で約5ms/字。トークン化の悪い文（絵文字・記号）は1字1トークン近くまで行くので、
+ * 倍の余裕を見て 10ms/字。
  *
- * そこで「1件ぶんは従来の予算、2件目以降はここで足す」形にする。
- * 16件なら 5000 + 15*1500 = 27.5秒。速いモデルへ戻せば早く返るだけで害はない。
+ * 2026-10-09 は件数比例の予算（12件 21.5秒）に長文が乗り、同じ組が毎回時間切れ →
+ * cooldown → 同じ組で再び時間切れ、を1日130回繰り返した。時間切れでも Ollama は
+ * 処理中の1件を最後まで計算するので、共有している埋め込みサーバをそのぶん塞ぐ。
  */
-const DEFAULT_TIMEOUT_PER_ITEM_MS = 1_500;
+const DEFAULT_TIMEOUT_PER_CHAR_MS = 10;
+/**
+ * 1回の送信に載せる合計文字数の上限。**これを超える分は別の送信に分ける。**
+ *
+ * 埋め込みサーバは OLLAMA_NUM_PARALLEL=1 で bot-tan-convo と共有している。
+ * 1回の送信が長いほど、その間ほかの利用者（ふだん0.4秒の問い合わせ）が待たされる。
+ * 800字 ≒ 4秒。短い投稿16件（平均85字）ならこれまでどおり1回で済む。
+ */
+const DEFAULT_MAX_BATCH_CHARS = 800;
+/**
+ * 1件の入力の上限文字数。超えた分は送らない（先頭だけ埋め込む）。
+ *
+ * 埋め込みサーバの n_ctx は 4096 で、7000字の記憶は元々サーバ側で切られていた
+ * （4096トークン ≒ 30秒）。1500字 ≒ 7秒で打ち切る。人物・記憶の要旨は先頭に来るので、
+ * 末尾を落としても検索への影響は小さいと見ている（変えるなら docs/evaluations/embedding/ で測ること）。
+ */
+const DEFAULT_MAX_INPUT_CHARS = 1_500;
 const DEFAULT_COOLDOWN_MS = 60_000;
 const EMBEDDING_DIMENSIONS = 1024;
 
+/**
+ * cooldown は2系統ある。
+ *
+ * - unavailableUntil: 利用者を待たせる経路（検索・返信前の履歴）の失敗で開く。
+ *   サーバが落ちている合図なので、ワーカーも止める。
+ * - backgroundUnavailableUntil: 埋め込みワーカーの失敗で開く。ワーカーだけを止める。
+ *
+ * 以前は1本で、ワーカーの長文バッチが時間切れになるたび、利用者の検索まで60秒止まっていた。
+ */
 let unavailableUntil = 0;
+let backgroundUnavailableUntil = 0;
+
+export type EmbeddingRequestOptions = {
+  /**
+   * 埋め込みワーカーからの呼び出し。失敗しても利用者の検索の cooldown は開かない。
+   * 利用者が結果を待っている経路では指定しないこと。
+   */
+  background?: boolean;
+};
 
 const positiveEnvNumber = (name: string, fallback: number): number => {
   const value = Number(process.env[name]);
@@ -32,21 +68,66 @@ const positiveEnvNumber = (name: string, fallback: number): number => {
 const nullEmbeddings = (length: number): null[] =>
   Array.from({ length }, () => null);
 
+const clipInput = (text: string): string => {
+  const max = positiveEnvNumber("OLLAMA_EMBED_MAX_INPUT_CHARS", DEFAULT_MAX_INPUT_CHARS);
+  return text.length > max ? text.slice(0, max) : text;
+};
+
+const embeddingBaseUrl = (): string | undefined =>
+  process.env.OLLAMA_EMBED_BASE_URL ?? process.env.OLLAMA_BASE_URL;
+
+/**
+ * 埋め込みサーバがいま使えるか（設定済みで cooldown 中でない）。
+ * ワーカーは、送っていない行を失敗として記録しないよう、行を選ぶ前にこれを見る。
+ */
+export function isEmbeddingAvailable(opts: EmbeddingRequestOptions = {}): boolean {
+  if (!embeddingBaseUrl()) return false;
+  const now = Date.now();
+  if (now < unavailableUntil) return false;
+  return !(opts.background && now < backgroundUnavailableUntil);
+}
+
+/**
+ * 合計文字数が上限を超えないように、順序を保ったまま送信単位へ分ける。
+ * 上限より長い1件は単独の送信になる。
+ */
+export function splitEmbeddingBatches(texts: string[], maxChars: number): string[][] {
+  const batches: string[][] = [];
+  let current: string[] = [];
+  let currentChars = 0;
+  for (const text of texts) {
+    if (current.length > 0 && currentChars + text.length > maxChars) {
+      batches.push(current);
+      current = [];
+      currentChars = 0;
+    }
+    current.push(text);
+    currentChars += text.length;
+  }
+  if (current.length > 0) batches.push(current);
+  return batches;
+}
+
 async function requestEmbeddings(
   input: string | string[],
+  opts: EmbeddingRequestOptions = {},
 ): Promise<number[][] | null> {
-  const baseUrl = process.env.OLLAMA_EMBED_BASE_URL ?? process.env.OLLAMA_BASE_URL;
-  if (!baseUrl || Date.now() < unavailableUntil) return null;
+  const baseUrl = embeddingBaseUrl();
+  if (!baseUrl || !isEmbeddingAvailable(opts)) return null;
 
-  // 件数に比例させる。1件なら従来どおりの予算のまま。
+  // 文の長さに比例させる。短いクエリ1本なら従来どおりの予算のまま。
   const count = Array.isArray(input) ? input.length : 1;
-  const timeoutMs =
+  const chars = Array.isArray(input)
+    ? input.reduce((sum, text) => sum + text.length, 0)
+    : input.length;
+  const timeoutMs = Math.round(
     positiveEnvNumber("OLLAMA_EMBED_TIMEOUT_MS", DEFAULT_TIMEOUT_MS) +
-    positiveEnvNumber(
-      "OLLAMA_EMBED_TIMEOUT_PER_ITEM_MS",
-      DEFAULT_TIMEOUT_PER_ITEM_MS,
-    ) *
-      Math.max(0, count - 1);
+      positiveEnvNumber(
+        "OLLAMA_EMBED_TIMEOUT_PER_CHAR_MS",
+        DEFAULT_TIMEOUT_PER_CHAR_MS,
+      ) *
+        chars,
+  );
   const cooldownMs = positiveEnvNumber(
     "OLLAMA_EMBED_COOLDOWN_MS",
     DEFAULT_COOLDOWN_MS,
@@ -81,12 +162,15 @@ async function requestEmbeddings(
       throw new Error("Unexpected embedding shape");
     }
 
-    unavailableUntil = 0;
+    if (opts.background) backgroundUnavailableUntil = 0;
+    else unavailableUntil = 0;
     return embeddings as number[][];
   } catch (error) {
-    unavailableUntil = Date.now() + cooldownMs;
+    if (opts.background) backgroundUnavailableUntil = Date.now() + cooldownMs;
+    else unavailableUntil = Date.now() + cooldownMs;
     console.error(
-      `[ERROR][ollamaEmbed] request failed (count=${count}, timeout=${timeoutMs}ms); ` +
+      `[ERROR][ollamaEmbed] request failed (count=${count}, chars=${chars}, ` +
+        `timeout=${timeoutMs}ms, background=${Boolean(opts.background)}); ` +
         `suppressing retries for ${cooldownMs}ms`,
       error,
     );
@@ -95,7 +179,7 @@ async function requestEmbeddings(
 }
 
 export async function generateEmbedding(text: string): Promise<number[] | null> {
-  const embeddings = await requestEmbeddings(text);
+  const embeddings = await requestEmbeddings(clipInput(text));
   return embeddings?.[0] ?? null;
 }
 
@@ -143,12 +227,26 @@ export async function embedSearchQuery(
   return generateEmbedding(`${searchQueryPrefix()}${q}`);
 }
 
+/**
+ * 複数の文を埋め込む。合計文字数が OLLAMA_EMBED_MAX_BATCH_CHARS を超えないよう
+ * 送信を分けるので、呼び出し側は件数を気にせず渡してよい。
+ * 失敗した送信の分は null。失敗で cooldown が開くと、残りの送信も null になる。
+ */
 export async function generateEmbeddings(
   texts: string[],
+  opts: EmbeddingRequestOptions = {},
 ): Promise<(number[] | null)[]> {
   if (texts.length === 0) return [];
-  const embeddings = await requestEmbeddings(texts);
-  return embeddings ?? nullEmbeddings(texts.length);
+  const maxChars = positiveEnvNumber(
+    "OLLAMA_EMBED_MAX_BATCH_CHARS",
+    DEFAULT_MAX_BATCH_CHARS,
+  );
+  const results: (number[] | null)[] = [];
+  for (const batch of splitEmbeddingBatches(texts.map(clipInput), maxChars)) {
+    const embeddings = await requestEmbeddings(batch, opts);
+    results.push(...(embeddings ?? nullEmbeddings(batch.length)));
+  }
+  return results;
 }
 
 function cosineSim(a: number[], b: number[]): number {

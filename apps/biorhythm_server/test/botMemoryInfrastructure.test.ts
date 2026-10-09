@@ -9,6 +9,7 @@ import {
   validateBotMemorySearchBody,
   validateBotMemoryUsageBody,
 } from "../src/botMemoryRouter.js";
+import { createEmbeddingRetryBackoff } from "@bsky-affirmative-bot/database";
 import { processBotMemoryEmbeddingBatch } from "../src/botMemoryEmbeddingWorker.js";
 import {
   createBotMemoryInternalApp,
@@ -137,9 +138,68 @@ test("embedding batch saves successful rows and leaves failed rows pending", asy
       saved.push(id);
       return true;
     },
+    available: () => true,
+    backoff: createEmbeddingRetryBackoff(),
   });
   assert.equal(count, 1);
   assert.deepEqual(saved, [1]);
+});
+
+test("embedding batch skips rows that failed recently and moves on to later rows", async () => {
+  // 失敗した組を次の回も選び直すと、時間切れ → cooldown → 同じ組で時間切れ を繰り返す。
+  let now = 0;
+  const backoff = createEmbeddingRetryBackoff({ baseMs: 1_000, now: () => now });
+  const rows = [
+    { id: 1, content: "長い調査メモ".repeat(300), contentHash: "a" },
+    { id: 2, content: "short", contentHash: "b" },
+  ];
+  const sentIds: number[][] = [];
+  const limits: number[] = [];
+  const saved = new Set<number>();
+  const run = () => processBotMemoryEmbeddingBatch({
+    fetchPending: async (limit) => {
+      limits.push(limit ?? 0);
+      return rows.filter((r) => !saved.has(r.id));
+    },
+    embed: async (texts, opts) => {
+      assert.deepEqual(opts, { background: true }, "ワーカーの失敗で利用者の検索を止めない");
+      sentIds.push(texts.map((t) => rows.find((r) => r.content === t)!.id));
+      return texts.map((t) => (t === rows[0].content ? null : Array(1024).fill(0.1)));
+    },
+    save: async (id) => {
+      saved.add(id);
+      return true;
+    },
+    available: () => true,
+    backoff,
+  });
+
+  assert.equal(await run(), 1);
+  assert.equal(await run(), 0);
+  assert.deepEqual(sentIds, [[1, 2]], "失敗した行は待ちのあいだ選ばれない");
+  assert.equal(limits[1], 17, "待たせている行の分だけ多めに取る");
+
+  now += 1_001;
+  await run();
+  assert.deepEqual(sentIds.at(-1), [1], "待ちが明ければ再挑戦する");
+});
+
+test("embedding batch does not pick rows while the embedding server is cooling down", async () => {
+  const backoff = createEmbeddingRetryBackoff();
+  let fetched = false;
+  const count = await processBotMemoryEmbeddingBatch({
+    fetchPending: async () => {
+      fetched = true;
+      return [{ id: 1, content: "x", contentHash: "a" }];
+    },
+    embed: async () => [null],
+    save: async () => true,
+    available: () => false,
+    backoff,
+  });
+  assert.equal(count, 0);
+  assert.equal(fetched, false);
+  assert.equal(backoff.size(), 0, "送っていない行を失敗として記録しない");
 });
 
 test("context body accepts the subject weighting and rejects out-of-range values", () => {

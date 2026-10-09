@@ -1,6 +1,8 @@
 import {
+  createEmbeddingRetryBackoff,
   db,
   generateEmbeddings,
+  isEmbeddingAvailable,
   nagiActorAnalyses,
   nagiChannels,
   nagiNews,
@@ -17,9 +19,13 @@ const BUSY_INTERVAL_MS = 2_000;
 const IDLE_INTERVAL_MS = 30_000;
 
 let running = false;
+// 失敗した行を選び直し続けないための記録。詳細は embeddingRetryBackoff.ts。
+const backoff = createEmbeddingRetryBackoff();
 
 /** 埋め込む1件。`text` を埋め込み、`save` で（同時編集をガードしつつ）永続化する。 */
 type Pending = {
+  /** 失敗の記録に使う識別子。エンティティをまたいで一意（`posts:<uri>` など）。 */
+  key: string;
   text: string;
   /** 埋め込みを書き込む。同時編集で対象が変わっていたら false（NULL のまま再処理させる）。 */
   save(embedding: number[]): Promise<boolean>;
@@ -42,6 +48,7 @@ const sources: EmbedSource[] = [
         .orderBy(desc(nagiPosts.indexedAt))
         .limit(limit);
       return rows.map((r) => ({
+        key: `posts:${r.uri}`,
         text: r.text,
         async save(embedding) {
           const w = await db
@@ -71,6 +78,7 @@ const sources: EmbedSource[] = [
         .orderBy(desc(nagiProfiles.indexedAt))
         .limit(limit);
       return rows.map((r) => ({
+        key: `profiles:${r.did}`,
         text: [r.displayName, r.description, r.analysisJa]
           .filter(Boolean)
           .join("\n"),
@@ -106,6 +114,7 @@ const sources: EmbedSource[] = [
         .orderBy(desc(nagiChannels.indexedAt))
         .limit(limit);
       return rows.map((r) => ({
+        key: `channels:${r.uri}`,
         text: [r.name, r.description].filter(Boolean).join("\n"),
         async save(embedding) {
           const w = await db
@@ -152,6 +161,7 @@ const sources: EmbedSource[] = [
         .orderBy(desc(nagiNews.indexedAt))
         .limit(limit);
       return rows.map((r) => ({
+        key: `news:${r.uri}`,
         text: [r.titleJa, r.sourceName].filter(Boolean).join("\n"),
         async save(embedding) {
           const w = await db
@@ -182,15 +192,28 @@ export function startEmbeddingWorker() {
 
   // 優先順に、未処理のある最初のエンティティを1バッチ処理する。
   const tick = async (): Promise<number> => {
+    // cooldown 中に選ぶと、送っていない行まで失敗として記録してしまう。
+    if (!isEmbeddingAvailable({ background: true })) return 0;
     for (const source of sources) {
-      const pending = await source.fetchBatch(BATCH_SIZE);
+      // 待たせている行で枠が埋まらないよう、その分だけ多めに取る。
+      const pending = (await source.fetchBatch(BATCH_SIZE + backoff.size()))
+        .filter((p) => !backoff.blocked(p.key))
+        .slice(0, BATCH_SIZE);
       if (!pending.length) continue;
 
-      const embeddings = await generateEmbeddings(pending.map((p) => p.text));
+      const embeddings = await generateEmbeddings(
+        pending.map((p) => p.text),
+        { background: true },
+      );
       let updated = 0;
       for (let i = 0; i < pending.length; i++) {
         const embedding = embeddings[i];
-        if (!embedding) continue; // Ollama 失敗/未設定。次 tick で再挑戦。
+        if (!embedding) {
+          // Ollama 失敗/未設定。しばらく待たせて、後ろの行を先に進める。
+          backoff.fail(pending[i].key);
+          continue;
+        }
+        backoff.succeed(pending[i].key);
         if (await pending[i].save(embedding)) updated++;
       }
       return updated;
