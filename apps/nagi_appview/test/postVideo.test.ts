@@ -52,7 +52,7 @@ test("mp4 以外・100MB 超・壊れた aspectRatio の動画は捨てる", () 
     assert.equal(validateRecord(NAGI.post, post({ $type: `${NAGI.post}#video`, ...bad })), false);
 });
 
-test("引用には動画を付けられるが、画像とは同時に付けられない", () => {
+test("引用には動画を付けられ、画像と併用もできる", () => {
   assert.equal(
     validateRecord(NAGI.post, post({ $type: `${NAGI.post}#quote`, record: quoteRef, video: video() })),
     true,
@@ -62,7 +62,20 @@ test("引用には動画を付けられるが、画像とは同時に付けら�
       NAGI.post,
       post({ $type: `${NAGI.post}#quote`, record: quoteRef, video: video(), images: [image] }),
     ),
+    true,
+  );
+  assert.equal(
+    validateRecord(
+      NAGI.post,
+      post({
+        $type: `${NAGI.post}#quote`,
+        record: quoteRef,
+        video: video({ video: blob({ mimeType: "video/webm" }) }),
+        images: [image],
+      }),
+    ),
     false,
+    "併用しても中身の検証は個別に効く",
   );
 });
 

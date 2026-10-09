@@ -43,6 +43,10 @@ test("#quote の images / video を返す", () => {
     nagiPostMedia({ $type: "com.suibari.nagi.post#quote", record, images: [image] }),
     { images: [image], video: null },
   );
+  assert.deepEqual(
+    nagiPostMedia({ $type: "com.suibari.nagi.post#quote", record, images: [image], video }),
+    { images: [image], video },
+  );
 });
 
 test("embed が無い・未知の型なら空", () => {
