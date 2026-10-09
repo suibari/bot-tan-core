@@ -3,10 +3,14 @@ import axios from "axios";
 export type ScheduledPostKind = "morning" | "whimsical" | "good-night";
 export type ScheduledPostNetwork = "bsky" | "nagi";
 
-export interface ScheduledPostSource {
-  network: ScheduledPostNetwork;
+/**
+ * おやすみポストで紹介する夜の動画（bot-tan-youtuber が 18:00 に Bluesky へ投稿したもの）。
+ * Bluesky サーバは動画ポストを RP し、commentText を動画ポストへのリプライにする。
+ */
+export interface ScheduledPostNightVideo {
   uri: string;
   cid: string;
+  commentText: string;
 }
 
 /**
@@ -24,7 +28,7 @@ export interface ScheduledPostRequest {
   langs?: string[];
   translations?: ScheduledPostTranslation[];
   image?: ScheduledPostImage;
-  sourcePost?: ScheduledPostSource;
+  nightVideo?: ScheduledPostNightVideo;
 }
 
 /**
@@ -48,17 +52,20 @@ export interface ScheduledPostContent {
   langs?: string[];
   translations?: ScheduledPostTranslation[];
   image?: ScheduledPostImage;
+  /** Bluesky だけが受け取る（Nagi は動画を再生できないので、出来事の本文だけを出す）。 */
+  nightVideo?: ScheduledPostNightVideo;
 }
 
 export interface ScheduledPostPublishRequest {
   kind: ScheduledPostKind;
   contentByTarget: Record<ScheduledPostNetwork, ScheduledPostContent>;
-  sourcePost?: ScheduledPostSource;
 }
 
 export interface ScheduledPostResult {
   uri: string;
   cid: string;
+  /** nightVideo を受け取ったとき、動画ポストへリプライしたコメント。失敗したら無い。 */
+  nightVideoComment?: { uri: string; cid: string };
 }
 
 const BSKY_BOT_SERVER_URL = process.env.BSKY_BOT_SERVER_URL || "http://localhost:3001";
@@ -112,7 +119,6 @@ export class ScheduledPostService {
       const wireRequest: ScheduledPostRequest = {
         kind: request.kind,
         ...request.contentByTarget[target],
-        sourcePost: request.sourcePost,
       };
       for (let attempt = 1; attempt <= MAX_TRANSPORT_ATTEMPTS; attempt++) {
         try {
@@ -133,7 +139,11 @@ export class ScheduledPostService {
     settled.forEach((result, index) => {
       const target = targets[index];
       if (result.status === "fulfilled") {
-        results[target] = { uri: result.value.uri, cid: result.value.cid };
+        results[target] = {
+          uri: result.value.uri,
+          cid: result.value.cid,
+          ...(result.value.nightVideoComment ? { nightVideoComment: result.value.nightVideoComment } : {}),
+        };
       } else {
         console.error(
           `[ERROR][SCHEDULED_POST] ${target} delivery failed:`,

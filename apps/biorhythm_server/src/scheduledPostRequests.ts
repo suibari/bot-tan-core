@@ -1,7 +1,6 @@
 import type {
   ScheduledPostImage,
   ScheduledPostPublishRequest,
-  ScheduledPostSource,
 } from "@bsky-affirmative-bot/clients";
 import { buildGoodNightPostTexts, buildWhimsicalPostTexts } from "./scheduledPostContent.js";
 
@@ -49,21 +48,28 @@ export function buildWhimsicalPostRequest(params: {
 }
 
 export function buildGoodNightPostRequest(params: {
-  generated: GeneratedTexts;
-  sourcePost: ScheduledPostSource;
+  generated: GeneratedTexts & { videoCommentJa?: string; videoCommentEn?: string };
+  nightVideo?: { uri: string; cid: string } | null;
   image?: ScheduledPostImage | null;
 }): ScheduledPostPublishRequest {
-  const { generated, sourcePost, image } = params;
+  const { generated, nightVideo, image } = params;
   const texts = buildGoodNightPostTexts({
     textJa: generated.textJa,
     textEn: generated.textEn,
-    sourcePost,
+    videoCommentJa: generated.videoCommentJa,
+    videoCommentEn: generated.videoCommentEn,
   });
   return {
     kind: "good-night",
     contentByTarget: {
       // Blueskyサーバへ渡す画像はLeaflet日記用。Bluesky投稿自体には添付しない。
-      bsky: { text: texts.bsky, ...(image ? { image } : {}) },
+      bsky: {
+        text: texts.bsky,
+        ...(image ? { image } : {}),
+        ...(nightVideo && texts.bskyVideoComment
+          ? { nightVideo: { uri: nightVideo.uri, cid: nightVideo.cid, commentText: texts.bskyVideoComment } }
+          : {}),
+      },
       nagi: {
         text: texts.nagiJa,
         langs: ["ja"],
@@ -71,6 +77,5 @@ export function buildGoodNightPostRequest(params: {
         ...(image ? { image } : {}),
       },
     },
-    sourcePost: { network: sourcePost.network, uri: sourcePost.uri, cid: sourcePost.cid },
   };
 }

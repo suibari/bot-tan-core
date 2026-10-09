@@ -30,10 +30,6 @@ import {
   releaseDailyDrawing,
   SCHEDULED_POST_SONG_SCOPE,
 } from "@bsky-affirmative-bot/database";
-import {
-  getDailyTopPostCandidate,
-  parseDailyTopPostSource,
-} from "./DailyTopPostProvider.js";
 import { fetchDisplayName } from "./displayName.js";
 import { jstDateString as jstDate } from "./jstDate.js";
 import { getRecentNewsArticleIds, recordRecentNewsArticle } from "./whimsicalPostNewsHistory.js";
@@ -360,6 +356,28 @@ export async function postWhimsical(currentMood: string, botContext?: BotContext
   }
 }
 
+/**
+ * 今日（bot日）の夜の動画。DB が見えなくてもおやすみポストは止めない（動画なしで出す）。
+ * 紹介済みの行は返さない。同じ bot日におやすみポストが出直しても、二重に RP しない。
+ */
+async function getNightVideoForGoodNight() {
+  try {
+    const video = await MemoryService.getNightVideo(botDayRange().date);
+    if (!video) {
+      console.log("[INFO][GOOD_NIGHT] No night video for today. Posting without it.");
+      return null;
+    }
+    if (video.status !== "new") {
+      console.log(`[INFO][GOOD_NIGHT] Night video already introduced: ${video.post_uri}`);
+      return null;
+    }
+    return video;
+  } catch (error) {
+    console.error("[ERROR][GOOD_NIGHT] Failed to load night video. Posting without it:", error);
+    return null;
+  }
+}
+
 export async function postGoodNight(currentMood: string, botContext?: BotContext) {
   let currentFollowers = 0;
   try {
@@ -380,14 +398,10 @@ export async function postGoodNight(currentMood: string, botContext?: BotContext
     if (current > previous) followerMilestone = current * 1000;
   }
 
-  const candidate = await getDailyTopPostCandidate(
-    parseDailyTopPostSource(process.env.GOOD_NIGHT_TOP_POST_SOURCE),
-  );
   try {
-    if (!candidate) {
-      console.log("[INFO] No valid top post found for good-night post.");
-      return;
-    }
+    // 今日の夜の動画（bot-tan-youtuber が 18:00 に Bluesky へ投稿したもの）。
+    // 撮れなかった日は動画の紹介を省き、出来事スレッドだけを出す。
+    const nightVideo = await getNightVideoForGoodNight();
 
     const todayGifts = await MemoryService.getTodayNewGifts();
     const giftCandidates = todayGifts.length > 0
@@ -412,9 +426,9 @@ export async function postGoodNight(currentMood: string, botContext?: BotContext
     // postWhimsical と同じく、3回とも駄目ならその日のおやすみポストは出さない。
     const generated = await retry(async () => {
       const result = await generateGoodNight({
-        topFollower: candidate.profile,
-        topPost: candidate.text,
-        topPostNetwork: candidate.network,
+        nightVideo: nightVideo
+          ? { hook: nightVideo.hook ?? "", caption: nightVideo.caption ?? "" }
+          : undefined,
         currentMood,
         followerMilestone,
         giftCandidates,
@@ -433,9 +447,19 @@ export async function postGoodNight(currentMood: string, botContext?: BotContext
     const results = await publish(buildGoodNightPostRequest({
       generated,
       image,
-      sourcePost: { network: candidate.network, uri: candidate.uri, cid: candidate.cid },
+      nightVideo: nightVideo ? { uri: nightVideo.post_uri, cid: nightVideo.post_cid } : null,
     }));
-    if (results.bsky) await MemoryService.setWhimsicalPostRoots([results.bsky.uri]);
+    if (results.bsky) {
+      // 動画へのコメントへの返信も、出来事スレッドへの返信と同じく拾う。
+      await MemoryService.setWhimsicalPostRoots([
+        results.bsky.uri,
+        ...(results.bsky.nightVideoComment ? [results.bsky.nightVideoComment.uri] : []),
+      ]);
+    }
+    if (nightVideo && results.bsky?.nightVideoComment) {
+      await MemoryService.markNightVideoIntroduced(nightVideo.id, results.bsky.nightVideoComment.uri)
+        .catch((error) => console.error("[ERROR][GOOD_NIGHT] Failed to mark night video introduced:", error));
+    }
 
     if (giftCandidates?.length && Object.keys(results).length > 0) {
       const selected = giftCandidates[generated.selectedGiftIndex ?? 0] ?? giftCandidates[0];

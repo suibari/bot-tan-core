@@ -136,8 +136,11 @@ daily planは「9時に学校」のような時刻表ではなく、Statusごと
 
 - 初回stepでは実行しません。
 - Statusが`Sleep`へ変化し、時刻が21〜3時で、そのbot日に未投稿なら実行します。
-- Bluesky／Nagi横断のその日の肯定スコア上位投稿などを使います。
-- 紹介元と投稿先がBluesky同士ならリポスト後に投稿します。それ以外は紹介元の公開URLを本文へ添え、OGPリンクカードで紹介します（Nagi同士でも引用はしません）。OGP取得失敗時も本文の投稿は続行します。
+- Blueskyでは2スレッドに分けて出します（見やすさのため）。
+  - その日の夜の動画（`night_videos`、bot-tan-youtuberが18:00にBlueskyへ投稿したもの）をリポストし、動画ポストへコメントをリプライします。動画が無い日・DBが見えない日は省きます。
+  - おやすみのあいさつ・出来事・プレゼント・教えてもらった言葉は、新しいスレッドとして投稿します。
+- Nagiには出来事の本文と絵だけを出します（Nagiはまだ動画を再生できないため）。
+- 以前のようなその日のトップポストの紹介（リポスト／URL追記）はしません。夜の動画がBlueskyとNagiの投稿を紹介するようになったためです。
 - その日の公開会話から抽出された固有名（`getTodaysLearnedWorks`、印象語のうち`kind='work'`）を「今日みんなから教えてもらった言葉」として最大3件添えます。`kind='word'`は会話の断片が多く「教えてもらった言葉」に見えないため使いません。並びは会話の新しさではなく印象度（`salience`）で、40未満と未評価は候補にしません（抽出プロンプトで40未満は「挨拶・相槌・その場限りのやりとり」の帯）。候補が0件の日は触れません。件数と日本語文字数で絞るのは、原語表記の固有名詞が`textEn`の日本語混入判定に引っかかると投稿ごと捨てられるためです。
 
 ### 気まぐれ投稿
@@ -445,7 +448,6 @@ BIORHYTHM_TRUST_CF_CONNECTING_IP=true
 | `OLLAMA_EMBED_TIMEOUT_MS` | embedding timeout。既定5000ms |
 | `OLLAMA_EMBED_COOLDOWN_MS` | 障害後の再試行抑制。既定60000ms |
 | `SCHEDULED_POST_TARGETS` | 定期投稿先。`bsky,nagi`など |
-| `GOOD_NIGHT_TOP_POST_SOURCE` | おやすみ候補元。`bsky` / `nagi` / `combined`、既定combined |
 
 全候補とコメントはルート [`.env.example`](../../.env.example) を参照してください。YouTube側は`BIORHYTHM_MEMORY_API_URL=http://192.168.1.200:3204`と同じsecretを設定します。
 

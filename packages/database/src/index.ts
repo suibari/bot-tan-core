@@ -14,6 +14,7 @@ import {
   gifts,
   room_events,
   youtube_shorts,
+  night_videos,
   nagiActors,
   nagiActorInterestGenres,
   nagiActorInterestKeywords,
@@ -1192,6 +1193,24 @@ static async getPost(did: string): Promise<any> {
     } catch (e) {
       console.error(`Failed to update YouTube Short status for id ${id}:`, e);
     }
+  }
+
+  /**
+   * その bot日の夜の動画（bot-tan-youtuber が 18:00 に Bluesky へ投稿したもの）。
+   * 撮れなかった日・投稿できなかった日は null。おやすみポストは動画なしで出る。
+   */
+  static async getNightVideo(videoDate: string) {
+    const result = await db.select()
+      .from(night_videos)
+      .where(eq(night_videos.video_date, videoDate))
+      .limit(1);
+    return result[0] ?? null;
+  }
+
+  static async markNightVideoIntroduced(id: number, introducedUri: string): Promise<void> {
+    await db.update(night_videos)
+      .set({ status: "introduced", introduced_uri: introducedUri, updated_at: new Date() })
+      .where(eq(night_videos.id, id));
   }
 
   // ------------------------------------------------------------------
