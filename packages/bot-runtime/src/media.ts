@@ -1,5 +1,6 @@
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
+import { blueskyVideoUrls } from "@bsky-affirmative-bot/shared-configs/blueskyVideo";
 
 // ホストがプライベート/ループバックアドレスに解決される URL を拒否し、DID 解決が
 // 内部サービスへ向けられる（SSRF）のを防ぐ。bot-runtime は余分なワークスペース依存を
@@ -98,4 +99,25 @@ export function blobImagesToImageRefs(
     url.searchParams.set("cid", cid);
     return [{ image_url: url.toString(), mimeType }];
   });
+}
+
+export type BlobVideo = {
+  video?: {
+    ref?: { $link?: string } | { toString(): string };
+    mimeType?: string;
+  };
+};
+
+/**
+ * 動画はモデルへ渡せないので、video.bsky.app のサムネイルを1枚の画像として扱う。
+ * Nagi の動画は uploadVideo を通って変換済みなので、PDS ではなくこちらから取る。
+ */
+export function blobVideoToImageRefs(
+  did: string,
+  video: BlobVideo | null | undefined,
+): RuntimeImageRef[] {
+  const ref = video?.video?.ref;
+  const cid = (ref as { $link?: string } | undefined)?.$link ?? ref?.toString();
+  if (!cid || video?.video?.mimeType !== "video/mp4") return [];
+  return [{ image_url: blueskyVideoUrls(did, cid).thumbnail, mimeType: "image/jpeg" }];
 }

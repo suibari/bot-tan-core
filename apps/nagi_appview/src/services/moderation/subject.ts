@@ -3,6 +3,7 @@ import {
   NAGI,
   isAppviewOwnedUri,
 } from "@bsky-affirmative-bot/nagi-lexicon";
+import { blueskyVideoUrls } from "@bsky-affirmative-bot/shared-configs/blueskyVideo";
 import type { ModerationInput } from "./openai.js";
 
 /**
@@ -53,6 +54,17 @@ const blobUrl = (did: string, cid: unknown): string[] =>
     : [];
 
 /**
+ * 動画は中身を送れないので、video.bsky.app のサムネイルを画像1枚として判定する。
+ * AppView は動画を中継しないため、ここだけは第三者の配信先になる。
+ */
+const videoThumbnailUrl = (did: string, video: any): string[] => {
+  const cid = video?.video?.ref?.$link;
+  return typeof cid === "string" && cid
+    ? [blueskyVideoUrls(did, cid).thumbnail]
+    : [];
+};
+
+/**
  * こっそり投稿は判定しない（OpenAI へ一切送らない）。
  *
  * 経路が3つある（XRPC の createKossoriPost・botたんのこっそり返信・reconcile）ので、
@@ -85,16 +97,22 @@ export function moderationSubject(
       const images: any[] = Array.isArray(record.embed?.images)
         ? record.embed.images
         : [];
+      const video =
+        record.embed?.$type === `${NAGI.post}#video`
+          ? record.embed
+          : record.embed?.video;
       return {
         texts: [
           ...text(record.text),
           ...images.flatMap((image) => text(image?.alt)),
+          ...text(video?.alt),
           ...text(record.embed?.linkCard?.title),
           ...text(record.embed?.linkCard?.description),
         ],
-        imageUrls: images.flatMap((image) =>
-          blobUrl(did, image?.image?.ref?.$link),
-        ),
+        imageUrls: [
+          ...images.flatMap((image) => blobUrl(did, image?.image?.ref?.$link)),
+          ...videoThumbnailUrl(did, video),
+        ],
       };
     }
     case NAGI.profile:

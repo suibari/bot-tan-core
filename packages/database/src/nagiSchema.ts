@@ -126,6 +126,8 @@ export const nagiPosts = nagiSchema.table(
     replyRootUri: text("reply_root_uri"),
     replyParentUri: text("reply_parent_uri"),
     embedImages: jsonb("embed_images"),
+    /** #video、または #quote に付いた video。画像とは同時に入らない。 */
+    embedVideo: jsonb("embed_video"),
     quoteUri: text("quote_uri"),
     quoteCid: text("quote_cid"),
     quoteValid: boolean("quote_valid").default(false).notNull(),

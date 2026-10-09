@@ -11,11 +11,12 @@ import {
 } from "@bsky-affirmative-bot/database";
 import {
   blobImagesToImageRefs,
+  blobVideoToImageRefs,
   resolvePdsUrl,
 } from "@bsky-affirmative-bot/bot-runtime";
 import type { ImageRef } from "@bsky-affirmative-bot/shared-configs";
 import { loadPreferredName } from "@bsky-affirmative-bot/clients";
-import { isAppviewOwnedUri } from "@bsky-affirmative-bot/nagi-lexicon";
+import { NAGI, isAppviewOwnedUri } from "@bsky-affirmative-bot/nagi-lexicon";
 import { and, desc, eq, gt, isNotNull, isNull, lt, lte } from "drizzle-orm";
 
 type ContextLink = { uri: string; title?: string; description?: string };
@@ -292,6 +293,14 @@ export async function buildNagiReplyContext(job: any) {
     authorPds,
     record.embed?.images,
   ).map((item) => ({ ...item, origin: "direct" as const }));
+  image.push(
+    ...blobVideoToImageRefs(
+      job.authorDid,
+      record.embed?.$type === `${NAGI.post}#video`
+        ? record.embed
+        : record.embed?.video,
+    ).map((item) => ({ ...item, origin: "video-thumbnail" as const })),
+  );
   const linkThumbnails = blobImagesToImageRefs(
     job.authorDid,
     authorPds,
@@ -312,11 +321,14 @@ export async function buildNagiReplyContext(job: any) {
     const quotePds =
       quote.actor?.pdsUrl ??
       (await resolvePdsUrl(quote.post.did).catch(() => ""));
-    const quoteImages = blobImagesToImageRefs(
-      quote.post.did,
-      quotePds,
-      quote.post.embedImages as any,
-    ).map((item) => ({ ...item, origin: "quote" as const }));
+    const quoteImages = [
+      ...blobImagesToImageRefs(
+        quote.post.did,
+        quotePds,
+        quote.post.embedImages as any,
+      ),
+      ...blobVideoToImageRefs(quote.post.did, quote.post.embedVideo as any),
+    ].map((item) => ({ ...item, origin: "quote" as const }));
     embed.image_embed = quoteImages;
     image.push(...quoteImages);
   }

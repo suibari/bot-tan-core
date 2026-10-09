@@ -29,6 +29,7 @@ import {
   type SQL,
 } from "drizzle-orm";
 import { config } from "../config.js";
+import { postVideoView } from "./postVideo.js";
 import { getCurrentTitles, getSuperPositiveLevels } from "./badges.js";
 import { getZenkatsuChiefDids } from "./zenkatsu.js";
 import {
@@ -324,6 +325,7 @@ export async function hydratePostViews(
             ];
           })
         : undefined;
+    const video = !deleted ? postVideoView(post.did, post.embedVideo) : undefined;
     const linkCards =
       !deleted && Array.isArray((post.recordJson as any)?.linkCards)
         ? (post.recordJson as any).linkCards.flatMap((card: any) => {
@@ -395,6 +397,7 @@ export async function hydratePostViews(
           }
         : undefined,
       images: images?.length ? images : undefined,
+      video,
       linkCards: linkCards?.length ? linkCards : undefined,
       reactions: reactions.get(post.uri) ?? [],
       isBot: post.did === config.botDid,
@@ -589,7 +592,7 @@ export function profileThreadMatch(
     filter === "replies"
       ? sql`candidate.reply_parent_uri is not null`
       : filter === "media"
-        ? sql`jsonb_array_length(coalesce(candidate.embed_images, '[]'::jsonb)) > 0`
+        ? sql`(jsonb_array_length(coalesce(candidate.embed_images, '[]'::jsonb)) > 0 or candidate.embed_video is not null)`
         : sql`candidate.reply_parent_uri is null`;
   return sql`exists (
     select 1 from nagi.posts as candidate
@@ -816,7 +819,7 @@ export function timelineVisibilityFilters(
       filters.push(isNotNull(nagiPosts.replyParentUri));
     if (opts.filter === "media")
       filters.push(
-        sql`jsonb_array_length(coalesce(${nagiPosts.embedImages}, '[]'::jsonb)) > 0`,
+        sql`(jsonb_array_length(coalesce(${nagiPosts.embedImages}, '[]'::jsonb)) > 0 or ${nagiPosts.embedVideo} is not null)`,
       );
   }
   // ミュート（投稿者・スレッドルート著者・所属CH）。条件の組み立ては検索と共通。

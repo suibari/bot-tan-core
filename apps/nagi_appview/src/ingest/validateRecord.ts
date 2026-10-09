@@ -47,6 +47,26 @@ const image = (value: any) =>
       value.aspectRatio.width > 0 &&
       Number.isInteger(value.aspectRatio.height) &&
       value.aspectRatio.height > 0));
+const aspectRatio = (value: any) =>
+  !value ||
+  (Number.isInteger(value.width) &&
+    value.width > 0 &&
+    Number.isInteger(value.height) &&
+    value.height > 0);
+/** video.bsky.app が PDS へ保存した mp4。上限は app.bsky.embed.video と揃える。 */
+const video = (value: any) =>
+  typeof value?.video?.ref?.$link === "string" &&
+  value.video.mimeType === "video/mp4" &&
+  Number.isInteger(value.video.size) &&
+  value.video.size >= 0 &&
+  value.video.size <= 100_000_000 &&
+  (value.alt === undefined ||
+    (typeof value.alt === "string" &&
+      graphemes(value.alt) <= 1000 &&
+      Buffer.byteLength(value.alt) <= 10_000)) &&
+  (value.contentWarning === undefined ||
+    typeof value.contentWarning === "boolean") &&
+  aspectRatio(value.aspectRatio);
 const images = (value: unknown) =>
   Array.isArray(value) &&
   value.length >= 1 &&
@@ -315,10 +335,14 @@ export function validateRecord(
     if (value.embed) {
       if (value.embed.$type === `${NAGI.post}#images`) {
         if (!images(value.embed.images)) return false;
+      } else if (value.embed.$type === `${NAGI.post}#video`) {
+        if (!video(value.embed)) return false;
       } else if (value.embed.$type === `${NAGI.post}#quote`) {
         if (
           !ref(value.embed.record) ||
-          (value.embed.images && !images(value.embed.images))
+          (value.embed.images && !images(value.embed.images)) ||
+          (value.embed.video && !video(value.embed.video)) ||
+          (value.embed.images && value.embed.video)
         )
           return false;
       } else return false;

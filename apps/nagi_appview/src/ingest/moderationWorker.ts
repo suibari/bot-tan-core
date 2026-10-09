@@ -293,6 +293,7 @@ async function rejectPost(uri: string): Promise<void> {
         langs: null,
         recordJson: null,
         embedImages: null,
+        embedVideo: null,
         quoteUri: null,
         quoteCid: null,
         embedding: null,

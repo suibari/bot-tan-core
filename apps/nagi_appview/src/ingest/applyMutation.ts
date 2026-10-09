@@ -128,6 +128,17 @@ const extractSelfLabels = (value: any): string[] => {
   );
 };
 
+/** #video はそれ自体が動画、#quote は video プロパティに持つ。 */
+const embedVideo = (value: any) => {
+  const embed = value?.embed;
+  if (embed?.$type === `${NAGI.post}#video`) {
+    const { $type: _type, ...video } = embed;
+    return video;
+  }
+  if (embed?.$type === `${NAGI.post}#quote` && embed.video) return embed.video;
+  return null;
+};
+
 export type ApplyMutationOptions = {
   trackJetstream?: boolean;
   emitPush?: boolean;
@@ -332,6 +343,7 @@ export async function applyMutation(
             text: "",
             facets: null,
             embedImages: null,
+            embedVideo: null,
             recordJson: null,
             deletedAt: new Date(),
           })
@@ -443,6 +455,7 @@ export async function applyMutation(
             replyRootUri: value.reply?.root.uri,
             replyParentUri: value.reply?.parent.uri,
             embedImages: value.embed?.images,
+            embedVideo: embedVideo(value),
             quoteUri:
               value.embed?.$type === `${NAGI.post}#quote`
                 ? value.embed.record.uri
@@ -479,6 +492,7 @@ export async function applyMutation(
               replyRootUri: value.reply?.root.uri ?? null,
               replyParentUri: value.reply?.parent.uri ?? null,
               embedImages: value.embed?.images ?? null,
+              embedVideo: embedVideo(value),
               quoteUri:
                 value.embed?.$type === `${NAGI.post}#quote`
                   ? value.embed.record.uri
@@ -1016,6 +1030,7 @@ export async function applyMutation(
                   text: value.text,
                   contentWarning: hasContentWarning(value.text),
                   hasImages: Array.isArray(value.embed?.images),
+                  hasVideo: Boolean(embedVideo(value)),
                   hasQuote: value.embed?.$type === `${NAGI.post}#quote`,
                 }),
               });
@@ -1069,6 +1084,7 @@ export async function applyMutation(
                   text: value.text,
                   contentWarning: hasContentWarning(value.text),
                   hasImages: Array.isArray(value.embed?.images),
+                  hasVideo: Boolean(embedVideo(value)),
                   hasQuote: value.embed?.$type === `${NAGI.post}#quote`,
                 }),
               });
@@ -1229,6 +1245,7 @@ async function resolveReactionSubject(
       text: post.text,
       contentWarning: hasContentWarning(post.text),
       hasImages: Array.isArray(post.embedImages) && post.embedImages.length > 0,
+      hasVideo: Boolean(post.embedVideo),
       hasQuote: Boolean(post.quoteUri),
     }),
   };
