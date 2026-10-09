@@ -72,6 +72,22 @@ const images = (value: unknown) =>
   value.length >= 1 &&
   value.length <= 4 &&
   value.every(image);
+/** #gallery の items。種類ごとの上限は #images（4枚）と #video（1本）に揃える。 */
+const galleryItems = (value: unknown) => {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 5) return false;
+  let imageCount = 0;
+  let videoCount = 0;
+  for (const item of value) {
+    if (item?.$type === `${NAGI.post}#image`) {
+      if (!image(item)) return false;
+      imageCount++;
+    } else if (item?.$type === `${NAGI.post}#video`) {
+      if (!video(item)) return false;
+      videoCount++;
+    } else return false;
+  }
+  return imageCount <= 4 && videoCount <= 1;
+};
 const facets = (value: unknown, text: string) => {
   if (!Array.isArray(value)) return false;
   const boundaries = new Set<number>([0]);
@@ -337,6 +353,8 @@ export function validateRecord(
         if (!images(value.embed.images)) return false;
       } else if (value.embed.$type === `${NAGI.post}#video`) {
         if (!video(value.embed)) return false;
+      } else if (value.embed.$type === `${NAGI.post}#gallery`) {
+        if (!galleryItems(value.embed.items)) return false;
       } else if (value.embed.$type === `${NAGI.post}#quote`) {
         if (
           !ref(value.embed.record) ||

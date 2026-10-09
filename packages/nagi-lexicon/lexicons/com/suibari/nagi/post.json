@@ -35,7 +35,7 @@
             "maxLength": 4,
             "items": { "type": "ref", "ref": "#linkCard" }
           },
-          "embed": { "type": "union", "refs": ["#images", "#video", "#quote"] }
+          "embed": { "type": "union", "refs": ["#images", "#video", "#gallery", "#quote"] }
         }
       }
     },
@@ -100,6 +100,19 @@
         "alt": { "type": "string", "maxGraphemes": 1000, "maxLength": 10000 },
         "contentWarning": { "type": "boolean" },
         "aspectRatio": { "type": "ref", "ref": "app.bsky.embed.defs#aspectRatio" }
+      }
+    },
+    "gallery": {
+      "type": "object",
+      "required": ["items"],
+      "description": "画像と動画を1投稿に混ぜるための embed。app.bsky.embed.gallery と同じく型付き item の union 配列で持つ。現状は画像4枚・動画1本まで。順序はレコードに残すが、ビューは画像→動画の順で返す。画像だけ・動画だけの投稿は #images / #video を使う。",
+      "properties": {
+        "items": {
+          "type": "array",
+          "minLength": 1,
+          "maxLength": 5,
+          "items": { "type": "union", "refs": ["#image", "#video"] }
+        }
       }
     },
     "quote": {

@@ -95,3 +95,43 @@ test("モデレーションには動画のサムネイルと alt を渡す", () 
 test("本文の無い動画投稿の通知は添付の種類を伝える", () => {
   assert.equal(postPushBody({ text: "", hasVideo: true }), "動画付きの投稿");
 });
+
+const galleryImage = { $type: `${NAGI.post}#image`, ...image };
+const galleryVideo = (overrides: Record<string, unknown> = {}) => ({
+  $type: `${NAGI.post}#video`,
+  ...video(overrides),
+});
+const gallery = (items: unknown[]) => post({ $type: `${NAGI.post}#gallery`, items });
+
+test("#gallery は画像と動画を1投稿に混ぜられる", () => {
+  assert.equal(validateRecord(NAGI.post, gallery([galleryImage, galleryVideo()])), true);
+  assert.equal(
+    validateRecord(NAGI.post, gallery([galleryVideo(), galleryImage, galleryImage, galleryImage, galleryImage])),
+    true,
+    "画像4枚＋動画1本まで",
+  );
+});
+
+test("#gallery の上限・型・中身の崩れは捨てる", () => {
+  for (const items of [
+    [],
+    [galleryVideo(), galleryVideo()],
+    [galleryImage, galleryImage, galleryImage, galleryImage, galleryImage],
+    [image],
+    [{ $type: `${NAGI.post}#quote`, record: quoteRef }],
+    [galleryImage, galleryVideo({ video: blob({ mimeType: "video/webm" }) })],
+  ])
+    assert.equal(validateRecord(NAGI.post, gallery(items)), false);
+  assert.equal(
+    validateRecord(NAGI.post, post({ $type: `${NAGI.post}#gallery` })),
+    false,
+    "items は必須",
+  );
+});
+
+test("モデレーションは #gallery の画像と動画の両方を見る", () => {
+  const subject = moderationSubject(NAGI.post, gallery([galleryImage, galleryVideo()]), DID)!;
+  assert.deepEqual(subject.texts, ["見て", "", "猫が走る"].filter(Boolean));
+  assert.equal(subject.imageUrls.length, 2);
+  assert.equal(subject.imageUrls[1], `https://video.bsky.app/watch/did%3Aplc%3Aauthor/${CID}/thumbnail.jpg`);
+});

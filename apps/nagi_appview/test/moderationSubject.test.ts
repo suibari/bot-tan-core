@@ -16,6 +16,7 @@ test("extracts post text, alt and link card copy", () => {
     {
       text: "hello",
       embed: {
+        $type: `${NAGI.post}#images`,
         images: [{ alt: "an alt", image: { ref: { $link: "bafyimage" } } }],
         linkCard: { title: "card title", description: "card body" },
       },
@@ -30,7 +31,7 @@ test("extracts post text, alt and link card copy", () => {
 test("post images are fetched through the AppView blob proxy, not a third party", () => {
   const input = moderationSubject(
     NAGI.post,
-    { text: "x", embed: { images: [{ image: { ref: { $link: "bafyimage" } } }] } },
+    { text: "x", embed: { $type: `${NAGI.post}#images`, images: [{ image: { ref: { $link: "bafyimage" } } }] } },
     DID,
   )!;
   assert.match(input.imageUrls[0], /\/api\/blob\//);

@@ -45,7 +45,7 @@ export function getBlueskyPostUrl(uri: string): string | undefined {
   return `https://bsky.app/profile/${actor}/post/${encodeURIComponent(match[2])}`;
 }
 
-/** おやすみ本文は出来事とあいさつ。夜の動画は Bluesky でリポストだけする。 */
+/** おやすみ本文は出来事とあいさつ。夜の動画は Bluesky ではリポスト、Nagi では本文に埋め込む。 */
 export function buildGoodNightPostTexts(params: {
   textJa: string;
   textEn: string;

@@ -5,7 +5,7 @@ export type ScheduledPostNetwork = "bsky" | "nagi";
 
 /**
  * おやすみポストで紹介する夜の動画（bot-tan-youtuber が 18:00 に Bluesky へ投稿したもの）。
- * Bluesky サーバは動画ポストを RP する。
+ * Bluesky サーバは動画ポストを RP し、Nagi サーバは同じ blob を参照して投稿に埋め込む。
  */
 export interface ScheduledPostNightVideo {
   uri: string;
@@ -51,7 +51,7 @@ export interface ScheduledPostContent {
   langs?: string[];
   translations?: ScheduledPostTranslation[];
   image?: ScheduledPostImage;
-  /** Bluesky だけが受け取る（Nagi は動画を再生できないので、出来事の本文だけを出す）。 */
+  /** Bluesky は RP、Nagi は動画ポストの blob を埋め込む（絵があれば #gallery で併用）。 */
   nightVideo?: ScheduledPostNightVideo;
 }
 

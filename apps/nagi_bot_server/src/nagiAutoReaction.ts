@@ -31,6 +31,7 @@ import {
 import {
   BLUEMOJI_NAME_RE,
   NAGI,
+  nagiPostMedia,
   type NagiReaction,
 } from "@bsky-affirmative-bot/nagi-lexicon";
 import {
@@ -113,7 +114,7 @@ export function postSubjectText(
   }
   const images = Array.isArray(post.embedImages) ? post.embedImages.length : 0;
   if (images) lines.push(`（画像${images}枚付き。画像の中身は見えない）`);
-  if (record?.embed?.$type === "com.suibari.nagi.post#video" || record?.embed?.video)
+  if (nagiPostMedia(record?.embed).video)
     lines.push("（動画付き。動画の中身は見えない）");
   return lines.filter(Boolean).join("\n");
 }

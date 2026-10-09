@@ -29,6 +29,7 @@ import {
   BLUEMOJI_ITEM,
   NAGI,
   appviewRecordUri,
+  nagiPostMedia,
 } from "@bsky-affirmative-bot/nagi-lexicon";
 import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { config } from "../config.js";
@@ -128,16 +129,12 @@ const extractSelfLabels = (value: any): string[] => {
   );
 };
 
-/** #video はそれ自体が動画、#quote は video プロパティに持つ。 */
-const embedVideo = (value: any) => {
-  const embed = value?.embed;
-  if (embed?.$type === `${NAGI.post}#video`) {
-    const { $type: _type, ...video } = embed;
-    return video;
-  }
-  if (embed?.$type === `${NAGI.post}#quote` && embed.video) return embed.video;
-  return null;
+/** 型ごとの置き場所の違い（#images / #video / #gallery / #quote）は nagiPostMedia が吸収する。 */
+const embedImages = (value: any) => {
+  const { images } = nagiPostMedia(value?.embed);
+  return images.length ? images : null;
 };
+const embedVideo = (value: any) => nagiPostMedia(value?.embed).video;
 
 export type ApplyMutationOptions = {
   trackJetstream?: boolean;
@@ -454,7 +451,7 @@ export async function applyMutation(
             selfLabels: extractSelfLabels(value),
             replyRootUri: value.reply?.root.uri,
             replyParentUri: value.reply?.parent.uri,
-            embedImages: value.embed?.images,
+            embedImages: embedImages(value),
             embedVideo: embedVideo(value),
             quoteUri:
               value.embed?.$type === `${NAGI.post}#quote`
@@ -491,7 +488,7 @@ export async function applyMutation(
               selfLabels: extractSelfLabels(value),
               replyRootUri: value.reply?.root.uri ?? null,
               replyParentUri: value.reply?.parent.uri ?? null,
-              embedImages: value.embed?.images ?? null,
+              embedImages: embedImages(value),
               embedVideo: embedVideo(value),
               quoteUri:
                 value.embed?.$type === `${NAGI.post}#quote`
@@ -1029,7 +1026,7 @@ export async function applyMutation(
                 contentText: postPushBody({
                   text: value.text,
                   contentWarning: hasContentWarning(value.text),
-                  hasImages: Array.isArray(value.embed?.images),
+                  hasImages: Boolean(embedImages(value)),
                   hasVideo: Boolean(embedVideo(value)),
                   hasQuote: value.embed?.$type === `${NAGI.post}#quote`,
                 }),
@@ -1083,7 +1080,7 @@ export async function applyMutation(
                 contentText: postPushBody({
                   text: value.text,
                   contentWarning: hasContentWarning(value.text),
-                  hasImages: Array.isArray(value.embed?.images),
+                  hasImages: Boolean(embedImages(value)),
                   hasVideo: Boolean(embedVideo(value)),
                   hasQuote: value.embed?.$type === `${NAGI.post}#quote`,
                 }),

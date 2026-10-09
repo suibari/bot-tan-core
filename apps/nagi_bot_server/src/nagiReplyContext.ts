@@ -16,7 +16,7 @@ import {
 } from "@bsky-affirmative-bot/bot-runtime";
 import type { ImageRef } from "@bsky-affirmative-bot/shared-configs";
 import { loadPreferredName } from "@bsky-affirmative-bot/clients";
-import { NAGI, isAppviewOwnedUri } from "@bsky-affirmative-bot/nagi-lexicon";
+import { isAppviewOwnedUri, nagiPostMedia } from "@bsky-affirmative-bot/nagi-lexicon";
 import { and, desc, eq, gt, isNotNull, isNull, lt, lte } from "drizzle-orm";
 
 type ContextLink = { uri: string; title?: string; description?: string };
@@ -288,18 +288,14 @@ export async function buildNagiReplyContext(job: any) {
 
   const authorPds =
     author.pdsUrl ?? (await resolvePdsUrl(job.authorDid).catch(() => ""));
+  const media = nagiPostMedia(record.embed);
   const image: ImageRef[] = blobImagesToImageRefs(
     job.authorDid,
     authorPds,
-    record.embed?.images,
+    media.images,
   ).map((item) => ({ ...item, origin: "direct" as const }));
   image.push(
-    ...blobVideoToImageRefs(
-      job.authorDid,
-      record.embed?.$type === `${NAGI.post}#video`
-        ? record.embed
-        : record.embed?.video,
-    ).map((item) => ({ ...item, origin: "video-thumbnail" as const })),
+    ...blobVideoToImageRefs(job.authorDid, media.video).map((item) => ({ ...item, origin: "video-thumbnail" as const })),
   );
   const linkThumbnails = blobImagesToImageRefs(
     job.authorDid,

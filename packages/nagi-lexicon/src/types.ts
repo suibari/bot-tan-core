@@ -36,6 +36,10 @@ export type NagiVideo = {
   contentWarning?: boolean;
   aspectRatio?: AspectRatio;
 };
+/** #gallery の1要素。union なので $type で画像か動画かを区別する。 */
+export type NagiGalleryItem =
+  | ({ $type: "com.suibari.nagi.post#image" } & NagiImage)
+  | ({ $type: "com.suibari.nagi.post#video" } & NagiVideo);
 export type PostVideoView = {
   playlist: string;
   thumbnail: string;
@@ -77,6 +81,7 @@ export type NagiPost = {
   embed?:
     | { $type: "com.suibari.nagi.post#images"; images: NagiImage[] }
     | ({ $type: "com.suibari.nagi.post#video" } & NagiVideo)
+    | { $type: "com.suibari.nagi.post#gallery"; items: NagiGalleryItem[] }
     | {
         $type: "com.suibari.nagi.post#quote";
         record: StrongRef;
