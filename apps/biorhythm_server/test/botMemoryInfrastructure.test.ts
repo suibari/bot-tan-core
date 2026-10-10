@@ -311,3 +311,39 @@ test("presence endpoint is unavailable when no source is wired", async (t) => {
   const response = await fetch(`${url}/bot/presence`, { headers: { authorization: "Bearer secret" } });
   assert.equal(response.status, 503);
 });
+
+test("daily plan endpoint returns only the date and outfit, or 404 without a plan", async (t) => {
+  let plan: { botDate: string; outfit: string } | undefined = { botDate: "2026-10-10", outfit: "白いブラウスに水色のカーディガン" };
+  const { server, url } = await listen(createBotMemoryInternalApp("secret", { getDailyPlan: async () => plan }));
+  t.after(() => server.close());
+  const auth = { headers: { authorization: "Bearer secret" } };
+
+  assert.equal((await fetch(`${url}/bot/daily-plan`)).status, 401);
+  const response = await fetch(`${url}/bot/daily-plan`, auth);
+  assert.deepEqual(await response.json(), { botDate: "2026-10-10", outfit: "白いブラウスに水色のカーディガン" });
+  plan = undefined;
+  assert.equal((await fetch(`${url}/bot/daily-plan`, auth)).status, 404);
+});
+
+test("activities endpoint validates hours and limit and returns newest first", async (t) => {
+  const calls: Array<{ since: Date; limit: number }> = [];
+  const rows = [
+    { status: "Relax", mood: "ソファでのんびり", energy: 24, createdAt: "2026-10-10T06:00:00.000Z" },
+    { status: "FreeTime", mood: "雑貨屋をのぞく", energy: 30, createdAt: "2026-10-10T04:00:00.000Z" },
+  ];
+  const { server, url } = await listen(createBotMemoryInternalApp("secret", {
+    getActivities: async (since, limit) => { calls.push({ since, limit }); return rows; },
+  }));
+  t.after(() => server.close());
+  const auth = { headers: { authorization: "Bearer secret" } };
+
+  const before = Date.now();
+  const response = await fetch(`${url}/bot/activities?hours=18&limit=1`, auth);
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { activities: [rows[0]] });
+  assert.equal(calls[0].limit, 1);
+  assert.ok(Math.abs(before - 18 * 3_600_000 - calls[0].since.getTime()) < 5_000);
+
+  assert.equal((await fetch(`${url}/bot/activities?hours=100`, auth)).status, 400);
+  assert.equal((await fetch(`${url}/bot/activities?limit=0`, auth)).status, 400);
+});

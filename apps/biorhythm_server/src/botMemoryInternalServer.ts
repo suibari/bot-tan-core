@@ -39,6 +39,8 @@ export function startBotMemoryInternalServer(options: {
 } & BotMemoryRouterOptions): Server {
   const server = http.createServer(createBotMemoryInternalApp(options.secret, {
     getPresence: options.getPresence,
+    getDailyPlan: options.getDailyPlan,
+    getActivities: options.getActivities,
   }));
   const { host, port } = options.config;
   server.listen(port, host, () => {

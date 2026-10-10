@@ -714,6 +714,15 @@ async function loadPlan(): Promise<DailyPlan | undefined> {
   };
 }
 
+/**
+ * 今日の予定表のうち、外から使う値（日付と服）だけ。記憶の内部 API の GET /bot/daily-plan が使う
+ * （bot-tan-calender の壁紙が服を描くため。以前は bot_state の版つきキーを直接読んでいた）。
+ */
+export async function readDailyPlanSummary(): Promise<{ botDate: string; outfit: string } | undefined> {
+  const plan = await loadPlan();
+  return plan ? { botDate: plan.botDate, outfit: plan.outfit } : undefined;
+}
+
 export async function savePlan(plan: DailyPlan): Promise<void> {
   await MemoryService.setBotState(DAILY_PLAN_STATE_KEY, plan);
 }

@@ -396,6 +396,8 @@ botたんは返信の同期パスで検索しません。ローカル推論を�
 
 公開WebSocket `/ws` と公開RESTはCloudflare Tunnel用のloopback listenerを使います。RAGの`/memory/search`、`/memory/context`、`/memory/usages`と、いまの様子の`/bot/presence`は別listenerで、公開Expressアプリにはmountしません。
 
+`GET /bot/daily-plan` は今日の予定表の日付（botDate）と服（outfit）だけを、`GET /bot/activities?hours=18&limit=8` は直近の行動（status・mood・energy 0〜100・createdAt）を新しい順に返します（hours は 48 まで、limit は 20 まで）。bot-tan-calender の壁紙と bot-tan-youtuber のフリートークが、`bot_state` や `biorhythm_history` を直接読む代わりに使います。
+
 `GET /bot/presence` はいまの状態・元気（0〜100）・行動（mood / moodEn）・天気・次の行動の時刻だけを返します。bot-tan-convo の声の会話が「いまなにしてる？」に答えるために使います。統計を束ねる`getCurrentState()`は重いので呼ばず、メモリ上の値をそのまま返します。moodにはお部屋に来た人の表示名が入りうるので、公開側には出しません。
 
 本番例：
