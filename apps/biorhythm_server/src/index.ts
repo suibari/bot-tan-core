@@ -4,6 +4,8 @@ import http from "http";
 import { timingSafeEqual } from "crypto";
 import dotenv from "dotenv";
 import { BiorhythmManager } from "./manager.js";
+import { MemoryService } from "@bsky-affirmative-bot/clients";
+import { readDailyPlanSummary } from "./dailyPlan.js";
 import { startHealthMonitor } from "./healthMonitor.js";
 import { publicApi } from "./publicApi.js";
 import { logAiRouteTable } from "@bsky-affirmative-bot/shared-configs";
@@ -136,6 +138,18 @@ startBotMemoryInternalServer({
   config: readBotMemoryInternalServerConfig(),
   secret: INTERNAL_SECRET,
   getPresence: () => manager.getPresence(),
+  getDailyPlan: () => readDailyPlanSummary(),
+  // biorhythm_history は古い順で返るので、新しい順に並べ替えて先頭から使う
+  getActivities: async (since, limit) =>
+    (await MemoryService.getBiorhythmHistorySince(since))
+      .reverse()
+      .slice(0, limit)
+      .map((row) => ({
+        status: String(row.status),
+        mood: String(row.mood),
+        energy: Number(row.energy),
+        createdAt: new Date(row.created_at).toISOString(),
+      })),
 });
 const websocketServer = attachBiorhythmWebSocketServer(server, {
   allowedOrigins,

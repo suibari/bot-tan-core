@@ -133,10 +133,38 @@ function parseDate(value: unknown): Date | undefined {
   return parsed;
 }
 
+/** 直近の行動の 1 件（biorhythm_history）。energy は 0〜100 */
+export type BotActivity = {
+  status: string;
+  mood: string;
+  energy: number;
+  createdAt: string;
+};
+
 export type BotMemoryRouterOptions = {
   /** いまの様子を返す。無ければ GET /bot/presence は 503 */
   getPresence?: () => BotPresence;
+  /** 今日の予定表の日付と服。無ければ GET /bot/daily-plan は 503 */
+  getDailyPlan?: () => Promise<{ botDate: string; outfit: string } | undefined>;
+  /** since 以降の行動を新しい順に limit 件まで。無ければ GET /bot/activities は 503 */
+  getActivities?: (since: Date, limit: number) => Promise<BotActivity[]>;
 };
+
+const ACTIVITY_MAX_HOURS = 48;
+const ACTIVITY_MAX_LIMIT = 20;
+
+/** GET /bot/activities の hours・limit。範囲外や数でないものは 400 */
+export function validateBotActivitiesQuery(query: Record<string, unknown>) {
+  const hours = query.hours === undefined ? 18 : Number(query.hours);
+  const limit = query.limit === undefined ? 8 : Number(query.limit);
+  if (!Number.isFinite(hours) || hours <= 0 || hours > ACTIVITY_MAX_HOURS) {
+    throw new Error(`hours must be within 0-${ACTIVITY_MAX_HOURS}`);
+  }
+  if (!Number.isInteger(limit) || limit < 1 || limit > ACTIVITY_MAX_LIMIT) {
+    throw new Error(`limit must be within 1-${ACTIVITY_MAX_LIMIT}`);
+  }
+  return { hours, limit };
+}
 
 /** GET /bot/presence の応答。決めた項目だけを返す（増えた内部の値を素通しにしない） */
 export function serializeBotPresence(presence: BotPresence) {
@@ -175,6 +203,52 @@ export function createBotMemoryRouter(secret: string | undefined, options: BotMe
       return;
     }
     res.json(serializeBotPresence(options.getPresence()));
+  });
+
+  /** 今日の予定表の日付と服。予定表がまだ無ければ 404 */
+  router.get("/bot/daily-plan", async (_req, res) => {
+    if (!options.getDailyPlan) {
+      res.status(503).json({ error: "daily plan not available" });
+      return;
+    }
+    try {
+      const plan = await options.getDailyPlan();
+      if (!plan) {
+        res.status(404).json({ error: "no daily plan" });
+        return;
+      }
+      res.json({ botDate: plan.botDate, outfit: plan.outfit });
+    } catch (error) {
+      console.error("[ERROR][BOT_MEMORY_API] daily plan failed", error);
+      res.status(500).json({ error: "daily plan failed" });
+    }
+  });
+
+  /** 直近の行動（新しい順）。?hours=18&limit=8 が既定 */
+  router.get("/bot/activities", async (req, res) => {
+    if (!options.getActivities) {
+      res.status(503).json({ error: "activities not available" });
+      return;
+    }
+    let query;
+    try {
+      query = validateBotActivitiesQuery(req.query as Record<string, unknown>);
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+      return;
+    }
+    try {
+      const since = new Date(Date.now() - query.hours * 3_600_000);
+      const activities = await options.getActivities(since, query.limit);
+      res.json({
+        activities: activities.slice(0, query.limit).map((a) => ({
+          status: a.status, mood: a.mood, energy: a.energy, createdAt: a.createdAt,
+        })),
+      });
+    } catch (error) {
+      console.error("[ERROR][BOT_MEMORY_API] activities failed", error);
+      res.status(500).json({ error: "activities failed" });
+    }
   });
 
   router.post("/memory/search", async (req, res) => {
