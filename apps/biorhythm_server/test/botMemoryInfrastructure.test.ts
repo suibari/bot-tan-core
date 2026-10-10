@@ -274,3 +274,40 @@ test("context response does not expose author or source identifiers", () => {
   ]);
   assert.deepEqual(Object.keys(serialized), ["recent", "related", "friend", "research"]);
 });
+
+test("presence endpoint requires auth and returns only the agreed fields", async (t) => {
+  const presence = {
+    status: "FreeTime" as const,
+    energy: 17.1,
+    mood: "全肯定たんは、雑貨屋をのぞいています。",
+    moodEn: "Bot-tan is browsing a shop.",
+    weather: "快晴",
+    nextStepTime: "2026-10-10T05:00:00.000Z",
+    internalOnly: "must not leak",
+  };
+  const { server, url } = await listen(createBotMemoryInternalApp("secret", {
+    getPresence: () => presence,
+  }));
+  t.after(() => server.close());
+
+  const unauthorized = await fetch(`${url}/bot/presence`);
+  assert.equal(unauthorized.status, 401);
+
+  const response = await fetch(`${url}/bot/presence`, { headers: { authorization: "Bearer secret" } });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    status: "FreeTime",
+    energy: 17.1,
+    mood: "全肯定たんは、雑貨屋をのぞいています。",
+    moodEn: "Bot-tan is browsing a shop.",
+    weather: "快晴",
+    nextStepTime: "2026-10-10T05:00:00.000Z",
+  });
+});
+
+test("presence endpoint is unavailable when no source is wired", async (t) => {
+  const { server, url } = await listen(createBotMemoryInternalApp("secret"));
+  t.after(() => server.close());
+  const response = await fetch(`${url}/bot/presence`, { headers: { authorization: "Bearer secret" } });
+  assert.equal(response.status, 503);
+});
