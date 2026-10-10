@@ -12,6 +12,7 @@ import {
   type BotMemorySourceType,
   type MemoryContext,
 } from "@bsky-affirmative-bot/database";
+import type { BotPresence } from "./manager.js";
 
 const PURPOSES = new Set<BotMemoryPurpose>([
   "reply_history",
@@ -132,7 +133,24 @@ function parseDate(value: unknown): Date | undefined {
   return parsed;
 }
 
-export function createBotMemoryRouter(secret: string | undefined) {
+export type BotMemoryRouterOptions = {
+  /** いまの様子を返す。無ければ GET /bot/presence は 503 */
+  getPresence?: () => BotPresence;
+};
+
+/** GET /bot/presence の応答。決めた項目だけを返す（増えた内部の値を素通しにしない） */
+export function serializeBotPresence(presence: BotPresence) {
+  return {
+    status: presence.status,
+    energy: presence.energy,
+    mood: presence.mood,
+    moodEn: presence.moodEn,
+    weather: presence.weather,
+    nextStepTime: presence.nextStepTime,
+  };
+}
+
+export function createBotMemoryRouter(secret: string | undefined, options: BotMemoryRouterOptions = {}) {
   const router = Router();
   router.use((req, res, next) => {
     if (!secret) {
@@ -144,6 +162,19 @@ export function createBotMemoryRouter(secret: string | undefined) {
       return;
     }
     next();
+  });
+
+  /**
+   * いまの様子（状態・元気・行動・天気）。bot-tan-convo の声の会話が、聞かれたら答えるために使う。
+   * 公開ダッシュボードの WebSocket と同じ値の一部だが、こちらは LAN の内部 API として認証つきで返す。
+   * mood にはお部屋に来た人の表示名が入りうる（publicApi.ts の注記と同じ）ので、外へは出さない。
+   */
+  router.get("/bot/presence", (_req, res) => {
+    if (!options.getPresence) {
+      res.status(503).json({ error: "presence not available" });
+      return;
+    }
+    res.json(serializeBotPresence(options.getPresence()));
   });
 
   router.post("/memory/search", async (req, res) => {

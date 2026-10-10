@@ -135,6 +135,7 @@ const server = http.createServer(app);
 startBotMemoryInternalServer({
   config: readBotMemoryInternalServerConfig(),
   secret: INTERNAL_SECRET,
+  getPresence: () => manager.getPresence(),
 });
 const websocketServer = attachBiorhythmWebSocketServer(server, {
   allowedOrigins,

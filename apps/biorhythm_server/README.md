@@ -394,7 +394,9 @@ botたんは返信の同期パスで検索しません。ローカル推論を�
 
 ## 公開listenerと内部listener
 
-公開WebSocket `/ws` と公開RESTはCloudflare Tunnel用のloopback listenerを使います。RAGの`/memory/search`、`/memory/context`、`/memory/usages`は別listenerで、公開Expressアプリにはmountしません。
+公開WebSocket `/ws` と公開RESTはCloudflare Tunnel用のloopback listenerを使います。RAGの`/memory/search`、`/memory/context`、`/memory/usages`と、いまの様子の`/bot/presence`は別listenerで、公開Expressアプリにはmountしません。
+
+`GET /bot/presence` はいまの状態・元気（0〜100）・行動（mood / moodEn）・天気・次の行動の時刻だけを返します。bot-tan-convo の声の会話が「いまなにしてる？」に答えるために使います。統計を束ねる`getCurrentState()`は重いので呼ばず、メモリ上の値をそのまま返します。moodにはお部屋に来た人の表示名が入りうるので、公開側には出しません。
 
 本番例：
 

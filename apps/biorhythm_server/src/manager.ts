@@ -90,6 +90,16 @@ const NAGI_STATS_TTL_MS = 60_000;
 const REPO_WRITE_POINTS_TTL_MS = 10_000;
 const MEMORY_IMPRESSIONS_TTL_MS = 5 * 60_000;
 
+/** 内部 API（GET /bot/presence）で返す、いまの様子。energy は 0〜100 の割合。 */
+export interface BotPresence {
+  status: Status;
+  energy: number;
+  mood: string;
+  moodEn: string;
+  weather: string;
+  nextStepTime: string;
+}
+
 export class BiorhythmManager extends EventEmitter {
   private status: Status = 'Sleep';
   private statusPrev: Status = 'Sleep';
@@ -291,6 +301,22 @@ export class BiorhythmManager extends EventEmitter {
   get getMood(): string { return this.moodPrev; }
   get getMoodEn(): string { return this.moodPrevEn; }
   get getWeather(): string { return this.weather; }
+
+  /**
+   * いまの様子（状態・元気・行動・天気）だけを、集計なしで返す。記憶の内部 API の
+   * GET /bot/presence が使う（bot-tan-convo の声の会話で「いまなにしてる？」に答えるため）。
+   * getCurrentState() は統計のクエリを束ねていて重いので、会話の返事ごとには呼ばない。
+   */
+  getPresence(): BotPresence {
+    return {
+      status: this.status,
+      energy: this.getEnergy,
+      mood: this.getMood,
+      moodEn: this.getMoodEn,
+      weather: this.getWeather,
+      nextStepTime: this.nextStepTime,
+    };
+  }
 
   setWeather(weather: string): void {
     this.weather = weather;

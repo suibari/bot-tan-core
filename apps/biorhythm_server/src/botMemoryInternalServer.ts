@@ -1,6 +1,6 @@
 import express, { type Express } from "express";
 import http, { type Server } from "node:http";
-import { createBotMemoryRouter } from "./botMemoryRouter.js";
+import { createBotMemoryRouter, type BotMemoryRouterOptions } from "./botMemoryRouter.js";
 
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 3003;
@@ -22,19 +22,24 @@ export function readBotMemoryInternalServerConfig(
   return { host, port };
 }
 
-export function createBotMemoryInternalApp(secret: string | undefined): Express {
+export function createBotMemoryInternalApp(
+  secret: string | undefined,
+  options: BotMemoryRouterOptions = {},
+): Express {
   const app = express();
   app.disable("x-powered-by");
   app.use(express.json({ limit: "32kb" }));
-  app.use(createBotMemoryRouter(secret));
+  app.use(createBotMemoryRouter(secret, options));
   return app;
 }
 
 export function startBotMemoryInternalServer(options: {
   config: BotMemoryInternalServerConfig;
   secret: string | undefined;
-}): Server {
-  const server = http.createServer(createBotMemoryInternalApp(options.secret));
+} & BotMemoryRouterOptions): Server {
+  const server = http.createServer(createBotMemoryInternalApp(options.secret, {
+    getPresence: options.getPresence,
+  }));
   const { host, port } = options.config;
   server.listen(port, host, () => {
     console.log(`[INFO][BOT_MEMORY_API] Internal API listening on http://${host}:${port}`);
