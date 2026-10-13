@@ -4,6 +4,7 @@ import {
   ADULT_LABELS,
   DEFAULT_THRESHOLDS,
   evaluateScores,
+  evaluateSeparatedScores,
   mapCategoryToLabel,
 } from "../src/services/moderation/rules.js";
 
@@ -105,4 +106,37 @@ test("category overrides are stricter than the defaults where it matters", () =>
   assert.ok(minors);
   assert.ok(minors.reject! < DEFAULT_THRESHOLDS.rejectThreshold);
   assert.ok(minors.label! < DEFAULT_THRESHOLDS.labelThreshold);
+});
+
+test("violent anime impressions remain unrestricted, with observation reasons", () => {
+  const result = evaluateSeparatedScores({
+    text: { violence: 0.999, "violence/graphic": 0.999 }, image: {},
+  });
+  assert.equal(result.decision, "allow");
+  assert.deepEqual(result.labels, []);
+  assert.equal(result.reasons.length, 2);
+  assert.ok(result.reasons.every(reason => reason.includes("[TEXT] [OBSERVE]")));
+});
+
+test("text violence cannot mask graphic or sexual images", () => {
+  for (const image of [{ "violence/graphic": 0.95 }, { sexual: 0.99 }]) {
+    const result = evaluateSeparatedScores({ text: { violence: 1 }, image });
+    assert.equal(result.decision, "reject-policy");
+    assert.ok(result.labels.length > 0);
+    assert.ok(result.reasons.some(reason => reason.includes("[IMAGE] [REJECT]")));
+  }
+});
+
+test("other text categories retain their existing restrictions", () => {
+  const result = evaluateSeparatedScores({
+    text: { "hate/threatening": 0.9, violence: 1 }, image: {},
+  });
+  assert.equal(result.decision, "reject-policy");
+  assert.deepEqual(result.labels, ["hate"]);
+});
+
+test("image labels survive higher unrestricted text scores", () => {
+  const result = evaluateSeparatedScores({ text: { violence: 1 }, image: { sexual: 0.85 } });
+  assert.equal(result.decision, "label");
+  assert.deepEqual(result.labels, ["sexual"]);
 });

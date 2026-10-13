@@ -13,7 +13,7 @@ export type ModerationDecision =
   | "reject-invalid";
 
 /** ルール変更時に上げる。再処理をキューへ戻した行が同一 CID の旧判定を再利用しないための版。 */
-export const MODERATION_RULE_VERSION = "nagi-moderation-v3";
+export const MODERATION_RULE_VERSION = "nagi-moderation-v4";
 
 /** 判定対象外（こっそり投稿など）を表す番兵。ワーカーはこの行を拾わない。 */
 export const MODERATION_SKIPPED = "skipped";
@@ -122,6 +122,7 @@ export function mapCategoryToLabel(category: string): string {
 export function evaluateScores(
   categoryScores: Record<string, number>,
   config: ThresholdConfig = DEFAULT_THRESHOLDS,
+  source: "text" | "image" = "image",
 ): ModerationEvaluation {
   let maxScore = 0;
   let highestCategory = "";
@@ -143,7 +144,11 @@ export function evaluateScores(
     const observeThresh = override?.observe ?? config.observeThreshold;
 
     const pct = (score * 100).toFixed(1);
-    if (score >= rejectThresh) {
+    // 本文の暴力・残虐描写は感想や引用でも高得点になるため、記録だけ残す。
+    if (source === "text" && (category === "violence" || category === "violence/graphic")) {
+      if (score >= observeThresh)
+        reasons.push(`[OBSERVE] ${category}: ${pct}% (text; no restriction)`);
+    } else if (score >= rejectThresh) {
       shouldReject = true;
       reasons.push(`[REJECT] ${category}: ${pct}% (>= ${rejectThresh * 100}%)`);
       detectedLabels.add(mapCategoryToLabel(category));
@@ -170,5 +175,27 @@ export function evaluateScores(
     reasons,
     maxScore,
     highestCategory,
+  };
+}
+
+/** 本文・画像を別々に評価してから、強い方の判定を採用する。 */
+export function evaluateSeparatedScores(scores: {
+  text: Record<string, number>;
+  image: Record<string, number>;
+}): ModerationEvaluation {
+  const text = evaluateScores(scores.text, DEFAULT_THRESHOLDS, "text");
+  const image = evaluateScores(scores.image, DEFAULT_THRESHOLDS, "image");
+  const highest = text.maxScore > image.maxScore ? text : image;
+  return {
+    decision: [text, image].some(value => value.decision === "reject-policy")
+      ? "reject-policy"
+      : [text, image].some(value => value.decision === "label") ? "label" : "allow",
+    labels: [...new Set([...text.labels, ...image.labels])],
+    reasons: [
+      ...text.reasons.map(reason => `[TEXT] ${reason}`),
+      ...image.reasons.map(reason => `[IMAGE] ${reason}`),
+    ],
+    maxScore: highest.maxScore,
+    highestCategory: highest.highestCategory,
   };
 }

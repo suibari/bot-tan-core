@@ -218,9 +218,10 @@ export class OpenAIModerator {
   /**
    * テキストと画像URLを判定する。Moderation API は1リクエストにつき画像1枚まで
    * なので、複数画像は1枚ずつ順に判定し、カテゴリごとの最大スコアを採用する。
+   * 本文は1回、画像は本文を添えずに判定し、両者のスコアを分けて返す。
    * 生レスポンスは保持しない（PDS が真実源のため）。
    */
-  async evaluate(input: ModerationInput): Promise<ModerationScores> {
+  async evaluate(input: ModerationInput): Promise<{ text: ModerationScores; image: ModerationScores }> {
     const text = input.texts
       .map((value) => value?.trim())
       .filter((value): value is string => !!value)
@@ -229,19 +230,17 @@ export class OpenAIModerator {
     const imageUrls = input.imageUrls.filter(Boolean);
 
     // 判定すべき中身が無い（本文空・画像なし）ならAPIを呼ばずに素通しする。
-    if (!textPart && imageUrls.length === 0) return {};
-    if (imageUrls.length === 0) return this.request([textPart!]);
+    const textScores = textPart ? await this.request([textPart]) : {};
 
     const merged: ModerationScores = {};
     for (const url of imageUrls) {
       const scores = await this.request([
-        ...(textPart ? [textPart] : []),
         { type: "image_url", image_url: { url } },
       ]);
       for (const [category, score] of Object.entries(scores)) {
         merged[category] = Math.max(merged[category] ?? 0, score);
       }
     }
-    return merged;
+    return { text: textScores, image: merged };
   }
 }
