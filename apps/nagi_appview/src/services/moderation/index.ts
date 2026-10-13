@@ -5,8 +5,7 @@ import {
   type ModerationInput,
 } from "./openai.js";
 import {
-  DEFAULT_THRESHOLDS,
-  evaluateScores,
+  evaluateSeparatedScores,
   MODERATION_RULE_VERSION,
   type ModerationEvaluation,
 } from "./rules.js";
@@ -44,7 +43,7 @@ export async function evaluateModerationInput(
 ): Promise<ModerationEvaluation> {
   try {
     const scores = await client().evaluate(input);
-    return evaluateScores(scores, DEFAULT_THRESHOLDS);
+    return evaluateSeparatedScores(scores);
   } catch (error) {
     if (error instanceof PermanentModerationInputError) {
       return {

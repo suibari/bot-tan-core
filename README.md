@@ -287,3 +287,5 @@ This project is open source under the [MIT License](./LICENSE).
 <div align="center">
   <a href="https://suibari.com"><img src="./img/suibari-logo.png" alt="suibari" width="360"></a>
 </div>
+
+Nagi の自動判定方針と API 呼び出し回数は [モデレーション仕様](docs/nagi-moderation.md) を参照。

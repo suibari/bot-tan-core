@@ -46,7 +46,8 @@ test("sends text-only input once", async () => {
       texts: [" hello ", "world"],
       imageUrls: [],
     });
-    assert.deepEqual(scores, { harassment: 0.1 });
+    assert.deepEqual(scores, { text: { harassment: 0.1 }, image: {} });
+    assert.equal(sent.length, 1);
     assert.deepEqual(sent[0].input, [{ type: "text", text: "hello\nworld" }]);
   });
 });
@@ -54,6 +55,7 @@ test("sends text-only input once", async () => {
 test("sends multiple images one at a time and merges maximum scores", async () => {
   await withMockFetch(
     [
+      { harassment: 0.99, violence: 0.99 },
       { harassment: 0.1, violence: 0.7 },
       { harassment: 0.8, violence: 0.2 },
       { harassment: 0.3, violence: 0.4 },
@@ -69,12 +71,12 @@ test("sends multiple images one at a time and merges maximum scores", async () =
           "https://example.com/4.webp",
         ],
       });
-      assert.deepEqual(scores, { harassment: 0.8, violence: 0.7 });
-      assert.equal(sent.length, 4);
+      assert.deepEqual(scores, { text: { harassment: 0.99, violence: 0.99 }, image: { harassment: 0.8, violence: 0.7 } });
+      assert.equal(sent.length, 5);
+      assert.deepEqual(sent[0].input, [{ type: "text", text: "caption" }]);
       assert.deepEqual(
-        sent.map((body) => body.input),
+        sent.slice(1).map((body) => body.input),
         ["1.webp", "2.webp", "3.webp", "4.webp"].map((name) => [
-          { type: "text", text: "caption" },
           {
             type: "image_url",
             image_url: { url: `https://example.com/${name}` },
@@ -91,7 +93,8 @@ test("sends image-only input one image per request", async () => {
       texts: [],
       imageUrls: ["https://example.com/a.png", "https://example.com/b.png"],
     });
-    assert.deepEqual(scores, { sexual: 0.4 });
+    assert.deepEqual(scores, { text: {}, image: { sexual: 0.4 } });
+    assert.equal(sent.length, 2);
     assert.ok(sent.every((body) => body.input.length === 1));
     assert.ok(sent.every((body) => body.input[0].type === "image_url"));
   });
@@ -99,7 +102,7 @@ test("sends image-only input one image per request", async () => {
 
 test("propagates a permanent error from an individual image", async () => {
   await withMockFetch(
-    [{ violence: 0.1 }, { status: 400, body: "invalid image" }],
+    [{}, { violence: 0.1 }, { status: 400, body: "invalid image" }],
     async () => {
       await assert.rejects(
         new OpenAIModerator("test-key").evaluate({
@@ -120,6 +123,7 @@ test("propagates a permanent error from an individual image", async () => {
 test("retries when OpenAI temporarily cannot download an image URL", async () => {
   await withMockFetch(
     [
+      {},
       {
         status: 400,
         body: JSON.stringify({
@@ -228,3 +232,11 @@ test("keeps service failures out of the per-item retry path", async () => {
     );
 });
 
+
+test("empty input does not send any request", async () => {
+  await withMockFetch([], async (sent) => {
+    const scores = await new OpenAIModerator("test-key").evaluate({ texts: ["  "], imageUrls: [] });
+    assert.deepEqual(scores, { text: {}, image: {} });
+    assert.equal(sent.length, 0);
+  });
+});
