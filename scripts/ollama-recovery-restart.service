@@ -1,0 +1,7 @@
+[Unit]
+Description=Restart shared Ollama after a stalled GPU placement recovery
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl restart ollama.service
+TimeoutStartSec=30

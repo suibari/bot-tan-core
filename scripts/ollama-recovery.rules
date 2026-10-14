@@ -1,0 +1,9 @@
+// Only start the fixed root-owned restart helper; no general unit management.
+polkit.addRule(function(action, subject) {
+  if (subject.user === "suibari"
+      && action.id === "org.freedesktop.systemd1.manage-units"
+      && action.lookup("unit") === "ollama-recovery-restart.service"
+      && action.lookup("verb") === "start") {
+    return polkit.Result.YES;
+  }
+});
