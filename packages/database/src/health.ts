@@ -20,6 +20,7 @@ export type HealthService =
   | 'nagi-bot'
   | 'nagi-appview'
   | 'local-llm'
+  | 'ollama-placement'
   | 'gemini';
 
 export type HealthState =
@@ -95,8 +96,9 @@ async function patchHealth(service: HealthService, patch: HeartbeatRecord): Prom
 export async function reportHeartbeat(
   service: HealthService,
   detail?: Record<string, unknown>,
+  options?: { force?: boolean },
 ): Promise<void> {
-  if (!shouldWrite(`${service}:ok`, false)) return;
+  if (!shouldWrite(`${service}:ok`, options?.force ?? false)) return;
   const at = new Date().toISOString();
   await patchHealth(service, { at, lastOkAt: at, ...(detail ? { detail } : {}) });
 }

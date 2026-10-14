@@ -13,6 +13,7 @@ import {
   ollamaNativeUrl,
   ollamaTextContextLength,
 } from "@bsky-affirmative-bot/shared-configs";
+import { startWorkerLoop } from "@bsky-affirmative-bot/bot-runtime";
 import { statfs } from "node:fs/promises";
 
 /**
@@ -33,11 +34,14 @@ export interface DiskUsage {
 }
 
 export interface HealthPart {
+  id?: string;
   name: string;
   state: HealthState;
   /** 最後に「生きている」と分かった時刻。 */
   lastOkAt?: string;
   lastError?: string;
+  /** Informational detail, not an active error. */
+  message?: string;
 }
 
 export interface HealthTileStatus {
@@ -388,10 +392,10 @@ export function jetstreamEndpointPart(
   const rotated = Number.isFinite(rotations) && rotations > 0;
   return {
     name: `AppView 接続先: ${host}`,
-    // 切り替わった実績があるだけで異常とは限らないため、down にはしない。
-    state: rotated ? "stale" : "ok",
+    // 切り替え履歴は現在の異常判定には使わない。
+    state: "ok",
     ...(record?.lastOkAt ? { lastOkAt: record.lastOkAt } : {}),
-    ...(rotated ? { lastError: `接続先を${rotations}回切り替えました` } : {}),
+    ...(rotated ? { message: `接続先の切り替え履歴: ${rotations}回` } : {}),
   };
 }
 
@@ -406,10 +410,11 @@ const minutes = (ms: number) => Math.max(1, Math.round(ms / 60_000));
  * 接続の生死（servicePart）だけでは「繋がっているが数十分遅れて配っている」状態を
  * 見逃す（2026-10-01 に約52分）。AppView は botたんの書き込みを目印に、取り込み依頼から
  * Jetstream 到着までの時間を測ってハートビートに載せているので、それを出す。
- * 最後に測った値なので、回復後もしばらく遅れが残って見えることがある。down にはしない。
+ * 5分以上古い測定は現在の異常判定に使わず、測定履歴として表示する。
  */
 export function appviewDeliveryLagPart(
   record: HeartbeatRecord | undefined,
+  now = Date.now(),
 ): HealthPart {
   const name = "AppView 配送遅延";
   const detail = record?.detail ?? {};
@@ -423,11 +428,15 @@ export function appviewDeliveryLagPart(
     };
   }
   if (!Number.isFinite(lag)) return { name, state: "unknown" };
+  const measuredAt = typeof detail.lastBotWriteSeenAt === "string" ? detail.lastBotWriteSeenAt : undefined;
+  const recent = measuredAt && Number.isFinite(Date.parse(measuredAt)) && now - Date.parse(measuredAt) <= 300_000;
+  if (!recent) return { name, state: "unknown", message: measuredAt
+    ? `直近の配送測定: ${measuredAt}（現在の遅延は未確認）` : "配送測定時刻が不明です" };
   if (lag > BOT_WRITE_LAG_WARN_MS) {
     return {
       name,
       state: "stale",
-      lastError: `直近のbotたんの書き込みは${minutes(lag)}分遅れて届きました`,
+      lastError: `直近のbotたんの書き込みは${minutes(lag)}分遅れて届きました（測定: ${measuredAt}）`,
     };
   }
   return {
@@ -529,6 +538,31 @@ export function upstreamPart(parts: HealthPart[]): HealthPart {
   };
 }
 
+const RECOVERY_LABELS: Record<string, string> = {
+  idle: "監視中", capacity: "GPU容量待ち", stabilizing: "GPU容量の安定確認中",
+  cooldown: "再試行待ち", recovering: "再ロード中", recovered: "全GPU配置に復旧",
+  failed: "復旧失敗・再試行待ち", blocked: "連続失敗・自動回復停止", disabled: "自動回復無効",
+};
+export function ollamaPlacementPart(record: HeartbeatRecord | undefined): HealthPart {
+  const name = "Ollama モデル配置";
+  const id = "ollama-placement";
+  const freshness = classifyHeartbeat(record);
+  if (freshness !== "ok") return { id, name, state: freshness,
+    ...(record?.lastError ? { lastError: record.lastError } : {}) };
+  const detail = record?.detail ?? {};
+  const percent = detail.gpuPercent;
+  if (detail.placement === "unloaded") return { id, name, state: "unknown", message: "モデル未ロード" };
+  if (detail.placement === "error") return { id, name, state: "stale", lastError: String(detail.lastResult ?? "配置取得失敗") };
+  if (typeof percent !== "number" || !Number.isFinite(percent) || percent < 0 || percent > 100
+      || !["mixed", "gpu"].includes(String(detail.placement))) return { id, name, state: "unknown" };
+  const recovery = RECOVERY_LABELS[String(detail.recovery)] ?? "回復状態不明";
+  const message = `CPU ${100 - percent}% / GPU ${percent}%（メモリ配置）・${recovery}`;
+  return { id, name, state: percent === 100 && detail.recovery !== "recovering" ? "ok" : "stale", message,
+    ...(record?.lastOkAt ? { lastOkAt: record.lastOkAt } : {}),
+    ...(Number(detail.failures) > 0 && typeof detail.lastResult === "string"
+      ? { lastError: detail.lastResult } : {}) };
+}
+
 let cached: HealthSnapshot | null = null;
 
 /** 直近のプローブ結果とハートビートから、ダッシュボードの状態を組み立てる。 */
@@ -569,7 +603,7 @@ export async function buildHealthSnapshot(): Promise<HealthSnapshot> {
       servicePart("Nagi AppView", get("nagi-appview"), get("jetstream-appview")),
       botReplyIndexPart(get("nagi-appview")),
     ]),
-    localLlm: tile([partFromProbe("Ollama", localLlmProbe)]),
+    localLlm: tile([partFromProbe("Ollama API", localLlmProbe), ollamaPlacementPart(get("ollama-placement"))]),
     webSearch: tile([partFromProbe("SearXNG", searxngProbe)]),
     storage: {
       ...tile([partFromProbe("Disk", diskProbe)]),
@@ -597,12 +631,7 @@ export function startHealthMonitor(): () => void {
     await buildHealthSnapshot();
   };
 
-  void runProbes().catch((e) => console.error("[ERROR][BIO][HEALTH] Initial probe failed:", e));
-
-  const timer = setInterval(() => {
-    void runProbes().catch((e) => console.error("[ERROR][BIO][HEALTH] Probe failed:", e));
-  }, PROBE_INTERVAL_MS);
+  const timer = startWorkerLoop({ name: "BIO_HEALTH", intervalMs: PROBE_INTERVAL_MS, immediate: true, tick: runProbes });
   timer.unref();
-
   return () => clearInterval(timer);
 }

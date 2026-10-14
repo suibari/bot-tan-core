@@ -1,0 +1,16 @@
+[Unit]
+Description=Ollama GPU placement monitor and conditional recovery
+After=network-online.target pi-postgres-tunnel.service
+Requires=pi-postgres-tunnel.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/suibari/work/bsky-affirmative-bot
+EnvironmentFile=%h/.config/ollama-recovery.env
+ExecStart=/usr/local/bin/pnpm exec tsx scripts/ollamaRecovery.mts
+Restart=on-failure
+RestartSec=30
+Environment=OLLAMA_RECOVERY_STATE_FILE=%h/.local/state/ollama-recovery/state.json
+
+[Install]
+WantedBy=default.target
