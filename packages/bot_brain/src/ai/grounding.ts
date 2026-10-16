@@ -679,6 +679,69 @@ export async function researchSelfHosted(input: {
 }
 
 /**
+ * 素材が調べる語について書かれているとみなす、語の断片の被覆率。
+ *
+ * 2026-10-16 に本番の知識カード30枚を読むと、9枚が語と無関係なページから作られていた
+ * （「ボドゲとかカードゲームそのもの」→アラバマの賃貸、「Nagi作品部」→成人向け映像の俳優）。
+ * SearXNG の yahoo / bing は日本語の語に崩れた結果を返すことがあり、要約器は
+ * 「資料には含まれていません」と書きつつカードを作り、それが記憶として保存されていた。
+ */
+const SUBJECT_COVERAGE_THRESHOLD = 0.6;
+const SUBJECT_STOPWORDS = new Set([
+  "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "i", "in", "is", "it",
+  "my", "of", "on", "or", "the", "to", "with",
+]);
+const CJK_CHARS = /[\p{sc=Han}\p{sc=Hiragana}\p{sc=Katakana}ー]/u;
+
+function normalizeForCoverage(text: string): string {
+  return text.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}ー]+/gu, " ").trim();
+}
+
+/** 英字は単語、かな漢字は2文字ずつ。語順や助詞が違っても断片で拾えるようにする。 */
+function subjectFragments(normalized: string): string[] {
+  const fragments: string[] = [];
+  for (const word of normalized.split(" ")) {
+    if (!word || SUBJECT_STOPWORDS.has(word)) continue;
+    if (!CJK_CHARS.test(word)) {
+      if (word.length >= 2) fragments.push(word);
+      continue;
+    }
+    const chars = [...word];
+    if (chars.length === 1) fragments.push(word);
+    for (let index = 0; index + 1 < chars.length; index++) {
+      fragments.push(chars[index] + chars[index + 1]);
+    }
+  }
+  return fragments;
+}
+
+/**
+ * 素材が語について書かれている度合い（0〜1）。語がそのまま出ていれば 1。
+ *
+ * 判定は要約の前に機械で行う。要約器に「関係ない資料は無視して」と頼んでも、
+ * 無関係な資料しか無いときは結局その資料でカードを書く（実測で148/1099枚）。
+ */
+export function subjectCoverage(subject: string, material: string): number {
+  const normalizedSubject = normalizeForCoverage(subject);
+  const normalizedMaterial = normalizeForCoverage(material);
+  if (!normalizedSubject || !normalizedMaterial) return 0;
+  const compactMaterial = normalizedMaterial.replace(/ /g, "");
+  if (compactMaterial.includes(normalizedSubject.replace(/ /g, ""))) return 1;
+
+  const fragments = subjectFragments(normalizedSubject);
+  if (!fragments.length) return 0;
+  const words = new Set(normalizedMaterial.split(" "));
+  const hits = fragments.filter((fragment) =>
+    CJK_CHARS.test(fragment) ? compactMaterial.includes(fragment) : words.has(fragment)
+  ).length;
+  return hits / fragments.length;
+}
+
+function isAboutSubject(subject: string, material: string): boolean {
+  return subjectCoverage(subject, material) >= SUBJECT_COVERAGE_THRESHOLD;
+}
+
+/**
  * 非同期の bot memory 専用調査。
  *
  * 上位5ページの本文を読み、ページ別メモではなく「この対象は何か」から始まる統合知識
@@ -697,7 +760,19 @@ export async function researchKnowledgeCardSelfHosted(subject: string): Promise<
   if (!sources.length && !infoboxes.length)
     throw new Error("Self-hosted knowledge-card research returned no material");
 
-  const corpus = packKnowledgeCardCorpus(normalizedSubject, sources, infoboxes);
+  const relevantSources = sources.filter((source) =>
+    isAboutSubject(normalizedSubject, `${source.title}\n${source.body}`)
+  );
+  const relevantInfoboxes = infoboxes.filter((box) => isAboutSubject(normalizedSubject, box));
+  console.log(
+    `[INFO][AI_GROUNDING] knowledge-card relevance subject=${JSON.stringify(normalizedSubject)}` +
+      ` sources=${relevantSources.length}/${sources.length}` +
+      ` infoboxes=${relevantInfoboxes.length}/${infoboxes.length}`,
+  );
+  if (!relevantSources.length && !relevantInfoboxes.length)
+    throw new Error("Self-hosted knowledge-card research found no material about the subject");
+
+  const corpus = packKnowledgeCardCorpus(normalizedSubject, relevantSources, relevantInfoboxes);
   if (!corpus) throw new Error("Self-hosted knowledge-card research produced an empty corpus");
 
   const response = await generateContentForProvider("ollama", {
@@ -721,7 +796,7 @@ export async function researchKnowledgeCardSelfHosted(subject: string): Promise<
   } catch (error) {
     throw new Error("Self-hosted knowledge-card summary was not valid JSON", { cause: error });
   }
-  const text = renderKnowledgeCard(parsed, sources);
+  const text = renderKnowledgeCard(parsed, relevantSources);
   if (!text) throw new Error("Self-hosted knowledge-card summary was empty");
   return text.slice(0, KNOWLEDGE_CARD_TEXT_LIMIT);
 }
