@@ -454,9 +454,9 @@ export async function reactAfterBotPost(kind: AutoReactionKind, subjectUri: stri
       );
       // Unicode には倒さない。使える絵文字が無ければ付けずに終える。
       if (!candidates.length) return await skip("no_custom_emoji");
-      const key = await chooseAutoReactionEmoji(subject.text, candidates);
-      const record = key
-        ? buildAutoReactionRecord({ uri: subjectUri, cid: subject.cid }, key, custom)
+      const choice = await chooseAutoReactionEmoji(subject.text, candidates);
+      const record = choice
+        ? buildAutoReactionRecord({ uri: subjectUri, cid: subject.cid }, choice.key, custom)
         : undefined;
       if (!record) return await skip("no_choice");
       // モデルが考えている数秒の間に誰かが先に反応していたら、そちらを最初の1件にする。
@@ -482,7 +482,12 @@ export async function reactAfterBotPost(kind: AutoReactionKind, subjectUri: stri
       });
       // Jetstream を待たずに AppView へ載せる。通知と push は ingest が作る。
       await ensureNagiBotRecordIndexed(created);
-      log("reacted", { subjectUri, kind, emoji: record.emoji });
+      log("reacted", {
+        subjectUri,
+        kind,
+        emoji: record.emoji,
+        sensitive: choice?.sensitive,
+      });
     } catch (error) {
       await setResult(subjectUri, {
         state: "failed",

@@ -13,8 +13,19 @@ const candidates = [
 ];
 
 test("候補にある値だけを受け付ける", () => {
-  assert.equal(parseAutoReactionEmoji('{"emoji":":yatta:"}', candidates), ":yatta:");
-  assert.equal(parseAutoReactionEmoji('{"emoji":" :otsukare: "}', candidates), ":otsukare:");
+  assert.deepEqual(parseAutoReactionEmoji('{"sensitive":false,"emoji":":yatta:"}', candidates), {
+    key: ":yatta:",
+    sensitive: false,
+  });
+  assert.deepEqual(parseAutoReactionEmoji('{"sensitive":true,"emoji":" :otsukare: "}', candidates), {
+    key: ":otsukare:",
+    sensitive: true,
+  });
+  // sensitive が欠けても emoji が候補内なら通す。
+  assert.deepEqual(parseAutoReactionEmoji('{"emoji":":yatta:"}', candidates), {
+    key: ":yatta:",
+    sensitive: false,
+  });
   for (const raw of ["", "not json", "null", '{"emoji":":other:"}', '{"emoji":1}', "{}"])
     assert.equal(parseAutoReactionEmoji(raw, candidates), null, raw);
 });
@@ -26,6 +37,13 @@ test("候補は指示側、投稿はいちばん後ろに置く", () => {
   assert.match(messages[0].content, /- :otsukare:$/m);
   assert.equal(messages.at(-1)!.role, "user");
   assert.match(messages.at(-1)!.content, /今日はケーキを焼いた\n<\/post>$/);
+});
+
+test("センシティブな話題では攻めた絵文字を選ばないよう指示する", () => {
+  const [system] = buildAutoReactionMessages("さっきの地震けっこう揺れた", candidates, 32_768);
+  assert.match(system.content, /地震/);
+  assert.match(system.content, /激熱/);
+  assert.match(system.content, /sensitive/);
 });
 
 test("空の本文・空の候補では Ollama を呼ばない", async () => {
@@ -48,18 +66,24 @@ test("num_ctx を送らず、temperature と num_predict と候補の enum を�
   let body: any;
   const fetchMock = mock.method(globalThis, "fetch", async (_input: any, init: any) => {
     body = JSON.parse(String(init.body));
-    return new Response(JSON.stringify({ message: { content: '{"emoji":":yatta:"}' } }), {
+    return new Response(JSON.stringify({ message: { content: '{"sensitive":false,"emoji":":yatta:"}' } }), {
       status: 200,
       headers: { "content-type": "application/json" },
     });
   });
   try {
-    assert.equal(await chooseAutoReactionEmoji("資格に合格した！", candidates), ":yatta:");
+    assert.deepEqual(await chooseAutoReactionEmoji("資格に合格した！", candidates), {
+      key: ":yatta:",
+      sensitive: false,
+    });
     assert.equal("num_ctx" in body.options, false);
     assert.equal(typeof body.options.temperature, "number");
     assert.ok(body.options.temperature > 0);
     assert.equal(typeof body.options.num_predict, "number");
     assert.deepEqual(body.format.properties.emoji.enum, [":yatta:", ":otsukare:"]);
+    // 判定を先に生成させるため、sensitive が emoji より前に来る。
+    assert.deepEqual(Object.keys(body.format.properties), ["sensitive", "emoji"]);
+    assert.deepEqual(body.format.required, ["sensitive", "emoji"]);
     assert.match(body.messages.at(-1).content, /資格に合格した！/);
   } finally {
     fetchMock.mock.restore();
