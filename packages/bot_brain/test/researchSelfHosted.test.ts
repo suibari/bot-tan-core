@@ -3,6 +3,7 @@ import { mock, test } from "node:test";
 import {
   researchKnowledgeCardSelfHosted,
   researchSelfHosted,
+  subjectCoverage,
 } from "../src/ai/grounding.js";
 import { MemoryService } from "@bsky-affirmative-bot/database";
 
@@ -252,7 +253,7 @@ test("非同期メモリー調査は上位5ページを読み統合知識カー�
   stubFetch({
     search: { results, infoboxes: [] },
     page: {
-      body: (url) => `<html><body><main><p>${url.split("-").at(-1)}番目の本文情報</p></main></body></html>`,
+      body: (url) => `<html><body><main><p>対象Aの${url.split("-").at(-1)}番目の本文情報</p></main></body></html>`,
     },
     summary: {
       overview: "対象Aは、複数の資料で説明されている作品です。",
@@ -284,4 +285,69 @@ test("非同期メモリー調査は上位5ページを読み統合知識カー�
   assert.match(research, /位置づけ\n資料を横断すると/);
   assert.match(research, /source-1/);
   assert.doesNotMatch(research, /hallucinated\.example/);
+});
+
+test("知識カードは語と無関係なページを素材から外す", async () => {
+  let prompt = "";
+  stubFetch({
+    search: {
+      results: [
+        { url: "https://93.184.216.34/apartment", title: "Summer Place Apartments", content: "賃貸" },
+        { url: "https://93.184.216.34/nuikatsu", title: "ぬい活とは", content: "ぬい活の説明" },
+      ],
+      infoboxes: [],
+    },
+    page: {
+      body: (url) => url.endsWith("apartment")
+        ? "<html><body><main><p>Summer Place Apartments in Huntsville, Alabama.</p></main></body></html>"
+        : "<html><body><main><p>ぬい活はぬいぐるみと過ごす活動のこと。</p></main></body></html>",
+    },
+    summary: {
+      overview: "ぬい活は、ぬいぐるみと過ごす活動です。",
+      sections: [{
+        heading: "概要",
+        detail: "ぬいぐるみと出かける。",
+        sources: ["https://93.184.216.34/apartment", "https://93.184.216.34/nuikatsu"],
+      }],
+    },
+    onSummaryPrompt: (value) => {
+      prompt = value;
+    },
+  });
+
+  const research = await researchKnowledgeCardSelfHosted("ぬい活");
+
+  assert.match(prompt, /ぬいぐるみと過ごす活動/);
+  assert.doesNotMatch(prompt, /Huntsville/);
+  assert.doesNotMatch(research, /apartment/, "外した素材は出典にも載せない");
+});
+
+test("知識カードは語に関係する素材が無ければ要約せずthrowする", async () => {
+  let summarized = false;
+  stubFetch({
+    search: {
+      results: [{ url: "https://93.184.216.34/apartment", title: "Summer Place Apartments", content: "Floor plans" }],
+      infoboxes: [],
+    },
+    page: { body: "<html><body><main><p>Summer Place Apartments in Huntsville, Alabama.</p></main></body></html>" },
+    onSummaryPrompt: () => {
+      summarized = true;
+    },
+  });
+
+  await assert.rejects(
+    researchKnowledgeCardSelfHosted("ボドゲとかカードゲームそのもの"),
+    /no material about the subject/,
+  );
+  assert.equal(summarized, false, "無関係な素材で Ollama を呼ばない");
+});
+
+test("subjectCoverage は表記ゆれを吸収し、無関係な文章を低く見る", () => {
+  assert.equal(subjectCoverage("Seed Freedom", "機動戦士ガンダムSEED FREEDOM"), 1);
+  assert.equal(subjectCoverage("ボーボボ展", "ボボボーボ・ボーボボ展 DIVE INTO"), 1);
+  assert.equal(subjectCoverage("ＧＸ", "GXとはグリーン・トランスフォーメーション"), 1);
+  assert.ok(subjectCoverage("瑞鶴に集中したい", "瑞鶴は翔鶴型航空母艦。瑞鶴に集中した艦載機") >= 0.6);
+  assert.ok(subjectCoverage("polling data", "Privacy policy: we collect personal data.") < 0.6);
+  assert.ok(subjectCoverage("something crazy in a park", "Parks offer picnics and hiking.") < 0.6);
+  assert.equal(subjectCoverage("Nagi作品部", "Where to go in summer: travel ideas"), 0);
 });
