@@ -79,10 +79,10 @@ test("引用には動画を付けられ、画像と併用もできる", () => {
   );
 });
 
-test("ビューは video.bsky.app の HLS とサムネイルを指す", () => {
+test("ビューは AppView の動画配信口を指す（video.bsky.app から消えても再生できる）", () => {
   assert.deepEqual(postVideoView(DID, video({ contentWarning: true })), {
-    playlist: `https://video.bsky.app/watch/did%3Aplc%3Aauthor/${CID}/playlist.m3u8`,
-    thumbnail: `https://video.bsky.app/watch/did%3Aplc%3Aauthor/${CID}/thumbnail.jpg`,
+    playlist: `https://nagi-api.suibari.com/api/video/did%3Aplc%3Aauthor/${CID}/playlist.m3u8`,
+    thumbnail: `https://nagi-api.suibari.com/api/video/did%3Aplc%3Aauthor/${CID}/thumbnail.jpg`,
     alt: "猫が走る",
     contentWarning: true,
     aspectRatio: { width: 16, height: 9 },
@@ -95,7 +95,7 @@ test("モデレーションには動画のサムネイルと alt を渡す", () 
   const direct = moderationSubject(NAGI.post, post({ $type: `${NAGI.post}#video`, ...video() }), DID)!;
   assert.deepEqual(direct.texts, ["見て", "猫が走る"]);
   assert.deepEqual(direct.imageUrls, [
-    `https://video.bsky.app/watch/did%3Aplc%3Aauthor/${CID}/thumbnail.jpg`,
+    `https://nagi-api.suibari.com/api/video/did%3Aplc%3Aauthor/${CID}/thumbnail.jpg`,
   ]);
   const quoted = moderationSubject(
     NAGI.post,
@@ -146,5 +146,5 @@ test("モデレーションは #gallery の画像と動画の両方を見る", (
   const subject = moderationSubject(NAGI.post, gallery([galleryImage, galleryVideo()]), DID)!;
   assert.deepEqual(subject.texts, ["見て", "", "猫が走る"].filter(Boolean));
   assert.equal(subject.imageUrls.length, 2);
-  assert.equal(subject.imageUrls[1], `https://video.bsky.app/watch/did%3Aplc%3Aauthor/${CID}/thumbnail.jpg`);
+  assert.equal(subject.imageUrls[1], `https://nagi-api.suibari.com/api/video/did%3Aplc%3Aauthor/${CID}/thumbnail.jpg`);
 });

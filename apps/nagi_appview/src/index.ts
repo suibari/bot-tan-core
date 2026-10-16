@@ -12,6 +12,7 @@ import { internal } from "./routes/internal.js";
 import { wellKnownDid } from "./routes/wellKnownDid.js";
 import { passportJwks } from "./routes/passportJwks.js";
 import { getBlob } from "./routes/blob.js";
+import { getVideo } from "./routes/video.js";
 import { getEmojiAsset } from "./routes/emojiAsset.js";
 import { emojiAssetNoStoreHeaders } from "./util/emojiAssetHeaders.js";
 import { errorHandler, notFound } from "./middleware/errors.js";
@@ -93,6 +94,17 @@ app.get(
     legacyHeaders: false,
   }),
   getBlob,
+);
+// プレイリスト1回とセグメント数本で1再生。タイムラインのサムネイルもここを通る。
+app.get(
+  "/api/video/:did/:cid/:file",
+  rateLimit({
+    windowMs: 60_000,
+    limit: 300,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+  }),
+  getVideo,
 );
 app.get(
   "/api/emoji-asset/:did/:rkey/:cid",

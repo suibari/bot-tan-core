@@ -258,6 +258,20 @@ bot の返信が52分表示されなかった。イベントの `time_us` は配
 両方が積む。積むかどうかの判定は `decideNagiReplyJob`（bot-runtime）の1か所に置き、
 片方だけ条件を変えないこと。
 
+## Nagi の動画配信
+
+**Nagi の投稿の動画は、AppView の `/api/video/:did/:cid/*`（`routes/video.ts`）経由で配信する。**
+ビューの `playlist` / `thumbnail` に video.bsky.app の URL を直接入れてはいけない。
+
+video.bsky.app は、Bluesky の投稿（`app.bsky.feed.post`）から参照されていない動画の変換結果を
+数日で消す。2026-10-16 時点で Nagi の動画13件のうち、Nagi にだけ載せた2件が 404 になっていた
+（同じ blob を Bluesky にも載せた動画は残っていた）。PDS の mp4 は Nagi のレコードが参照して
+いるので残る。
+
+`/api/video` は video.bsky.app にまだあれば 302 で回し、消えていれば PDS の mp4 から
+fMP4 の HLS（`-c copy`、再エンコードなし）とサムネイルを作って返す（`services/videoFallback.ts`）。
+置き場所は `NAGI_VIDEO_CACHE_DIR`（既定は tmp）。消えても次の再生で作り直すだけ。
+
 ## 本番環境への接続
 
 本番は `ssh 192.168.1.200` で確認できる（2026-09-24 ユーザー指定）。
