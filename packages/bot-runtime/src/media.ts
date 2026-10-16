@@ -111,6 +111,7 @@ export type BlobVideo = {
 /**
  * 動画はモデルへ渡せないので、video.bsky.app のサムネイルを1枚の画像として扱う。
  * Nagi の動画は uploadVideo を通って変換済みなので、PDS ではなくこちらから取る。
+ * Bluesky から参照されていない動画は数日で消えるが、返信の文脈は投稿直後に作るので足りる。
  */
 export function blobVideoToImageRefs(
   did: string,

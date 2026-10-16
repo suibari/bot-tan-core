@@ -4,7 +4,8 @@ import {
   isAppviewOwnedUri,
   nagiPostMedia,
 } from "@bsky-affirmative-bot/nagi-lexicon";
-import { blueskyVideoUrls } from "@bsky-affirmative-bot/shared-configs/blueskyVideo";
+import { appviewPublicUrl as publicUrl } from "../../util/publicUrl.js";
+import { nagiVideoUrls } from "../../queries/postVideo.js";
 import type { ModerationInput } from "./openai.js";
 
 /**
@@ -24,27 +25,6 @@ export const MODERATED_COLLECTIONS = [
   BLUEMOJI_ITEM,
 ] as string[];
 
-/**
- * OpenAI が画像を取りに来る先。config を import すると必須 env の検証が走って
- * このモジュール単体を読めなくなるので、ここでは遅延して env から解決する
- * （導出規則は config.publicUrl と同じ）。
- */
-let cachedPublicUrl: string | undefined;
-function publicUrl(): string {
-  if (cachedPublicUrl) return cachedPublicUrl;
-  const override = process.env.NAGI_APPVIEW_PUBLIC_URL;
-  if (override) return (cachedPublicUrl = override.replace(/\/$/, ""));
-  const appviewDid =
-    process.env.NAGI_APPVIEW_DID ?? "did:web:nagi-api.suibari.com";
-  if (!appviewDid.startsWith("did:web:"))
-    throw new Error(
-      "NAGI_APPVIEW_PUBLIC_URL is required when NAGI_APPVIEW_DID is not a did:web",
-    );
-  return (cachedPublicUrl = `https://${decodeURIComponent(
-    appviewDid.slice("did:web:".length),
-  )}`);
-}
-
 const text = (value: unknown): string[] =>
   typeof value === "string" && value.trim() ? [value] : [];
 
@@ -55,13 +35,13 @@ const blobUrl = (did: string, cid: unknown): string[] =>
     : [];
 
 /**
- * 動画は中身を送れないので、video.bsky.app のサムネイルを画像1枚として判定する。
- * AppView は動画を中継しないため、ここだけは第三者の配信先になる。
+ * 動画は中身を送れないので、サムネイルを画像1枚として判定する。
+ * video.bsky.app から消えた動画も、AppView が PDS の mp4 から作り直して返す。
  */
 const videoThumbnailUrl = (did: string, video: any): string[] => {
   const cid = video?.video?.ref?.$link;
   return typeof cid === "string" && cid
-    ? [blueskyVideoUrls(did, cid).thumbnail]
+    ? [nagiVideoUrls(did, cid).thumbnail]
     : [];
 };
 

@@ -1,3 +1,5 @@
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   aiModel,
   discordBotInternalUrl,
@@ -200,6 +202,10 @@ export const config = {
   // 127.0.0.1 に束縛して OS にアクセス制御させるので、共有シークレットは持たない。
   internalPort: integer("NAGI_APPVIEW_INTERNAL_PORT", 3004, 1, 65_535),
   publicUrl: publicUrl(),
+  // video.bsky.app から消えた動画を PDS の mp4 から作り直した HLS の置き場所。
+  // 消えても次の再生で作り直すだけなので、tmp でよい。
+  videoCacheDir:
+    process.env.NAGI_VIDEO_CACHE_DIR || join(tmpdir(), "nagi-appview-video"),
   moderation: moderationConfig(),
   clientOrigins: parseClientOrigins(
     required("NAGI_CLIENT_ORIGIN", "http://localhost:5173"),
