@@ -19,7 +19,7 @@ const PDS_BLOB = `https://pds.example/xrpc/com.atproto.sync.getBlob?did=did%3Apl
 
 type Setup = {
   upstreamStatus?: number;
-  blob?: { status?: number; type?: string; body?: Uint8Array };
+  blob?: { status?: number; type?: string; body?: Uint8Array | ReadableStream<Uint8Array> };
   postExists?: boolean;
   runFfmpeg?: (args: string[], cwd: string) => Promise<void>;
 };
@@ -104,6 +104,33 @@ test("video.bsky.app から消えた動画は、PDS の mp4 から HLS とサム
   assert.equal((await env.fallback.resolve(DID, CID, "seg000.m4s")).kind, "local");
   assert.equal(env.requests.length, requestsBefore, "手元にあれば video.bsky.app を見に行かない");
   assert.equal(env.ffmpegRuns(), 2);
+});
+
+test("PDS の動画は300MB まで取得でき、1バイトでも超えたら処理せず片付ける", async () => {
+  for (const size of [100_000_001, 300_000_000, 300_000_001]) {
+    let remaining = size;
+    const chunk = new Uint8Array(1_000_000);
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (remaining === 0) return controller.close();
+        const length = Math.min(remaining, chunk.length);
+        controller.enqueue(chunk.subarray(0, length));
+        remaining -= length;
+      },
+    });
+    await using env = await setup({ blob: { body } });
+    if (size <= 300_000_000) {
+      assert.equal((await env.fallback.resolve(DID, CID, "playlist.m3u8")).kind, "local");
+      assert.equal(env.ffmpegRuns(), 2);
+    } else {
+      await assert.rejects(
+        env.fallback.resolve(DID, CID, "playlist.m3u8"),
+        (error) => error instanceof VideoUnavailableError && error.status === 404,
+      );
+      assert.equal(env.ffmpegRuns(), 0);
+      assert.deepEqual(await readdir(join(env.cacheDir, encodeURIComponent(DID))), []);
+    }
+  }
 });
 
 test("同時に来たリクエストでも、作るのは1回だけ", async () => {

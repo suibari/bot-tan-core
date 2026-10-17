@@ -59,7 +59,7 @@ const video = (value: any) =>
   value.video.mimeType === "video/mp4" &&
   Number.isInteger(value.video.size) &&
   value.video.size >= 0 &&
-  value.video.size <= 100_000_000 &&
+  value.video.size <= 300_000_000 &&
   (value.alt === undefined ||
     (typeof value.alt === "string" &&
       graphemes(value.alt) <= 1000 &&

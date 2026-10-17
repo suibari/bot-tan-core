@@ -42,10 +42,23 @@ test("#video の投稿を受け付ける", () => {
   );
 });
 
-test("mp4 以外・100MB 超・壊れた aspectRatio の動画は捨てる", () => {
+test("100MB を超える動画も300MB まで全ての embed で受け付ける", () => {
+  for (const size of [100_000_001, 300_000_000, 300_000_001]) {
+    const attachment = video({ video: blob({ size }) });
+    for (const embed of [
+      { $type: `${NAGI.post}#video`, ...attachment },
+      { $type: `${NAGI.post}#quote`, record: quoteRef, video: attachment },
+      { $type: `${NAGI.post}#gallery`, items: [{ $type: `${NAGI.post}#video`, ...attachment }] },
+    ]) {
+      assert.equal(validateRecord(NAGI.post, post(embed)), size <= 300_000_000);
+    }
+  }
+});
+
+test("mp4 以外・300MB 超・壊れた aspectRatio の動画は捨てる", () => {
   for (const bad of [
     video({ video: blob({ mimeType: "video/webm" }) }),
-    video({ video: blob({ size: 100_000_001 }) }),
+    video({ video: blob({ size: 300_000_001 }) }),
     video({ aspectRatio: { width: 0, height: 9 } }),
     video({ alt: 1 }),
   ])
