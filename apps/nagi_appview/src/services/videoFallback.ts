@@ -19,7 +19,7 @@ import { blueskyVideoUrls } from "@bsky-affirmative-bot/shared-configs/blueskyVi
  */
 
 /** app.bsky.embed.video と Nagi の lexicon の上限に揃える。 */
-export const MAX_VIDEO_BYTES = 100_000_000;
+export const MAX_VIDEO_BYTES = 300_000_000;
 const DOWNLOAD_TIMEOUT_MS = 120_000;
 const FFMPEG_TIMEOUT_MS = 120_000;
 const UPSTREAM_CHECK_TIMEOUT_MS = 5_000;

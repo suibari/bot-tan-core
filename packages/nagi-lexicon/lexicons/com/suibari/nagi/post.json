@@ -95,7 +95,7 @@
         "video": {
           "type": "blob",
           "accept": ["video/mp4"],
-          "maxSize": 100000000
+          "maxSize": 300000000
         },
         "alt": { "type": "string", "maxGraphemes": 1000, "maxLength": 10000 },
         "contentWarning": { "type": "boolean" },
