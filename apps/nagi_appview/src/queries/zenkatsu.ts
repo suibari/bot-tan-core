@@ -14,6 +14,7 @@ import {
 import {
   buildZenkatsuReading,
   cardDrawDate,
+  COMBO_DEFS,
   COMBO_TOTAL,
   dayIndexOfDateKey,
   getComboDef,
@@ -39,6 +40,7 @@ import type {
   ActorView,
   CardView,
   NagiZenkatsu,
+  ZenkatsuComboHint,
   ZenkatsuComboView,
   ZenkatsuDeckView,
   ZenkatsuFeed,
@@ -761,9 +763,9 @@ export function previousThemeDate(now: Date = new Date()): string {
 /**
  * レコード。**自分が成立させたことのあるコンボ**と、6種類のトロフィー。
  *
- * コンボは隠し要素なので、**まだ出していないコンボの中身は返さない**。総数だけ返して
- * 「26種のうち3種」と出せるようにする。未発見のぶんを名前入りで並べると、
- * 発見の楽しみをこちらから奪ってしまう。
+ * コンボは隠し要素なので、**まだ出していないコンボの中身は返さない**。総数と伏せ札
+ * （枚数・世界で発見済みか・発見済みなら謎かけ）だけ返して「26種のうち3種」と出せるようにする。
+ * 未発見のぶんを名前入りで並べると、発見の楽しみをこちらから奪ってしまう。
  *
  * 成立履歴は zenkatsu_submissions.combos に入っているので、専用テーブルは要らない。
  */
@@ -847,7 +849,37 @@ export async function getZenkatsuDeck(did: string): Promise<ZenkatsuDeckView> {
     };
   });
 
-  return { comboTotal: COMBO_TOTAL, combos, trophies };
+  const hints = buildComboHints(
+    new Set(firstPlayed.keys()),
+    new Set(pioneerByKey.keys()),
+  );
+
+  return { comboTotal: COMBO_TOTAL, combos, hints, trophies };
+}
+
+/**
+ * まだ出していないコンボの伏せ札。図鑑番号順。
+ *
+ * 謎かけは**世界で誰かが見つけたあと**にだけ渡す。誰も見つけていないうちに送ると、
+ * 通信を覗けば誰でも先回りできてしまう。キーはどちらも `volume:id`。
+ */
+export function buildComboHints(
+  played: ReadonlySet<string>,
+  discoveredKeys: ReadonlySet<string>,
+  defs: readonly ComboDefinition[] = COMBO_DEFS,
+): ZenkatsuComboHint[] {
+  return defs
+    .filter((def) => !played.has(`${def.volume}:${def.id}`))
+    .map((def) => {
+      const discovered = discoveredKeys.has(`${def.volume}:${def.id}`);
+      return {
+        volume: def.volume,
+        id: def.id,
+        size: def.members.length,
+        discovered,
+        ...(discovered ? { hintJa: def.hintJa, hintEn: def.hintEn } : {}),
+      };
+    });
 }
 
 /**

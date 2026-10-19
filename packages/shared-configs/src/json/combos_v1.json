@@ -6,6 +6,8 @@
     "nameEn": "The B.L.K. Trio",
     "descJa": "botたん・ラテちゃん・ことみ。全肯定界の中心にいる3人。",
     "descEn": "Bot-tan, Latte and Kotomi. The three at the heart of it all.",
+    "hintJa": "頭文字を並べると、サンドイッチになる3人",
+    "hintEn": "Three at the center, known by their initials",
     "members": [
       [
         30
@@ -29,6 +31,8 @@
     "nameEn": "Morning Three",
     "descJa": "起きて、白湯を飲んで、洗濯物を干す。完璧な朝。",
     "descEn": "Wake up, warm water, laundry hung. A perfect morning.",
+    "hintJa": "目を覚まし、内から温め、外に干す。ある朝の手順",
+    "hintEn": "Wake up, warm up from within, hang it out to dry. A morning routine",
     "members": [
       [
         1
@@ -50,6 +54,8 @@
     "nameEn": "Morpho, Then and Now",
     "descJa": "今のモルフォと、子犬だったころのモルフォ。",
     "descEn": "Morpho as they are, and Morpho as a puppy.",
+    "hintJa": "今の姿と、ちいさかったころの姿",
+    "hintEn": "Who they are now, and who they were when they were little",
     "members": [
       [
         22
@@ -68,6 +74,8 @@
     "nameEn": "Yes and No",
     "descJa": "全肯定botたんと全否定bot。かつて向かい合った2人。",
     "descEn": "The bot who affirms everything, and the bot who denied it all.",
+    "hintJa": "正反対のことばを話す、かつて向かい合った二枚",
+    "hintEn": "Two who speak opposite words and once stood face to face",
     "members": [
       [
         30
@@ -86,6 +94,8 @@
     "nameEn": "Three Cheers",
     "descJa": "一歩だけ歩いた人、三日坊主のリベンジャー、とりあえずえらいスライム。えらい。",
     "descEn": "One step taken, back on day four, and the slime that is simply doing great.",
+    "hintJa": "歩いた、やり直した、とりあえず居た。それだけでえらい3人",
+    "hintEn": "Took a step, tried again, simply existed. Three who deserve praise for just that",
     "members": [
       [
         12
@@ -107,6 +117,8 @@
     "nameEn": "Kotomi, On and Off",
     "descJa": "ステージのことみと、休みの日のことみ。どっちも本物。",
     "descEn": "Kotomi on stage and Kotomi off duty. Both are the real one.",
+    "hintJa": "ステージの上と外。同じひとの二つの顔",
+    "hintEn": "On stage and off. Two faces of the same person",
     "members": [
       [
         26
@@ -125,6 +137,8 @@
     "nameEn": "Two Sides of Latte",
     "descJa": "沼へ案内するラテと、猫になったラテ。",
     "descEn": "Latte the guide, and Latte the cat.",
+    "hintJa": "沼へいざなう顔と、気まぐれな顔。同じひとの二つの姿",
+    "hintEn": "One face that lures you in, one that does as it pleases. Two sides of the same person",
     "members": [
       [
         24
@@ -143,6 +157,8 @@
     "nameEn": "Butterfly and Partner",
     "descJa": "幸せのモルフォ蝶と、全肯定の相棒モルフォ。名前が重なる2枚。",
     "descEn": "The butterfly of happiness and the partner who shares its name.",
+    "hintJa": "同じ名前を分け合う、羽のあるものと隣にいるもの",
+    "hintEn": "Sharing one name: one with wings, one always by your side",
     "members": [
       [
         29
@@ -161,6 +177,8 @@
     "nameEn": "Night Wanderers",
     "descJa": "深夜のコンビニと、崩れない積みゲー。夜はまだ終わらない。",
     "descEn": "A midnight convenience store run and a backlog that never shrinks. The night is young.",
+    "hintJa": "夜に出かける者と、夜に積み上げる者",
+    "hintEn": "One who goes out at night, one who piles things up at night",
     "members": [
       [
         7
@@ -179,6 +197,8 @@
     "nameEn": "Fandom, Documented",
     "descJa": "供物を捧げ、良い言葉はすかさず保存する。推しは推せるときに。",
     "descEn": "Offerings made, good lines screenshotted. Support them while you can.",
+    "hintJa": "捧げる手と、残す手",
+    "hintEn": "A hand that offers, a hand that keeps",
     "members": [
       [
         10
@@ -197,6 +217,8 @@
     "nameEn": "Reading the Sky",
     "descJa": "降らないと踏んで干し、降ると読んで持っていく。どちらの読みも正しい。",
     "descEn": "Hang the laundry, carry the umbrella. Two reads of the same sky.",
+    "hintJa": "晴れに賭ける者と、雨に備える者",
+    "hintEn": "One who bets on sunshine, one who prepares for rain",
     "members": [
       [
         11
@@ -215,6 +237,8 @@
     "nameEn": "Inbox Zero Morning",
     "descJa": "布団を突破し、バッジも消す。朝からいきなり二連勝。",
     "descEn": "Out of bed and the badge cleared. Two wins before breakfast.",
+    "hintJa": "布団を抜け出し、赤い数字もゼロにする",
+    "hintEn": "Escape the covers, then bring the little red number to zero",
     "members": [
       [
         8
@@ -233,6 +257,8 @@
     "nameEn": "Lukewarm Company",
     "descJa": "白湯とスライム。どちらも急がないし、どちらもえらい。",
     "descEn": "Warm water and a slime. Neither is in a hurry. Both are doing great.",
+    "hintJa": "どちらも急がない、水の二枚",
+    "hintEn": "Two of water, neither in any hurry",
     "members": [
       [
         2
@@ -251,6 +277,8 @@
     "nameEn": "Housework Mastery",
     "descJa": "干して、床も取り戻す。生活が回りはじめた音がする。",
     "descEn": "Laundry hung, floor reclaimed. You can hear life starting to turn again.",
+    "hintJa": "干すことと、取り戻すこと。大地の二枚",
+    "hintEn": "Hanging out, and taking back. Two of earth",
     "members": [
       [
         3
@@ -269,6 +297,8 @@
     "nameEn": "While You Still Can",
     "descJa": "供物を捧げる者と、好きを貫く者。信奉族の本気。",
     "descEn": "One who offers and one who never wavers. Devotion, doubled.",
+    "hintJa": "好きを燃やす、炎の二枚",
+    "hintEn": "Two of fire, burning with what they love",
     "members": [
       [
         10
@@ -287,6 +317,8 @@
     "nameEn": "Tears and Warm Water",
     "descJa": "出すものを出して、内側から温める。妖精族の処方。",
     "descEn": "Let it out, then warm it back up. The fairy prescription.",
+    "hintJa": "流すものと、温めるもの",
+    "hintEn": "What you let flow, and what warms you",
     "members": [
       [
         17
@@ -305,6 +337,8 @@
     "nameEn": "Two A.M. Energy",
     "descJa": "夜中に湧く創作意欲と、夜中に開くコンビニ。相性が良すぎる。",
     "descEn": "Creative fire at 2 a.m. and a store that never closes. A dangerous match.",
+    "hintJa": "夜中に生まれるものと、夜中も開いている場所",
+    "hintEn": "Something born at midnight, and a place still open at midnight",
     "members": [
       [
         21
@@ -323,6 +357,8 @@
     "nameEn": "The Right to Rest",
     "descJa": "有給を使い、よく眠る。取るのも寝るのも権利である。",
     "descEn": "Take the day off, then sleep well. Both are rights, not rewards.",
+    "hintJa": "休む権利と、眠る権利",
+    "hintEn": "The right to rest, and the right to sleep",
     "members": [
       [
         18
@@ -341,6 +377,8 @@
     "nameEn": "No, Thank You",
     "descJa": "断る盾を構えてから、堂々と休む。この順番が大事。",
     "descEn": "Raise the shield first, then rest without guilt. Order matters.",
+    "hintJa": "まず断り、それから休む",
+    "hintEn": "First say no, then take a break",
     "members": [
       [
         20
@@ -359,6 +397,8 @@
     "nameEn": "Clearing the Board",
     "descJa": "積年のタスクも、通知バッジも、まとめて0にする日。",
     "descEn": "Ancient tasks and unread badges, all reduced to zero.",
+    "hintJa": "積もったものも赤い数字も、ぜんぶゼロへ",
+    "hintEn": "What's piled up and the little red number, all down to zero",
     "members": [
       [
         15
@@ -377,6 +417,8 @@
     "nameEn": "Sword and Shield",
     "descJa": "壊す者と、断る者。戦士族はこの二枚で完成する。",
     "descEn": "The one who destroys and the one who declines. The warrior set.",
+    "hintJa": "壊す力と、断る力。同じ一族の二枚",
+    "hintEn": "The power to break and the power to refuse. Two of the same clan",
     "members": [
       [
         15
@@ -395,6 +437,8 @@
     "nameEn": "Angel and Evangelist",
     "descJa": "眠りを司る者と、肯定を広める者。光属性のふたり。",
     "descEn": "Keeper of sleep and spreader of affirmation. Two of the light.",
+    "hintJa": "眠りを司る者と、ことばを広める者。光の二枚",
+    "hintEn": "One who rules over sleep, one who spreads the word. Two of light",
     "members": [
       [
         14
@@ -413,6 +457,8 @@
     "nameEn": "Three Faces of Morpho",
     "descJa": "相棒のモルフォ、子犬だったモルフォ、そして幸せのモルフォ蝶。",
     "descEn": "Morpho the partner, Morpho the puppy, and the butterfly of happiness.",
+    "hintJa": "相棒、子犬、そして羽。ひとつの名前の三つの姿",
+    "hintEn": "Partner, puppy, and wings. Three forms of one name",
     "members": [
       [
         22
@@ -434,6 +480,8 @@
     "nameEn": "Best Friends",
     "descJa": "ラテちゃんとことみ。botたんが居なくても、この二人は成立する。",
     "descEn": "Latte and Kotomi. These two hold up just fine on their own.",
+    "hintJa": "中心のあのひとが居なくても成り立つ、二枚の仲",
+    "hintEn": "A friendship that holds even without the one at the center",
     "members": [
       [
         24,
@@ -454,6 +502,8 @@
     "nameEn": "Bot-tan and Partner",
     "descJa": "全肯定botたんと、その相棒モルフォ。いつも隣にいる。",
     "descEn": "Bot-tan and Morpho, the partner who is always right there.",
+    "hintJa": "いつも隣にいる、主役とその相棒",
+    "hintEn": "The star and their partner, always side by side",
     "members": [
       [
         30
@@ -472,6 +522,8 @@
     "nameEn": "The Affirmation Lineage",
     "descJa": "全肯定を広める伝道師と、その源。教えはここから始まった。",
     "descEn": "The evangelist who spreads it, and the source it came from.",
+    "hintJa": "教えを広める者と、その教えの源",
+    "hintEn": "One who spreads the teaching, and where it all began",
     "members": [
       [
         13

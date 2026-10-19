@@ -245,3 +245,28 @@ test("開発用の全札から未所持のBLTトリオを提出してコンボ�
   assert.equal(d.ok, true);
   if (d.ok) assert.ok(d.combos.some(c => c.nameJa === "BLTトリオ"));
 });
+
+test("レコードの伏せ札は、世界で見つかったコンボにだけ謎かけを添える", async () => {
+  const { COMBO_DEFS } = await import("@bsky-affirmative-bot/shared-configs");
+  const { buildComboHints } = await import("../src/queries/zenkatsu.js");
+  // 1 は自分が出した（＝自分が世界初）、2 は誰かが見つけた、3 以降は誰も見つけていない。
+  const hints = buildComboHints(new Set(["1:1"]), new Set(["1:1", "1:2"]));
+
+  assert.equal(hints.length, COMBO_DEFS.length - 1);
+  assert.ok(!hints.some((h) => h.id === 1));
+  assert.deepEqual(
+    hints.map((h) => h.id),
+    COMBO_DEFS.filter((d) => d.id !== 1).map((d) => d.id),
+  );
+
+  const found = hints.find((h) => h.id === 2)!;
+  assert.equal(found.discovered, true);
+  assert.equal(found.size, COMBO_DEFS[1].members.length);
+  assert.equal(found.hintJa, COMBO_DEFS[1].hintJa);
+  assert.equal(found.hintEn, COMBO_DEFS[1].hintEn);
+
+  const unseen = hints.find((h) => h.id === 3)!;
+  assert.equal(unseen.discovered, false);
+  assert.equal(unseen.size, COMBO_DEFS[2].members.length);
+  assert.ok(!("hintJa" in unseen) && !("hintEn" in unseen));
+});

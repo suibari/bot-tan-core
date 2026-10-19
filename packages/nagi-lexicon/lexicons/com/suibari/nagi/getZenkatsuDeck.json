@@ -4,12 +4,12 @@
   "defs": {
     "main": {
       "type": "query",
-      "description": "レコード。自分がこれまでに成立させたコンボと、6種類のトロフィーの受賞履歴を返す。コンボは隠し要素なので、**まだ出していないコンボの中身は返さない**（総数だけ返す）。要認証。",
+      "description": "レコード。自分がこれまでに成立させたコンボと、6種類のトロフィーの受賞履歴を返す。コンボは隠し要素なので、**まだ出していないコンボの中身は返さない**（総数と、枚数・世界で発見済みかどうか・発見済みなら謎かけだけを返す）。要認証。",
       "output": {
         "encoding": "application/json",
         "schema": {
           "type": "object",
-          "required": ["comboTotal", "combos", "trophies"],
+          "required": ["comboTotal", "combos", "hints", "trophies"],
           "properties": {
             "comboTotal": {
               "type": "integer",
@@ -19,6 +19,11 @@
               "type": "array",
               "items": { "type": "unknown" },
               "description": "自分が成立させたことのあるコンボ。初めて出した日の古い順。"
+            },
+            "hints": {
+              "type": "array",
+              "items": { "type": "unknown" },
+              "description": "自分がまだ出していないコンボの伏せ札。図鑑番号順。必要な枚数と、世界で誰かが見つけているかを返し、見つけられていれば謎かけも添える。"
             },
             "trophies": {
               "type": "array",

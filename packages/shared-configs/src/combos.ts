@@ -20,6 +20,12 @@ export interface ComboDefinition {
   descJa: string;
   descEn: string;
   /**
+   * レコードに伏せ札で出すときの謎かけ。**世界で誰かが見つけたあと**にだけ見せる。
+   * 名前や説明ほど直接は言わず、組み合わせの見当がつく程度にとどめる。
+   */
+  hintJa: string;
+  hintEn: string;
+  /**
    * スロットごとの「使える札」の候補（cards_v{volume}.json の id）。
    *
    * 1スロットに複数を許すのは、同じキャラの別バージョン（ラテ2種・ことみ2種）を
@@ -57,7 +63,14 @@ function assertComboDefs(defs: ComboDefinition[]): ComboDefinition[] {
       throw new Error(`combos: a card appears in more than one slot (${key})`);
     if (!(combo.bonus > 1))
       throw new Error(`combos: bonus must be greater than 1 (${key})`);
-    for (const field of ["nameJa", "nameEn", "descJa", "descEn"] as const)
+    for (const field of [
+      "nameJa",
+      "nameEn",
+      "descJa",
+      "descEn",
+      "hintJa",
+      "hintEn",
+    ] as const)
       if (!combo[field]?.trim())
         throw new Error(`combos: empty ${field} (${key})`);
   });

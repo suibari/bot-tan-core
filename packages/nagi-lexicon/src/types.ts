@@ -1206,9 +1206,27 @@ export type ZenkatsuTrophyView = {
   commentJa?: string;
   commentEn?: string;
 };
+/**
+ * 自分がまだ出していないコンボの伏せ札。名前も構成札も伏せ、手がかりだけ渡す。
+ * 謎かけは**世界で誰かが見つけたあと**にだけ入る。誰も見つけていないコンボの謎かけを
+ * 送ってしまうと、通信を覗けば誰でも先回りできてしまうため。
+ */
+export type ZenkatsuComboHint = {
+  volume: number;
+  id: number;
+  /** 必要な枚数（スロット数）。 */
+  size: number;
+  /** 世界で誰かがもう見つけているか。 */
+  discovered: boolean;
+  /** discovered のときだけ。 */
+  hintJa?: string;
+  hintEn?: string;
+};
 export type ZenkatsuDeckView = {
   /** 存在するコンボの総数。未発見のぶんは中身を伏せる（隠し要素なので）。 */
   comboTotal: number;
   combos: ZenkatsuComboView[];
+  /** 自分がまだ出していないコンボの伏せ札。図鑑番号順。 */
+  hints: ZenkatsuComboHint[];
   trophies: ZenkatsuTrophyView[];
 };
