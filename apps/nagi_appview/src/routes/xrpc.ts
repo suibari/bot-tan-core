@@ -15,6 +15,7 @@ import { searchPostsByText, type SearchMode } from "../queries/search.js";
 import { normalizeTag } from "../queries/tags.js";
 import { getActorProfile, getReactedFeed } from "../queries/profile.js";
 import { resolveActorDid, searchActors } from "../queries/actors.js";
+import { searchTags } from "../queries/tagSuggestions.js";
 import { getThread } from "../queries/thread.js";
 import { listIndexableBlogs } from "../queries/indexableBlogs.js";
 import {
@@ -849,6 +850,21 @@ xrpc.get(`/${NAGI.searchActors}`, async (req, res, next) => {
           query,
           Math.min(20, limit(req.query.limit)),
           searchMode(req.query.mode),
+        ),
+      );
+  } catch (e) {
+    next(e);
+  }
+});
+// 公開投稿のタグだけを数えるので認証不要。集計はプロセス内で数分キャッシュしている。
+xrpc.get(`/${NAGI.searchTags}`, async (req, res, next) => {
+  try {
+    res
+      .set("Cache-Control", "public, max-age=60")
+      .json(
+        await searchTags(
+          String(req.query.q ?? ""),
+          Math.min(20, limit(req.query.limit ?? 10)),
         ),
       );
   } catch (e) {
