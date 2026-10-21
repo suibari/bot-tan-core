@@ -24,7 +24,6 @@ import {
   nagiChannels,
   nagiChronicleEvents,
   nagiChronicleJobs,
-  nagiChannelSubscriptions,
   nagiDiaries,
   nagiRadioReadStates,
   nagiRadioTracks,
@@ -124,7 +123,6 @@ export async function deleteAccountData(did: string) {
   await db.transaction(async (tx) => {
     const postUri = `at://${did}/${NAGI.post}/%`;
     const reactionUri = `at://${did}/${NAGI.reaction}/%`;
-    const channelUri = `at://${did}/${NAGI.channel}/%`;
     const newsUri = `at://${did}/${NAGI.news}/%`;
     const diaryUris = (
       await tx
@@ -141,17 +139,11 @@ export async function deleteAccountData(did: string) {
         .where(and(eq(nagiPosts.did, did), eq(nagiPosts.appviewOnly, true)))
     ).map((row) => row.uri);
 
-    // ミュートは2方向消す。自分がしたミュートだけでなく、他人が自分/自分の CH に対して
+    // ミュートは2方向消す。自分がしたミュートだけでなく、他人が自分に対して
     // 設定したミュート行も残さない（退会後に他人の DB 行として残り続けないようにする）。
     await tx
       .delete(nagiMutes)
-      .where(
-        or(
-          eq(nagiMutes.muterDid, did),
-          eq(nagiMutes.subject, did),
-          like(nagiMutes.subject, channelUri),
-        ),
-      );
+      .where(or(eq(nagiMutes.muterDid, did), eq(nagiMutes.subject, did)));
     // 非公開ホームリストも両方向を消し、退会した人との関係を他人側の行にも残さない。
     await tx
       .delete(nagiPrivateListMembers)
@@ -241,17 +233,6 @@ export async function deleteAccountData(did: string) {
     await tx.delete(nagiPosts).where(eq(nagiPosts.did, did));
     await tx.delete(nagiAnalysisJobs).where(eq(nagiAnalysisJobs.did, did));
     await tx.delete(nagiActorAnalyses).where(eq(nagiActorAnalyses.did, did));
-    // CH の購読はミュートと同じく2方向消す。自分の購読（どの CH を見ていたか＝興味の記録）
-    // だけでなく、他人が自分の CH を購読している行も残さない。channel_uri に退会者の DID が
-    // 入ったまま他人の行として残り続けるのを避ける。
-    await tx
-      .delete(nagiChannelSubscriptions)
-      .where(
-        or(
-          eq(nagiChannelSubscriptions.ownerDid, did),
-          like(nagiChannelSubscriptions.channelUri, channelUri),
-        ),
-      );
     // CH の行を消しても、他人の投稿の可視性は変わらない。公開範囲は投稿行の
     // kossori が持っていて CH 行を参照しないため（queries/timeline.ts）。
     await tx.delete(nagiChannels).where(eq(nagiChannels.did, did));

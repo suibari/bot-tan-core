@@ -70,10 +70,15 @@ export const cardDrawSource = nagiSchema.enum("card_draw_source", [
   "my_nagi",
   "reaction",
 ]);
-/** ミュート対象の種別。actor は相手の DID、channel はチャンネルの AT-URI を指す。 */
+/**
+ * ミュート対象の種別。actor は相手の DID、tag はハッシュタグ（先頭の # を除いた小文字）を指す。
+ * channel は廃止したチャンネルの AT-URI で、tag へ移行済み（0087）。enum の値は Postgres で
+ * 消せないので残しているが、新しい行は書かない。
+ */
 export const muteSubjectType = nagiSchema.enum("mute_subject_type", [
   "actor",
   "channel",
+  "tag",
 ]);
 
 export const nagiActors = nagiSchema.table("actors", {
@@ -245,7 +250,11 @@ export const nagiAgeAssurance = nagiSchema.table("age_assurance", {
     .defaultNow()
     .notNull(),
 });
-/** ユーザーが作るチャンネル（com.suibari.nagi.channel）。作成者の PDS が真実源。 */
+/**
+ * ユーザーが作るチャンネル（com.suibari.nagi.channel）。作成者の PDS が真実源。
+ * 機能はハッシュタグへ統合して廃止した。channel_uri を持つ既存投稿をチャンネル名の
+ * タグとして引くために、名前の解決用としてだけ残している。
+ */
 export const nagiChannels = nagiSchema.table(
   "channels",
   {
@@ -262,9 +271,6 @@ export const nagiChannels = nagiSchema.table(
     moderationVersion: text("moderation_version").default("legacy"),
     pinnedPostUri: text("pinned_post_uri"),
     pinnedPostCid: text("pinned_post_cid"),
-    // NL検索(意味検索)用。ソースは name+description。EmbeddingWorker が生成し、CH 編集で
-    // name/description が変わったら NULL に戻して再生成する。
-    embedding: vector("embedding", { dimensions: 1024 }),
     recordCreatedAt: timestamp("record_created_at", {
       withTimezone: true,
     }).notNull(),
@@ -275,14 +281,6 @@ export const nagiChannels = nagiSchema.table(
   },
   (t) => [
     index("nagi_channels_idx").on(t.indexedAt),
-    index("nagi_channels_embedding_hnsw_idx").using(
-      "hnsw",
-      t.embedding.op("vector_cosine_ops"),
-    ),
-    index("nagi_channels_name_trgm_idx").using(
-      "gin",
-      t.name.op("gin_trgm_ops"),
-    ),
   ],
 );
 /** PDSから取り込んだニュース本体。承認はCID単位で別表に保持する。 */
@@ -991,7 +989,7 @@ export const nagiMutes = nagiSchema.table(
   {
     muterDid: text("muter_did").notNull(),
     subjectType: muteSubjectType("subject_type").notNull(),
-    /** actor なら対象の DID、channel なら channel レコードの AT-URI。 */
+    /** actor なら対象の DID、tag なら小文字のハッシュタグ。 */
     subject: text("subject").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
@@ -1159,27 +1157,6 @@ export const nagiModerationPreferences = nagiSchema.table(
       sql`${t.automatic} IN ('warn', 'hide', 'ignore') AND ${t.selfAi} IN ('warn', 'hide', 'ignore') AND ${t.selfNsfw} IN ('warn', 'hide', 'ignore')`,
     ),
     index("nagi_moderation_preferences_updated_idx").on(t.updatedAt),
-  ],
-);
-
-/**
- * 購読（参加）中のチャンネル。private_list_members と同じ設計で、
- * PDS レコードにはせず AppView だけが持ち、認証した本人にしか返さない
- * （どのチャンネルを見ているかは他人に見せてよい情報ではない）。
- */
-export const nagiChannelSubscriptions = nagiSchema.table(
-  "channel_subscriptions",
-  {
-    ownerDid: text("owner_did").notNull(),
-    channelUri: text("channel_uri").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .defaultNow()
-      .notNull(),
-  },
-  (t) => [
-    primaryKey({ columns: [t.ownerDid, t.channelUri] }),
-    index("nagi_channel_subscriptions_owner_idx").on(t.ownerDid, t.createdAt),
-    index("nagi_channel_subscriptions_channel_idx").on(t.channelUri),
   ],
 );
 

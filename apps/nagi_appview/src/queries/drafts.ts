@@ -76,10 +76,11 @@ export function parseDraftContent(input: unknown): DraftContent {
     invalid("content (binary fields are not supported)");
   if (typeof raw.text !== "string")
     invalid("content.text");
-  for (const key of ["mentions", "channels", "emojis"]) {
+  for (const key of ["mentions", "emojis"]) {
     if (!Array.isArray(raw[key]) || (raw[key] as unknown[]).length > 100)
       invalid(`content.${key}`);
   }
+  // チャンネルは廃止した。旧クライアントが送ってくる channels は保存せず捨てる。
   const mentions = (raw.mentions as unknown[]).map((value) => {
     if (!value || typeof value !== "object" || Array.isArray(value))
       invalid("content.mentions");
@@ -95,24 +96,6 @@ export function parseDraftContent(input: unknown): DraftContent {
       ...range(item, "content.mentions"),
       did: item.did as string,
       handle: item.handle as string,
-    };
-  });
-  const channels = (raw.channels as unknown[]).map((value) => {
-    if (!value || typeof value !== "object" || Array.isArray(value))
-      invalid("content.channels");
-    const item = value as Record<string, unknown>;
-    if (
-      typeof item.uri !== "string" ||
-      !item.uri.startsWith("at://") ||
-      item.uri.length > MAX_URI ||
-      typeof item.name !== "string" ||
-      item.name.length > 300
-    )
-      invalid("content.channels");
-    return {
-      ...range(item, "content.channels"),
-      uri: item.uri as string,
-      name: item.name as string,
     };
   });
   const emojis = (raw.emojis as unknown[]).map((value) => {
@@ -167,7 +150,6 @@ export function parseDraftContent(input: unknown): DraftContent {
   return {
     text: raw.text as string,
     mentions,
-    channels,
     emojis,
     linkCards,
     dismissedUrls: strings(

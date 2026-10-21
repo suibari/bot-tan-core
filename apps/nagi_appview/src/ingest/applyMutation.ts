@@ -694,8 +694,6 @@ export async function applyMutation(
               moderationVersion: sql`case when ${nagiChannels.cid} is distinct from excluded.cid then ${moderationVersion}::text else ${nagiChannels.moderationVersion} end`,
               recordCreatedAt: createdAt,
               deletedAt: null,
-              // 意味検索の埋め込みソース(name/description)が変わったら再生成させる。
-              embedding: sql`case when (${nagiChannels.name} is distinct from excluded.name) or (${nagiChannels.description} is distinct from excluded.description) then null else ${nagiChannels.embedding} end`,
             },
           });
       }

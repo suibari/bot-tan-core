@@ -33,7 +33,6 @@
       "required": [
         "text",
         "mentions",
-        "channels",
         "emojis",
         "linkCards",
         "dismissedUrls"
@@ -44,11 +43,6 @@
           "type": "array",
           "maxLength": 100,
           "items": { "type": "ref", "ref": "#mention" }
-        },
-        "channels": {
-          "type": "array",
-          "maxLength": 100,
-          "items": { "type": "ref", "ref": "#channel" }
         },
         "emojis": {
           "type": "array",
@@ -78,16 +72,6 @@
         "handle": { "type": "string", "format": "handle" }
       }
     },
-    "channel": {
-      "type": "object",
-      "required": ["start", "end", "uri", "name"],
-      "properties": {
-        "start": { "type": "integer", "minimum": 0 },
-        "end": { "type": "integer", "minimum": 0 },
-        "uri": { "type": "string", "format": "at-uri", "maxLength": 2048 },
-        "name": { "type": "string", "maxLength": 300 }
-      }
-    },
     "emoji": {
       "type": "object",
       "required": ["start", "end", "uri"],
@@ -112,7 +96,6 @@
         "id",
         "text",
         "mentions",
-        "channels",
         "emojis",
         "linkCards",
         "dismissedUrls",
@@ -126,11 +109,6 @@
           "type": "array",
           "maxLength": 100,
           "items": { "type": "ref", "ref": "#mention" }
-        },
-        "channels": {
-          "type": "array",
-          "maxLength": 100,
-          "items": { "type": "ref", "ref": "#channel" }
         },
         "emojis": {
           "type": "array",

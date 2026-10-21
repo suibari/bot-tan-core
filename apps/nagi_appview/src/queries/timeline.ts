@@ -2,7 +2,6 @@ import {
   db,
   nagiActors,
   nagiBotReplyJobs,
-  nagiChannels,
   nagiModerationDecisions,
   nagiPostScores,
   nagiPosts,
@@ -45,6 +44,7 @@ import { parseContentWarning } from "../util/contentWarning.js";
 import { ADULT_LABELS } from "../services/moderation/index.js";
 import { viewerIsAdult } from "../services/ageAssurance.js";
 import { loadPrivateListMemberDids } from "./privateList.js";
+import { postHasAnyTag } from "./tags.js";
 export const encodeCursor = (date: Date, uri: string) =>
   Buffer.from(JSON.stringify([date.toISOString(), uri])).toString("base64url");
 export const decodeCursor = (cursor?: string): [Date, string] | undefined => {
@@ -269,27 +269,6 @@ export async function hydratePostViews(
         ).map((root) => [root.uri, root]),
       )
     : new Map<string, { uri: string; cid: string; kossori: boolean }>();
-  // バッジ表示用にチャンネルを引く（uri→{name,cid}）。所属 CH のある投稿だけ。
-  // 返信はレコードに channel を持たない（ルート所有）ので、cid もここから解決する。
-  const channelUris = [
-    ...new Set(
-      rows.flatMap((r) => (r.post.channelUri ? [r.post.channelUri] : [])),
-    ),
-  ];
-  const channelRefs = channelUris.length
-    ? new Map(
-        (
-          await db
-            .select({
-              uri: nagiChannels.uri,
-              cid: nagiChannels.cid,
-              name: nagiChannels.name,
-            })
-            .from(nagiChannels)
-            .where(inArray(nagiChannels.uri, channelUris))
-        ).map((c) => [c.uri, { cid: c.cid, name: c.name }]),
-      )
-    : new Map<string, { cid: string; name: string }>();
   const views = rows.map(({ post, actor, profile, score }) => {
     const deleted = Boolean(post.deletedAt);
     const recordReply = (post.recordJson as any)?.reply;
@@ -406,18 +385,6 @@ export async function hydratePostViews(
       ...(record?.article === true ? { article: true } : {}),
       kossori: post.kossori || undefined,
       threadKossori: threadKossori || undefined,
-      channel: post.channelUri
-        ? {
-            uri: post.channelUri,
-            cid:
-              (post.recordJson as any)?.channel?.cid ??
-              channelRefs.get(post.channelUri)?.cid ??
-              "",
-            ...(channelRefs.has(post.channelUri)
-              ? { name: channelRefs.get(post.channelUri)!.name }
-              : {}),
-          }
-        : undefined,
       deleted: deleted || undefined,
       ...(deleted && rejectionReasons.has(post.uri)
         ? { unavailableReason: rejectionReasons.get(post.uri)! }
@@ -788,7 +755,7 @@ export function timelineVisibilityFilters(
   ctx: {
     mutes: MuteSet;
     muteActors: boolean;
-    muteChannels: boolean;
+    muteTags: boolean;
     isAdult: boolean;
     homeActors?: string[];
   },
@@ -802,9 +769,7 @@ export function timelineVisibilityFilters(
   if (opts.homeDid) {
     filters.push(...homeTimelineVisibility(opts.homeDid, ctx.homeActors!));
   }
-  if (opts.channelUri) filters.push(eq(nagiPosts.channelUri, opts.channelUri));
-  if (opts.tag)
-    filters.push(sql`${nagiPosts.tags} @> ARRAY[${opts.tag}]::text[]`);
+  if (opts.tag) filters.push(postHasAnyTag([opts.tag]));
   if (opts.affirmation) {
     // スコアの閾値では絞らない。「その日いちばんスコアの高い1件」を選ぶ方式にしたので、
     // 閾値で母数を削ると、閾値に届かない日はその人の投稿が丸ごと消えるだけになる。
@@ -822,11 +787,12 @@ export function timelineVisibilityFilters(
         sql`(jsonb_array_length(coalesce(${nagiPosts.embedImages}, '[]'::jsonb)) > 0 or ${nagiPosts.embedVideo} is not null)`,
       );
   }
-  // ミュート（投稿者・スレッドルート著者・所属CH）。条件の組み立ては検索と共通。
+  // ミュート（投稿者・スレッドルート著者・タグ）。条件の組み立ては検索と共通。
   filters.push(
     ...muteVisibility(ctx.mutes, {
       actors: ctx.muteActors,
-      channels: ctx.muteChannels,
+      tags: ctx.muteTags,
+      exceptTag: opts.tag,
     }),
   );
   // group/共有TLでは bot返信を代表候補から外し、会話バブルとして元投稿にまとめる。
@@ -838,7 +804,7 @@ export function timelineVisibilityFilters(
   // こっそりは返信ごとではなくスレッドルートが所有する。
   // ルート未解決時に非共有へ倒すのは、壊れた参照によって
   // 本来こっそりだった返信を共有TLへ露出させないため。
-  if (!opts.actorDid && !opts.channelUri && !opts.homeDid) {
+  if (!opts.actorDid && !opts.homeDid) {
     const viewerMatch = opts.viewerDid
       ? sql`${nagiPosts.did} = ${opts.viewerDid}`
       : sql`false`;
@@ -857,8 +823,6 @@ export function timelineVisibilityFilters(
         ), false)
       end
     `);
-    // 将来チャンネル投稿をグローバル/全肯定TLへ流さない方針に変える場合は、
-    // ここに filters.push(isNull(nagiPosts.channelUri)); を1行足すだけでよい。
   } else if (!opts.homeDid) {
     filters.push(kossoriVisibility(opts.viewerDid));
   }
@@ -881,7 +845,6 @@ export type TimelineFilterOptions = {
   viewerDid?: string;
   affirmation?: boolean;
   actorDid?: string;
-  channelUri?: string;
   tag?: string;
   filter?: "posts" | "replies" | "media";
   group?: boolean;
@@ -894,8 +857,6 @@ export async function getTimeline(opts: {
   viewerDid?: string;
   affirmation?: boolean;
   actorDid?: string;
-  /** CH タイムライン: この URI の channel を持つ投稿だけを、kossori に関係なく出す。 */
-  channelUri?: string;
   /** タグ検索(/search): この小文字タグを含む投稿だけを出す。呼び出し側で小文字化済みであること。 */
   tag?: string;
   filter?: "posts" | "replies" | "media";
@@ -924,21 +885,20 @@ export async function getTimeline(opts: {
       ]
     : undefined;
   // ミュートの適用範囲: プロフィールフィード(actorDid)は「自分で開いた」ので一切適用しない。
-  // CH TL(channelUri)も同じ理由で CH ミュートは適用しないが、ユーザーミュートは効かせる。
+  // タグ TL も同じ理由で開いたタグのミュートだけは外す（muteVisibility の exceptTag）。
   const muteActors = !opts.actorDid && mutes.actors.length > 0;
-  const muteChannels =
-    !opts.actorDid && !opts.channelUri && mutes.channels.length > 0;
+  const muteTags = !opts.actorDid && mutes.tags.length > 0;
   // ハイドレート側(バブル・引用・返信元)へ渡す実効ミュート。適用外の経路では空になるので、
   // プロフィールフィードでは SQL だけでなく後段の絞り込みも一切効かない。
   const appliedMutes: MuteSet = {
     actors: muteActors ? mutes.actors : [],
-    channels: muteChannels ? mutes.channels : [],
+    tags: muteTags ? mutes.tags : [],
   };
   const point = decodeCursor(opts.cursor);
   const filters = timelineVisibilityFilters(opts, {
     mutes,
     muteActors,
-    muteChannels,
+    muteTags,
     isAdult: await viewerIsAdult(opts.viewerDid),
     homeActors,
   });
@@ -971,7 +931,7 @@ export async function getTimeline(opts: {
             page,
             opts.viewerDid,
             true,
-            opts.filter === "replies" || Boolean(opts.channelUri),
+            opts.filter === "replies",
             appliedMutes,
           ),
     getBotActor(),

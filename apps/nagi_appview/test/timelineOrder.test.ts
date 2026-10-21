@@ -81,7 +81,7 @@ test("the representative SQL uses the same thread key, bot exception, and stable
   const query = db
     .select({ uri: nagiPosts.uri })
     .from(nagiPosts)
-    .where(and(latestThreadActivity({ actors: [], channels: [] }, false)));
+    .where(and(latestThreadActivity({ actors: [], tags: [] }, false)));
   const rendered = query.toSQL();
   const text = rendered.sql.replace(/\s+/g, " ");
 
