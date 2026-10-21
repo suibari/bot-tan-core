@@ -8,14 +8,6 @@ const { parseDraftContent } = await import("../src/queries/drafts.js");
 const valid = () => ({
   text: "hello",
   mentions: [{ start: 0, end: 1, did: "did:plc:alice", handle: "alice.test" }],
-  channels: [
-    {
-      start: 1,
-      end: 2,
-      uri: "at://did:plc:a/com.suibari.nagi.channel/one",
-      name: "one",
-    },
-  ],
   emojis: [
     { start: 2, end: 3, uri: "at://did:plc:a/blue.moji.collection/one" },
   ],
@@ -34,14 +26,24 @@ test("下書きはバイナリを持たずテキスト参照だけを受理す�
         { uri: "https://example.com", title: "x", thumbnail: "bytes" },
       ],
     },
-    {
-      channels: [
-        { start: 0, end: 1, uri: "at://did:plc:a/x/y", name: "x", cid: "bafy" },
-      ],
-    },
     { dismissedUrls: ["data:image/png;base64,abc"] },
   ])
     assert.throws(() => parseDraftContent({ ...valid(), ...extra }));
+});
+
+test("廃止したチャンネルの選択は旧クライアントから届いても保存しない", () => {
+  const legacy = {
+    ...valid(),
+    channels: [
+      {
+        start: 1,
+        end: 2,
+        uri: "at://did:plc:a/com.suibari.nagi.channel/one",
+        name: "one",
+      },
+    ],
+  };
+  assert.deepEqual(parseDraftContent(legacy), valid());
 });
 
 test("ブログ用の長い下書きは3,000文字を超えても受理する", () => {

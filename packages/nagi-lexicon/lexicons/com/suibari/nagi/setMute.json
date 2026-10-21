@@ -4,17 +4,17 @@
   "defs": {
     "main": {
       "type": "procedure",
-      "description": "ユーザーまたはチャンネルのミュートを設定・解除する。ミュートは AppView にのみ保存され、他ユーザーからは参照できない。",
+      "description": "ユーザーまたはハッシュタグのミュートを設定・解除する。ミュートは AppView にのみ保存され、他ユーザーからは参照できない。",
       "input": {
         "encoding": "application/json",
         "schema": {
           "type": "object",
           "required": ["subjectType", "subject", "muted"],
           "properties": {
-            "subjectType": { "type": "string", "knownValues": ["actor", "channel"] },
+            "subjectType": { "type": "string", "knownValues": ["actor", "tag"] },
             "subject": {
               "type": "string",
-              "description": "actor なら対象の DID、channel なら com.suibari.nagi.channel の AT-URI。"
+              "description": "actor なら対象の DID、tag ならハッシュタグ（先頭の # は無くてよく、小文字へ正規化される）。"
             },
             "muted": { "type": "boolean" }
           }

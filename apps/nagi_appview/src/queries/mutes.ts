@@ -1,37 +1,28 @@
 import {
   db,
   nagiActors,
-  nagiChannels,
   nagiMutes,
   nagiPosts,
   nagiProfiles,
 } from "@bsky-affirmative-bot/database";
 import {
-  NAGI,
   type ActorView,
   type MuteSubjectType,
   type MutesView,
 } from "@bsky-affirmative-bot/nagi-lexicon";
-import {
-  and,
-  desc,
-  eq,
-  inArray,
-  isNull,
-  notInArray,
-  or,
-  sql,
-  type SQL,
-} from "drizzle-orm";
+import { and, eq, inArray, notInArray, sql, type SQL } from "drizzle-orm";
 import { ApiError } from "../middleware/errors.js";
-import { channelView } from "./channelView.js";
+import { normalizeTag, postLacksTags } from "./tags.js";
 
 /**
  * ビューアのミュート対象。**このデータが本人以外のレスポンスへ混ざらないよう注意すること**
  * （ミュートは非公開情報。フィルタ条件として使うだけで、一覧は getMutesView からしか出さない）。
  */
-export type MuteSet = { actors: string[]; channels: string[] };
-export const EMPTY_MUTES: MuteSet = { actors: [], channels: [] };
+export type MuteSet = { actors: string[]; tags: string[] };
+export const EMPTY_MUTES: MuteSet = { actors: [], tags: [] };
+
+/** タグの長さ上限。投稿の tag facet（Bluesky と同じ640バイト）に収まる範囲で十分。 */
+const MAX_TAG_LENGTH = 640;
 
 /**
  * ビューアのミュート一覧。未ログイン(viewerDid なし)なら空＝何もフィルタしない。
@@ -46,9 +37,7 @@ export async function loadMutes(viewerDid?: string): Promise<MuteSet> {
   if (!rows.length) return EMPTY_MUTES;
   return {
     actors: rows.flatMap((r) => (r.subjectType === "actor" ? [r.subject] : [])),
-    channels: rows.flatMap((r) =>
-      r.subjectType === "channel" ? [r.subject] : [],
-    ),
+    tags: rows.flatMap((r) => (r.subjectType === "tag" ? [r.subject] : [])),
   };
 }
 
@@ -66,12 +55,13 @@ export const mutedActorsParam = (mutes: MuteSet) =>
  *  1. 投稿者本人がミュート対象なら出さない
  *  2. スレッドルートの著者がミュート対象なら、他人の返信もふくめて出さない
  *     （ルートを見たくない相手なら、その会話自体も興味がないという整理）
- *  3. 所属チャンネルがミュート対象なら出さない（channel_uri は NULL 可なので isNull を必ず OR する）
- * apply で経路ごとに切り替える: プロフィールフィードは両方 false、CH TL は channels だけ false。
+ *  3. ミュートしたタグを持つなら出さない（旧チャンネル投稿はチャンネル名のタグとして見る）
+ * apply で経路ごとに切り替える: プロフィールフィードは両方 false。タグ TL は開いたタグだけを
+ * exceptTag で外す（自分で開いたタグまで隠すと、そのタグのページが空になるため）。
  */
 export function muteVisibility(
   mutes: MuteSet,
-  apply: { actors: boolean; channels: boolean },
+  apply: { actors: boolean; tags: boolean; exceptTag?: string },
 ): SQL[] {
   const conditions: SQL[] = [];
   if (apply.actors && mutes.actors.length) {
@@ -89,14 +79,10 @@ export function muteVisibility(
       end
     `);
   }
-  if (apply.channels && mutes.channels.length) {
-    conditions.push(
-      or(
-        isNull(nagiPosts.channelUri),
-        notInArray(nagiPosts.channelUri, mutes.channels),
-      )!,
-    );
-  }
+  const tags = apply.tags
+    ? mutes.tags.filter((tag) => tag !== apply.exceptTag)
+    : [];
+  if (tags.length) conditions.push(postLacksTags(tags));
   return conditions;
 }
 
@@ -113,11 +99,10 @@ export const sibNotMuted = (mutes: MuteSet, apply: boolean) =>
 /** 設定画面のミュート一覧。認証した本人の分しか組み立てないこと。 */
 export async function getMutesView(viewerDid: string): Promise<MutesView> {
   const mutes = await loadMutes(viewerDid);
-  const [actors, channels] = await Promise.all([
-    fetchActorViews(mutes.actors),
-    fetchChannelViews(mutes.channels),
-  ]);
-  return { actors, channels };
+  return {
+    actors: await fetchActorViews(mutes.actors),
+    tags: [...mutes.tags].sort(),
+  };
 }
 
 /** ミュート済みだが AppView 未取り込みの相手でも解除できるよう、行が無くても DID は返す。 */
@@ -146,59 +131,6 @@ async function fetchActorViews(dids: string[]): Promise<ActorView[]> {
   });
 }
 
-/** 削除済みチャンネルもミュート行は残りうるので、deletedAt では絞らない（解除できるように）。 */
-async function fetchChannelViews(uris: string[]) {
-  if (!uris.length) return [];
-  const lastPost = db
-    .select({
-      channelUri: nagiPosts.channelUri,
-      lastPostAt: sql<Date>`max(${nagiPosts.indexedAt})`.as("last_post_at"),
-    })
-    .from(nagiPosts)
-    .where(isNull(nagiPosts.deletedAt))
-    .groupBy(nagiPosts.channelUri)
-    .as("lp");
-  const rows = await db
-    .select({
-      uri: nagiChannels.uri,
-      cid: nagiChannels.cid,
-      did: nagiChannels.did,
-      name: nagiChannels.name,
-      description: nagiChannels.description,
-      bannerCid: nagiChannels.bannerCid,
-      pinnedPostUri: nagiChannels.pinnedPostUri,
-      pinnedPostCid: nagiChannels.pinnedPostCid,
-      recordCreatedAt: nagiChannels.recordCreatedAt,
-      indexedAt: nagiChannels.indexedAt,
-      lastPostAt: lastPost.lastPostAt,
-    })
-    .from(nagiChannels)
-    .leftJoin(lastPost, eq(lastPost.channelUri, nagiChannels.uri))
-    .where(inArray(nagiChannels.uri, uris))
-    .orderBy(desc(nagiChannels.indexedAt));
-  return rows.map((row) => ({ ...channelView(row), viewerMuted: true }));
-}
-
-/** ビューアがこの CH をミュートしているか（getChannel でミュート解除ボタンを出すため）。 */
-export async function isChannelMuted(
-  viewerDid: string | undefined,
-  uri: string,
-): Promise<boolean> {
-  if (!viewerDid) return false;
-  const rows = await db
-    .select({ subject: nagiMutes.subject })
-    .from(nagiMutes)
-    .where(
-      and(
-        eq(nagiMutes.muterDid, viewerDid),
-        eq(nagiMutes.subjectType, "channel"),
-        eq(nagiMutes.subject, uri),
-      ),
-    )
-    .limit(1);
-  return rows.length > 0;
-}
-
 /** ミュートの設定・解除。updateSeen と同じく冪等（二重実行しても同じ結果になる）。 */
 export async function setMute(
   viewerDid: string,
@@ -211,13 +143,13 @@ export async function setMute(
       throw new ApiError(400, "invalid_request", "subject must be a DID");
     if (subject === viewerDid)
       throw new ApiError(400, "invalid_request", "Cannot mute yourself");
+  } else if (subjectType === "tag") {
+    subject = normalizeTag(subject);
+    // チャンネル名から移したタグは空白を含みうるので、空白は弾かない（解除できなくなる）。
+    if (!subject || subject.length > MAX_TAG_LENGTH)
+      throw new ApiError(400, "invalid_request", "subject must be a hashtag");
   } else {
-    if (!subject.startsWith("at://") || subject.split("/")[3] !== NAGI.channel)
-      throw new ApiError(
-        400,
-        "invalid_request",
-        "subject must be a channel AT-URI",
-      );
+    throw new ApiError(400, "invalid_request", "Unknown subjectType");
   }
   if (muted) {
     await db

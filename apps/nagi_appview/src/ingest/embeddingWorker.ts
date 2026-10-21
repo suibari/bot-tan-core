@@ -4,7 +4,6 @@ import {
   generateEmbeddings,
   isEmbeddingAvailable,
   nagiActorAnalyses,
-  nagiChannels,
   nagiNews,
   nagiNewsApprovals,
   nagiPosts,
@@ -95,39 +94,6 @@ const sources: EmbedSource[] = [
               ),
             )
             .returning({ did: nagiProfiles.did });
-          return w.length > 0;
-        },
-      }));
-    },
-  },
-  {
-    name: "channels",
-    async fetchBatch(limit) {
-      const rows = await db
-        .select({
-          uri: nagiChannels.uri,
-          name: nagiChannels.name,
-          description: nagiChannels.description,
-        })
-        .from(nagiChannels)
-        .where(and(isNull(nagiChannels.embedding), isNull(nagiChannels.deletedAt)))
-        .orderBy(desc(nagiChannels.indexedAt))
-        .limit(limit);
-      return rows.map((r) => ({
-        key: `channels:${r.uri}`,
-        text: [r.name, r.description].filter(Boolean).join("\n"),
-        async save(embedding) {
-          const w = await db
-            .update(nagiChannels)
-            .set({ embedding })
-            .where(
-              and(
-                eq(nagiChannels.uri, r.uri),
-                eq(nagiChannels.name, r.name),
-                sql`${nagiChannels.description} is not distinct from ${r.description}`,
-              ),
-            )
-            .returning({ uri: nagiChannels.uri });
           return w.length > 0;
         },
       }));

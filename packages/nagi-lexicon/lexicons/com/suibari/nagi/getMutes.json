@@ -4,15 +4,15 @@
   "defs": {
     "main": {
       "type": "query",
-      "description": "自分がミュートしているユーザーとチャンネルの一覧。ミュートは非公開情報なので、認証した本人の分だけを返す。",
+      "description": "自分がミュートしているユーザーとハッシュタグの一覧。ミュートは非公開情報なので、認証した本人の分だけを返す。",
       "output": {
         "encoding": "application/json",
         "schema": {
           "type": "object",
-          "required": ["actors", "channels"],
+          "required": ["actors", "tags"],
           "properties": {
             "actors": { "type": "array", "items": { "type": "unknown" } },
-            "channels": { "type": "array", "items": { "type": "unknown" } }
+            "tags": { "type": "array", "items": { "type": "string" } }
           }
         }
       },

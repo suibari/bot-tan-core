@@ -21,15 +21,15 @@ const render = (conditions: any[]) => {
 /** 全肯定TLの可視性条件。ここが欠けると隠れているべき投稿が漏れる。 */
 const affirmationFilters = (opts: {
   viewerDid: string;
-  mutes?: { actors: string[]; channels: string[] };
+  mutes?: { actors: string[]; tags: string[] };
   isAdult?: boolean;
 }) =>
   timelineVisibilityFilters(
     { viewerDid: opts.viewerDid, affirmation: true },
     {
-      mutes: opts.mutes ?? { actors: [], channels: [] },
+      mutes: opts.mutes ?? { actors: [], tags: [] },
       muteActors: Boolean(opts.mutes?.actors.length),
-      muteChannels: Boolean(opts.mutes?.channels.length),
+      muteTags: Boolean(opts.mutes?.tags.length),
       isAdult: opts.isAdult ?? true,
     },
   );
@@ -46,15 +46,15 @@ test("the affirmation feed keeps other people's kossori threads hidden", () => {
   assert.ok(params.includes("did:plc:self"));
 });
 
-test("the affirmation feed applies actor and channel mutes", () => {
+test("the affirmation feed applies actor and tag mutes", () => {
   const { text, params } = render(
     affirmationFilters({
       viewerDid: "did:plc:self",
-      mutes: { actors: ["did:plc:muted"], channels: ["at://ch"] },
+      mutes: { actors: ["did:plc:muted"], tags: ["muted-tag"] },
     }),
   );
   assert.ok(params.some((p) => String(p).includes("did:plc:muted")), text);
-  assert.ok(params.some((p) => String(p).includes("at://ch")), text);
+  assert.ok(params.some((p) => String(p).includes("muted-tag")), text);
 });
 
 test("the affirmation feed drops adult and unjudged posts for minors", () => {

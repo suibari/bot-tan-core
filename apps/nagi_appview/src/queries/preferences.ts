@@ -10,6 +10,7 @@ import {
   nagiFeedTabs,
   nagiBookmarkFolders,
   nagiBookmarkPreferences,
+  nagiChannels,
   nagiLanguagePreferences,
   nagiModerationPreferences,
   nagiPreferredNames,
@@ -31,9 +32,10 @@ import {
   type SyncedModerationPreferences,
   type SyncedLanguagePreferences,
 } from "@bsky-affirmative-bot/nagi-lexicon";
-import { eq, sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { ApiError } from "../middleware/errors.js";
 import { declareBirthDate, getAgeAssurance } from "../services/ageAssurance.js";
+import { normalizeTag } from "./tags.js";
 
 const MAX_URI_LENGTH = 2048;
 const MAX_UNICODE_EMOJI_LENGTH = 64;
@@ -176,7 +178,7 @@ const MAX_TAB_LABEL_LENGTH = 64;
  * （片方だけ緩いと、弾かれない値が入って描画側で落ちる）。
  * 未知フィールドは落とし、任意の JSON を DB に貯めさせない。
  */
-function parseFeedTabs(input: unknown): FeedTab[] {
+export function parseFeedTabs(input: unknown): FeedTab[] {
   if (!Array.isArray(input) || input.length > FEED_TABS_LIMIT)
     invalid("feedTabs");
   const seen = new Set<string>();
@@ -205,31 +207,75 @@ function parseFeedTabs(input: unknown): FeedTab[] {
         invalid("feedTabs.source");
       tab.source = "affirmation";
     }
-    if (tab.kind === "channel") {
-      const uri = item.uri;
-      if (
-        typeof uri !== "string" ||
-        !uri.startsWith("at://") ||
-        uri.length > MAX_URI_LENGTH
-      )
-        invalid("feedTabs.uri");
-      tab.uri = uri as string;
-    }
-    if (tab.kind === "search") {
-      const query =
-        typeof item.query === "string" ? (item.query as string).trim() : "";
+    if (tab.kind === "search" || tab.kind === "hashtag") {
+      const raw = typeof item.query === "string" ? (item.query as string) : "";
+      const query = tab.kind === "hashtag" ? normalizeTag(raw) : raw.trim();
       if (!query || query.length > MAX_TAB_QUERY_LENGTH)
         invalid("feedTabs.query");
-      if (
-        item.queryKind !== undefined &&
-        !["keyword", "tag"].includes(item.queryKind as string)
-      )
-        invalid("feedTabs.queryKind");
       tab.query = query;
-      tab.queryKind = (item.queryKind as "keyword" | "tag") ?? "keyword";
     }
     return tab;
   });
+}
+
+/**
+ * 廃止した形のタブを hashtag タブへ寄せる。保存済みの行と、更新前のクライアントが送ってくる
+ * 入力の両方に掛ける（行を一括で書き換える移行を要らなくするため）。
+ *  - channel タブ → チャンネル名の hashtag タブ。チャンネルが引けなければ落とす。
+ *  - queryKind: "tag" の search タブ → hashtag タブ。keyword の queryKind は捨てる。
+ * 変換で同じタグのタブが重なったら先の1枚だけ残す。形の検証は parseFeedTabs に任せる。
+ */
+export async function upgradeLegacyFeedTabs(
+  input: unknown,
+  loadNames: (uris: string[]) => Promise<Map<string, string>> = loadChannelNames,
+): Promise<unknown> {
+  if (!Array.isArray(input)) return input;
+  const items = input as unknown[];
+  const legacy = (item: unknown): Record<string, unknown> | undefined => {
+    if (!item || typeof item !== "object") return undefined;
+    const tab = item as Record<string, unknown>;
+    return tab.kind === "channel" ||
+      (tab.kind === "search" && tab.queryKind !== undefined)
+      ? tab
+      : undefined;
+  };
+  if (!items.some(legacy)) return input;
+  const channelUris = items.flatMap((item) => {
+    const tab = legacy(item);
+    return tab?.kind === "channel" && typeof tab.uri === "string"
+      ? [tab.uri]
+      : [];
+  });
+  const channelNames = channelUris.length
+    ? await loadNames(channelUris)
+    : new Map<string, string>();
+  const seenTags = new Set<string>();
+  return items.flatMap((item) => {
+    const tab = legacy(item);
+    let next = item as Record<string, unknown>;
+    if (tab?.kind === "channel") {
+      const name = channelNames.get(tab.uri as string);
+      if (!name) return [];
+      next = { id: tab.id, kind: "hashtag", query: name };
+    } else if (tab) {
+      const { queryKind, ...rest } = tab;
+      next = queryKind === "tag" ? { ...rest, kind: "hashtag" } : rest;
+    }
+    if (next?.kind === "hashtag" && typeof next.query === "string") {
+      const tag = normalizeTag(next.query);
+      if (seenTags.has(tag)) return [];
+      seenTags.add(tag);
+    }
+    return [next];
+  });
+}
+
+async function loadChannelNames(uris: string[]): Promise<Map<string, string>> {
+  const rows = await db
+    .select({ uri: nagiChannels.uri, name: nagiChannels.name })
+    .from(nagiChannels)
+    .where(inArray(nagiChannels.uri, uris));
+  return new Map(rows.map((row) => [row.uri, row.name]));
 }
 
 /** 呼び名の上限。lexicon の maxGraphemes と揃えること。 */
@@ -347,7 +393,7 @@ async function selectPreferences(did: string): Promise<PreferencesView> {
       ? { emojiFavoritesUpdatedAt: favoritesRow.updatedAt.toISOString() }
       : {}),
     feedTabs: Array.isArray(feedTabsRow?.tabs)
-      ? (feedTabsRow.tabs as FeedTab[])
+      ? ((await upgradeLegacyFeedTabs(feedTabsRow.tabs)) as FeedTab[])
       : [],
     // 行が無い＝一度もカスタムしていない。クライアントはこれを既定タブの合図に使う。
     ...(feedTabsRow
@@ -426,7 +472,9 @@ export async function putPreferences(
     ? parseUpdatedAt("emojiFavoritesUpdatedAt", input.emojiFavoritesUpdatedAt)
     : undefined;
   const hasFeedTabs = input.feedTabs !== undefined;
-  const feedTabs = hasFeedTabs ? parseFeedTabs(input.feedTabs) : [];
+  const feedTabs = hasFeedTabs
+    ? parseFeedTabs(await upgradeLegacyFeedTabs(input.feedTabs))
+    : [];
   const feedTabsUpdatedAt = hasFeedTabs
     ? parseUpdatedAt("feedTabsUpdatedAt", input.feedTabsUpdatedAt)
     : undefined;

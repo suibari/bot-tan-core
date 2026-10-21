@@ -4,7 +4,6 @@ import {
   db,
   nagiActorAnalyses,
   nagiActors,
-  nagiChannelSubscriptions,
   nagiChannels,
   nagiDiaries,
   nagiNews,
@@ -429,10 +428,6 @@ export async function seedDevelopmentDatabase(env = process.env) {
         memberDid: privateListMember,
         createdAt: now,
       })
-      .onConflictDoNothing();
-    await tx
-      .insert(nagiChannelSubscriptions)
-      .values({ ownerDid: viewerDid, channelUri, createdAt: now })
       .onConflictDoNothing();
     await tx
       .insert(nagiNotifications)

@@ -118,13 +118,13 @@ export async function searchPostsByText(opts: {
   const threadRootViewerMatch = opts.viewerDid
     ? sql`thread_root.did = ${opts.viewerDid}`
     : sql`false`;
-  // 共有TLと同じ可視性フィルタ（getTimeline の !actorDid && !channelUri 経路を踏襲）。
+  // 共有TLと同じ可視性フィルタ（getTimeline の !actorDid 経路を踏襲）。
   const visibility = [
     isNull(nagiPosts.deletedAt),
     // botたんの返信は元投稿にまとめるため単独では出さない。
     or(ne(nagiPosts.did, config.botDid), isNull(nagiPosts.replyParentUri)),
     // ミュート。条件の組み立ては getTimeline と共通（規則がズレないよう mutes.ts に集約）。
-    ...muteVisibility(mutes, { actors: true, channels: true }),
+    ...muteVisibility(mutes, { actors: true, tags: true }),
     // こっそりはスレッドルートが所有。未解決の返信は非共有側へ倒す。
     sql`
       case

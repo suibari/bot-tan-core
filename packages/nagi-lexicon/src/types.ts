@@ -74,7 +74,10 @@ export type NagiPost = {
   botSilent?: boolean;
   /** true の返信は直接の返信先へ通知しない。返信以外では効果を持たない。 */
   silentReply?: boolean;
-  /** 所属チャンネル（com.suibari.nagi.channel）への参照。返信は親の channel を継承する。 */
+  /**
+   * 所属チャンネル（com.suibari.nagi.channel）への参照。チャンネルは廃止したので新しい
+   * レコードには設定しない。既存の値は AppView がチャンネル名のハッシュタグとして扱う。
+   */
   channel?: StrongRef;
   reply?: { root: StrongRef; parent: StrongRef };
   linkCards?: NagiLinkCard[];
@@ -103,33 +106,6 @@ export type NagiChannel = {
   /** チャンネル上部へ固定する投稿。URI を基準に現在の投稿内容を解決する。 */
   pinnedPost?: StrongRef;
   createdAt: string;
-};
-/** AppView が返すチャンネルのビュー。banner は blob プロキシへの相対パス。 */
-export type ChannelView = {
-  uri: string;
-  cid: string;
-  did: string;
-  name: string;
-  description?: string;
-  banner?: string;
-  createdAt: string;
-  indexedAt: string;
-  /** 最新投稿時刻（活動順の並べ替え・過疎判定に使う）。投稿ゼロなら付けない。 */
-  lastPostAt?: string;
-  /** PDS のチャンネルレコードに保存された参照。取得不能でも解除できるよう返す。 */
-  pinnedPostRef?: StrongRef;
-  /** 非削除かつこのチャンネル所属であることを確認して hydrate した投稿。 */
-  pinnedPost?: PostView;
-  /**
-   * ビューアがこの CH をミュートしているか。ミュート済み CH は一覧・検索から消えるが、
-   * URL 直打ちでは開けるので、そのページで解除できるように getChannel だけが返す。
-   */
-  viewerMuted?: boolean;
-  /**
-   * ビューアがこの CH を購読（参加）しているか。my Nagi の「参加中チャンネル」枠の対象になる。
-   * ミュートと同じく本人にしか意味のない情報なので、未認証のときは付けない。
-   */
-  viewerSubscribed?: boolean;
 };
 export type NagiNews = {
   $type: "com.suibari.nagi.news";
@@ -451,8 +427,6 @@ export type PostView = {
   kossori?: boolean;
   /** ルート投稿から解決した、スレッド全体の有効なこっそり状態。 */
   threadKossori?: boolean;
-  /** 所属チャンネル（あれば）。バッジ表示・返信時の継承元に使う。 */
-  channel?: { uri: string; cid: string; name?: string };
   /** 投稿後に編集された（AppView が cid 変化を観測した）か。UI の「編集済み」バッジ用。 */
   edited?: boolean;
   deleted?: boolean;
@@ -564,10 +538,13 @@ export type SearchActorsResult = { actors: ActorView[] };
 export type SearchEmojisResult = { emojis: EmojiView[]; cursor?: string };
 export type GetEmojiResult = { emoji: EmojiView };
 export type DeleteAccountDataResult = { success: true };
-/** ミュート対象の種別。actor は相手の DID、channel はチャンネルの AT-URI を指す。 */
-export type MuteSubjectType = "actor" | "channel";
+/**
+ * ミュート対象の種別。actor は相手の DID、tag はハッシュタグ（先頭の # を除いた小文字）を指す。
+ * 廃止したチャンネルのミュートは、チャンネル名の tag ミュートへ移した。
+ */
+export type MuteSubjectType = "actor" | "tag";
 /** 自分のミュート一覧。本人以外には決して返さない。 */
-export type MutesView = { actors: ActorView[]; channels: ChannelView[] };
+export type MutesView = { actors: ActorView[]; tags: string[] };
 export type SetMuteInput = {
   subjectType: MuteSubjectType;
   subject: string;
@@ -576,25 +553,13 @@ export type SetMuteInput = {
 export type SetMuteResult = { muted: boolean };
 /** ホームに表示するユーザーの非公開一覧。認証した所有者本人にしか返さない。 */
 export type PrivateListView = { members: ActorView[]; limit: 200 };
-/** 購読中チャンネルの上限。非公開リスト（200）より小さく取る。 */
-export const CHANNEL_SUBSCRIPTION_LIMIT = 50;
-export type SetChannelSubscriptionInput = {
-  uri: string;
-  subscribed: boolean;
-};
-export type SetChannelSubscriptionResult = {
-  uri: string;
-  subscribed: boolean;
-};
 /**
- * my Nagi の「リスト動向」セクション。1人/1チャンネルにつき最新1件しか返さないので、
+ * my Nagi の「リスト動向」セクション。1人につき最新1件しか返さないので、
  * 活発な相手が枠を埋め尽くさない。ページングはしない（もっと見るで既存 TL へ送る）。
  */
 export type MyNagiListUser = { actor: ActorView; post: FeedItem };
-export type MyNagiChannel = { channel: ChannelView; post: FeedItem };
 export type MyNagiView = {
   listUsers: MyNagiListUser[];
-  channels: MyNagiChannel[];
 };
 export type SetPrivateListMemberInput = {
   memberDid: string;
@@ -681,12 +646,12 @@ export const EMOJI_FAVORITES_LIMIT = 32;
  * list / custom は「入れ物」で、どれを指すかは source が持つ（list はいまホームだけ、
  * custom はいま全肯定だけ）。将来ユーザーが定義したカスタムフィードも custom に入る。
  */
-export type FeedTabKind = "list" | "global" | "custom" | "channel" | "search";
+export type FeedTabKind = "list" | "global" | "custom" | "hashtag" | "search";
 export const FEED_TAB_KINDS: readonly FeedTabKind[] = [
   "list",
   "global",
   "custom",
-  "channel",
+  "hashtag",
   "search",
 ] as const;
 /** list / custom が指す組み込みの中身。ユーザー定義のフィードは将来 uri で指す。 */
@@ -705,15 +670,15 @@ export type FeedTab = {
   kind: FeedTabKind;
   /** kind が list / custom のときの参照先（list=home, custom=affirmation）。 */
   source?: FeedTabSource;
-  /** kind==='channel' のときのチャンネル AT-URI。 */
-  uri?: string;
-  /** kind==='search' のときの保存クエリ。 */
+  /**
+   * kind==='search' のときは自由文の保存クエリ、kind==='hashtag' のときはタグ
+   * （先頭の # を除いた小文字）。
+   */
   query?: string;
-  queryKind?: "keyword" | "tag";
-  /** 表示名のスナップショット。権威は uri / query 側で、これは初回描画用。 */
+  /** 表示名のスナップショット。権威は query 側で、これは初回描画用。 */
   label?: string;
 };
-/** タブ数の上限。チャンネル追加の上限（50）より意図的に少ない。 */
+/** タブ数の上限。 */
 export const FEED_TABS_LIMIT = 16;
 export const NAGI_SUPPORTED_LANGUAGES = [
   "ar",
@@ -841,7 +806,6 @@ export type DraftLinkCard = {
 export type DraftContent = {
   text: string;
   mentions: Array<{ start: number; end: number; did: string; handle: string }>;
-  channels: Array<{ start: number; end: number; uri: string; name: string }>;
   emojis: Array<{ start: number; end: number; uri: string }>;
   linkCards: DraftLinkCard[];
   dismissedUrls: string[];

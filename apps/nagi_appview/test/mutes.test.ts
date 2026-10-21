@@ -19,27 +19,46 @@ const render = (conditions: unknown[]): Rendered => {
   return { text: text.replace(/\s+/g, " "), params };
 };
 
-const mutes = (actors: string[], channels: string[] = []): MuteSet => ({
+const mutes = (actors: string[], tags: string[] = []): MuteSet => ({
   actors,
-  channels,
+  tags,
 });
 
 test("no mutes produces no extra conditions", () => {
   assert.deepEqual(
-    muteVisibility(mutes([], []), { actors: true, channels: true }),
+    muteVisibility(mutes([], []), { actors: true, tags: true }),
     [],
   );
   assert.equal(sibNotMuted(mutes([]), true).queryChunks.length, 0);
 });
 
 test("apply flags gate each mute kind independently", () => {
-  const set = mutes(["did:plc:a"], ["at://x/com.suibari.nagi.channel/1"]);
+  const set = mutes(["did:plc:a"], ["foo"]);
   // プロフィールフィードは両方適用外。
-  assert.deepEqual(muteVisibility(set, { actors: false, channels: false }), []);
-  // CH TL は投稿者ミュートだけ効かせる（開いた CH 自体は隠さない）。
-  const chTimeline = render(muteVisibility(set, { actors: true, channels: false }));
-  assert.ok(!chTimeline.text.includes("channel_uri"));
-  assert.ok(chTimeline.text.includes('"did" not in'));
+  assert.deepEqual(muteVisibility(set, { actors: false, tags: false }), []);
+  const actorsOnly = render(muteVisibility(set, { actors: true, tags: false }));
+  assert.ok(!actorsOnly.text.includes('"tags"'));
+  assert.ok(actorsOnly.text.includes('"did" not in'));
+});
+
+test("tag timeline does not hide the tag it was opened for", () => {
+  // #foo のページで #foo のミュートまで効かせると、そのページが空になる。
+  assert.deepEqual(
+    muteVisibility(mutes([], ["foo"]), {
+      actors: true,
+      tags: true,
+      exceptTag: "foo",
+    }),
+    [],
+  );
+  const { params } = render(
+    muteVisibility(mutes([], ["foo", "bar"]), {
+      actors: true,
+      tags: true,
+      exceptTag: "foo",
+    }),
+  );
+  assert.deepEqual(params.filter((p) => Array.isArray(p)), [["bar"], ["bar"]]);
 });
 
 test("muted actors bind as a single text[] parameter, not a row constructor", () => {
@@ -47,7 +66,7 @@ test("muted actors bind as a single text[] parameter, not a row constructor", ()
   // 1件のときだけ偶然通ってしまうので、複数件で検証する。
   const set = mutes(["did:plc:aaa", "did:plc:bbb"]);
   const { text, params } = render(
-    muteVisibility(set, { actors: true, channels: false }),
+    muteVisibility(set, { actors: true, tags: false }),
   );
   assert.ok(
     text.includes("<> all($"),
@@ -64,7 +83,7 @@ test("muted actors bind as a single text[] parameter, not a row constructor", ()
 
 test("thread root author mute hides the whole conversation", () => {
   const { text } = render(
-    muteVisibility(mutes(["did:plc:aaa"]), { actors: true, channels: false }),
+    muteVisibility(mutes(["did:plc:aaa"]), { actors: true, tags: false }),
   );
   // ルートを引く相関サブクエリがあり、解決できない返信は false 側（非表示）に倒れること。
   assert.ok(text.includes("nagi.posts as thread_root"));
@@ -72,15 +91,22 @@ test("thread root author mute hides the whole conversation", () => {
   assert.ok(text.includes("), false)"));
 });
 
-test("channel mute keeps posts that belong to no channel", () => {
+test("tag mute keeps posts that have no tags and no channel", () => {
   const { text } = render(
-    muteVisibility(mutes([], ["at://x/com.suibari.nagi.channel/1"]), {
-      actors: false,
-      channels: true,
-    }),
+    muteVisibility(mutes([], ["foo"]), { actors: false, tags: true }),
   );
-  // isNull を OR し忘れると CH 無し投稿が全部消えるので、その回帰を止める。
-  assert.ok(text.includes('"channel_uri" is null or'));
+  // tags / channel_uri が NULL の投稿で条件が NULL になると、タグ無し投稿が全部消える。
+  // NULL を false に畳んでから否定していることを確かめる。
+  assert.ok(text.includes("not coalesce(("), text);
+  assert.ok(text.includes(", false)"));
+});
+
+test("tag mute also hides legacy channel posts by channel name", () => {
+  const { text } = render(
+    muteVisibility(mutes([], ["foo"]), { actors: false, tags: true }),
+  );
+  assert.ok(text.includes('"tags" && $'));
+  assert.ok(text.includes('"channel_uri" = any(array( select channel.uri from nagi.channels'));
 });
 
 test("sib filter is added only when actor mutes apply", () => {

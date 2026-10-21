@@ -12,13 +12,7 @@ import {
 } from "../services/ssoTicket.js";
 import { getTimeline } from "../queries/timeline.js";
 import { searchPostsByText, type SearchMode } from "../queries/search.js";
-import {
-  getChannel,
-  getChannelTimeline,
-  getChannels,
-  searchChannels,
-  searchChannelsTypeahead,
-} from "../queries/channels.js";
+import { normalizeTag } from "../queries/tags.js";
 import { getActorProfile, getReactedFeed } from "../queries/profile.js";
 import { resolveActorDid, searchActors } from "../queries/actors.js";
 import { getThread } from "../queries/thread.js";
@@ -74,7 +68,6 @@ import {
   putBookmark,
   putBookmarkFolder,
 } from "../queries/bookmarks.js";
-import { setChannelSubscription } from "../queries/channelSubscriptions.js";
 import { getMyNagi } from "../queries/myNagi.js";
 import {
   claimAnniversaryCards,
@@ -471,132 +464,6 @@ xrpc.get(`/${NAGI.getProfileWebsite}`, async (req, res, next) => {
   }
 });
 xrpc.get(
-  `/${NAGI.getChannels}`,
-  optionalServiceAuth(NAGI.getChannels),
-  async (req, res, next) => {
-    try {
-      const rawView = String(req.query.view ?? "trend");
-      const view = (["trend", "list", "mine"] as const).find(
-        (candidate) => candidate === rawView,
-      );
-      if (!view) throw new ApiError(400, "invalid_request", "view is invalid");
-      if ((view === "list" || view === "mine") && !req.viewerDid)
-        throw new ApiError(
-          401,
-          "authentication_required",
-          "Authentication required",
-        );
-      res
-        .set(
-          "Cache-Control",
-          view === "list" || view === "mine" || req.viewerDid
-            ? "private, no-store"
-            : "public, max-age=15",
-        )
-        .json(
-          await getChannels({
-            limit: limit(req.query.limit),
-            cursor: String(req.query.cursor ?? "") || undefined,
-            viewerDid: req.viewerDid,
-            view,
-          }),
-        );
-    } catch (e) {
-      next(e);
-    }
-  },
-);
-xrpc.get(
-  `/${NAGI.searchChannels}`,
-  optionalServiceAuth(NAGI.searchChannels),
-  async (req, res, next) => {
-    try {
-      const q = String(req.query.q ?? "")
-        .trim()
-        .slice(0, 200);
-      if (!q) throw new ApiError(400, "invalid_request", "q is required");
-      const typeahead = String(req.query.typeahead ?? "") === "true";
-      res
-        .set(
-          "Cache-Control",
-          // 候補は打鍵ごとに叩かれるので、ビューア付きでも15秒だけブラウザに持たせる
-          // （private なので PDS プロキシを含む共有キャッシュには乗らない）。
-          req.viewerDid
-            ? typeahead
-              ? "private, max-age=15"
-              : "private, no-store"
-            : "public, max-age=15",
-        )
-        .json(
-          await (typeahead
-            ? searchChannelsTypeahead({
-                q,
-                limit: Math.min(10, limit(req.query.limit)),
-                viewerDid: req.viewerDid,
-              })
-            : searchChannels({
-                q,
-                mode: searchMode(req.query.mode),
-                limit: limit(req.query.limit),
-                cursor: String(req.query.cursor ?? "") || undefined,
-                viewerDid: req.viewerDid,
-              })),
-        );
-    } catch (e) {
-      next(e);
-    }
-  },
-);
-xrpc.get(
-  `/${NAGI.getChannel}`,
-  optionalServiceAuth(NAGI.getChannel),
-  async (req, res, next) => {
-    try {
-      const uri = String(req.query.uri ?? "");
-      if (!uri) throw new ApiError(400, "invalid_request", "uri is required");
-      const channel = await getChannel(uri, req.viewerDid);
-      if (!channel) throw new ApiError(404, "not_found", "Channel not found");
-      res
-        .set(
-          "Cache-Control",
-          req.viewerDid ? "private, no-store" : "public, max-age=15",
-        )
-        .json({ channel });
-    } catch (e) {
-      next(e);
-    }
-  },
-);
-xrpc.get(
-  `/${NAGI.getChannelTimeline}`,
-  optionalServiceAuth(NAGI.getChannelTimeline),
-  async (req, res, next) => {
-    try {
-      const uri = String(req.query.uri ?? "");
-      if (!uri) throw new ApiError(400, "invalid_request", "uri is required");
-      const filter = String(req.query.filter ?? "posts");
-      if (!["posts", "media"].includes(filter))
-        throw new ApiError(400, "invalid_request", "Invalid filter");
-      res
-        .set(
-          "Cache-Control",
-          req.viewerDid ? "private, no-store" : "public, max-age=15",
-        )
-        .json(
-          await getChannelTimeline({
-            uri,
-            limit: limit(req.query.limit),
-            cursor: String(req.query.cursor ?? "") || undefined,
-            viewerDid: req.viewerDid,
-            filter: filter as "posts" | "media",
-          }),
-        );
-    } catch (e) {
-      next(e);
-    }
-  },
-);
-xrpc.get(
   `/${NAGI.searchPosts}`,
   optionalServiceAuth(NAGI.searchPosts),
   async (req, res, next) => {
@@ -605,10 +472,7 @@ xrpc.get(
       const q = String(req.query.q ?? "")
         .trim()
         .slice(0, 200);
-      const tag = String(req.query.tag ?? "")
-        .trim()
-        .replace(/^[#＃]+/, "")
-        .toLowerCase();
+      const tag = normalizeTag(String(req.query.tag ?? ""));
       if (!q && !tag) {
         throw new ApiError(400, "invalid_request", "q or tag is required");
       }
@@ -1054,7 +918,7 @@ xrpc.post(
       const subjectType = req.body?.subjectType;
       const subject = req.body?.subject;
       const muted = req.body?.muted;
-      if (subjectType !== "actor" && subjectType !== "channel")
+      if (subjectType !== "actor" && subjectType !== "tag")
         throw new ApiError(400, "invalid_request", "Invalid subjectType");
       if (typeof subject !== "string" || !subject)
         throw new ApiError(400, "invalid_request", "subject is required");
@@ -1287,29 +1151,6 @@ xrpc.get(
   },
 );
 // 参加中チャンネルもホームリストと同じく本人だけのもの。owner DID は入力で受け取らない。
-xrpc.post(
-  `/${NAGI.setChannelSubscription}`,
-  requiredServiceAuth(NAGI.setChannelSubscription),
-  async (req, res, next) => {
-    try {
-      const uri = req.body?.uri;
-      const subscribed = req.body?.subscribed;
-      if (typeof uri !== "string" || !uri)
-        throw new ApiError(400, "invalid_request", "uri is required");
-      if (typeof subscribed !== "boolean")
-        throw new ApiError(
-          400,
-          "invalid_request",
-          "subscribed must be a boolean",
-        );
-      res
-        .set("Cache-Control", "private, no-store")
-        .json(await setChannelSubscription(req.viewerDid!, uri, subscribed));
-    } catch (e) {
-      next(e);
-    }
-  },
-);
 // カードの所持状況は公開情報（他人のコレクションも見える）なので optional 認証。
 // 自分を指定したときだけ drawStatus が付くので、キャッシュは常に private にしておく。
 xrpc.get(

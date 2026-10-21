@@ -14,10 +14,9 @@
         "encoding": "application/json",
         "schema": {
           "type": "object",
-          "required": ["listUsers", "channels"],
+          "required": ["listUsers"],
           "properties": {
-            "listUsers": { "type": "array", "items": { "type": "unknown" } },
-            "channels": { "type": "array", "items": { "type": "unknown" } }
+            "listUsers": { "type": "array", "items": { "type": "unknown" } }
           }
         }
       }

@@ -8,7 +8,11 @@ export const NAGI = {
   diary: "com.suibari.nagi.diary",
   /** botたん（将来はユーザーも）がPDSへ保存する、タイムライン非表示のニュースレコード。 */
   news: "com.suibari.nagi.news",
-  /** ユーザーが作る同好の集まり（チャンネル）。作成者のPDSに置く。post.channel から参照する。 */
+  /**
+   * ユーザーが作る同好の集まり（チャンネル）。作成者のPDSに置く。post.channel から参照する。
+   * 機能はハッシュタグへ統合して廃止した。新規作成はできないが、既存の投稿を
+   * チャンネル名のハッシュタグとして扱うため、名前の解決用に取り込みだけ続ける。
+   */
   channel: "com.suibari.nagi.channel",
   /** Nagi で作成した Bluemoji を識別するサイドカー。対象 item と同じ rkey で本人の PDS に置く。 */
   bluemoji: "com.suibari.nagi.bluemoji",
@@ -70,13 +74,8 @@ export const NAGI = {
   getMyNewsSubmissions: "com.suibari.nagi.getMyNewsSubmissions",
   resolveLexicon: "com.suibari.nagi.resolveLexicon",
   getAppIcon: "com.suibari.nagi.getAppIcon",
-  getChannels: "com.suibari.nagi.getChannels",
-  getChannel: "com.suibari.nagi.getChannel",
-  getChannelTimeline: "com.suibari.nagi.getChannelTimeline",
-  /** タグ検索/自由文検索。公開コンテンツなのでクライアントは AppView 直読み（getChannelTimeline と同方針）。 */
+  /** タグ検索/自由文検索。公開コンテンツなのでクライアントは AppView 直読み。 */
   searchPosts: "com.suibari.nagi.searchPosts",
-  /** チャンネルの自由文検索（意味検索+語彙）。 */
-  searchChannels: "com.suibari.nagi.searchChannels",
   /** ニュースの自由文検索（意味検索+語彙）。 */
   searchNews: "com.suibari.nagi.searchNews",
   /**
@@ -84,7 +83,7 @@ export const NAGI = {
    * AppView だけが持ち、認証した本人にしか返さない（requiredServiceAuth）。
    */
   getMutes: "com.suibari.nagi.getMutes",
-  /** ユーザー/チャンネルのミュート設定・解除。 */
+  /** ユーザー/ハッシュタグのミュート設定・解除。 */
   setMute: "com.suibari.nagi.setMute",
   /** AppView だけが保持する本人の非公開ホームリスト。 */
   getPrivateList: "com.suibari.nagi.getPrivateList",
@@ -98,18 +97,13 @@ export const NAGI = {
   putBookmark: "com.suibari.nagi.putBookmark",
   deleteBookmark: "com.suibari.nagi.deleteBookmark",
   /**
-   * my Nagi（サインイン後の起点画面）専用の集約。非公開リストの各メンバーと購読中チャンネルの
+   * my Nagi（サインイン後の起点画面）専用の集約。非公開リストの各メンバーの
    * 「最新1件」だけを返す。ページングしないので cursor は持たない。
    */
   getMyNagi: "com.suibari.nagi.getMyNagi",
   /**
-   * チャンネルの購読（参加）・解除。ミュートと同じく他ユーザーに見せない情報なので
-   * PDS レコードにはせず AppView だけが持ち、認証した本人にしか返さない。
-   */
-  setChannelSubscription: "com.suibari.nagi.setChannelSubscription",
-  /**
    * 全肯定カードのコレクション。所持は公開情報なのでクライアントは AppView 直読みでも取れる
-   * （getChannelTimeline と同方針）。自分を指定したときだけ drawStatus が付く。
+   * 自分を指定したときだけ drawStatus が付く。
    */
   getCards: "com.suibari.nagi.getCards",
   /** DID が無い端末向け。同日の1枚を端末秘密に対して冪等に返す公開手続き。 */
