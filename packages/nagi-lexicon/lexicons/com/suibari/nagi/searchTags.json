@@ -1,0 +1,39 @@
+{
+  "lexicon": 1,
+  "id": "com.suibari.nagi.searchTags",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "投稿欄の #タグ 入力候補。共有タイムラインに出る投稿のハッシュタグを前方一致で、投稿数の多い順に返す。集計は数分キャッシュされる。",
+      "parameters": {
+        "type": "params",
+        "required": ["q"],
+        "properties": {
+          "q": { "type": "string", "maxLength": 640, "description": "入力中のタグ。先頭の # / ＃ と大文字小文字は無視する。" },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 20, "default": 10 }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["tags"],
+          "properties": {
+            "tags": {
+              "type": "array",
+              "maxLength": 20,
+              "items": {
+                "type": "object",
+                "required": ["tag", "count"],
+                "properties": {
+                  "tag": { "type": "string", "description": "正規形（# を除いた小文字）。" },
+                  "count": { "type": "integer", "minimum": 1, "description": "そのタグを持つ投稿数。" }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -29,6 +29,8 @@ export const NAGI = {
   /** app.bsky.actor.profile の website を安全なリンクカードとして返す公開ビュー。 */
   getProfileWebsite: "com.suibari.nagi.getProfileWebsite",
   searchActors: "com.suibari.nagi.searchActors",
+  /** 投稿欄の #タグ 入力候補。認証不要の公開クエリ。 */
+  searchTags: "com.suibari.nagi.searchTags",
   getNotifications: "com.suibari.nagi.getNotifications",
   getUnreadCount: "com.suibari.nagi.getUnreadCount",
   updateSeen: "com.suibari.nagi.updateSeen",

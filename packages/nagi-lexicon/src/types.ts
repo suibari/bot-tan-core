@@ -535,6 +535,7 @@ export type NotificationView = {
   readAt?: string;
 };
 export type SearchActorsResult = { actors: ActorView[] };
+export type SearchTagsResult = { tags: { tag: string; count: number }[] };
 export type SearchEmojisResult = { emojis: EmojiView[]; cursor?: string };
 export type GetEmojiResult = { emoji: EmojiView };
 export type DeleteAccountDataResult = { success: true };
