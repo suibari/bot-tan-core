@@ -6,12 +6,21 @@ import { ApiError } from "../middleware/errors.js";
 type RadioRow = typeof nagiRadioTracks.$inferSelect;
 const SLOT_KEY = /^\d{4}-\d{2}-\d{2}-(?:08|14|20)$/;
 
+const LAST_FM_SONG = /^https:\/\/www\.last\.fm\/music\/[^/]+\/_\/[^/]+\/?$/;
+
+/** Odesli も Spotify API も使えないので、曲ページの代わりに検索結果へ飛ばす。 */
+export function spotifySearchUrl(artist: string, title: string) {
+  return `https://open.spotify.com/search/${encodeURIComponent(`${artist} ${title}`)}`;
+}
+
 export function toRadioTrack(row: RadioRow) {
-  const songUrl = row.songUrl || (row.videoId ? `https://www.youtube.com/watch?v=${row.videoId}` : null);
+  const storedUrl = row.songUrl || (row.videoId ? `https://www.youtube.com/watch?v=${row.videoId}` : null);
   const thumbnailUrl = row.thumbnailUrl || (row.videoId ? `https://i.ytimg.com/vi/${row.videoId}/hqdefault.jpg` : null);
   const comment = row.commentJa || row.commentEn;
-  if (!row.title || !row.artist || !comment || !songUrl || !thumbnailUrl || !row.publishedAt)
+  if (!row.title || !row.artist || !comment || !storedUrl || !thumbnailUrl || !row.publishedAt)
     return null;
+  // DB には出典として Last.fm を残し、配信時だけ再生できる先へ差し替える。
+  const songUrl = LAST_FM_SONG.test(storedUrl) ? spotifySearchUrl(row.artist, row.title) : storedUrl;
   return {
     slotKey: row.slotKey,
     title: row.title,
