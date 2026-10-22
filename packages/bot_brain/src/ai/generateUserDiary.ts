@@ -3,6 +3,7 @@ import { generateContentWithRetry } from "./util.js";
 import { assertTitleIsSafe } from "./validateTitle.js";
 import { DiaryValidationError, excerptDiagnostics } from "./diaryValidation.js";
 import { saveDiaryDiagnosticSample } from "./diaryDiagnosticSamples.js";
+import { CHAOS_DIRECTIVES, chaosSeedHash } from "./chaosDirectives.js";
 import {
   UserInfoGemini,
   SYSTEM_INSTRUCTION,
@@ -80,71 +81,13 @@ export type GenerateUserDiaryOptions = {
   diagnosticContext?: { runId: string; attempt: number; surface: string };
 };
 
-const DIARY_CHAOS_DIRECTIVES = [
-  {
-    id: "absurd-job",
-    ja: "材料にある具体物を一つだけ、botたんの想像の中で唐突に変な役職へ任命し、その権限について一瞬だけ熱弁する。",
-    en: "Abruptly appoint one grounded object to a ridiculous job in Bot-tan's imagination and briefly rant about its authority.",
-  },
-  {
-    id: "nonsense-unit",
-    ja: "botたん自身の驚きや熱量を、材料にある具体物を使った意味不明な新単位で測り、単位の定義まで少し暴走する。",
-    en: "Measure Bot-tan's own reaction in a nonsensical new unit based on a grounded object, then let the unit's definition escalate briefly.",
-  },
-  {
-    id: "tiny-emergency",
-    ja: "材料にある小さな具体的ディテール一つについて、botたんの頭の中だけで緊急速報が始まる。現実の事件とは書かない。",
-    en: "Let an emergency bulletin start only inside Bot-tan's head over one tiny grounded detail; never present it as a real event.",
-  },
-  {
-    id: "object-agenda",
-    ja: "材料にある無生物一つが妙な野望を持っていそうだとbotたんが疑い、根拠の薄い推理を短く暴走させる。想像だと分かる書き方にする。",
-    en: "Have Bot-tan suspect that one grounded inanimate object has an odd agenda and briefly over-investigate it, clearly as imagination.",
-  },
-  {
-    id: "image-collision",
-    ja: "関係の薄い二つの具体的イメージを衝突させ、存在しない合体物や光景をbotたんの連想として一瞬だけ出す。",
-    en: "Collide two weakly related concrete images into an impossible hybrid object or scene for a moment in Bot-tan's association.",
-  },
-  {
-    id: "detail-obsession",
-    ja: "材料の脇役にしか見えない細部へ急にズームし、なぜそこまで気になるのか自分でも追いつけない勢いで一〜二文だけ熱弁する。",
-    en: "Abruptly zoom in on a seemingly minor grounded detail and obsess over it for one or two sentences faster than Bot-tan can justify.",
-  },
-  {
-    id: "sentence-hijack",
-    ja: "穏当な文を始めた途中で、ダッシュや括弧を使って別方向の連想に乗っ取らせ、説明しきらず本文へ戻る。",
-    en: "Start a calm sentence, let a dash or parenthesis hijack it into another association, then return without fully explaining the detour.",
-  },
-  {
-    id: "imaginary-bureau",
-    ja: "材料の具体的ディテールを担当する存在しない省庁・委員会・部活をbotたんが即席で設立し、変な業務を一つ決める。",
-    en: "Have Bot-tan instantly found an imaginary ministry, committee, or club for one grounded detail and assign it one strange duty.",
-  },
-  {
-    id: "sound-effect",
-    ja: "材料の具体的ディテールに対するbotたんの反応へ、存在しない擬音を一つ発明し、その響きだけを妙に具体的に説明する。",
-    en: "Invent one nonexistent sound effect for Bot-tan's response to a grounded detail and describe its sound with oddly specific intensity.",
-  },
-  {
-    id: "mock-trailer",
-    ja: "材料にある地味な一場面を、別ジャンルが混線した一文だけの予告編としてbotたんが脳内上映する。事実ではなく連想として書く。",
-    en: "Let Bot-tan screen one mundane grounded moment as a one-sentence trailer crossed with an unrelated genre, clearly as association rather than fact.",
-  },
-] as const;
-
 function selectDiaryChaosDirective(
   userinfo: UserInfoGemini,
   options: GenerateUserDiaryOptions,
   japanese: boolean,
 ): string {
   const seed = `${userinfo.follower.did}:${options.dayContext?.date ?? "undated"}`;
-  let hash = 2166136261;
-  for (const char of seed) {
-    hash ^= char.codePointAt(0) ?? 0;
-    hash = Math.imul(hash, 16777619);
-  }
-  const directive = DIARY_CHAOS_DIRECTIVES[(hash >>> 0) % DIARY_CHAOS_DIRECTIVES.length];
+  const directive = CHAOS_DIRECTIVES[chaosSeedHash(seed) % CHAOS_DIRECTIVES.length];
   return `<chaos_directive id="${directive.id}" usage="required">\n${japanese ? directive.ja : directive.en}\n</chaos_directive>`;
 }
 

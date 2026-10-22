@@ -1,6 +1,8 @@
 import { UserInfoGemini, GeminiScore } from '@bsky-affirmative-bot/shared-configs';
 import { generateSingleResponseWithScore, memoryAgeLabel } from './util.js';
 import { assertSourcedUrls, createUrlAllowance } from './urlGuard.js';
+import { selectReplyNetaDirective, type ReplyNetaDirective } from './chaosDirectives.js';
+import { scorePostMood, type PostMood } from './scorePostMood.js';
 import type { GeminiRequestOptions } from './util.js';
 import {
   getWhatDay,
@@ -49,12 +51,45 @@ Do not summarize it or restate its contents.
 `;
 }
 
+/**
+ * 今回のリプライに演出札（ネタ）を入れるか。
+ *
+ * 札を引いた投稿だけ、書き手の気分を `scorePostMood` で先に採点し、少しでも沈んでいれば
+ * （valence <= -1）入れない。プロンプト側にも「つらい話なら無視」と書いてあるが、
+ * 26B が空気を読み違えたときに落ち込んだ人へボケを返すのがいちばん困るので、ここで先に止める。
+ *
+ * 採点できなかったとき（本文が空・出力が壊れた・Ollama に届かない）も入れない。
+ * 札は無くても返信は成立するので、迷ったら外す側へ倒す。
+ */
+export async function resolveReplyNeta(
+  userinfo: UserInfoGemini,
+  deps: {
+    select?: (seed: string) => ReplyNetaDirective | undefined;
+    scoreMood?: (text: string) => Promise<PostMood | null>;
+  } = {},
+): Promise<ReplyNetaDirective | undefined> {
+  const postText = userinfo.posts?.[0]?.trim() ?? '';
+  if (!postText) return undefined;
+  const directive = (deps.select ?? selectReplyNetaDirective)(`${userinfo.follower.did}:${postText}`);
+  if (!directive) return undefined;
+  try {
+    const mood = await (deps.scoreMood ?? scorePostMood)(postText);
+    if (!mood || mood.valence <= -1) return undefined;
+    return directive;
+  } catch (error) {
+    console.error('[WARN][REPLY_NETA] Failed to score post mood; skipping neta', error);
+    return undefined;
+  }
+}
+
 export async function generateAffirmativeWord(userinfo: UserInfoGemini, requestOptions: GeminiRequestOptions = {}) {
+  const neta = await resolveReplyNeta(userinfo);
+
   // 指示とユーザ投稿は**分けて渡す**。1本の文字列にすると、grounding の調査ブロックと
   // botContext（行動履歴）が今回のポストの後ろへ積まれ、投稿がプロンプトの奥に沈む。
   const result = await generateSingleResponseWithScore(
     {
-      instructions: await buildAffirmativeInstructions(userinfo),
+      instructions: await buildAffirmativeInstructions(userinfo, { neta }),
       userPost: buildAffirmativeUserPost(userinfo),
     },
     userinfo,
@@ -75,7 +110,7 @@ export async function generateAffirmativeWord(userinfo: UserInfoGemini, requestO
   console.log(
     `[INFO][GEMINI] affirmative reply: postLen=${userinfo.posts?.[0]?.length ?? 0}, replyLen=${
       result.comment?.length ?? 0
-    }, hasImages=${Boolean(userinfo.image?.length)}`,
+    }, hasImages=${Boolean(userinfo.image?.length)}, neta=${neta?.id ?? 'none'}`,
   );
 
   // Geminiリクエスト数加算
@@ -173,6 +208,42 @@ you must follow all of the following.
    - Center your reply on thanking them for telling you, accepting them exactly as they are right now, and letting them know you are here.
    - Do not push through with high energy. Do not paint over it with cheerfulness; receive it quietly.`;
 
+/**
+ * 演出札のブロック。札を引かなかった回は空文字で、プロンプトは従来と同じになる。
+ *
+ * SUBSTANCE_RULES の「別の話題を持ち出さない」と正面からぶつかるので、例外であることと
+ * その幅（1文だけ・事実を変えない）をここで明記する。
+ */
+const netaBlockJa = (neta?: ReplyNetaDirective) =>
+  neta
+    ? `
+## 今回のちょっとしたネタ
+<neta_directive id="${neta.id}">
+${neta.ja}
+</neta_directive>
+   - 返信のどこか1か所で、この演出を**1文だけ**入れてください。予定調和の褒め言葉だけで終わらせないための、botたんらしいボケです。
+   - 演出はbotたんの頭の中の連想として書くこと。ユーザの投稿の事実（誰が・何を・もう終わったのか）を変えたり、無い出来事を足したりしないこと。画像が無い投稿で、色や形など見ていないものを見たように書かないこと。
+   - これは「長さについて」の「別の話題を持ち出さない」の例外です。ただし1文で済ませ、すぐユーザを肯定する本題へ戻ること。
+   - 札のIDや「ネタ」「演出」という言葉は本文に書かないこと。
+   - ユーザの投稿がつらい話・落ち込み・心配ごと（下の「つらい話を打ち明けられたときの書き方」に当たるもの）だったら、この札は無視してください。
+`
+    : '';
+
+const netaBlockEn = (neta?: ReplyNetaDirective) =>
+  neta
+    ? `
+## A small joke for this reply
+<neta_directive id="${neta.id}">
+${neta.en}
+</neta_directive>
+   - Somewhere in the reply, perform this **in exactly one sentence**. It is Bot-tan's playful aside so the reply does not end as tidy praise only.
+   - Write it as Bot-tan's own association. Never change the facts of the post (who did it, what, whether it already happened), and never add events it does not contain. When the post has no image, never describe colors or shapes as if you had seen them.
+   - This is an exception to "do not bring up another topic" under "About length". Keep it to one sentence and return to affirming the user right away.
+   - Never write the card ID or words like "joke" or "directive" in the comment.
+   - If the post is about something painful, a low mood, or a worry (anything covered by "How to write when someone confides something painful" below), ignore this card.
+`
+    : '';
+
 const sharedLinks = (userinfo: UserInfoGemini) => {
   const links = [...(userinfo.embed?.links_embed ?? [])];
   if (userinfo.embed?.uri_embed && !links.some((link) => link.uri === userinfo.embed?.uri_embed)) {
@@ -243,7 +314,10 @@ const nagiReactionInstructionEn = (userinfo: UserInfoGemini) => {
  * grounding の調査ブロックと botContext（行動履歴）が後から連結されるので、
  * この文字列が長くなるぶんには構わない。ユーザ投稿だけが後ろに残ればよい。
  */
-export const buildAffirmativeInstructions = async (userinfo: UserInfoGemini) => {
+export const buildAffirmativeInstructions = async (
+  userinfo: UserInfoGemini,
+  options: { neta?: ReplyNetaDirective } = {},
+) => {
   const postText = userinfo.posts?.[0] || '';
   const postLength = postText.length;
   const hasImages = Boolean(userinfo.image?.length);
@@ -335,7 +409,7 @@ ${POST_READING_RULES_JA}
 
 ## 長さについて
 ${SUBSTANCE_RULES_JA}
-
+${netaBlockJa(options.neta)}
 ## 自分の話をするときについて
 ${SELF_DISCLOSURE_RULES_JA}
 
@@ -410,7 +484,7 @@ ${POST_READING_RULES_EN}
 
 ## About length
 ${SUBSTANCE_RULES_EN}
-
+${netaBlockEn(options.neta)}
 ## About talking about yourself
 ${SELF_DISCLOSURE_RULES_EN}
 
@@ -482,5 +556,7 @@ happened, exactly as this text states it. Do not add anything it does not say.
  * （順序を保つため）。ここは連結した全文を1本で見たいテストと、文字列1本を前提に
  * している呼び出しのために残してある。
  */
-export const buildAffirmativePrompt = async (userinfo: UserInfoGemini) =>
-  `${await buildAffirmativeInstructions(userinfo)}\n${buildAffirmativeUserPost(userinfo)}`;
+export const buildAffirmativePrompt = async (
+  userinfo: UserInfoGemini,
+  options: { neta?: ReplyNetaDirective } = {},
+) => `${await buildAffirmativeInstructions(userinfo, options)}\n${buildAffirmativeUserPost(userinfo)}`;

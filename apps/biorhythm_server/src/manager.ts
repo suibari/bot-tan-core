@@ -42,7 +42,17 @@ import {
 import { Type } from "@google/genai";
 
 import { Status } from "@bsky-affirmative-bot/shared-configs";
-import { postGoodNight, postMorning, postWhimsical } from "./ScheduledPostCoordinator.js";
+import { postGoodNight, postMonologue, postMorning, postWhimsical } from "./ScheduledPostCoordinator.js";
+import {
+  MONOLOGUE_ENERGY_COST,
+  MONOLOGUE_STATE_KEY,
+  monologueSituationJa,
+  normalizeMonologueState,
+  planMonologue,
+  recordMonologue,
+  shouldAttachMonologueImage,
+  type MonologueState,
+} from "./monologueTriggers.js";
 import {
   DASHBOARD_TOP_POST_SOURCE,
   getDailyTopPostCandidate,
@@ -458,6 +468,9 @@ export class BiorhythmManager extends EventEmitter {
     // 時刻の判定材料はここで一度だけ決める。LLM 呼び出しの後で時計を読み直すと、
     // 4時をまたいだ step で hour と bot 日が食い違う（stepClock のコメント参照）。
     const { hour, isWeekend, today } = stepClock(new Date());
+    // 二度寝明けの判定用。おはようポストはこの step の後ろで撃つので、ここで取っておかないと
+    // その日最初の起床まで「おはよう済みの後に起きた」に見えてしまう（monologueTriggers.ts）。
+    const morningPostedBeforeStep = !this.canPostGoodMorning(today);
 
     // 未読のリプライ取得
     const unreadReply = await MemoryService.getUnreadReplies();
@@ -507,6 +520,8 @@ export class BiorhythmManager extends EventEmitter {
     let duration_minutes = 60;
     let nextInterval = DEFAULT_STEP_INTERVAL_MS;
     let nextStepSaved = false;
+    // おはよう・おやすみ・気まぐれのどれかを撃った step では、ひとりごとを出さない。
+    let postedOtherThisStep = false;
 
     try {
       const result = await this.resolveStatus({
@@ -566,6 +581,7 @@ export class BiorhythmManager extends EventEmitter {
         lastGoodNightPostDate: this.lastGoodNightPostDate,
       })) {
         console.log(`[INFO][BIORHYTHM] post goodnight!`);
+        postedOtherThisStep = true;
         await postGoodNight(this.getMood, botContext);
         await this.setGoodNightPostDate(today);
       }
@@ -578,6 +594,7 @@ export class BiorhythmManager extends EventEmitter {
         lastGoodMorningPostDate: this.lastGoodMorningPostDate,
       })) {
         console.log(`[INFO][BIORHYTHM] post goodmorning!`);
+        postedOtherThisStep = true;
         await postMorning(botContext);
         await this.changeEnergy(-6000);
         await this.setGoodMorningPostDate(today);
@@ -598,10 +615,23 @@ export class BiorhythmManager extends EventEmitter {
         const probability = Math.random() * 100;
         if (probability < this.getEnergy || process.env.NODE_ENV === "development") {
           console.log(`[INFO][BIORHYTHM] post and decrease energy!`);
+          postedOtherThisStep = true;
           await postWhimsical(this.getMood, botContext);
           await this.changeEnergy(-6000);
         }
       }
+
+      // ひとりごと（Nagi 専用）。失敗しても step は止めない。
+      await this.maybePostMonologue({
+        today,
+        hour,
+        isWeekend,
+        weather,
+        currentActivity: status_text,
+        morningPostedBeforeStep,
+        roomEventCount: roomEvents.length,
+        postedOtherThisStep,
+      }).catch((error) => console.error("[ERROR][MONOLOGUE] step failed:", error));
 
       this.getCurrentState().then(state => this.emit('statsChange', state));
     } catch (e) {
@@ -623,6 +653,69 @@ export class BiorhythmManager extends EventEmitter {
     } else {
       await this.scheduleNextStep(nextInterval);
     }
+  }
+
+  /**
+   * ひとりごとを撃つか決めて、撃つなら Nagi にだけ出す。判定は monologueTriggers.ts の
+   * planMonologue に寄せてあり、ドライラン（scripts/simulateMonologueDay.mts）も同じ道を通る。
+   * `MONOLOGUE_ENABLED=false` で止められる。
+   */
+  private async maybePostMonologue(args: {
+    today: string;
+    hour: number;
+    isWeekend: boolean;
+    weather: string;
+    currentActivity: string;
+    morningPostedBeforeStep: boolean;
+    roomEventCount: number;
+    postedOtherThisStep: boolean;
+  }) {
+    if (process.env.MONOLOGUE_ENABLED === "false") return;
+    const now = new Date();
+    const state: MonologueState = normalizeMonologueState(
+      await MemoryService.getBotState(MONOLOGUE_STATE_KEY),
+    );
+    const plan = planMonologue({
+      ...args,
+      state,
+      now,
+      statusPrev: this.statusPrev,
+      status: this.status,
+      energy: this.getEnergy,
+      random: Math.random,
+    });
+    if (!plan) return;
+
+    const withImage = shouldAttachMonologueImage({ energy: this.getEnergy, random: Math.random });
+    console.log(
+      `[INFO][MONOLOGUE] trigger=${plan.trigger} reaction=${plan.reaction.id} p=${plan.probability.toFixed(2)} image=${withImage}`,
+    );
+    const posted = await postMonologue(
+      {
+        currentActivity: args.currentActivity,
+        hour: args.hour,
+        isWeekend: args.isWeekend,
+        energy: this.getEnergy,
+        weather: args.weather,
+        situationJa: monologueSituationJa(plan.trigger, args.isWeekend),
+        reactionJa: plan.reaction.ja,
+        recentMonologues: state.recentTexts,
+        emoji: plan.emoji,
+      },
+      { withImage, status: this.status },
+    );
+    if (!posted) return;
+    await MemoryService.setBotState(
+      MONOLOGUE_STATE_KEY,
+      recordMonologue(state, {
+        today: args.today,
+        now,
+        text: posted.textJa,
+        reactionId: plan.reaction.id,
+        trigger: plan.trigger,
+      }),
+    );
+    await this.changeEnergy(MONOLOGUE_ENERGY_COST);
   }
 
   /** できごとに出てくる did の表示名をまとめて解決する。同じ人が複数回来ていても1回で済ませる。 */

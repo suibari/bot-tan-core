@@ -104,6 +104,7 @@ const EXPECTED: Record<AiFeatureKey, [model: string, tier: "flex" | "standard" |
   BIORHYTHM_QUESTION: [FLASH, "flex"],
   BIORHYTHM_WHIMSICAL_POST_PLAN: [FLASH, "flex"],
   BIORHYTHM_WHIMSICAL_POST_WRITE: [FLASH, "flex"],
+  BIORHYTHM_MONOLOGUE: [DEFAULT_OLLAMA_TEXT_MODEL, undefined],
   // Nagi
   NAGI_REPLY_ATTEMPT_EARLY: [LITE, "standard"],
   NAGI_REPLY_ATTEMPT_MID: [LITE, "standard"],

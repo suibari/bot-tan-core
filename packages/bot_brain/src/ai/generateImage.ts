@@ -10,6 +10,7 @@ import { isImageGenConfigured, requestImage, type GeneratedImage } from "./image
 import { applyBotSignature } from "./botSignature.js";
 import { imageInspectionRedraws, inspectGeneratedImage } from "./inspectImage.js";
 import { resolveCharacters } from "./characterLookup.js";
+import { botOutfitSpec, casualOutfitTags, chooseBotOutfit, DEFAULT_SCENE_CUES } from "./botOutfit.js";
 
 /**
  * 絵を描ける状態か。お絵描き機能は、描けないときに依頼の判定（LLM）ごと回さないためにこれを見る。
@@ -54,7 +55,14 @@ export function isImageGenerationAvailable(): boolean {
 export async function generateImage(
   sourceText: string,
   maxBytes?: number,
-  options: { purpose?: ImageScenePurpose } = {},
+  options: {
+    purpose?: ImageScenePurpose;
+    /**
+     * 服を選ぶ材料（botOutfit.ts）。status はバイオリズムの状態で、いまの botたんを描くとき
+     * （ひとりごと）だけ渡す。casualOutfit は予定表の「今日の服」の文。
+     */
+    outfit?: { status?: string; casualOutfit?: string; now?: Date };
+  } = {},
 ): Promise<GeneratedImage | null> {
   const route = resolveAiImageRoute("BSKY_IMAGE");
 
@@ -78,7 +86,14 @@ export async function generateImage(
     const characters = await resolveCharacters(plan.characters);
 
     const style = (process.env.IMAGEGEN_STYLE as ImageStyle) || "crayon-diary";
-    const built = buildImagePrompt(plan, style, characters);
+    const outfitKind = chooseBotOutfit({
+      cues: plan.cues ?? DEFAULT_SCENE_CUES,
+      status: options.outfit?.status,
+      now: options.outfit?.now ?? new Date(),
+    });
+    const casualTags = outfitKind === "casual" ? await casualOutfitTags(options.outfit?.casualOutfit) : "";
+    console.log(`[INFO][IMGGEN] outfit=${outfitKind} cues=${JSON.stringify(plan.cues ?? DEFAULT_SCENE_CUES)}`);
+    const built = buildImagePrompt(plan, style, characters, { outfit: botOutfitSpec(outfitKind, casualTags) });
     // シーンが薄いときは buildImagePrompt が null を返す。**そのまま描かせてはいけない。**
     // キャラ固定タグだけの同じプロンプトになり、同じ絵が毎日出る（PoC で3枚重複した）。
     if (!built) return null;

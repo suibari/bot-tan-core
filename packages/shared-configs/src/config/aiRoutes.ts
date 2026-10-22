@@ -260,6 +260,9 @@ export const AI_FEATURES = {
   BIORHYTHM_QUESTION: "flash-flex", // 質問生成
   BIORHYTHM_WHIMSICAL_POST_PLAN: "flash-flex", // 気まぐれ投稿: 企画フェーズ（function calling）
   BIORHYTHM_WHIMSICAL_POST_WRITE: "flash-flex", // 気まぐれ投稿: 執筆フェーズ（構造化JSON）
+  // Nagi 専用のひとりごと。1日4〜8件の短文で、材料は botたんの「いま」だけ（外部の文章を
+  // 読まない）。件数のわりに1件が軽く、外へ出す理由も無いのでローカルで回す。
+  BIORHYTHM_MONOLOGUE: "ollama-chat",
 
   // ══════ Nagi ═══════════════════════════════════════════════════════
   // ユーザーが画面上で待つ通常リプライ。Flex の混雑時に約10分滞留し、直列ワーカーの

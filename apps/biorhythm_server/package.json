@@ -10,7 +10,8 @@
     "start": "node --env-file=../../.env dist/index.js",
     "dev": "tsx watch --env-file=../../.env src/index.ts",
     "whimsical:news:preview": "tsx --env-file=../../.env src/whimsicalPostPreview.ts",
-    "status:preview": "tsx --env-file=../../.env src/statusPreview.ts"
+    "status:preview": "tsx --env-file=../../.env src/statusPreview.ts",
+    "monologue:preview": "tsx --env-file=../../.env src/monologuePreview.ts"
   },
   "dependencies": {
     "@atproto/api": "^0.18.21",
