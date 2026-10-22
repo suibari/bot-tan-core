@@ -111,6 +111,13 @@ export function startNagiReplyWorker() {
       })
       .where(eq(nagiBotReplyJobs.sourceUri, job.sourceUri));
 
+    // 同じ Ollama を使うため直列のまま、短いリアクションを先に返す。
+    // 失敗はリアクション側で吸収され、返信の成否・再試行とは独立する。
+    if (!(job.recordJson as any)?.reply) {
+      await reactAfterBotPost("post", job.sourceUri);
+    }
+
+    const replyStartedAt = performance.now();
     let generationMode: "ai" | "template" | undefined;
     try {
       // bot宛返信はAI/定型/最終的な生成成否を問わず「受けた入力」として残す。
@@ -232,6 +239,14 @@ export function startNagiReplyWorker() {
           .where(eq(nagiBotReplyJobs.sourceUri, job.sourceUri));
       });
 
+      console.info(JSON.stringify({
+        event: "nagi_reply_posted",
+        sourceUri: job.sourceUri,
+        attempt,
+        generationMode: generationMode ?? "template",
+        elapsedMs: Math.round(performance.now() - replyStartedAt),
+      }));
+
       // AppView が確定した可視範囲を正とする。行がまだ無い場合は、こっそりを誤って
       // public として覚えるより安全なので次回のバックフィルへ任せる。
       const [sourcePost] = await db
@@ -305,12 +320,6 @@ export function startNagiReplyWorker() {
         }
       }
 
-      // 返信と同時に、botたんが最初の絵文字リアクションを付ける。会話ターン（返信付き投稿）は対象外。
-      // 失敗しても投げない（ジョブは既に posted）。
-      if (!record?.reply) {
-        await reactAfterBotPost("post", job.sourceUri);
-      }
-
       // 超ポジティブLvはBlueskyと共通のカウンタ（followers.positivity_level）。
       // ジョブは既に posted なので、ここでの失敗はログのみ（リトライで二重加算させない）。
       if (
@@ -341,6 +350,7 @@ export function startNagiReplyWorker() {
         JSON.stringify({
           level: "warn",
           event: "nagi_reply_failed",
+          elapsedMs: Math.round(performance.now() - replyStartedAt),
           sourceUri: job.sourceUri,
           attempt,
           generationMode: generationMode ?? "undecided",
