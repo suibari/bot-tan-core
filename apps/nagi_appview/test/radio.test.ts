@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { toRadioTrack, unreadRadioSlot } from "../src/queries/radio.js";
+import { spotifySearchUrl, toRadioTrack, unreadRadioSlot } from "../src/queries/radio.js";
 import type { nagiRadioTracks } from "@bsky-affirmative-bot/database";
 
 const row: typeof nagiRadioTracks.$inferSelect = {
@@ -13,7 +13,7 @@ const row: typeof nagiRadioTracks.$inferSelect = {
 
 test("動画IDなしの曲リンクを現在枠・履歴の共通形式で返す", () => {
   const track = toRadioTrack(row);
-  assert.equal(track?.songUrl, row.songUrl);
+  assert.equal(track?.songUrl, "https://open.spotify.com/search/Artist%20Song");
   assert.equal(track?.thumbnailUrl, row.thumbnailUrl);
   assert.equal(track?.commentJa, row.commentJa);
   assert.equal(track?.commentEn, row.commentEn);
@@ -30,6 +30,18 @@ test("移行前のYouTube履歴はリンクとサムネイルを補完する", (
 test("リンクまたは画像が未確定の新しい放送は返さない", () => {
   assert.equal(toRadioTrack({ ...row, songUrl: null }), null);
   assert.equal(toRadioTrack({ ...row, thumbnailUrl: null }), null);
+});
+
+test("Last.fmの曲ページは日本語の曲名もSpotify検索へ差し替える", () => {
+  const track = toRadioTrack({ ...row, title: "チェリー", artist: "スピッツ",
+    songUrl: "https://www.last.fm/music/%E3%82%B9%E3%83%94%E3%83%83%E3%83%84/_/%E3%83%81%E3%82%A7%E3%83%AA%E3%83%BC" });
+  assert.equal(track?.songUrl, spotifySearchUrl("スピッツ", "チェリー"));
+  assert.equal(decodeURIComponent(new URL(track!.songUrl).pathname), "/search/スピッツ チェリー");
+});
+
+test("Last.fm以外の曲リンクはそのまま返す", () => {
+  const songUrl = "https://example.com/music/Artist/_/Song";
+  assert.equal(toRadioTrack({ ...row, songUrl })?.songUrl, songUrl);
 });
 
 test("未読枠は既読位置より新しい最新枠だけを返す", () => {

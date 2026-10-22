@@ -290,5 +290,8 @@ SSH トンネルで入る。開発機（.220）では user サービス `pi-post
 
 - 気まぐれ定期ポストは YouTube リンク（`MoodSongResolver` の既定経路）。
 - Bluesky DJ と Nagi ラジオは Last.fm の曲ページとジャケット（`resolveLinkedMoodSong` / `resolveNagiRadioSong`）。
+- Nagi ラジオは DB に Last.fm の曲ページを残し、AppView の `toRadioTrack` が配信時に Spotify 検索URLへ
+  差し替える（Last.fm からは直接聴けないため）。Odesli の公開APIは終了、Spotify API は有料化で撤退済みなので、
+  曲ページそのものは引かない。Bluesky DJ は Last.fm のまま。
 - ユーザー起点の選曲に YouTube 検索を必須化しない。検索の日次枠は定期ポスト用に残す。
 - Last.fm の曲ページURLと画像は API 応答から取得し、URLの推測やダミー画像で補わない。
