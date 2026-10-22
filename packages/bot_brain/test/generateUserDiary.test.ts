@@ -7,6 +7,8 @@ import {
   validateDiaryParagraphs,
   validateUsedContextId,
   usedContextIdSchema,
+  userDiaryResponseSchema,
+  parseUserDiaryResponse,
 } from "../src/ai/generateUserDiary.js";
 import { assertTitleIsSafe } from "../src/ai/validateTitle.js";
 import { generateUserDiaryResilient } from "../src/ai/generateUserDiaryResilient.js";
@@ -375,4 +377,46 @@ test("a diary draft with a disallowed title is regenerated", async () => {
 
 test("omits absent diary context without inventing placeholders", () => {
   assert.equal(formatUserDiaryDayContext(undefined, true), "");
+});
+
+const paragraphResponse = {
+  paragraphs: ["今日は設定を直したんだね。", "冷蔵庫が突然宇宙船の船長になった。"],
+  chaosParagraphIndex: 1,
+  title_ja: "整備の達人", title_en: "Maintenance Expert", usedContextId: "none",
+};
+
+const flaggedResponse = {
+  ...paragraphResponse,
+  paragraphs: paragraphResponse.paragraphs.map((text, index) => ({ text, containsChaos: index === 1 })),
+};
+
+test("paragraph flags keep their prose locally and preserve all validation", () => {
+  const result = parseUserDiaryResponse(JSON.stringify(flaggedResponse), undefined, "paragraphFlags");
+  assert.equal(result.diary, paragraphResponse.paragraphs.join("\n\n"));
+  assert.equal(result.chaosExcerpt, paragraphResponse.paragraphs[1]);
+  for (const paragraphs of [
+    [{ text: "one", containsChaos: true }],
+    flaggedResponse.paragraphs.map((part) => ({ ...part, containsChaos: false })),
+    [{ text: "", containsChaos: false }, flaggedResponse.paragraphs[1]],
+    [{ text: "本文の段落です", containsChaos: "true" }, flaggedResponse.paragraphs[1]],
+    [null, flaggedResponse.paragraphs[1]],
+    Array(7).fill({ text: "多すぎる段落の本文です", containsChaos: true }),
+  ]) {
+    assert.throws(() => parseUserDiaryResponse(JSON.stringify({ ...flaggedResponse, paragraphs }), undefined, "paragraphFlags"), /Diary must/);
+  }
+  assert.throws(() => parseUserDiaryResponse(JSON.stringify({ ...flaggedResponse, title_ja: "多動の旅人" }), undefined, "paragraphFlags"), /disallowed term/);
+  assert.throws(() => parseUserDiaryResponse(JSON.stringify({ ...flaggedResponse, usedContextId: "invented" }), undefined, "paragraphFlags"), /invalid context ID/);
+  assert.throws(() => parseUserDiaryResponse(JSON.stringify({ ...flaggedResponse, paragraphs: [{ text: "短い", containsChaos: true }, { text: "本文の続きです", containsChaos: false }] }), undefined, "paragraphFlags"), /at least 12 characters/);
+});
+
+test("paragraph flag prompt and schema require a local boolean rather than a second copy or index", () => {
+  for (const langStr of ["日本語", "English"] as const) {
+    const prompt = buildUserDiaryPrompt({ ...userinfo, langStr }, { responseFormat: "paragraphFlags" });
+    assert.match(prompt, /containsChaos/);
+    assert.doesNotMatch(prompt, /chaosExcerpt|chaosParagraphIndex/);
+    assert.match(prompt, /<chaos_directive/);
+  }
+  const schema = normalizeJsonSchema(userDiaryResponseSchema(undefined, "paragraphFlags"));
+  assert.equal(schema.properties.paragraphs.items.properties.containsChaos.type, "boolean");
+  assert.deepEqual(schema.properties.paragraphs.items.required, ["text", "containsChaos"]);
 });

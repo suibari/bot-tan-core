@@ -1,0 +1,167 @@
+{
+  "requestsCompleted": 128,
+  "inputSha256": [
+    "7faba2d5c3a5e09dff9e05e965c6794b1dff4d7cfe9f0ddeb62dd7526a9711b9",
+    "42bf7ec02297675755a4bd5db7d82ca8f145a678e2ea267919aadba8151fe8f8"
+  ],
+  "formats": {
+    "excerpt": {
+      "trials": 64,
+      "success": 38,
+      "failures": 26,
+      "reasons": {
+        "excerpt_mismatch": 24,
+        "excerpt_short": 1,
+        "invalid_json": 1
+      },
+      "calls": 64,
+      "inputTokens": 560578,
+      "outputTokens": 30376,
+      "meanOutputTokens": 475,
+      "truncated": 1,
+      "meanLatencyMs": 8099,
+      "medianLatencyMs": 7997.5,
+      "jsonOver2100": 9,
+      "groups": {
+        "english": {
+          "trials": 10,
+          "success": 7,
+          "failures": 3,
+          "reasons": {
+            "excerpt_mismatch": 3
+          },
+          "calls": 10,
+          "inputTokens": 78450,
+          "outputTokens": 4251,
+          "meanOutputTokens": 425,
+          "truncated": 0,
+          "meanLatencyMs": 7008,
+          "medianLatencyMs": 6714.5,
+          "jsonOver2100": 1
+        },
+        "sparse": {
+          "trials": 18,
+          "success": 9,
+          "failures": 9,
+          "reasons": {
+            "excerpt_mismatch": 8,
+            "excerpt_short": 1
+          },
+          "calls": 18,
+          "inputTokens": 160866,
+          "outputTokens": 7269,
+          "meanOutputTokens": 404,
+          "truncated": 0,
+          "meanLatencyMs": 7264,
+          "medianLatencyMs": 6847.5,
+          "jsonOver2100": 0
+        },
+        "dense": {
+          "trials": 20,
+          "success": 11,
+          "failures": 9,
+          "reasons": {
+            "excerpt_mismatch": 9
+          },
+          "calls": 20,
+          "inputTokens": 185684,
+          "outputTokens": 10139,
+          "meanOutputTokens": 507,
+          "truncated": 0,
+          "meanLatencyMs": 8711,
+          "medianLatencyMs": 8609.5,
+          "jsonOver2100": 0
+        },
+        "bsky-english": {
+          "trials": 16,
+          "success": 11,
+          "failures": 5,
+          "reasons": {
+            "excerpt_mismatch": 4,
+            "invalid_json": 1
+          },
+          "calls": 16,
+          "inputTokens": 135578,
+          "outputTokens": 8717,
+          "meanOutputTokens": 545,
+          "truncated": 1,
+          "meanLatencyMs": 8955,
+          "medianLatencyMs": 8798,
+          "jsonOver2100": 8
+        }
+      }
+    },
+    "paragraphFlags": {
+      "trials": 64,
+      "success": 64,
+      "failures": 0,
+      "reasons": {},
+      "calls": 64,
+      "inputTokens": 560156,
+      "outputTokens": 32243,
+      "meanOutputTokens": 504,
+      "truncated": 0,
+      "meanLatencyMs": 8724,
+      "medianLatencyMs": 8284,
+      "jsonOver2100": 11,
+      "groups": {
+        "english": {
+          "trials": 10,
+          "success": 10,
+          "failures": 0,
+          "reasons": {},
+          "calls": 10,
+          "inputTokens": 78390,
+          "outputTokens": 4211,
+          "meanOutputTokens": 421,
+          "truncated": 0,
+          "meanLatencyMs": 7619,
+          "medianLatencyMs": 6844,
+          "jsonOver2100": 0
+        },
+        "sparse": {
+          "trials": 18,
+          "success": 18,
+          "failures": 0,
+          "reasons": {},
+          "calls": 18,
+          "inputTokens": 160740,
+          "outputTokens": 8075,
+          "meanOutputTokens": 449,
+          "truncated": 0,
+          "meanLatencyMs": 7610,
+          "medianLatencyMs": 7400,
+          "jsonOver2100": 0
+        },
+        "dense": {
+          "trials": 20,
+          "success": 20,
+          "failures": 0,
+          "reasons": {},
+          "calls": 20,
+          "inputTokens": 185544,
+          "outputTokens": 11134,
+          "meanOutputTokens": 557,
+          "truncated": 0,
+          "meanLatencyMs": 9249,
+          "medianLatencyMs": 9000.5,
+          "jsonOver2100": 0
+        },
+        "bsky-english": {
+          "trials": 16,
+          "success": 16,
+          "failures": 0,
+          "reasons": {},
+          "calls": 16,
+          "inputTokens": 135482,
+          "outputTokens": 8823,
+          "meanOutputTokens": 551,
+          "truncated": 0,
+          "meanLatencyMs": 10013,
+          "medianLatencyMs": 9294.5,
+          "jsonOver2100": 11
+        }
+      }
+    }
+  }
+}

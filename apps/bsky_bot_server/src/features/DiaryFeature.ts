@@ -151,7 +151,7 @@ async function processUserDiary(userDid: string, timezone: string) {
             });
             diaryResult = await generateUserDiaryResilient(
                 userinfo,
-                { dayContext, mediaReference, label: `[${userDid}][DIARY]` },
+                { dayContext, mediaReference, surface: "bsky", label: `[${userDid}][DIARY]` },
             );
         } catch (e: any) {
             console.error(`[ERROR][${userDid}][DIARY] Failed to generate diary after up to ${DIARY_MAX_ATTEMPTS} attempts:`, e.message);
@@ -193,6 +193,7 @@ async function processUserDiary(userDid: string, timezone: string) {
 
         // 投稿できたときだけ記録する。ここより手前で落ちた日は取りこぼし扱いで再試行される。
         await MemoryService.updateFollower(userDid, 'last_diary_date', diaryDate);
+        console.info(`[INFO][DIARY] diary_published surface=bsky subject=${userDid} date=${diaryDate}`);
 
         console.log(`[INFO][${userDid}] finish to process diary (${diaryDate})`);
 

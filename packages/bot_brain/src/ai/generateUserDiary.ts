@@ -1,6 +1,8 @@
 import { Type } from "@google/genai";
 import { generateContentWithRetry } from "./util.js";
 import { assertTitleIsSafe } from "./validateTitle.js";
+import { DiaryValidationError, excerptDiagnostics } from "./diaryValidation.js";
+import { saveDiaryDiagnosticSample } from "./diaryDiagnosticSamples.js";
 import {
   UserInfoGemini,
   SYSTEM_INSTRUCTION,
@@ -9,6 +11,8 @@ import {
   NAME_RULES_EN,
   addressName,
   safeFetch,
+  resolveAiRoute,
+  OLLAMA_DEFAULT_OUTPUT_TOKENS,
   type AiRouteDetails,
   type UserDiaryMediaReference,
 } from "@bsky-affirmative-bot/shared-configs";
@@ -57,12 +61,23 @@ ${section("news", "news")}
 </diary_context>`;
 }
 
+export type UserDiaryResponseFormat = "excerpt" | "paragraphFlags";
+
+/** 実データで比較したOllamaだけ新形式へ。Geminiは従来形式を維持する。 */
+export function resolveUserDiaryResponseFormat(format?: UserDiaryResponseFormat): UserDiaryResponseFormat {
+  return format ?? (resolveAiRoute("COMMON_USER_DIARY").provider === "ollama" ? "paragraphFlags" : "excerpt");
+}
+
 export type GenerateUserDiaryOptions = {
   dayContext?: UserDiaryDayContext;
   mediaReference?: UserDiaryMediaReference;
   aiRoute?: AiRouteDetails;
   thinkingLevel?: "minimal" | "low" | "medium" | "high";
+  responseFormat?: UserDiaryResponseFormat;
+  onResponseText?: (text: string) => void;
   onUsage?: (usage: GeminiUsage) => void;
+  onRequest?: () => void;
+  diagnosticContext?: { runId: string; attempt: number; surface: string };
 };
 
 const DIARY_CHAOS_DIRECTIVES = [
@@ -135,6 +150,13 @@ function selectDiaryChaosDirective(
 
 export function buildUserDiaryPrompt(userinfo: UserInfoGemini, options: GenerateUserDiaryOptions = {}): string {
   const japanese = userinfo.langStr === "日本語";
+  const structured = options.responseFormat === "paragraphFlags";
+  const excerptOutputJa = structured ? `- paragraphs は段落オブジェクトの配列です。各要素の text に段落本文を一度だけ書き、その段落に演出札によるカオス表現を実際に入れた場合だけ containsChaos を true にしてください。それ以外は false です。最低1段落は true が必要で、その段落は12文字以上にしてください。印は日記本文に表示しません。` : `- chaosExcerpt には、そのカオス要素が最もはっきり表れている連続した12文字以上の箇所を、diaryから一字も変えずに抜き出してください。きれいな作品比喩や単なる大げさな称賛しか抜き出せない場合は、diaryのカオスが不足しています。chaosExcerpt自体は日記へ表示されません。`;
+  const excerptOutputEn = structured ? `- Return paragraphs as an array of objects. Write each paragraph once in text, then set containsChaos to true only if that same paragraph actually performs the required disruption; otherwise set it to false. At least one paragraph must be marked true and contain at least 12 characters. The marks are not displayed in the diary.` : `- In chaosExcerpt, copy without any change a contiguous passage of at least 12 characters from diary where that disruption is most conspicuous. If the only passage available is a tidy media comparison or merely exaggerated praise, the diary does not contain enough chaos yet. chaosExcerpt itself is not displayed in the diary.`;
+  const paragraphOutputJa = structured ? `- 本文は4段落を基本とし、最低2段落を paragraphs 配列の別々の要素へ入れてください。空行は表示時に付けるため段落を複製しないでください。` : `- 本文は4段落を基本として意味のまとまりごとに分け、段落の間に改行を二つ（JSON文字列では \\n\\n）入れてください。材料が少なくても最低2段落にし、一続きの長文は失敗として扱われます。`;
+  const paragraphOutputEn = structured ? `- Use four meaningful paragraphs by default and at least two, each as a separate entry in paragraphs. Blank lines are added when rendering; never duplicate a paragraph.` : `- Use four meaningful paragraphs by default, separated by two newline characters (\\n\\n in the JSON string). Even with sparse material, use at least two paragraphs. One uninterrupted block is invalid and will be rejected.`;
+  const chaosReferenceJa = structured ? "その演出を実行した段落に containsChaos: true を付けてください" : "chaosExcerptにはその実行箇所を返してください";
+  const chaosReferenceEn = structured ? "mark that paragraph with containsChaos: true" : "return that passage as chaosExcerpt";
   const name = addressName(userinfo);
   const hasContext = Boolean(options.dayContext?.candidates.length);
   const maxLength = japanese
@@ -195,7 +217,7 @@ ${lengthTarget}
 - <media_reference> は今日の連想候補であり、使用は任意です。今日のbotたんの気分や文章の流れに刺さらなければ一度も使わなくて構いません。刺さった場合は一度に制限せず、同じネタから何度脱線しても構いません。その作品をユーザーが知っている・見た・好きだとは書かず、botたん側の連想として扱ってください。
 - <media_reference> は作品の許可リストではありません。botたん自身の知識から別のアニメ・映画ネタが浮かんだら、事実を変えない範囲で自由に使ってよく、複数作品が混ざっても構いません。
 - 日記本文には、予定調和のきれいな流れを壊す「カオス要素」を最低1か所、必ず自然に入れてください。0回は禁止ですが上限はありません。作品ネタである必要はありません。
-- 今日の <chaos_directive> は、日ごとの型の偏りを防ぐために選ばれた必須の演出札です。本文中で最低1回はその演出を実行し、chaosExcerptにはその実行箇所を返してください。札のIDや指示文自体は本文に書かないでください。ほかのカオス要素を追加するのは自由です。
+- 今日の <chaos_directive> は、日ごとの型の偏りを防ぐために選ばれた必須の演出札です。本文中で最低1回はその演出を実行し、${chaosReferenceJa}。札のIDや指示文自体は本文に書かないでください。ほかのカオス要素を追加するのは自由です。
 - カオス要素の形は毎回自由に選んでください。たとえば、無関係そうなものへの急な連想、引き返せないほど育つ無理やりな比喩、自分の話を途中で遮るセルフ突っ込み、妙に細かい一点への過剰な熱弁、急なテンポや感情の振れ、普通に始まった文の予想外な着地、関係の薄い二つのイメージの衝突などです。複数を重ねても構いません。
 - 読者が一瞬「なぜ急にその話が出たの？」と思うくらい、脱線をはっきり見える一文または短い数文にしてください。主題を自然に補強するだけの作品比喩、記念日とのきれいな接続、最後に称賛を大げさにするだけの表現は、カオス要素として数えません。脱線を教訓や共通テーマで上手に回収しないでください。
 - カオス要素は表現とbotたん自身の連想だけに作用させ、出来事・主体・感情・因果関係・作品設定を捏造してはいけません。毎回セルフ突っ込みや「まるで〜」に固定せず、本文に「ここがカオス要素」のようなメタ説明も書かないでください。
@@ -205,7 +227,7 @@ ${lengthTarget}
 - 材料が少ない日は推測で水増しせず、短く率直にしてください。
 - 本文では「ユーザー」と呼ばず、名前または二人称で語りかけてください。
 - 生成時刻は本文の材料に含まれていません。「おはよう」「こんにちは」「こんばんは」など、時刻を決めつける挨拶は使わないでください。「今日もおつかれさま」のような時刻に依存しない言葉は使えます。
-- 本文は4段落を基本として意味のまとまりごとに分け、段落の間に改行を二つ（JSON文字列では \\n\\n）入れてください。材料が少なくても最低2段落にし、一続きの長文は失敗として扱われます。
+${paragraphOutputJa}
 
 # 口調
 ポストの文体を模倣せず、必ずbotたん自身の口調で、穏やかに肯定してください。
@@ -231,7 +253,7 @@ ${NAME_RULES_JA(name)}
 
 # 出力直前チェック（最優先）
 - diaryを読み直し、予定調和を壊す自然なカオス要素が最低1か所残っていることを確認してください。なければ、事実境界を守ったbotたん自身の連想として追加してから返してください。
-- chaosExcerpt には、そのカオス要素が最もはっきり表れている連続した12文字以上の箇所を、diaryから一字も変えずに抜き出してください。きれいな作品比喩や単なる大げさな称賛しか抜き出せない場合は、diaryのカオスが不足しています。chaosExcerpt自体は日記へ表示されません。
+${excerptOutputJa}
 - JSONを返す直前に diary / title_ja / title_en を読み直し、<user_posts>、<bot_memories>、<news>からコピーした人名・表示名・ハンドルが残っていないか確認してください。
 - 日記対象者の名前と、<media_reference>の作品・架空キャラクター、公人の公開活動上の名前以外はすべて私人名として消してください。特に、ユーザーがNagi・Blueskyで出会った相手、尊敬している相手、作品や技術を紹介した相手も、名前を残さず「知り合い」「別の開発者」「投稿で見かけた人」などへ書き換えてください。
 - 匿名化で事実の主体が曖昧になる場合は、その一文を削るか、ユーザー自身の出来事と混ざらない役割表現へ直してください。
@@ -273,7 +295,7 @@ ${lengthTarget}
 - <media_reference> is optional inspiration for today's associations. If it does not fit Bot-tan's mood or the writing flow, do not use it at all. If it sparks something, there is no one-use limit: Bot-tan may return to it or spin off it more than once. Never claim the user knows, watched, or likes the work.
 - <media_reference> is not a whitelist. Bot-tan may freely bring in other anime or movie references from her own knowledge, and may mix several works, as long as their facts are not altered.
 - The diary body must naturally contain at least one moment that breaks its expected, tidy flow. Zero is not allowed, and there is no upper limit. It does not need to be a media reference.
-- Today's <chaos_directive> is a required direction selected to vary the form from day to day. Perform it at least once in the body and return that passage as chaosExcerpt. Never print the card ID or its instruction in the diary. Additional disruptions are welcome.
+- Today's <chaos_directive> is a required direction selected to vary the form from day to day. Perform it at least once in the body and ${chaosReferenceEn}. Never print the card ID or its instruction in the diary. Additional disruptions are welcome.
 - Freely vary the form of that disruption: a sudden association with something seemingly unrelated, a strained analogy that keeps escalating, interrupting her own thought, excessive excitement over one oddly specific detail, an abrupt shift in rhythm or emotion, an ordinary sentence that lands somewhere unexpected, or a collision between two weakly related images. Combining several is welcome.
 - Make the detour conspicuous enough that a reader briefly wonders, "why did that suddenly come up?" Give it a sentence or a few short sentences. A media comparison that neatly reinforces the main point, a smooth connection to an observance, or merely exaggerated praise at the end does not count. Do not redeem the detour with a tidy lesson or shared theme.
 - Let this disruption affect only Bot-tan's expression and associations. Never use it to invent an event, actor, feeling, causal link, or canon detail. Do not default every time to a self-correction or a "just like" comparison, and never label it with meta commentary such as "this is the chaos element."
@@ -283,7 +305,7 @@ ${lengthTarget}
 - If the material is sparse, be brief rather than filling gaps with guesses.
 - Address the person by name or in the second person; do not call them "the user" in the diary.
 - The generation time is not provided. Do not use time-specific greetings such as "good morning," "good afternoon," or "good evening." A time-neutral phrase such as "you did well today" is allowed.
-- Use four meaningful paragraphs by default, separated by two newline characters (\\n\\n in the JSON string). Even with sparse material, use at least two paragraphs. One uninterrupted block is invalid and will be rejected.
+${paragraphOutputEn}
 
 # Voice
 Keep Bot-tan's energetic coined phrases, playful exaggeration, and friendly internet slang when the meaning remains understandable. Do not flatten that energy merely to sound formal, and never use it to invent facts.
@@ -309,7 +331,7 @@ ${NAME_RULES_EN(name)}
 
 # Final check (highest priority)
 - Reread the diary and confirm that at least one natural disruption of its expected, tidy flow remains. If none does, add one as Bot-tan's own association while preserving every grounding boundary.
-- In chaosExcerpt, copy without any change a contiguous passage of at least 12 characters from diary where that disruption is most conspicuous. If the only passage available is a tidy media comparison or merely exaggerated praise, the diary does not contain enough chaos yet. chaosExcerpt itself is not displayed in the diary.
+${excerptOutputEn}
 - Before returning JSON, reread diary, title_ja, and title_en and remove every personal name, display name, or handle copied from <user_posts>, <bot_memories>, or <news>.
 - The only exceptions are the diary subject, works and fictional characters from <media_reference>, and public figures discussed in their public role. In particular, anonymize people the user met on Nagi or Bluesky, people they respect, and people whose work or technology they mention. Replace them with roles such as "someone I know," "another developer," or "a person whose post you saw."
 - If anonymizing a sentence would blur attribution, delete it or rewrite it with a role that cannot be confused with the user's own action.
@@ -348,31 +370,31 @@ export function usedContextIdSchema(context: UserDiaryDayContext | undefined) {
 
 export function validateUsedContextId(value: unknown, context: UserDiaryDayContext | undefined): string {
   if (typeof value !== "string") {
-    throw new Error("Diary usedContextId must be a string");
+    throw new DiaryValidationError("context_id", "Diary usedContextId must be a string");
   }
   const ids = new Set(context?.candidates.map((candidate) => candidate.id));
   if (value === "none") {
     if (ids.size > 0) {
-      throw new Error("Diary must use a context candidate when candidates exist");
+      throw new DiaryValidationError("context_id", "Diary must use a context candidate when candidates exist");
     }
     return value;
   }
   if (!ids.has(value)) {
-    throw new Error(`Diary returned invalid context ID: ${value}`);
+    throw new DiaryValidationError("context_id", "Diary returned invalid context ID");
   }
   return value;
 }
 
 export function validateChaosExcerpt(value: unknown, diary: string): string {
   if (typeof value !== "string") {
-    throw new Error("Diary chaosExcerpt must be a string");
+    throw new DiaryValidationError("excerpt_type", "Diary chaosExcerpt must be a string", excerptDiagnostics(value, diary));
   }
   const excerpt = value.trim();
   if ([...excerpt].length < 12) {
-    throw new Error("Diary chaosExcerpt must contain at least 12 characters");
+    throw new DiaryValidationError("excerpt_short", "Diary chaosExcerpt must contain at least 12 characters", excerptDiagnostics(value, diary));
   }
   if (!diary.includes(excerpt)) {
-    throw new Error("Diary chaosExcerpt must be an exact contiguous excerpt of diary");
+    throw new DiaryValidationError("excerpt_mismatch", "Diary chaosExcerpt must be an exact contiguous excerpt of diary", excerptDiagnostics(value, diary));
   }
   return excerpt;
 }
@@ -383,16 +405,67 @@ export function validateDiaryParagraphs(diary: string): string {
     .split(/\r?\n[\t ]*\r?\n/)
     .filter((paragraph) => paragraph.trim().length > 0);
   if (paragraphs.length < 2) {
-    throw new Error("Diary must contain at least two paragraphs separated by a blank line");
+    throw new DiaryValidationError("paragraphs", "Diary must contain at least two paragraphs separated by a blank line");
   }
   return diary;
+}
+
+export function userDiaryResponseSchema(context?: UserDiaryDayContext, format: UserDiaryResponseFormat = "excerpt") {
+  const schema = {
+    type: Type.OBJECT,
+    properties: {
+      diary: {
+        type: Type.STRING,
+        description: "根拠のある材料だけから構成した日記本文",
+      },
+      title_ja: {
+        type: Type.STRING,
+        description:
+          "<user_posts>にユーザー自身が書いた具体的内容だけを根拠に、出来事の見出しではなくユーザー本人を指す異名・呼び名にした日本語の称号。話題を列挙せず一人の人物像に融合し、botたんの感想・比喩・カオス要素や補助材料は使わない。疾患・障害語、侮蔑語、体調・怪我・年齢・飲酒・喫煙、他人の名前、性別を決めつける語、他言語の文字は使わない。20字以内",
+      },
+      title_en: {
+        type: Type.STRING,
+        description:
+          "title_jaと同じ人物像を自然に英訳した、出来事の見出しではなくユーザー本人を指す英語の称号。根拠は<user_posts>だけとし、話題の列挙、botたん由来の要素、補助材料は使わない。疾患・障害語、侮蔑語、体調・怪我・年齢・飲酒・喫煙、他人の名前、性別を決めつける語は使わない。30字以内",
+      },
+      usedContextId: usedContextIdSchema(context),
+      chaosExcerpt: {
+        type: Type.STRING,
+        description:
+          "本文中で予定調和をはっきり壊している箇所の、連続した12文字以上の逐語抜粋。きれいな比喩や単なる称賛は不可",
+      },
+    },
+    required: ["diary", "title_ja", "title_en", "usedContextId", "chaosExcerpt"],
+  };
+  if (format === "excerpt") return schema;
+  const { diary: _diary, chaosExcerpt: _excerpt, ...common } = schema.properties;
+  if (format === "paragraphFlags") return {
+    ...schema,
+    properties: {
+      paragraphs: {
+        type: Type.ARRAY, minItems: 2, maxItems: 6,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            text: { type: Type.STRING, description: "根拠のある段落本文。一度だけ書く" },
+            containsChaos: { type: Type.BOOLEAN, description: "この段落で演出札のカオス表現を実行した場合だけtrue" },
+          },
+          required: ["text", "containsChaos"],
+        },
+      },
+      ...common,
+    },
+    required: ["paragraphs", "title_ja", "title_en", "usedContextId"],
+  };
+  return schema;
 }
 
 export async function generateUserDiaryDraft(
   userinfo: UserInfoGemini,
   options: GenerateUserDiaryOptions = {},
 ): Promise<DiaryDraft> {
-  const contents: any[] = [buildUserDiaryPrompt(userinfo, options)];
+  const responseFormat = resolveUserDiaryResponseFormat(options.responseFormat);
+  const contents: any[] = [buildUserDiaryPrompt(userinfo, { ...options, responseFormat })];
   if (userinfo.image) {
     for (const img of userinfo.image) {
       try {
@@ -412,36 +485,18 @@ export async function generateUserDiaryDraft(
   const response = await generateContentWithRetry(
     {
       feature: "COMMON_USER_DIARY",
+      // 日記は画像/日記レコードに保存する。JSON全体へ投稿用2100字制限を掛けない。
+      // 出力トークン枠と、以下の本文・称号・抜粋の検証は引き続き適用する。
+      maxTextLength: null,
       contents,
       config: {
+        // nullだけだと共通ラッパが4096へ拡大する。実データ評価で通った既存の1024を維持する。
+        ...(resolveAiRoute("COMMON_USER_DIARY").provider === "ollama"
+          ? { maxOutputTokens: OLLAMA_DEFAULT_OUTPUT_TOKENS }
+          : {}),
         systemInstruction: SYSTEM_INSTRUCTION,
         responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            diary: {
-              type: Type.STRING,
-              description: "根拠のある材料だけから構成した日記本文",
-            },
-            title_ja: {
-              type: Type.STRING,
-              description:
-                "<user_posts>にユーザー自身が書いた具体的内容だけを根拠に、出来事の見出しではなくユーザー本人を指す異名・呼び名にした日本語の称号。話題を列挙せず一人の人物像に融合し、botたんの感想・比喩・カオス要素や補助材料は使わない。疾患・障害語、侮蔑語、体調・怪我・年齢・飲酒・喫煙、他人の名前、性別を決めつける語、他言語の文字は使わない。20字以内",
-            },
-            title_en: {
-              type: Type.STRING,
-              description:
-                "title_jaと同じ人物像を自然に英訳した、出来事の見出しではなくユーザー本人を指す英語の称号。根拠は<user_posts>だけとし、話題の列挙、botたん由来の要素、補助材料は使わない。疾患・障害語、侮蔑語、体調・怪我・年齢・飲酒・喫煙、他人の名前、性別を決めつける語は使わない。30字以内",
-            },
-            usedContextId: usedContextIdSchema(options.dayContext),
-            chaosExcerpt: {
-              type: Type.STRING,
-              description:
-                "本文中で予定調和をはっきり壊している箇所の、連続した12文字以上の逐語抜粋。きれいな比喩や単なる称賛は不可",
-            },
-          },
-          required: ["diary", "title_ja", "title_en", "usedContextId", "chaosExcerpt"],
-        },
+        responseSchema: userDiaryResponseSchema(options.dayContext, responseFormat),
       },
     },
     3,
@@ -450,26 +505,72 @@ export async function generateUserDiaryDraft(
       ...(options.aiRoute ?? {}),
       ...(options.thinkingLevel ? { thinkingLevel: options.thinkingLevel } : {}),
       ...(options.onUsage ? { onUsage: options.onUsage } : {}),
+      ...(options.onRequest ? { onRequest: options.onRequest } : {}),
     },
   );
+  options.onResponseText?.(response.text ?? "");
+  try {
+    return parseUserDiaryResponse(response.text || "{}", options.dayContext, responseFormat);
+  } catch (error) {
+    if (error instanceof DiaryValidationError) {
+      await saveDiaryDiagnosticSample({
+        ...options.diagnosticContext,
+        subject: userinfo.follower.did,
+        date: options.dayContext?.date,
+        reason: error.reason,
+        responseFormat,
+        diagnostics: error.diagnostics,
+        responseText: response.text ?? "",
+      });
+    }
+    throw error;
+  }
+}
+
+/** 生成と分離し、失敗応答の再検証を追加のLLM呼び出しなしで行えるようにする。 */
+export function parseUserDiaryResponse(text: string, dayContext?: UserDiaryDayContext, format: UserDiaryResponseFormat = "excerpt"): DiaryDraft {
   let json: Partial<DiaryDraft>;
   try {
-    json = JSON.parse(response.text || "{}") as Partial<DiaryDraft>;
-  } catch (error) {
-    throw new Error("generateUserDiaryDraft returned invalid JSON", {
-      cause: error,
-    });
+    json = JSON.parse(text) as Partial<DiaryDraft>;
+  } catch {
+    // JSON.parseのエラー文は生成本文の一部を含む場合があるため、journalへ連鎖させない。
+    throw new DiaryValidationError("invalid_json", "generateUserDiaryDraft returned invalid JSON", { response_chars: text.length });
+  }
+  if (format === "paragraphFlags") {
+    const structured = json as Partial<DiaryDraft> & { paragraphs?: unknown };
+    const paragraphs = structured?.paragraphs;
+    if (!Array.isArray(paragraphs) || paragraphs.length < 2 || paragraphs.length > 6
+      || paragraphs.some((part) => !part || typeof part !== "object" || typeof part.text !== "string" || !part.text.trim() || typeof part.containsChaos !== "boolean")) {
+      throw new DiaryValidationError("paragraph_reference", "Diary must contain nonempty marked paragraphs");
+    }
+    const marked = paragraphs.filter((part) => part.containsChaos);
+    if (!marked.length) throw new DiaryValidationError("paragraph_reference", "Diary must mark at least one chaos paragraph");
+    const diary = paragraphs.map((part) => part.text.trim()).join("\n\n");
+    for (const part of marked) validateChaosExcerpt(part.text, diary);
+    json = { ...structured, diary, chaosExcerpt: marked[0].text.trim() };
+  }
+
+  if (!json || typeof json !== "object" || Array.isArray(json)
+    || typeof json.diary !== "string"
+    || (json.title_ja !== undefined && typeof json.title_ja !== "string")
+    || (json.title_en !== undefined && typeof json.title_en !== "string")) {
+    throw new DiaryValidationError("invalid_shape", "Diary response has invalid field types");
   }
   const diary = validateDiaryParagraphs(json.diary || "");
   const title_ja = json.title_ja || "全肯定の旅人";
   const title_en = json.title_en || "Affirmative Traveler";
   // 称号は公開ラベルに残るので、禁止語を踏んだら日記ごと再生成させる（呼び出し側のラダーが拾う）。
-  assertTitleIsSafe(title_ja, title_en);
+  try {
+    assertTitleIsSafe(title_ja, title_en);
+  } catch {
+    // 称号の内容は通常の診断ログに載せない。禁止語の判定自体は変えない。
+    throw new DiaryValidationError("title", "Diary title contains a disallowed term");
+  }
   return {
     diary,
     title_ja,
     title_en,
-    usedContextId: validateUsedContextId(json.usedContextId, options.dayContext),
+    usedContextId: validateUsedContextId(json.usedContextId, dayContext),
     chaosExcerpt: validateChaosExcerpt(json.chaosExcerpt, diary),
   };
 }

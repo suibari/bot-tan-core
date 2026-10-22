@@ -182,6 +182,7 @@ export async function processNagiDiary(
         {
           dayContext,
           mediaReference,
+          surface: "nagi",
           label: `[NAGI][${userDid}][DIARY]`,
         },
       );
@@ -221,6 +222,8 @@ export async function processNagiDiary(
         },
       },
     );
+
+    console.info(`[INFO][DIARY] diary_published surface=nagi subject=${userDid} date=${date}`);
 
     // 称号は Bluesky と共通。ラベルは24時間で切れるが、Nagi のバッジ表示元である
     // followers.current_title_* は次の日記まで残る。失敗しても日記自体は成立させる。
