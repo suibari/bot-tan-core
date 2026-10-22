@@ -36,6 +36,8 @@ export type GeminiRequestOptions = {
   thinkingLevel?: 'minimal' | 'low' | 'medium' | 'high';
   /** 本文を含めず usage とレイテンシだけを観測する。 */
   onUsage?: (usage: GeminiUsage) => void;
+  /** providerへの生成呼び出し開始。通信失敗でusageが返らない試行も数える。 */
+  onRequest?: () => void;
 };
 
 export type GeminiUsage = {
@@ -51,6 +53,8 @@ export type GeminiUsage = {
   outputLimit?: number;
   /** 出力が num_predict に達して途中で切れた。 */
   truncated?: boolean;
+  /** Ollama自身が報告する総処理時間。HTTP側のキュー待ち込み時間とは分ける。 */
+  ollamaTotalDurationMs?: number;
   /** 予算超過で落とした履歴メッセージ数。常時0でないなら上流が膨らみすぎている。 */
   trimmedTurns?: number;
 };
@@ -63,6 +67,7 @@ export function ollamaUsageFields(response: any): Partial<GeminiUsage> {
     contextLimit: meta.contextLimit,
     outputLimit: meta.outputLimit,
     truncated: meta.truncated,
+    ollamaTotalDurationMs: typeof meta.totalDurationNs === 'number' ? meta.totalDurationNs / 1_000_000 : undefined,
     trimmedTurns: meta.trimmed?.droppedTurns,
   };
 }
@@ -363,6 +368,7 @@ export async function generateContentWithRetry(
       // Nagi の既存 quota reservation は Gemini 課金用。ローカル生成では消費しない。
       if (provider === 'gemini') await requestOptions.beforeRequest?.();
       const startedAt = Date.now();
+      requestOptions.onRequest?.();
       response = await generateContentForProvider(provider, params);
       const usage = response.usageMetadata ?? {};
       requestOptions.onUsage?.({
