@@ -1,6 +1,10 @@
 import axios from "axios";
 
-export type ScheduledPostKind = "morning" | "whimsical" | "good-night";
+/**
+ * `monologue`（ひとりごと）は **Nagi 専用**。contentByTarget に bsky を持たせず、
+ * Bluesky サーバの /posts/scheduled も受け付けない（二重に塞いでいる）。
+ */
+export type ScheduledPostKind = "morning" | "whimsical" | "good-night" | "monologue";
 export type ScheduledPostNetwork = "bsky" | "nagi";
 
 /**
@@ -57,7 +61,8 @@ export interface ScheduledPostContent {
 
 export interface ScheduledPostPublishRequest {
   kind: ScheduledPostKind;
-  contentByTarget: Record<ScheduledPostNetwork, ScheduledPostContent>;
+  /** 載せない先はキーごと持たない。設定された配信先でも、ここに無ければ送らない。 */
+  contentByTarget: Partial<Record<ScheduledPostNetwork, ScheduledPostContent>>;
 }
 
 export interface ScheduledPostResult {
@@ -112,12 +117,12 @@ function configuredTargets(): ScheduledPostNetwork[] {
 
 export class ScheduledPostService {
   static async publish(request: ScheduledPostPublishRequest) {
-    const targets = configuredTargets();
+    const targets = configuredTargets().filter((target) => request.contentByTarget[target]);
     const tasks = targets.map(async (target) => {
       const baseUrl = target === "bsky" ? BSKY_BOT_SERVER_URL : NAGI_BOT_SERVER_URL;
       const wireRequest: ScheduledPostRequest = {
         kind: request.kind,
-        ...request.contentByTarget[target],
+        ...request.contentByTarget[target]!,
       };
       for (let attempt = 1; attempt <= MAX_TRANSPORT_ATTEMPTS; attempt++) {
         try {

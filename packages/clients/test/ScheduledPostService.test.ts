@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import axios from "axios";
 import {
   SCHEDULED_POST_BODY_LIMIT_BYTES,
+  ScheduledPostService,
   scheduledPostErrorDetails,
 } from "../src/ScheduledPostService.js";
 
@@ -43,4 +45,26 @@ test("Axiosエラー要約へ送信payloadを含めない", () => {
     response: "Payload Too Large",
   });
   assert.doesNotMatch(JSON.stringify(details), /secret-image-base64/);
+});
+
+test("contentByTarget に無い配信先へは、設定されていても送らない", async (t) => {
+  const previous = process.env.SCHEDULED_POST_TARGETS;
+  process.env.SCHEDULED_POST_TARGETS = "bsky,nagi";
+  t.after(() => {
+    if (previous === undefined) delete process.env.SCHEDULED_POST_TARGETS;
+    else process.env.SCHEDULED_POST_TARGETS = previous;
+  });
+  const urls: string[] = [];
+  t.mock.method(axios, "post", async (url: string) => {
+    urls.push(url);
+    return { data: { uri: "at://did:plc:bot/com.suibari.nagi.post/1", cid: "cid" } };
+  });
+
+  const results = await ScheduledPostService.publish({
+    kind: "monologue",
+    contentByTarget: { nagi: { text: "ねむ" } },
+  });
+
+  assert.deepEqual(urls, [`${process.env.NAGI_BOT_SERVER_URL || "http://localhost:3003"}/posts/scheduled`]);
+  assert.deepEqual(Object.keys(results), ["nagi"]);
 });

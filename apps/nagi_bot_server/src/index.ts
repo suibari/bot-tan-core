@@ -127,7 +127,7 @@ async function start() {
     async (req, res) => {
       try {
         const request = req.body as ScheduledPostRequest;
-        if (!(["morning", "whimsical", "good-night"] as const).includes(request?.kind) || typeof request.text !== "string" || !request.text.trim()) {
+        if (!(["morning", "whimsical", "good-night", "monologue"] as const).includes(request?.kind) || typeof request.text !== "string" || !request.text.trim()) {
           res.status(400).json({ error: "kind and text are required" });
           return;
         }

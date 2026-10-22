@@ -137,7 +137,7 @@ test("おやすみ：コメントの生成なしで動画をリポスト対象�
     generated,
     nightVideo: { uri: "at://did:plc:bot/app.bsky.feed.post/video", cid: "video-cid" },
   });
-  assert.deepEqual(result.contentByTarget.bsky.nightVideo, {
+  assert.deepEqual(result.contentByTarget.bsky?.nightVideo, {
     uri: "at://did:plc:bot/app.bsky.feed.post/video", cid: "video-cid",
   });
 });

@@ -81,3 +81,24 @@ export function buildGoodNightPostRequest(params: {
     },
   };
 }
+
+/**
+ * ひとりごと。**Nagi 専用なので bsky キーを持たせない。** ハッシュタグも曲も付けない。
+ */
+export function buildMonologuePostRequest(params: {
+  generated: GeneratedTexts;
+  image?: ScheduledPostImage | null;
+}): ScheduledPostPublishRequest {
+  const { generated, image } = params;
+  return {
+    kind: "monologue",
+    contentByTarget: {
+      nagi: {
+        text: generated.textJa,
+        langs: ["ja"],
+        translations: [{ lang: "en", text: generated.textEn }],
+        ...(image ? { image } : {}),
+      },
+    },
+  };
+}

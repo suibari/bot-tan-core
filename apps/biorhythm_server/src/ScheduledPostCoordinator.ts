@@ -8,6 +8,8 @@ import {
 import {
   generateGoodNight,
   generateImage,
+  generateMonologue,
+  type MonologueInput,
   generateQuestion,
   MoodSongResolver,
   type ReservedMoodSong,
@@ -34,7 +36,9 @@ import { fetchDisplayName } from "./displayName.js";
 import { jstDateString as jstDate } from "./jstDate.js";
 import { getRecentNewsArticleIds, recordRecentNewsArticle } from "./whimsicalPostNewsHistory.js";
 import { selectGoodNightLearnedTerms } from "./scheduledPostContent.js";
-import { buildMorningPostRequest, buildWhimsicalPostRequest, buildGoodNightPostRequest } from "./scheduledPostRequests.js";
+import { buildMorningPostRequest, buildWhimsicalPostRequest, buildGoodNightPostRequest, buildMonologuePostRequest } from "./scheduledPostRequests.js";
+import { monologueImageSource } from "./monologueTriggers.js";
+import { readDailyPlanSummary } from "./dailyPlan.js";
 import {
   buildBotMemoryTopicQuery,
   retrieveBotMemoryTopics,
@@ -97,6 +101,20 @@ export function goodNightImageSource(
 }
 
 /**
+ * 予定表の「今日の服」の文。絵の私服に使う（botOutfit.ts）。今日の予定表でなければ使わない
+ * （前日の服を着せない）。読めなくても絵は既定の私服で描けるので、失敗は飲む。
+ */
+async function todaysOutfitSentence(now: Date): Promise<string | undefined> {
+  try {
+    const plan = await readDailyPlanSummary();
+    return plan && plan.botDate === botDayRange(now).date ? plan.outfit : undefined;
+  } catch (error) {
+    console.warn("[WARN][IMGGEN] 予定表の服を読めなかった。既定の私服を着せる:", error);
+    return undefined;
+  }
+}
+
+/**
  * その日のおやすみポストに添える絵を1枚作る。
  *
  * 入力はおやすみポストの本文＋今日の行動履歴。本文は**その日の出来事とユーザーとの会話から
@@ -129,6 +147,14 @@ async function buildGoodNightImage(
   const generated = await generateImage(
     goodNightImageSource(sourceText, botContext, now),
     IMAGE_MAX_BYTES,
+    {
+      // 描くのはその日の場面なので、服は「その日の昼」として選ぶ。夜の時刻のまま選ぶと、
+      // 家の場面がすべてパジャマになる。
+      outfit: {
+        casualOutfit: await todaysOutfitSentence(now),
+        now: new Date(`${botDayRange(now).date}T12:00:00+09:00`),
+      },
+    },
   );
   if (!generated) {
     // 描けなかったぶんは GPU を使っていないので枠を返す。
@@ -147,6 +173,73 @@ async function buildGoodNightImage(
     // 読み上げ環境向け。絵の出どころが本文なので、本文の冒頭を添えるのが一番正確。
     alt: `全肯定botたんが今日のできごとを描いた絵。${sourceText.slice(0, 100)}`,
   };
+}
+
+/**
+ * ひとりごとに添える絵。**おやすみの絵と違い、お絵描きの日次枠を超えてまでは描かない。**
+ * ひとりごとは1日に何本も出る飾りなので、ユーザーの依頼のほうを優先する。
+ * 枠が取れない・DB が見えない・描けなかった、のどれでも undefined（絵なしで投稿する）。
+ */
+export async function buildMonologueImage(
+  textJa: string,
+  currentActivity: string,
+  status: string,
+  now = new Date(),
+): Promise<ScheduledPostImage | undefined> {
+  // 1件ごとに別の枠として数える。日単位のキーにすると、2枚目以降が既存の枠扱いになり
+  // GPU の利用枠に数えられない。
+  const sourceUri = `monologue:${now.toISOString()}`;
+  const claim = await claimDailyDrawing({
+    surface: "scheduled",
+    did: process.env.BSKY_DID ?? "bot",
+    sourceUri,
+    now,
+  }).catch((error) => {
+    console.error("[ERROR][IMGGEN] ひとりごとの絵の枠を取れなかった。絵なしで出す:", error);
+    return undefined;
+  });
+  if (claim?.status !== "claimed") {
+    if (claim) console.log(`[INFO][MONOLOGUE] 絵の枠が無いので絵なしで出す (${claim.status})`);
+    return undefined;
+  }
+
+  const generated = await generateImage(
+    monologueImageSource(textJa, currentActivity),
+    IMAGE_MAX_BYTES,
+    // いまの botたんを描くので、服は status と今の時刻で選ぶ（寝坊した朝はパジャマ、など）。
+    { purpose: "picture", outfit: { status, casualOutfit: await todaysOutfitSentence(now), now } },
+  );
+  if (!generated) {
+    await releaseDailyDrawing({ surface: "scheduled", sourceUri, day: claim.day }).catch((error) => {
+      console.error("[ERROR][IMGGEN] ひとりごとの絵の枠を返せなかった:", error);
+    });
+    return undefined;
+  }
+  return {
+    dataBase64: generated.data.toString("base64"),
+    mimeType: generated.mimeType,
+    width: generated.width,
+    height: generated.height,
+    alt: `全肯定botたんのひとコマ。${textJa.slice(0, 100)}`,
+  };
+}
+
+/**
+ * ひとりごとを Nagi にだけ出す。出せたら本文を返す（manager が重複回避と上限の記録に使う）。
+ * 生成が3回とも駄目なら投げる。この step では出さず、次の機会に回す。
+ */
+export async function postMonologue(
+  input: MonologueInput,
+  options: { withImage: boolean; status: string },
+): Promise<{ textJa: string; withImage: boolean } | null> {
+  const generated = await retry(() => generateMonologue(input), { retries: 2 });
+  const image = options.withImage
+    ? await buildMonologueImage(generated.textJa, input.currentActivity, options.status)
+    : undefined;
+  const results = await publish(buildMonologuePostRequest({ generated, image }));
+  if (!results.nagi) return null;
+  console.log(`[INFO][MONOLOGUE] posted: ${generated.textJa}${image ? " (with image)" : ""}`);
+  return { textJa: generated.textJa, withImage: Boolean(image) };
 }
 
 const whimsicalPostGenerator = new WhimsicalPostGenerator();

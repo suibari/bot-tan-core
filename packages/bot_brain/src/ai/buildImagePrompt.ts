@@ -1,5 +1,6 @@
 import { ollamaChat } from "../ollamaChat.js";
 import type { CharacterRequest, ResolvedCharacter } from "./characterLookup.js";
+import { CLOTHING_TAG_PATTERN, parseSceneCues, type SceneCues } from "./botOutfit.js";
 
 /**
  * botたんのイラスト生成プロンプトを組み立てる層。
@@ -81,6 +82,13 @@ const KOTOMI_CHAN: Character = {
     "pink shirt, puffy short sleeves, frilled sleeves, black skirt, frilled skirt, black footwear",
   accessory: "red bow, corset",
 };
+
+/**
+ * 蝶の髪飾り（`butterfly hair ornament`）に引っ張られて、背中に羽が生えることがある
+ * （2026-10-22 のひとりごとのドライランで、私服のカフェの絵に出た）。botたん1人の絵でだけ足す。
+ * ユーザーが頼んだ妖精の絵などを消さないため、既存キャラの絵には足さない。
+ */
+const BOT_TAN_WING_NEGATIVE = "wings, fairy wings, butterfly wings, insect wings";
 
 /** サモエド犬。1girl と競合しないのでキャラ混線を起こさない（領域も割らない）。 */
 const MORPHO_TAGS = "samoyed, white dog, dog";
@@ -213,6 +221,8 @@ export type ImageScenePlan = {
   characters: CharacterRequest[];
   /** botたんを絵に入れるか。おやすみの絵は常に true。キャラが解決できなければ buildImagePrompt が戻す。 */
   botTan: boolean;
+  /** 服を選ぶ手がかり（botOutfit.ts）。服のタグそのものは LLM に書かせない。 */
+  cues?: SceneCues;
 };
 
 /** 1回の絵に描く既存キャラの上限。MAX_FIGURES を超えるぶんは描けない。 */
@@ -235,8 +245,15 @@ const SCENE_SCHEMA = {
     },
     framing: { type: "string", enum: ["upper-body", "full-body"] },
     outdoor: { type: "boolean" },
+    // 服を選ぶ手がかり（botOutfit.ts）。服のタグそのものは書かせない。
+    place: { type: "string", enum: ["school", "home", "outing"] },
+    swimming: { type: "boolean" },
+    clothing: { type: "string", enum: ["not stated", "school uniform", "casual clothes", "pajamas"] },
   },
-  required: ["pose", "expression", "action", "setting", "objects", "companions", "framing", "outdoor"],
+  required: [
+    "pose", "expression", "action", "setting", "objects", "companions", "framing", "outdoor",
+    "place", "swimming", "clothing",
+  ],
 };
 
 /** お絵描き用。既存キャラの名前と、botたんを入れるかを足す。 */
@@ -270,6 +287,9 @@ const SCENE_RULES = `Rules:
 * companions: "morpho" only if a white Samoyed dog is present, "latte-chan" only if the pink-haired cat-eared maid friend is present, "kotomi-chan" only if the orange-haired short-haired classmate is present. Empty otherwise.
 * framing: "full-body" if the whole body and the place matter, "upper-body" for a close moment.
 * outdoor: true only if the scene is outside.
+* place: where she is. "school" (classroom, school library, schoolyard, club room), "home" (her room, kitchen, bath at home), or "outing" (anywhere else). In a dream, the place in the dream.
+* swimming: true only if she is swimming or playing in the water at the sea, a beach or a pool (海水浴, プール, 泳ぐ). Walking on a beach is false.
+* clothing: "school uniform", "casual clothes" or "pajamas" only if the text clearly says what she is wearing or changing into (制服, 私服, パジャマ). If she has just taken a bath (お風呂上がり, お風呂に入った), she is in "pajamas". Otherwise "not stated". Never put clothing in the tag fields.
 * Prefer 2-5 tags per field. Use an empty array if nothing applies.
 * Posture tags matter most: if she is on the floor, say so.
 * Nobody else is drawn except the listed companions and characters. When she comforts, thanks or talks to the reader or someone not in the picture, draw her alone facing the viewer (looking at viewer, reaching out, smile). When she is alone in the picture, NEVER output tags that need another person, such as next to, side by side, together, hand on shoulder, patting head or sharing.`;
@@ -430,7 +450,12 @@ export function normalizeScenePlan(parsed: unknown): ImageScenePlan {
           .map((tag) => tag.trim().toLowerCase())
           .filter((tag) => tag.length > 0)
           .filter((tag) => {
-            if (!FORBIDDEN.has(tag) && !SLEEP_PATTERN.test(tag) && !UNSAFE_PATTERN.test(tag)) {
+            if (
+              !FORBIDDEN.has(tag) &&
+              !SLEEP_PATTERN.test(tag) &&
+              !UNSAFE_PATTERN.test(tag) &&
+              !CLOTHING_TAG_PATTERN.test(tag)
+            ) {
               return true;
             }
             dropped.push(tag);
@@ -451,6 +476,7 @@ export function normalizeScenePlan(parsed: unknown): ImageScenePlan {
     outdoor: value.outdoor === true,
     characters: characterRequests((value as { characters?: unknown }).characters),
     botTan: true,
+    cues: parseSceneCues(value as Record<string, unknown>),
   };
   // 明示的に false と言われ、しかも描くキャラがいるときだけ botたんを外す。
   if ((value as { bot_tan?: unknown }).bot_tan === false && plan.characters.length > 0) {
@@ -523,12 +549,12 @@ const MAX_FIGURES = 2;
 /** 領域1つぶんの人物。count は人数タグの集計にも使う。 */
 type Figure = { label: string; count: "1girl" | "1boy"; tags: string };
 
-const ownFigure = (name: keyof typeof CHARACTERS): Figure => {
+const ownFigure = (name: keyof typeof CHARACTERS, outfit?: string): Figure => {
   const character = CHARACTERS[name];
   return {
     label: name,
     count: "1girl",
-    tags: [character.core, character.outfit, character.accessory].join(", "),
+    tags: [character.core, outfit || character.outfit, character.accessory].join(", "),
   };
 };
 
@@ -566,11 +592,13 @@ function countTags(figures: Figure[]): string {
  *
  * @param characters planImageScene の characters を characterLookup.ts で解決したもの。
  *                   先頭が頼まれた主役なので、botたんより前に並べる。空なら botたんを描く。
+ * @param options.outfit botたんの服（botOutfit.ts の botOutfitSpec）。省くと制服。
  */
 export function buildImagePrompt(
   plan: ImageScenePlan,
   style: ImageStyle,
   characters: ResolvedCharacter[] = [],
+  options: { outfit?: { tags: string; negative: string } } = {},
 ): BuiltImagePrompt | null {
   // 人物は MAX_FIGURES 人まで。溢れたぶんは後ろから捨てる。
   // 同伴者の順序は LLM が返したまま（先に挙げたほうがその場面で目立っていたはず）。
@@ -581,8 +609,8 @@ export function buildImagePrompt(
   const withBotTan = plan.botTan || characters.length === 0;
   const requested: Figure[] = [
     ...characters.map(characterFigure),
-    ...(withBotTan ? [ownFigure("bot-tan")] : []),
-    ...companionGirls.map(ownFigure),
+    ...(withBotTan ? [ownFigure("bot-tan", options.outfit?.tags)] : []),
+    ...companionGirls.map((name) => ownFigure(name)),
   ];
   const figures = requested.slice(0, MAX_FIGURES);
   if (figures.length < requested.length) {
@@ -660,8 +688,21 @@ export function buildImagePrompt(
   }
 
   const drawsCharacter = figures.some((figure) => !(figure.label in CHARACTERS));
-  const negativePrompt = [spec.negative, ...(drawsCharacter ? [CHARACTER_NEGATIVE] : []), ...(solo ? [SOLO_NEGATIVE] : [])]
-    .join(", ");
+  // パジャマを着せる絵では、画風の寝具ネガティブにある pajamas を外す（綱引きになる）。
+  const wearsPajamas = /\bpajamas\b/.test(options.outfit?.tags ?? "");
+  const styleNegative = wearsPajamas
+    ? spec.negative.split(", ").filter((tag) => tag !== "pajamas").join(", ")
+    : spec.negative;
+  // 服のネガティブは botたん1人の絵でだけ足す（2人の絵では仲間の服まで消える）。
+  const soloBotTan = solo && figures[0].label === "bot-tan";
+  const outfitNegative = soloBotTan && options.outfit?.negative ? [options.outfit.negative] : [];
+  const negativePrompt = [
+    styleNegative,
+    ...(drawsCharacter ? [CHARACTER_NEGATIVE] : []),
+    ...(solo ? [SOLO_NEGATIVE] : []),
+    ...outfitNegative,
+    ...(soloBotTan ? [BOT_TAN_WING_NEGATIVE] : []),
+  ].join(", ");
   return {
     prompt,
     negativePrompt,
