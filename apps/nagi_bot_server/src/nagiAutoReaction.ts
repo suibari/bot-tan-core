@@ -1,7 +1,7 @@
 /**
  * botたんの「最初の1件」リアクション。
  *
- * 何ごとも最初の1件は付けにくい。botたんがポストへ返信した直後・ゼンカツへ総評を付けた直後に、
+ * 何ごとも最初の1件は付けにくい。botたんがポストへ返信する前・ゼンカツへ総評を付けた直後に、
  * カスタム絵文字を1つ付けて呼び水にする。リアクションした人の一覧は
  * 受け取った本人にしか返らない（AppView の groupReactionViews）ので、
  * 第三者には「誰かが最初に反応した」ようにしか見えない。
@@ -60,7 +60,7 @@ const LOG_PREFIX = "[nagi-auto-reaction]";
 
 /**
  * AppView の索引を待つ上限。返信ジョブは Jetstream からも積まれるので索引より先に来ることがあるが、
- * 返信の生成中にたいてい追いつく。追いつかなければ付けない。呼び出し元の返信ワーカーを
+ * 短時間だけ追いつくのを待ち、追いつかなければ付けない。呼び出し元の返信ワーカーを
  * 止めるので長くはしない。
  *
  * モデレーション判定は待たない。あれは危ない投稿を AppView の表示から外すための機構で、
@@ -398,11 +398,12 @@ const setResult = (
     .where(eq(nagiBotAutoReactions.subjectUri, subjectUri));
 
 /**
- * botたんが返信・総評を書いた直後に呼ぶ。投げない（失敗はログと台帳に残すだけ）ので、
+ * ポストの返信前・ゼンカツの総評後に呼ぶ。投げない（失敗はログと台帳に残すだけ）ので、
  * 呼び出し元のジョブはこの結果で巻き戻らない。
  */
 export async function reactAfterBotPost(kind: AutoReactionKind, subjectUri: string) {
   if (!isAutoReactionAvailable()) return;
+  const startedAt = performance.now();
   try {
     const deadline = Date.now() + READY_WAIT_MS;
     let subject = await loadSubject(kind, subjectUri);
@@ -443,7 +444,7 @@ export async function reactAfterBotPost(kind: AutoReactionKind, subjectUri: stri
       await setResult(subjectUri, { state: "skipped", lastError: reason });
       log("skipped", { subjectUri, reason });
     };
-    // 返信の生成中に人間が先に反応していれば、候補集めと Ollama を使わずに終える。
+    // 人間が先に反応していれば、候補集めと Ollama を使わずに終える。
     if (await hasAnyReaction(subjectUri)) return await skip("already_reacted");
 
     try {
@@ -500,5 +501,11 @@ export async function reactAfterBotPost(kind: AutoReactionKind, subjectUri: stri
     }
   } catch (error) {
     console.error(`${LOG_PREFIX} failed to react to ${subjectUri}:`, error);
+  } finally {
+    log("finished", {
+      subjectUri,
+      kind,
+      elapsedMs: Math.round(performance.now() - startedAt),
+    });
   }
 }
