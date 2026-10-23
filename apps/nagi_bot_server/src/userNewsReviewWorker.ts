@@ -294,6 +294,7 @@ export async function runUserNewsReviewBatch(now = new Date()): Promise<number> 
           newsCid: item.news.cid,
           status: "approved",
           reasonCode: decision.reasonCode,
+          talkScore: decision.talkScore,
           botCommentJa: decision.botCommentJa,
           titleEn: decision.titleEn,
           botCommentEn: decision.botCommentEn,
@@ -306,6 +307,7 @@ export async function runUserNewsReviewBatch(now = new Date()): Promise<number> 
           set: {
             status: "approved",
             reasonCode: decision.reasonCode,
+            talkScore: decision.talkScore,
             botCommentJa: decision.botCommentJa,
             titleEn: decision.titleEn,
             botCommentEn: decision.botCommentEn,

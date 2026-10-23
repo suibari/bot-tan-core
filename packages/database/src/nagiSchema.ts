@@ -169,6 +169,8 @@ export const nagiPosts = nagiSchema.table(
     index("nagi_posts_parent_idx").on(t.replyParentUri),
     // ルート取り込み時に配下の返信へ channel_uri を配るための索引。
     index("nagi_posts_reply_root_idx").on(t.replyRootUri),
+    // ニュースのパーマリンクに、そのニュースを引用したコメントを並べるため。
+    index("nagi_posts_quote_idx").on(t.quoteUri, t.indexedAt),
     index("nagi_posts_actor_idx").on(t.did, t.indexedAt),
     index("nagi_posts_channel_idx").on(t.channelUri, t.indexedAt),
     index("nagi_posts_tags_idx").using("gin", t.tags),
@@ -339,6 +341,12 @@ export const nagiNewsApprovals = nagiSchema.table(
     botCommentJa: text("bot_comment_ja"),
     titleEn: text("title_en"),
     botCommentEn: text("bot_comment_en"),
+    /**
+     * 「話しやすさ」0〜4。審査ゲートが4つの観点（専門知識なしで話せる・自分の経験や好みに
+     * つながる・成功体験がなくても答えられる・意見の正しさを争いにくい）のうち満たす数を数える。
+     * my Nagi に1件だけ出すニュースの選定に使う。null は導入前の承認。
+     */
+    talkScore: integer("talk_score"),
     snapshotArticleId: text("snapshot_article_id"),
     snapshotUrl: text("snapshot_url"),
     snapshotTitleJa: text("snapshot_title_ja"),

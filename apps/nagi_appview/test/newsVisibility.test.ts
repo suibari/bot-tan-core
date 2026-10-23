@@ -59,3 +59,14 @@ test("a malformed permalink rkey is rejected before the database is touched", as
     assert.equal(await getNewsItemByRkey({ rkey, lang: "ja" }), null);
   }
 });
+
+test("similar news and news quotes reject malformed targets before the database is touched", async () => {
+  const { getSimilarNews } = await import("../src/queries/positiveNews.js");
+  const { getNewsQuotes } = await import("../src/queries/newsQuotes.js");
+  assert.deepEqual(await getSimilarNews({ rkey: "not-a-hash", limit: 4, lang: "ja" }), []);
+  // 投稿の URI を渡されても、投稿の引用一覧として流用させない。
+  assert.deepEqual(
+    await getNewsQuotes({ uri: "at://did:plc:a/com.suibari.nagi.post/x", limit: 10 }),
+    { items: [], hasMore: false },
+  );
+});

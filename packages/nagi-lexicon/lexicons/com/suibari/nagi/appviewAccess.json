@@ -48,6 +48,7 @@
             "com.suibari.nagi.searchEmojis",
             "com.suibari.nagi.getEmoji",
             "com.suibari.nagi.getPositiveNews",
+            "com.suibari.nagi.getNewsQuotes",
             "com.suibari.nagi.getNewsSubmissionPreview",
             "com.suibari.nagi.requestNewsReview",
             "com.suibari.nagi.getMyNewsSubmissions",
