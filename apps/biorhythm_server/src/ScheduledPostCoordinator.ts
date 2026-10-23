@@ -13,6 +13,7 @@ import {
   generateQuestion,
   MoodSongResolver,
   type ReservedMoodSong,
+  selectWhimsicalFocus,
   WhimsicalPostGenerator,
 } from "@bsky-affirmative-bot/bot-brain";
 import retry from "async-retry";
@@ -347,6 +348,12 @@ export async function postWhimsical(currentMood: string, botContext?: BotContext
     console.error("[WARN][BOT_MEMORY] Failed to retrieve scheduled-post topics", error);
   }
 
+  const focus = selectWhimsicalFocus({
+    hasMemory: Boolean(memoryCandidates?.length),
+    langStr,
+  });
+  console.log(`[INFO][WHIMSICAL] focus=${focus}`);
+
   let giftContext: { content: string; displayName: string; type: "used" } | undefined;
   let giftIdToUpdate: number | undefined;
   if (Math.random() < 0.2) {
@@ -381,6 +388,7 @@ export async function postWhimsical(currentMood: string, botContext?: BotContext
         : undefined,
       excludedNewsArticleIds,
       botContext,
+      focus,
     });
     if (!result.textJa || !result.textEn) throw new Error("Whimsical post generation returned incomplete text");
     return result;
