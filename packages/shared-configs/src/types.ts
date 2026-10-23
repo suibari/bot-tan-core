@@ -177,7 +177,22 @@ export interface BotContext {
     date: string;
     summary: string;
   }[];
+  /**
+   * botたん自身の直近の投稿（古い順）。定期ポスト専用。
+   *
+   * 定期ポストは毎回その場の材料から組み立てるので、さっき自分が何を言ったかを知らない。
+   * 書き出しや話題の重複を避け、「さっき言ったけど」と続きを書けるようにするために載せる。
+   */
+  recentOwnPosts?: {
+    at: string;
+    kind: BotOwnPostKind;
+    text: string;
+  }[];
+  /** 前夜のおやすみポストで自分が言った「明日やりたいこと」。その翌 bot 日だけ載る。定期ポスト専用。 */
+  tomorrowHook?: string;
 }
+
+export type BotOwnPostKind = "morning" | "whimsical" | "goodnight" | "monologue";
 
 export type UserInfoGemini = {
   follower: ProfileView;
@@ -232,6 +247,16 @@ export type UserInfoGemini = {
    */
   notableMemory?: {
     content: string;
+    occurredAt: Date;
+  } | null;
+  /**
+   * 本人が前に「これからやる」と言っていて、期日を過ぎたこと。最大1件。
+   *
+   * 時間で引く（takeDueFollowUp）。notableMemory と違い今回の投稿と似ている必要はなく、
+   * 取り出した時点で「聞いた」扱いになるので、同じ予定が二度載ることはない。
+   */
+  followUp?: {
+    text: string;
     occurredAt: Date;
   } | null;
 };

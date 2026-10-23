@@ -362,6 +362,13 @@ export class ConversationFeature implements BotFeature {
         // DB更新
         await MemoryService.updateFollower(follower.did, "question_root_uri", uriQuestionRoot);
         await MemoryService.updateFollower(follower.did, "last_answered_at", new Date());
+        // おやすみポストで「今朝の質問、〇〇派が多かったね」と振り返る材料。
+        // 要約に失敗した既定値（朝トーク）は答えの中身を表さないので残さない。
+        if (result.summary_ja && result.summary_ja !== "朝トーク") {
+            await MemoryService.appendQuestionAnswerSummary(result.summary_ja).catch((error) =>
+                console.warn(`[WARN][QUESTION] Failed to record answer summary:`, error),
+            );
+        }
 
         // conv_historyに質問回答の会話ペアを保存
         const followerRow = await MemoryService.getFollower(follower.did);

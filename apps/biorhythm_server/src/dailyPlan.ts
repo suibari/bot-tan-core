@@ -632,6 +632,8 @@ export function buildDailyPlanPrompt(input: {
   eventSamples: Record<string, unknown>;
   worksSection: string;
   memoryImpressionsSection?: string;
+  /** 前夜のおやすみポストで自分が言った「明日やりたいこと」。 */
+  tomorrowHook?: string;
 }): string {
   const [year, month, date] = input.botDate.split("-").map(Number);
   const weekday = getWeekdayJaForCalendarDate(year, month, date);
@@ -690,7 +692,20 @@ ${BOT_TASTE_BRIEF_JA}
 -----行動参考例-----
 * 雰囲気の参考です。そのまま使わず、今日の予定として作り直してください。
 ${JSON.stringify(input.eventSamples)}
-${input.worksSection}${input.memoryImpressionsSection ?? ""}`;
+${input.worksSection}${input.memoryImpressionsSection ?? ""}${buildTomorrowHookSection(input.tomorrowHook)}`;
+}
+
+/**
+ * 前夜に「明日は〇〇したい」と言ったことを、今日の予定に1件だけ入れさせる。
+ * 予定に載れば step の描写に出てくるので、言ったことを本当にやる1日になる。
+ * 選ばれるかどうかは元気と時間帯しだいで、叶わない日があってよい。
+ */
+export function buildTomorrowHookSection(tomorrowHook: string | undefined): string {
+  if (!tomorrowHook) return "";
+  return `
+-----昨日の夜、自分で言っていた「今日やりたいこと」-----
+「${tomorrowHook}」
+* この内容を、ふさわしいステータス・時間帯・場所の予定として1件だけ入れてください。場所のルールに合わない場合は、ルールに合う形に言い換えてかまいません。`;
 }
 
 async function loadPlan(): Promise<DailyPlan | undefined> {
@@ -829,7 +844,7 @@ export function findPlanPlaceShortfalls(
  * それも無ければ undefined を返す。呼び出し側は予定なしの step 生成へ落ちる。
  */
 export async function ensureDailyPlan(
-  input: { eventSamples: Record<string, unknown> },
+  input: { eventSamples: Record<string, unknown>; tomorrowHook?: string },
   now: Date = new Date(),
 ): Promise<DailyPlan | undefined> {
   const botDate = botDayRange(now).date;
@@ -859,6 +874,7 @@ export async function ensureDailyPlan(
       eventSamples: input.eventSamples,
       worksSection: buildSeasonalWorksSection(works, now),
       memoryImpressionsSection: buildMemoryImpressionsSection(memoryImpressions),
+      tomorrowHook: input.tomorrowHook,
     });
 
     const generate = async (prompt: string) => {

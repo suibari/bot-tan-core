@@ -7,6 +7,7 @@ import {
   NAGI_FEATURE_INTRO_EN,
   NAGI_FEATURE_INTRO_JA,
   sanitizeMemoryDocumentSelection,
+  selectWhimsicalFocus,
   WhimsicalPostGenerator,
 } from "../src/ai/generateWhimsicalPost.js";
 
@@ -159,4 +160,41 @@ test("選出されたLive・Shorts URLをLLMが省略しても本文末尾へ1�
     ensureSelectedFeatureUrl(`遊びに来てね ${youtubeLive.url}`, youtubeLive.url),
     `遊びに来てね ${youtubeLive.url}`,
   );
+});
+
+test("主題は使える材料の中から重みで選ぶ", () => {
+  const pick = (random: number, hasMemory: boolean, langStr: "日本語" | "English" = "日本語") =>
+    selectWhimsicalFocus({ hasMemory, langStr, random: () => random });
+
+  // 重み memory 3 / news 2 / whatDay 2 / mood 2（合計9）
+  assert.equal(pick(0, true), "memory");
+  assert.equal(pick(3.5 / 9, true), "news");
+  assert.equal(pick(5.5 / 9, true), "whatDay");
+  assert.equal(pick(0.999, true), "mood");
+  // 記憶が無ければ memory は選ばない
+  assert.equal(pick(0, false), "news");
+  // 英語の回はニュース候補が無いので news を選ばない
+  const english = new Set(Array.from({ length: 20 }, (_, i) => pick(i / 20, true, "English")));
+  assert.deepEqual([...english].sort(), ["memory", "mood", "whatDay"]);
+});
+
+test("主題があれば企画プロンプトに1行だけ載り、無ければ載らない", () => {
+  const input = {
+    history: [],
+    whatDay: "None",
+    positiveNewsCandidates: [],
+    botFunction: "占い",
+  };
+  const focused = buildWhimsicalPlanPrompt({
+    ...input,
+    params: { langStr: "日本語", currentMood: "くつろいでいます", focus: "mood" },
+  });
+  assert.match(focused, /Main topic of this post: your current mood/);
+  assert.match(focused, /If "What day is Today" is None, output exactly "None"/);
+
+  const unfocused = buildWhimsicalPlanPrompt({
+    ...input,
+    params: { langStr: "日本語", currentMood: "くつろいでいます" },
+  });
+  assert.doesNotMatch(unfocused, /Main topic of this post/);
 });

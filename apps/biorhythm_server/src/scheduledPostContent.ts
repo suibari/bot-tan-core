@@ -110,3 +110,38 @@ export function buildWhimsicalPostTexts(params: {
     nagiEn: sections(params.textEn, params.selectedNewsUrl, params.moodSong),
   };
 }
+
+/** おやすみポストへ渡す、朝の質問の答え。 */
+export interface MorningQuestionAnswers {
+  theme: string;
+  /** 多い順。 */
+  answers: { summary: string; count: number }[];
+}
+
+const MAX_QUESTION_ANSWERS = 5;
+const MAX_QUESTION_ANSWER_LENGTH = 20;
+const UNSAFE_ANSWER = /(?:https?:|www\.|[@#]|[\r\n])/i;
+
+/**
+ * 要約は回答をモデルが短くしたもので、出どころは他人の投稿。プロンプトへ戻すので
+ * 短い語だけを通し、同じ答えは数にまとめる。答えが無い日は undefined（触れない）。
+ */
+export function summarizeQuestionAnswers(
+  theme: unknown,
+  summaries: unknown,
+): MorningQuestionAnswers | undefined {
+  if (typeof theme !== "string" || !theme.trim() || !Array.isArray(summaries)) return undefined;
+  const counts = new Map<string, number>();
+  for (const value of summaries) {
+    if (typeof value !== "string") continue;
+    const summary = value.trim();
+    if (!summary || summary.length > MAX_QUESTION_ANSWER_LENGTH || UNSAFE_ANSWER.test(summary)) continue;
+    counts.set(summary, (counts.get(summary) ?? 0) + 1);
+  }
+  if (counts.size === 0) return undefined;
+  const answers = [...counts.entries()]
+    .map(([summary, count]) => ({ summary, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, MAX_QUESTION_ANSWERS);
+  return { theme: theme.trim(), answers };
+}

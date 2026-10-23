@@ -38,6 +38,36 @@ ${memoryAgeLabel(memory.occurredAt, now, true)}、この人はこんな話をし
 `;
 }
 
+/**
+ * 前に聞いていた予定。「過去のポストに言及しない」のもう1つの例外。
+ *
+ * 結果を知らないことを明示する。書かないと「EO5-5終わらせたら」に「クリアおめでとう」と
+ * 返した 2026-09-05 の事故と同じく、未完了を完了として祝う。
+ */
+function followUpBlockJa(userinfo: UserInfoGemini, now = new Date()): string {
+  const followUp = userinfo.followUp;
+  if (!followUp) return '';
+  return `
+## 前に聞いていた予定
+${memoryAgeLabel(followUp.occurredAt, now, true)}、この人は「${followUp.text}」と話していました。結果はまだ聞いていません。
+これも「過去のポストに言及しない」の例外です。今回の投稿がその話なら、書かれている結果に合わせて反応してください。
+別の話なら、返事の最後に「そういえば〇〇、どうだった？」とひとことだけ聞いてかまいません。
+結果を推測して「おめでとう」「おつかれさま」と決めつけないこと。つらい話をしているときは触れないこと。
+`;
+}
+
+function followUpBlockEn(userinfo: UserInfoGemini, now = new Date()): string {
+  const followUp = userinfo.followUp;
+  if (!followUp) return '';
+  return `
+## A plan they told you about
+${memoryAgeLabel(followUp.occurredAt, now, false)}, this person said they were going to: "${followUp.text}". You have not heard how it went.
+This is another exception to the rule about not mentioning previous posts. If this post is about it, respond to the outcome they describe.
+Otherwise you may end with one short question such as "By the way, how did it go?".
+Do not guess the outcome or congratulate them on it. Do not bring it up if they are talking about something painful.
+`;
+}
+
 function notableMemoryBlockEn(userinfo: UserInfoGemini, now = new Date()): string {
   const memory = userinfo.notableMemory;
   if (!memory) return '';
@@ -404,7 +434,7 @@ export const buildAffirmativeInstructions = async (
 
    **注意: commentにはscoreに関する情報を絶対に含めないこと**
 
-${notableMemoryBlockJa(userinfo)}
+${notableMemoryBlockJa(userinfo)}${followUpBlockJa(userinfo)}
 ${POST_READING_RULES_JA}
 
 ## 長さについて
@@ -479,7 +509,7 @@ ${TONE_RULES_JA}
 
    **Important: Do not reveal score in the comment.**
 
-${notableMemoryBlockEn(userinfo)}
+${notableMemoryBlockEn(userinfo)}${followUpBlockEn(userinfo)}
 ${POST_READING_RULES_EN}
 
 ## About length

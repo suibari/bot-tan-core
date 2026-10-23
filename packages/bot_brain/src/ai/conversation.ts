@@ -167,6 +167,15 @@ export async function conversation(
  * 事実として置くだけで、使えとも使うなとも指示しない。指示にすると、指示を
  * 満たすために毎回むりやり差し込むようになる。
  */
+/** 前に聞いていた予定。結果を知らないことを明示する（generateAffirmativeWord の followUpBlockJa と同じ理由）。 */
+const followUpLine = (userinfo: UserInfoGemini, ja: boolean, now = new Date()) => {
+  const followUp = userinfo.followUp;
+  if (!followUp) return '';
+  return ja
+    ? `\n前に聞いていた予定: ${memoryAgeLabel(followUp.occurredAt, now, true)}、この人は「${followUp.text}」と話していました。結果はまだ聞いていません。今の話がそれなら結果に合わせて反応し、別の話なら流れを切らない範囲で「そういえば、どうだった？」と聞いてかまいません。結果を推測して決めつけないこと。`
+    : `\nA plan they told you about: ${memoryAgeLabel(followUp.occurredAt, now, false)}, they said they were going to: "${followUp.text}". You have not heard how it went. If they are talking about it, respond to the outcome they describe; otherwise you may briefly ask how it went without breaking the flow. Do not guess the outcome.`;
+};
+
 const notableMemoryLine = (userinfo: UserInfoGemini, ja: boolean, now = new Date()) => {
   const memory = userinfo.notableMemory;
   if (!memory) return '';
@@ -222,7 +231,7 @@ ${TONE_RULES_JA}
 ユーザ名: ${addressName(userinfo)}
 メッセージ: ${userinfo.posts?.[0] || ''}
 ユーザが引用したポスト: ${userinfo.embed?.text_embed ? userinfo.embed.text_embed + ' by ' + userinfo.embed.profile_embed?.displayName : 'なし'}
-ユーザが共有したリンク: ${userinfo.embed?.uri_embed ? `${userinfo.embed.title_embed} (${userinfo.embed.uri_embed}) ${userinfo.embed.description_embed || ''}` : 'なし'}${notableMemoryLine(userinfo, true)}
+ユーザが共有したリンク: ${userinfo.embed?.uri_embed ? `${userinfo.embed.title_embed} (${userinfo.embed.uri_embed}) ${userinfo.embed.description_embed || ''}` : 'なし'}${notableMemoryLine(userinfo, true)}${followUpLine(userinfo, true)}
 `
       : `Please respond to the latest message from the following user.
 
@@ -253,7 +262,7 @@ ${NAME_RULES_EN(addressName(userinfo))}
 Username: ${addressName(userinfo)}
 Message: ${userinfo.posts?.[0] || ''}
 Posts quoted by this user: ${userinfo.embed?.text_embed ? userinfo.embed.text_embed + ' by ' + userinfo.embed.profile_embed?.displayName : 'None'}
-Links shared by this user: ${userinfo.embed?.uri_embed ? `${userinfo.embed.title_embed} (${userinfo.embed.uri_embed}) ${userinfo.embed.description_embed || ''}` : 'None'}${notableMemoryLine(userinfo, false)}
+Links shared by this user: ${userinfo.embed?.uri_embed ? `${userinfo.embed.title_embed} (${userinfo.embed.uri_embed}) ${userinfo.embed.description_embed || ''}` : 'None'}${notableMemoryLine(userinfo, false)}${followUpLine(userinfo, false)}
 `;
   return (
     base +

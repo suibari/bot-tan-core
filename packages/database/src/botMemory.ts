@@ -4,10 +4,12 @@ import {
   and,
   desc,
   eq,
+  gt,
   gte,
   inArray,
   isNull,
   lt,
+  lte,
   ne,
   notInArray,
   or,
@@ -16,6 +18,7 @@ import {
 import {
   bot_memory_daily_digests,
   bot_memory_documents,
+  bot_memory_followups,
   bot_memory_impressions,
   bot_memory_impression_scans,
   bot_memory_pronunciations,
@@ -217,6 +220,48 @@ export interface BotMemoryImpressionInput {
   kind: BotMemoryImpressionKind;
   label: string;
   relation: BotMemoryImpressionRelation;
+}
+
+/** 予定の期日の粒度。モデルに日時を書かせると時刻を推測で作るので、3段階だけにする。 */
+export type BotMemoryFollowUpDue = "today" | "tomorrow" | "this_week";
+
+export interface BotMemoryFollowUpInput {
+  /** 「EO5-5をクリアする」のような、本人がこれからやること。 */
+  text: string;
+  due: BotMemoryFollowUpDue;
+}
+
+export interface BotMemoryFollowUp {
+  id: number;
+  text: string;
+  occurredAt: Date;
+}
+
+/**
+ * 発言からどれだけ経ったら聞いてよいか。
+ *
+ * 期日ちょうどではなく「結果が出ていそうな頃」に寄せる。「今日テスト」と朝言った人に
+ * 昼に「どうだった？」は早すぎるし、夜なら自然に聞ける。
+ */
+const FOLLOW_UP_DELAY_MS: Record<BotMemoryFollowUpDue, number> = {
+  today: 6 * 60 * 60 * 1000,
+  tomorrow: 24 * 60 * 60 * 1000,
+  this_week: 3 * 24 * 60 * 60 * 1000,
+};
+
+/** 期日からこれ以上経った予定は聞かない。1か月前の「明日テスト」を聞き返されても困る。 */
+const FOLLOW_UP_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** 予定を作ってよい source。相手本人の発言だけ。YouTube のコメントは返信で聞き返す経路が無い。 */
+export const FOLLOW_UP_SOURCE_TYPES: BotMemorySourceType[] = [
+  "bsky_affirmed_post",
+  "bsky_received_reply",
+  "nagi_affirmed_post",
+  "nagi_received_reply",
+];
+
+export function followUpDueAt(occurredAt: Date, due: BotMemoryFollowUpDue): Date {
+  return new Date(occurredAt.getTime() + FOLLOW_UP_DELAY_MS[due]);
 }
 
 export interface PendingBotMemoryImpressionDocument {
@@ -615,12 +660,16 @@ export async function saveBotMemoryImpressions(
   contentHash: string,
   impressions: BotMemoryImpressionInput[],
   salience?: number | null,
+  followUp?: BotMemoryFollowUpInput,
 ): Promise<boolean> {
   return db.transaction(async (tx) => {
     const [document] = await tx
       .select({
         contentHash: bot_memory_documents.content_hash,
         visibility: bot_memory_documents.visibility,
+        sourceType: bot_memory_documents.source_type,
+        authorId: bot_memory_documents.author_id,
+        occurredAt: bot_memory_documents.occurred_at,
       })
       .from(bot_memory_documents)
       .where(and(
@@ -642,6 +691,30 @@ export async function saveBotMemoryImpressions(
         label: item.label,
         relation: item.relation,
       })));
+    }
+    // 予定も印象語と同じく公開文書からだけ。聞き返すのは公開の返信なので、
+    // こっそりの予定を拾うとそこで漏れる。聞き返し済みの行は残す（同じ予定を二度聞かない）。
+    await tx
+      .delete(bot_memory_followups)
+      .where(and(
+        eq(bot_memory_followups.document_id, documentId),
+        isNull(bot_memory_followups.offered_at),
+      ));
+    if (
+      followUp &&
+      document.visibility === "public" &&
+      document.authorId &&
+      FOLLOW_UP_SOURCE_TYPES.includes(document.sourceType as BotMemorySourceType)
+    ) {
+      await tx
+        .insert(bot_memory_followups)
+        .values({
+          document_id: documentId,
+          author_id: document.authorId,
+          text: followUp.text,
+          due_at: followUpDueAt(document.occurredAt, followUp.due),
+        })
+        .onConflictDoNothing({ target: bot_memory_followups.document_id });
     }
     if (salience !== undefined) {
       await tx
@@ -1530,4 +1603,50 @@ export async function buildMemoryContext(
     notable: selectNotableMemory(own),
     research,
   };
+}
+
+/**
+ * 期日を過ぎた、その人の予定を1件だけ取り出して「聞いた」印を付ける。
+ *
+ * 取り出した時点で使ったことにする。返信の生成が失敗しても聞き直さない
+ * （同じことを何度も聞くほうが、聞きそびれるより機械的に見える）。
+ * 印は `offered_at is null` を条件にした update で付けるので、同じ人への返信が
+ * 並んでも1件を二度は配らない。
+ */
+export async function takeDueFollowUp(
+  authorId: string,
+  now = new Date(),
+): Promise<BotMemoryFollowUp | undefined> {
+  const expiry = new Date(now.getTime() - FOLLOW_UP_EXPIRY_MS);
+  const [candidate] = await db
+    .select({
+      id: bot_memory_followups.id,
+      text: bot_memory_followups.text,
+      occurredAt: bot_memory_documents.occurred_at,
+    })
+    .from(bot_memory_followups)
+    .innerJoin(
+      bot_memory_documents,
+      eq(bot_memory_documents.id, bot_memory_followups.document_id),
+    )
+    .where(and(
+      eq(bot_memory_followups.author_id, authorId),
+      isNull(bot_memory_followups.offered_at),
+      lte(bot_memory_followups.due_at, now),
+      gt(bot_memory_followups.due_at, expiry),
+      isNull(bot_memory_documents.deleted_at),
+      eq(bot_memory_documents.visibility, "public"),
+    ))
+    .orderBy(desc(bot_memory_followups.due_at))
+    .limit(1);
+  if (!candidate) return undefined;
+  const [claimed] = await db
+    .update(bot_memory_followups)
+    .set({ offered_at: now })
+    .where(and(
+      eq(bot_memory_followups.id, candidate.id),
+      isNull(bot_memory_followups.offered_at),
+    ))
+    .returning({ id: bot_memory_followups.id });
+  return claimed ? candidate : undefined;
 }

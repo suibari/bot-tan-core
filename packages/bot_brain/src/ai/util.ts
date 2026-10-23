@@ -1,7 +1,7 @@
 import { PartListUnion, Type } from '@google/genai';
 import { SYSTEM_INSTRUCTION, POST_TEXT_LIMIT, safeFetch, resolveAiRoute, formatJstActivityTime, energyLabel, OLLAMA_LONG_OUTPUT_TOKENS } from '@bsky-affirmative-bot/shared-configs';
 import type { AiFeatureKey } from '@bsky-affirmative-bot/shared-configs';
-import { UserInfoGemini, GeminiScore, BotContext, LanguageName } from '@bsky-affirmative-bot/shared-configs';
+import { UserInfoGemini, GeminiScore, BotContext, BotOwnPostKind, LanguageName } from '@bsky-affirmative-bot/shared-configs';
 import { buildAffirmativeImageParts, unavailableImageInstruction } from './affirmativeImages.js';
 import { prepareModelImages } from './imagePreprocess.js';
 import { toServiceTier } from './aiRoute.js';
@@ -169,6 +169,47 @@ function recentDigestLines(
     : `\n### What happened over the last few days (recorded facts; newest first)\n${lines.join('\n')}\n`;
 }
 
+/** 自分の投稿の1件あたりの上限。書き出しと話題が分かれば足りる。 */
+const MAX_OWN_POST_CHARS = 100;
+
+const OWN_POST_KIND_LABELS: Record<BotOwnPostKind, { ja: string; en: string }> = {
+  morning: { ja: 'おはよう', en: 'morning' },
+  whimsical: { ja: '気まぐれ', en: 'whimsical' },
+  goodnight: { ja: 'おやすみ', en: 'good night' },
+  monologue: { ja: 'ひとりごと', en: 'monologue' },
+};
+
+/**
+ * 自分の直近の投稿。定期ポストは毎回その場の材料から組み立てるので、これが無いと
+ * さっき自分が何を言ったかを知らず、同じ書き出し・同じ話題を毎回やり直す。
+ */
+function recentOwnPostLines(botContext: BotContext, ja: boolean, now: Date): string {
+  const posts = botContext.recentOwnPosts ?? [];
+  if (posts.length === 0) return '';
+  const lines = posts.map((post) => {
+    const flat = post.text.replace(/\s+/g, ' ').trim();
+    const text = flat.length > MAX_OWN_POST_CHARS ? `${flat.slice(0, MAX_OWN_POST_CHARS)}…` : flat;
+    const label = OWN_POST_KIND_LABELS[post.kind];
+    return `- ${formatJstActivityTime(post.at, now, ja)}・${ja ? label.ja : label.en}: ${text}`;
+  });
+  return ja
+    ? `\n### 自分の最近の投稿（古い順）\n同じ書き出し・同じ話題をくり返さないこと。続きとして触れるのはかまいません。\n${lines.join('\n')}\n`
+    : `\n### Your own recent posts (oldest first)\nDo not reuse the same opening or topic. Following up on one is fine.\n${lines.join('\n')}\n`;
+}
+
+/**
+ * 前夜の自分が言った「明日やりたいこと」。
+ *
+ * 叶ったかどうかはここでは決めない。行動履歴に無いのに「やったよ」と書かせると、
+ * 記憶を作る側に回ってしまうので、照合を明示する。
+ */
+function tomorrowHookLine(botContext: BotContext, ja: boolean): string {
+  if (!botContext.tomorrowHook) return '';
+  return ja
+    ? `\n### 昨日の夜、自分で言っていたこと\n「${botContext.tomorrowHook}」\nやれたかどうかは「いまやってること」と行動履歴で判断すること。記録に無いのに、やったことにしないこと。\n`
+    : `\n### What you said last night you wanted to do today\n"${botContext.tomorrowHook}"\nJudge whether it happened only from your current activity and history. Do not claim you did it unless it is recorded.\n`;
+}
+
 /** いまいる場所。Nagi がホームで Bluesky が出張先、という関係をプロンプト側でも保つ。 */
 function surfaceLine(botContext: BotContext, ja: boolean): string {
   if (!botContext.surface) return '';
@@ -240,7 +281,11 @@ export function formatBotContext(
   const body = ja
     ? `- 日時：${botContext.datetime}\n- 天気：${botContext.weather}${surfaceLine(botContext, ja)}\n- いまやってること：${botContext.botActivity}\n- 元気度：${energyLabel(botContext.botEnergy, true)}`
     : `- Date/Time: ${botContext.datetime}\n- Weather: ${botContext.weather}${surfaceLine(botContext, ja)}\n- Currently: ${botContext.botActivityEn}\n- Energy: ${energyLabel(botContext.botEnergy, false)}`;
-  return `\n---\n${heading}\n${body}\n${recentActivityLines(botContext, ja, now)}${recentDigestLines(botContext, ja, now)}${botContextFooter(purpose, ja)}`;
+  // 自分の投稿と前夜のひとことは定期ポスト専用。リプライでは相手の話が主役なので載せない。
+  const ownPosts = purpose === 'scheduledPost'
+    ? `${tomorrowHookLine(botContext, ja)}${recentOwnPostLines(botContext, ja, now)}`
+    : '';
+  return `\n---\n${heading}\n${body}\n${recentActivityLines(botContext, ja, now)}${recentDigestLines(botContext, ja, now)}${ownPosts}${botContextFooter(purpose, ja)}`;
 }
 
 /**

@@ -6,6 +6,7 @@ import {
   getNagiThreadUrl,
   getBlueskyPostUrl,
   selectGoodNightLearnedTerms,
+  summarizeQuestionAnswers,
 } from "../src/scheduledPostContent.js";
 
 test("ニュースURLはNagiだけに追加しBluesky本文は変えない", () => {
@@ -96,4 +97,26 @@ test("Bluesky投稿URLはDIDを使い、別collectionや不正なURIを拒否す
     "at://did:plc:example/app.bsky.feed.post/", "at://did:plc:example/app.bsky.feed.post/abc/extra"]) {
     assert.equal(getBlueskyPostUrl(uri), undefined);
   }
+});
+
+test("朝の質問の答えは同じものを数にまとめ、多い順に絞る", () => {
+  const result = summarizeQuestionAnswers("猫派？ 犬派？", [
+    "猫派", "犬派", "猫派", " 猫派 ", "両方派",
+    "https://example.com", "@someone", "改行\nあり", "あ".repeat(21), 42, "",
+  ]);
+  assert.deepEqual(result, {
+    theme: "猫派？ 犬派？",
+    answers: [
+      { summary: "猫派", count: 3 },
+      { summary: "犬派", count: 1 },
+      { summary: "両方派", count: 1 },
+    ],
+  });
+});
+
+test("答えが無い日・質問が無い日は触れない", () => {
+  assert.equal(summarizeQuestionAnswers("猫派？ 犬派？", []), undefined);
+  assert.equal(summarizeQuestionAnswers("猫派？ 犬派？", ["https://example.com"]), undefined);
+  assert.equal(summarizeQuestionAnswers(null, ["猫派"]), undefined);
+  assert.equal(summarizeQuestionAnswers("猫派？ 犬派？", null), undefined);
 });

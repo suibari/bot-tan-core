@@ -7,6 +7,7 @@ import {
   nagiProfiles,
   nagiReactions,
   buildMemoryContext,
+  takeDueFollowUp,
   type MemoryContext,
 } from "@bsky-affirmative-bot/database";
 import {
@@ -182,6 +183,7 @@ export async function buildNagiReplyContext(job: any) {
     author,
     preferredName,
     memory,
+    followUp,
     reactionRows,
     quoteRows,
   ] = await Promise.all([
@@ -209,6 +211,11 @@ export async function buildNagiReplyContext(job: any) {
             return emptyMemory;
           })
         : Promise.resolve(emptyMemory),
+      // 期日を過ぎた本人の予定。取り出した時点で「聞いた」扱いになる。
+      takeDueFollowUp(job.authorDid).catch((error) => {
+        console.warn(`[WARN][${job.authorDid}] Failed to load follow-up:`, error);
+        return undefined;
+      }),
       db
         .select({
           emoji: nagiReactions.emoji,
@@ -357,6 +364,9 @@ export async function buildNagiReplyContext(job: any) {
           occurredAt: memory.notable.occurredAt,
         }
       : null,
+    followUp: followUp
+      ? { text: followUp.text, occurredAt: followUp.occurredAt }
+      : null,
     diagnostics: {
       imageCount: image.length,
       directImageCount: image.filter((item) => item.origin === "direct").length,
@@ -378,6 +388,7 @@ export async function buildNagiReplyContext(job: any) {
       hasFollowersFriend: Boolean(followersFriend),
       hasNotableMemory: Boolean(memory.notable),
       notableSalience: memory.notable?.salience ?? null,
+      hasFollowUp: Boolean(followUp),
     },
   };
 }
