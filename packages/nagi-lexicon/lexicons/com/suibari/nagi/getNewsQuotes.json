@@ -1,0 +1,32 @@
+{
+  "lexicon": 1,
+  "id": "com.suibari.nagi.getNewsQuotes",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "ニュースを引用した投稿（みんなのコメント）を新しい順に返す。可視性は共有タイムラインと同じ。",
+      "parameters": {
+        "type": "params",
+        "required": ["uri"],
+        "properties": {
+          "uri": { "type": "string", "format": "at-uri" },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 20, "default": 10 },
+          "cursor": { "type": "string" }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["items", "hasMore"],
+          "properties": {
+            "items": { "type": "array", "items": { "type": "unknown" } },
+            "botActor": { "type": "unknown" },
+            "cursor": { "type": "string" },
+            "hasMore": { "type": "boolean" }
+          }
+        }
+      }
+    }
+  }
+}

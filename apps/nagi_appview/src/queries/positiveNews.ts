@@ -11,7 +11,7 @@ import type {
   Page,
   RecommendedNewsView,
 } from "@bsky-affirmative-bot/nagi-lexicon";
-import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, notInArray, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, ne, notInArray, or, sql, type SQL } from "drizzle-orm";
 import { config } from "../config.js";
 import { ADULT_LABELS_ARRAY, decodeCursor, encodeCursor, getBotActor } from "./timeline.js";
 import { viewerIsAdult } from "../services/ageAssurance.js";
@@ -150,6 +150,7 @@ export function newsView(
     createdAt: createdAt.toISOString(),
     indexedAt: row.news.indexedAt.toISOString(),
     reactions,
+    ...(row.approval.talkScore !== null ? { talkScore: row.approval.talkScore } : {}),
     ...(row.news.did !== config.botDid
       ? {
           submittedBy: {
@@ -419,6 +420,64 @@ export async function getNewsItemByRkey(opts: {
     news: newsView(row, opts.lang, reactions.get(row.news.uri) ?? []),
     botActor,
   };
+}
+
+/**
+ * パーマリンクの「似ているニュース」。外から記事ページへ来た人が、次の1本へ進めるように。
+ *
+ * 基準記事の embedding（titleJa 由来）に近い順で返す。期間は区切らない（パーマリンクと
+ * 同じく、承認済みなら古い記事も候補）。同じ記事を bot と利用者の双方が持ちうるので、
+ * articleId と正規化URLが同じ行も外す。基準記事の embedding がまだ無いときは空を返す。
+ */
+export async function getSimilarNews(opts: {
+  rkey: string;
+  limit: number;
+  lang: NewsLang;
+  viewerDid?: string;
+}): Promise<NewsView[]> {
+  if (!NEWS_RKEY.test(opts.rkey)) return [];
+  const [target] = await db
+    .select({
+      uri: nagiNews.uri,
+      articleId: nagiNews.articleId,
+      normalizedUrl: nagiNews.normalizedUrl,
+    })
+    .from(nagiNews)
+    .where(and(eq(nagiNews.rkey, opts.rkey), isNull(nagiNews.deletedAt), isNotNull(nagiNews.embedding)))
+    .orderBy(asc(nagiNews.indexedAt), asc(nagiNews.uri))
+    .limit(1);
+  if (!target) return [];
+  const [mutes, isAdult] = await Promise.all([
+    loadMutes(opts.viewerDid),
+    viewerIsAdult(opts.viewerDid),
+  ]);
+  const distance = sql`(${nagiNews.embedding} <=> (select t.embedding from nagi.news as t where t.uri = ${target.uri}))`;
+  const rows = await db
+    .select({ news: nagiNews, approval: nagiNewsApprovals, actor: nagiActors, profile: nagiProfiles })
+    .from(nagiNews)
+    .innerJoin(nagiNewsApprovals, eq(nagiNewsApprovals.newsUri, nagiNews.uri))
+    .leftJoin(nagiActors, eq(nagiActors.did, nagiNews.did))
+    .leftJoin(nagiProfiles, eq(nagiProfiles.did, nagiNews.did))
+    .where(
+      and(
+        isNotNull(nagiNews.embedding),
+        ne(nagiNews.uri, target.uri),
+        ne(nagiNews.articleId, target.articleId),
+        ne(nagiNews.normalizedUrl, target.normalizedUrl),
+        ...approvedNewsConditions(),
+        ...newsAdultVisibility(isAdult),
+        ...(mutes.actors.length ? [notInArray(nagiNews.did, mutes.actors)] : []),
+      ),
+    )
+    .orderBy(distance, desc(nagiNews.uri))
+    .limit(opts.limit);
+  const reactions = await getReactionViews(
+    rows.map((row) => row.news.uri),
+    opts.viewerDid,
+  );
+  return rows.map((row) =>
+    newsView(row, opts.lang, reactions.get(row.news.uri) ?? []),
+  );
 }
 
 /**

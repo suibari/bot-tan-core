@@ -71,6 +71,10 @@ export const NAGI = {
    * sitemap.xml を作るために使う。botたん所有・成人向けラベル除外・期間無制限。
    */
   listIndexableNews: "com.suibari.nagi.listIndexableNews",
+  /** パーマリンクの「似ているニュース」。埋め込みの近さで選ぶ。 */
+  getSimilarNews: "com.suibari.nagi.getSimilarNews",
+  /** パーマリンクの「みんなのコメント」。そのニュースを引用した投稿を新しい順に返す。 */
+  getNewsQuotes: "com.suibari.nagi.getNewsQuotes",
   getNewsSubmissionPreview: "com.suibari.nagi.getNewsSubmissionPreview",
   requestNewsReview: "com.suibari.nagi.requestNewsReview",
   getMyNewsSubmissions: "com.suibari.nagi.getMyNewsSubmissions",

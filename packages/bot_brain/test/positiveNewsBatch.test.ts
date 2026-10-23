@@ -33,6 +33,15 @@ test("不正なreasonCode/publishableは掲載しない", () => {
   assert.equal(result[0].reasonCode, "unclear");
 });
 
+test("talkScoreは0〜4の整数に丸め、欠落は0にする", () => {
+  const result = sanitizeGateDecisions(input, [
+    { ...decision("a"), talkScore: 9 },
+    decision("b"),
+  ]);
+  assert.deepEqual(result.map((item) => item.talkScore), [4, 0]);
+  assert.ok(result.every((item) => item.publishable));
+});
+
 const silentLogger = { warn: () => undefined };
 const fastRetryOptions = { minTimeout: 1, randomize: false, logger: silentLogger };
 

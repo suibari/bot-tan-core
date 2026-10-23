@@ -30,6 +30,7 @@ import {
   getNewsItemByRkey,
   getPositiveNews,
   getRecommendedNews,
+  getSimilarNews,
   listIndexableNews,
   searchNews,
 } from "../queries/positiveNews.js";
@@ -82,6 +83,7 @@ import {
   resetZenkatsuForDev,
 } from "../queries/zenkatsu.js";
 import { getCardNews } from "../queries/cardNews.js";
+import { getNewsQuotes } from "../queries/newsQuotes.js";
 import { loadPersonalizationContext } from "../queries/personalizedFeed.js";
 
 /** 全肯定ニュースの動的枠の件数。一覧の頭に置くので、多いと時系列が押し下げられる。 */
@@ -724,6 +726,59 @@ xrpc.get(
           req.viewerDid ? "private, no-store" : "public, max-age=300",
         )
         .json(item);
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+// パーマリンクの「似ているニュース」。公開コンテンツなので未認証でも返す。
+xrpc.get(
+  `/${NAGI.getSimilarNews}`,
+  optionalServiceAuth(NAGI.getSimilarNews),
+  async (req, res, next) => {
+    try {
+      const lang = String(req.query.lang ?? "ja");
+      if (lang !== "ja" && lang !== "en")
+        throw new ApiError(400, "invalid_request", "lang must be ja or en");
+      const items = await getSimilarNews({
+        rkey: String(req.query.rkey ?? ""),
+        limit: Math.min(10, limit(req.query.limit ?? 4)),
+        lang,
+        viewerDid: req.viewerDid,
+      });
+      res
+        .set(
+          "Cache-Control",
+          req.viewerDid ? "private, no-store" : "public, max-age=300",
+        )
+        .json({ items });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+// パーマリンクの「みんなのコメント」。ニュースを引用した投稿を新しい順に。
+xrpc.get(
+  `/${NAGI.getNewsQuotes}`,
+  optionalServiceAuth(NAGI.getNewsQuotes),
+  async (req, res, next) => {
+    try {
+      const uri = String(req.query.uri ?? "");
+      if (!uri.startsWith("at://"))
+        throw new ApiError(400, "invalid_request", "uri is required");
+      res
+        .set(
+          "Cache-Control",
+          req.viewerDid ? "private, no-store" : "public, max-age=60",
+        )
+        .json(
+          await getNewsQuotes({
+            uri,
+            limit: Math.min(20, limit(req.query.limit ?? 10)),
+            cursor: String(req.query.cursor ?? "") || undefined,
+            viewerDid: req.viewerDid,
+          }),
+        );
     } catch (e) {
       next(e);
     }

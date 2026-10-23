@@ -4,7 +4,7 @@ import type { PositiveNewsCandidate } from "../api/newsdata/index.js";
 import { withNewsGeminiRetry } from "./newsGeminiRetry.js";
 import { generateContentForFeature } from "./routedGeneration.js";
 
-export const POSITIVE_NEWS_PROMPT_VERSION = "nagi-positive-news-v9";
+export const POSITIVE_NEWS_PROMPT_VERSION = "nagi-positive-news-v10";
 /**
  * ニュース承認を DB に記録するときの model 値。
  * const ではなく関数にしているのは、import 時点（= dotenv.config() より前）の値で
@@ -18,6 +18,8 @@ export interface PositiveNewsBatchDecision {
   articleId: string;
   publishable: boolean;
   reasonCode: PositiveNewsReasonCode;
+  /** 話しやすさ 0〜4。掲載しない記事では 0。 */
+  talkScore: number;
   botCommentJa: string;
   titleEn: string;
   botCommentEn: string;
@@ -28,7 +30,15 @@ export interface GateDecision {
   articleId: string;
   publishable: boolean;
   reasonCode: PositiveNewsReasonCode;
+  talkScore: number;
 }
+
+// 話しやすさは4観点の該当数。範囲外・欠落は 0（my Nagi の選定で後回しになるだけ）。
+const TALK_SCORE_MAX = 4;
+const sanitizeTalkScore = (value: unknown): number =>
+  typeof value === "number" && Number.isFinite(value)
+    ? Math.min(TALK_SCORE_MAX, Math.max(0, Math.round(value)))
+    : 0;
 
 // 欠落・重複・入力外・不正IDは fail closed（掲載しない）。入力順を維持する。
 export function sanitizeGateDecisions(input: PositiveNewsCandidate[], rawDecisions: unknown): GateDecision[] {
@@ -43,9 +53,14 @@ export function sanitizeGateDecisions(input: PositiveNewsCandidate[], rawDecisio
     }
     seen.add(raw.articleId);
     if (typeof raw.publishable !== "boolean" || !REASONS.includes(raw.reasonCode)) continue;
-    valid.set(raw.articleId, { articleId: raw.articleId, publishable: raw.publishable, reasonCode: raw.reasonCode });
+    valid.set(raw.articleId, {
+      articleId: raw.articleId,
+      publishable: raw.publishable,
+      reasonCode: raw.reasonCode,
+      talkScore: sanitizeTalkScore(raw.talkScore),
+    });
   }
-  return input.map((item) => valid.get(item.articleId) ?? { articleId: item.articleId, publishable: false, reasonCode: "unclear" });
+  return input.map((item) => valid.get(item.articleId) ?? { articleId: item.articleId, publishable: false, reasonCode: "unclear", talkScore: 0 });
 }
 
 // ---------------------------------------------------------------------------
@@ -78,6 +93,13 @@ const GATE_SYSTEM_INSTRUCTION = `あなたはユーザーへ直接表示する�
 
 判断に迷ったら、明確にセンシティブ・ネガティブでない限り publishable=true に寄せてください。publishable=true の reasonCode は必ず positive_result にします。
 
+あわせて、読んだ人が「自分のこと」として気軽にコメントできるかを talkScore（0〜4）で付けてください。次の4観点のうち、満たすものの数をそのまま数えます。
+- 専門知識なしで話せる（業界・技術・制度の知識がなくても感想を言える）。
+- 自分の経験や好みにつながる（食べ物・季節・趣味・暮らし・思い出など、身近な体験を思い出せる）。
+- 大きな成功体験がなくても答えられる（「自分も何かを達成した」話をしなくてよい）。
+- 意見の正しさを争いにくい（賛否や正解・不正解が分かれにくい）。
+publishable=false の記事は talkScore=0 にしてください。
+
 各入力articleIdをちょうど1回返してください。`;
 
 const GATE_SCHEMA = {
@@ -91,9 +113,10 @@ const GATE_SCHEMA = {
           articleId: { type: Type.STRING },
           publishable: { type: Type.BOOLEAN },
           reasonCode: { type: Type.STRING, enum: [...REASONS] },
+          talkScore: { type: Type.INTEGER },
         },
-        required: ["articleId", "publishable", "reasonCode"],
-        propertyOrdering: ["articleId", "publishable", "reasonCode"],
+        required: ["articleId", "publishable", "reasonCode", "talkScore"],
+        propertyOrdering: ["articleId", "publishable", "reasonCode", "talkScore"],
       },
     },
   },
@@ -117,12 +140,19 @@ ${TONE_RULES_JA}
 悪い例（この書き方は禁止）:
 「〇〇市の小学生が考案したレシピが商品化されました。すてきな取り組みですね。」
 良い例:
-「〇〇市の小学生が考えたレシピ、ほんとに商品になったんだって！すごくない？✨ 自分のアイデアが形になるのって、めちゃくちゃうれしいと思う💙」
+「〇〇市の小学生が考えたレシピ、ほんとに商品になったんだって！すごくない？✨ 給食の人気メニューがもとになってるらしいよ。みんなは、いまでもときどき食べたくなる給食のメニューってある？💙」
 
-- Google Search と、使えるなら記事ページの内容で、背景・経緯・数字・豆知識を確認し、コメントに自然に一つ二つ添える。裏取りできないことは書かない。
-- botCommentJa: 2〜4文、120〜240文字程度。**必ずbotたんの口調**で書き、記事本文の「〜しました」「〜されています」をそのまま引き写さない。見出しの言い換えで終わらず、具体的な背景や、その話題が嬉しい理由を掘り下げる。大げさな称賛・説教・推測・記事にない因果関係は入れない。
+# 読んだ人の日常へ話を戻す（最重要）
+このコメントの目的は、ニュースを解説しきることではなく、読んだ人が「自分の話」として気軽にコメントしたくなるきっかけを作ることです。
+- 前半でニュースの嬉しいところを短く受け止めたら、最後の1文で**読んだ人の日常・経験・好み**へ話を戻し、気軽に答えられる問いかけで締める。
+- 問いかけは、専門知識がなくても、大きな成功体験がなくても答えられ、正解や賛否が分かれにくいものにする（例:「みんなの近所にも、こういうお気に入りのお店ある？」「最近ちょっとうれしかったこと、あった？」）。
+- 「あなたも挑戦してみて！」のような行動の押しつけ、「どう思う？」のような意見を戦わせる問い、ニュースの是非を問う問いはしない。
+
+# 内容
+- Google Search と、使えるなら記事ページの内容で、背景・経緯・数字・豆知識を確認し、必要なら一つだけ添える。裏取りできないことは書かない。
+- botCommentJa: 2〜4文、120〜240文字程度。**必ずbotたんの口調**で書き、記事本文の「〜しました」「〜されています」をそのまま引き写さない。見出しの言い換えで終わらせず、最後は上の問いかけで締める。大げさな称賛・説教・推測・記事にない因果関係は入れない。
 - titleEn: 見出しの英訳。ここは事実の英訳なので、砕けさせすぎず自然な見出し英語にする。
-- botCommentEn: botCommentJa と同じ意味・情報量で、同じくフレンドリーな話し言葉の英語にする。報道英語にしない。
+- botCommentEn: botCommentJa と同じ意味・情報量で、同じくフレンドリーな話し言葉の英語にする。報道英語にしない。最後の問いかけも同じ趣旨で英語にする。
 
 回答はMarkdownや説明文を一切付けず、必ず次の形のJSONオブジェクトだけにしてください。
 {"botCommentJa":"日本語コメント","titleEn":"英訳見出し","botCommentEn":"英語コメント"}
@@ -300,7 +330,7 @@ export async function judgePositiveNewsBatch(candidates: PositiveNewsCandidate[]
 
   // パス2: 承認された記事だけ、botたんとしてコメントを生成する（共有ペルソナ使用）。
   return mapWithConcurrency(gated, COMMENT_CONCURRENCY, async (decision) => {
-    const empty = { articleId: decision.articleId, publishable: false, reasonCode: decision.reasonCode, botCommentJa: "", titleEn: "", botCommentEn: "" };
+    const empty = { articleId: decision.articleId, publishable: false, reasonCode: decision.reasonCode, talkScore: 0, botCommentJa: "", titleEn: "", botCommentEn: "" };
     if (!decision.publishable) return empty;
     const candidate = input.find((item) => item.articleId === decision.articleId);
     if (!candidate) return empty;
@@ -310,6 +340,6 @@ export async function judgePositiveNewsBatch(candidates: PositiveNewsCandidate[]
       console.warn(`[WARN][NEWS_FEED] comment generation failed for ${decision.articleId}; skipping publish`);
       return empty;
     }
-    return { articleId: decision.articleId, publishable: true, reasonCode: decision.reasonCode, ...comment };
+    return { articleId: decision.articleId, publishable: true, reasonCode: decision.reasonCode, talkScore: decision.talkScore, ...comment };
   });
 }

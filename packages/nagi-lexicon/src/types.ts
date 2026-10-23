@@ -137,6 +137,12 @@ export type NewsView = {
   /** ユーザー追加ニュースの投稿者。botたん所有ニュースでは省略する。 */
   submittedBy?: ActorView;
   unavailable?: boolean;
+  /**
+   * 話しやすさ 0〜4（専門知識なしで話せる・経験や好みにつながる・成功体験がなくても
+   * 答えられる・意見の正しさを争いにくい、の該当数）。my Nagi の1件選定に使う。
+   * 導入前の承認では省略する。
+   */
+  talkScore?: number;
 };
 /**
  * 全肯定ニュースの「動的枠」。時系列の items とは別枠で返し、items[0] が最新であることを
