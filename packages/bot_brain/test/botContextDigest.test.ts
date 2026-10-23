@@ -60,3 +60,47 @@ test('英語でも短期記憶の節が出る', () => {
   assert.match(text, /### What happened over the last few days/);
   assert.match(text, /- yesterday: A busy day\./);
 });
+
+test('定期ポストには自分の最近の投稿と前夜のひとことが載る', () => {
+  const text = formatBotContext(
+    {
+      ...base,
+      recentOwnPosts: [
+        { at: '2026-08-20T13:00:00Z', kind: 'goodnight', text: 'きょうもありがとう、おやすみ' },
+        { at: '2026-08-20T23:30:00Z', kind: 'morning', text: 'おはよう！' },
+      ],
+      tomorrowHook: '星の図鑑の続きを読みたい',
+    },
+    '日本語',
+    { now, purpose: 'scheduledPost' },
+  );
+  assert.match(text, /### 昨日の夜、自分で言っていたこと\n「星の図鑑の続きを読みたい」/);
+  assert.match(text, /### 自分の最近の投稿/);
+  assert.match(text, /・おやすみ: きょうもありがとう、おやすみ/);
+  assert.match(text, /・おはよう: おはよう！/);
+});
+
+test('リプライには自分の投稿と前夜のひとことを載せない', () => {
+  const text = formatBotContext(
+    {
+      ...base,
+      recentOwnPosts: [{ at: '2026-08-20T23:30:00Z', kind: 'morning', text: 'おはよう！' }],
+      tomorrowHook: '星の図鑑の続きを読みたい',
+    },
+    '日本語',
+    { now },
+  );
+  assert.doesNotMatch(text, /自分の最近の投稿|昨日の夜/);
+});
+
+test('自分の投稿は長ければ切って1行にする', () => {
+  const text = formatBotContext(
+    {
+      ...base,
+      recentOwnPosts: [{ at: '2026-08-20T23:30:00Z', kind: 'whimsical', text: `あ\nい${'う'.repeat(200)}` }],
+    },
+    '日本語',
+    { now, purpose: 'scheduledPost' },
+  );
+  assert.match(text, /・気まぐれ: あ いう+…\n/);
+});

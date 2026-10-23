@@ -149,3 +149,25 @@ test("モデルが余分な動画コメントを返しても投稿用の結果�
   }));
   assert.deepEqual(result, { textJa: ja, textEn: en });
 });
+
+test("明日のひとことは短い日本語の1文だけ通す", () => {
+  const ok = parseGoodNightResponse(JSON.stringify({ textJa: ja, textEn: en, tomorrowJa: "「星の図鑑の続きを読みたい」" }));
+  assert.equal(ok.tomorrowJa, "星の図鑑の続きを読みたい");
+
+  for (const tomorrowJa of [
+    "",
+    "read more books",
+    "https://example.com を見たい",
+    "改行\nを含む",
+    "あ".repeat(41),
+    42,
+  ]) {
+    const result = parseGoodNightResponse(JSON.stringify({ textJa: ja, textEn: en, tomorrowJa }));
+    assert.equal(result.tomorrowJa, undefined, String(tomorrowJa));
+    assert.equal(result.textJa, ja);
+  }
+});
+
+test("おやすみのプロンプトで明日のひとことを求める", () => {
+  assert.match(buildGoodNightPrompt(base), /tomorrowJa/);
+});

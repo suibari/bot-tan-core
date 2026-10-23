@@ -25,6 +25,7 @@ import { LanguageName } from "@bsky-affirmative-bot/shared-configs";
 
 import { UtilityAI } from "./utilityAI.js";
 import { buildBiorhythmBotContext } from "./botMemory.js";
+import { loadSelfPostMemory, rememberOwnPost, tomorrowHookFor } from "./selfPostMemory.js";
 import {
   buildPlannedEventSection,
   ensureDailyPlan,
@@ -510,8 +511,11 @@ export class BiorhythmManager extends EventEmitter {
 
     // 今日の予定表。bot日が変わったときだけ LLM を1回叩く（内部で作品リストも週1で更新）。
     // 失敗しても undefined が返るだけで、その場合は予定なしの従来プロンプトで生成する。
+    // 自分の直近の投稿と、前夜に「明日は〇〇したい」と言ったこと。予定表と定期ポストの両方へ渡す。
+    const selfPosts = await loadSelfPostMemory();
     const plan = await ensureDailyPlan({
       eventSamples: this.eventSamplesForPlan(isWeekend),
+      tomorrowHook: tomorrowHookFor(selfPosts, new Date()),
     }).catch((error) => {
       console.error("[ERROR][BIORHYTHM] ensureDailyPlan threw:", error);
       return undefined;
@@ -564,6 +568,7 @@ export class BiorhythmManager extends EventEmitter {
         history: await MemoryService.getBiorhythmHistorySince(
           new Date(Date.now() - 24 * 60 * 60 * 1000),
         ),
+        selfPosts,
       });
 
       // 生成に成功したぶんだけ既読にする。ここが catch の中ではなく後ろにあるのは意図的で、
@@ -705,6 +710,7 @@ export class BiorhythmManager extends EventEmitter {
       { withImage, status: this.status },
     );
     if (!posted) return;
+    await rememberOwnPost({ kind: "monologue", text: posted.textJa, now });
     await MemoryService.setBotState(
       MONOLOGUE_STATE_KEY,
       recordMonologue(state, {

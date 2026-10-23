@@ -1,5 +1,6 @@
 import type { BotContext } from "@bsky-affirmative-bot/shared-configs";
 import { getFullDateAndTimeString } from "@bsky-affirmative-bot/shared-configs";
+import { recentOwnPostsFor, tomorrowHookFor, type SelfPostMemory } from "./selfPostMemory.js";
 
 /** getBiorhythmHistorySince() が返す行のうち、記憶として使う部分だけ。 */
 export type BiorhythmHistoryRow = {
@@ -14,6 +15,9 @@ export type BuildBiorhythmBotContextInput = {
   energy: number;
   weather: string;
   history: BiorhythmHistoryRow[];
+  /** 自分の直近の投稿と前夜のひとこと（selfPostMemory.ts）。 */
+  selfPosts?: SelfPostMemory;
+  now?: Date;
 };
 
 /**
@@ -42,6 +46,10 @@ export function buildBiorhythmBotContext(
       index === items.length - 1 ? item.activity !== input.mood : true,
     );
 
+  const now = input.now ?? new Date();
+  const recentOwnPosts = input.selfPosts ? recentOwnPostsFor(input.selfPosts, now) : [];
+  const tomorrowHook = input.selfPosts ? tomorrowHookFor(input.selfPosts, now) : undefined;
+
   return {
     datetime: getFullDateAndTimeString(),
     weather: input.weather,
@@ -49,5 +57,7 @@ export function buildBiorhythmBotContext(
     botActivityEn: input.moodEn || input.mood,
     botEnergy: input.energy,
     ...(recentActivities.length ? { recentActivities } : {}),
+    ...(recentOwnPosts.length ? { recentOwnPosts } : {}),
+    ...(tomorrowHook ? { tomorrowHook } : {}),
   };
 }

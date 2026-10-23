@@ -39,6 +39,7 @@ import { selectGoodNightLearnedTerms } from "./scheduledPostContent.js";
 import { buildMorningPostRequest, buildWhimsicalPostRequest, buildGoodNightPostRequest, buildMonologuePostRequest } from "./scheduledPostRequests.js";
 import { monologueImageSource } from "./monologueTriggers.js";
 import { readDailyPlanSummary } from "./dailyPlan.js";
+import { rememberOwnPost } from "./selfPostMemory.js";
 import {
   buildBotMemoryTopicQuery,
   retrieveBotMemoryTopics,
@@ -315,6 +316,7 @@ export async function getYoutubeLiveForWhimsical(
 export async function postMorning(botContext?: BotContext) {
   const { textJa, textEn, theme } = await generateQuestion(botContext);
   const results = await publish(buildMorningPostRequest({ textJa, textEn }));
+  if (results.bsky || results.nagi) await rememberOwnPost({ kind: "morning", text: textJa });
   if (results.bsky) {
     await MemoryService.setQuestionState(results.bsky.uri, theme);
   }
@@ -423,6 +425,10 @@ export async function postWhimsical(currentMood: string, botContext?: BotContext
   }
 
   if (published) {
+    await rememberOwnPost({
+      kind: "whimsical",
+      text: isJapanesePost ? generated.textJa : generated.textEn,
+    });
     if (giftIdToUpdate !== undefined) await MemoryService.updateGiftStatus(giftIdToUpdate, "used");
     if (newShort && generated.usedYoutubeShort) await MemoryService.updateYoutubeShortStatus(newShort.id, "posted");
     if (generated.selectedNewsArticleId) {
@@ -539,6 +545,13 @@ export async function postGoodNight(currentMood: string, botContext?: BotContext
       image,
       nightVideo: nightVideo ? { uri: nightVideo.post_uri, cid: nightVideo.post_cid } : null,
     }));
+    if (results.bsky || results.nagi) {
+      await rememberOwnPost({
+        kind: "goodnight",
+        text: generated.textJa,
+        tomorrowJa: generated.tomorrowJa,
+      });
+    }
     if (results.bsky) {
       await MemoryService.setWhimsicalPostRoots([
         results.bsky.uri,

@@ -31,7 +31,15 @@ export interface GoodNightResult {
   textJa: string;
   textEn: string;
   selectedGiftIndex?: number;
+  /**
+   * 本文の最後に添えた「明日やりたいこと」。翌日の予定表と定期ポストへ持ち越す。
+   * 使えない形だったら持たない（それだけで投稿を落とすほどのものではない）。
+   */
+  tomorrowJa?: string;
 }
+
+/** 明日のひとことの上限。予定表の activity（40字）に収まる粒度にしておく。 */
+export const GOOD_NIGHT_TOMORROW_MAX_LENGTH = 40;
 
 export async function generateGoodNight(param: GoodNightInfo): Promise<GoodNightResult> {
   const prompt = buildGoodNightPrompt(param);
@@ -56,6 +64,10 @@ export async function generateGoodNight(param: GoodNightInfo): Promise<GoodNight
           selectedGiftIndex: {
             type: Type.NUMBER,
             description: "giftCandidatesのうちメッセージ内で紹介したプレゼントのインデックス（0始まり）。プレゼントを紹介しない場合は省略"
+          },
+          tomorrowJa: {
+            type: Type.STRING,
+            description: `本文の最後で触れた「明日やりたいこと」を、日本語で${GOOD_NIGHT_TOMORROW_MAX_LENGTH}字以内の1文に（例: 図書室で星の図鑑の続きを読みたい）`
           },
         },
         required: ["textJa", "textEn"]
@@ -92,6 +104,7 @@ export function parseGoodNightResponse(
     textJa?: unknown;
     textEn?: unknown;
     selectedGiftIndex?: unknown;
+    tomorrowJa?: unknown;
   };
   try {
     parsed = JSON.parse(stripJsonFences(responseText));
@@ -123,13 +136,28 @@ export function parseGoodNightResponse(
     throw new Error("generateGoodNight textEn contains too much Japanese text");
   }
 
+  const tomorrowJa = parseTomorrowJa(parsed.tomorrowJa);
   return {
     textJa,
     textEn,
     ...(typeof parsed.selectedGiftIndex === "number"
       ? { selectedGiftIndex: parsed.selectedGiftIndex }
       : {}),
+    ...(tomorrowJa ? { tomorrowJa } : {}),
   };
+}
+
+/**
+ * 明日のひとことは本文と違って公開されず、翌日のプロンプトへ材料として入る。
+ * URL・改行・長文はそこで指示の顔をしてしまうので、短い日本語の1文だけを通す。
+ */
+export function parseTomorrowJa(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const text = value.trim().replace(/^[「『]|[」』]$/g, "").trim();
+  if (!text || text.length > GOOD_NIGHT_TOMORROW_MAX_LENGTH) return undefined;
+  if (/[\r\n]|https?:|www\.|[@#]/i.test(text)) return undefined;
+  if (!/[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/u.test(text)) return undefined;
+  return text;
 }
 
 const LEARNED_RELATION_LABELS: Record<GoodNightLearnedTerm["relation"], string> = {
@@ -183,6 +211,7 @@ export const buildGoodNightPrompt = (param: GoodNightInfo) => {
     `あいさつには以下を含めること:` +
     `* おやすみのメッセージ` +
     `* 現在の気分、あなたがさっきまでしてたこと: ${param.currentMood}` +
+    `* 最後に、明日やってみたいこと・楽しみにしていることを一言だけ添える。今日の出来事から自然につながる、あなた自身が明日できる小さなことにすること。同じ内容を tomorrowJa にも${GOOD_NIGHT_TOMORROW_MAX_LENGTH}字以内で書くこと。` +
     giftInstruction +
     learnedInstruction +
     milestoneInstruction +
