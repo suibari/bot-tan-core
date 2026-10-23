@@ -230,6 +230,32 @@ export const bot_memory_impressions = affirmativeBotSchema.table(
   ],
 );
 
+/**
+ * 相手が「これからやる」と言ったこと（「明日テスト」「EO5-5終わらせたい」）。
+ *
+ * 似ている順に引く notable では、期日が来たから聞く、ができない。ここは時間で引く。
+ * 期日を過ぎたあと、その人への次の返信で一度だけ「どうだった？」と聞く（offered_at）。
+ * 公開文書からしか作らない。返信は公開されるので、こっそりの予定を聞き返すと漏れる。
+ */
+export const bot_memory_followups = affirmativeBotSchema.table(
+  "bot_memory_followups",
+  {
+    id: serial("id").primaryKey(),
+    document_id: integer("document_id")
+      .notNull()
+      .references(() => bot_memory_documents.id, { onDelete: "cascade" }),
+    author_id: text("author_id").notNull(),
+    text: text("text").notNull(),
+    due_at: timestamp("due_at", { withTimezone: true }).notNull(),
+    offered_at: timestamp("offered_at", { withTimezone: true }),
+    created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("bot_memory_followup_document_idx").on(table.document_id),
+    index("bot_memory_followup_author_due_idx").on(table.author_id, table.due_at),
+  ],
+);
+
 /** 何も抽出されなかった文書も再走査し続けないための本文ハッシュ単位の完了印。 */
 export const bot_memory_impression_scans = affirmativeBotSchema.table(
   "bot_memory_impression_scans",

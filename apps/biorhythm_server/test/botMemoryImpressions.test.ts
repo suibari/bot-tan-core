@@ -4,6 +4,7 @@ import type { DailyPlanMemoryImpression } from "@bsky-affirmative-bot/database";
 import {
   buildBotMemoryImpressionPrompt,
   buildMemoryImpressionsSection,
+  parseBotMemoryFollowUps,
   parseBotMemoryImpressions,
   parseBotMemorySalience,
   processBotMemoryImpressionBatch,
@@ -175,4 +176,52 @@ test("公開の会話では印象語を調査キューへ積む", async () => {
     save: async () => true,
   });
   assert.deepEqual(enqueued, [["葬送のフリーレン"]]);
+});
+
+test("予定は形で絞り、1文書1件・候補外IDを採用しない", () => {
+  const parsed = parseBotMemoryFollowUps({
+    plans: [
+      { documentId: 10, text: "「数学のテストを受ける」", due: "tomorrow" },
+      { documentId: 10, text: "二件目は採らない", due: "today" },
+      { documentId: 99, text: "候補外の文書", due: "today" },
+    ],
+  }, documents);
+  assert.deepEqual([...parsed.entries()], [[10, { text: "数学のテストを受ける", due: "tomorrow" }]]);
+
+  for (const plan of [
+    { documentId: 10, text: "短い", due: "today" },
+    { documentId: 10, text: "https://example.com を見る", due: "today" },
+    { documentId: 10, text: "@someone と会う予定", due: "today" },
+    { documentId: 10, text: "期日が不明な予定", due: "someday" },
+    { documentId: 10, text: "あ".repeat(41), due: "today" },
+  ]) {
+    assert.equal(parseBotMemoryFollowUps({ plans: [plan] }, documents).size, 0, plan.text);
+  }
+  assert.equal(parseBotMemoryFollowUps({}, documents).size, 0);
+});
+
+test("抽出した予定を保存側へ渡す", async () => {
+  const saved: any[] = [];
+  await processBotMemoryImpressionBatch({
+    enqueueLabels: () => {},
+    fetchPending: async () => documents,
+    generate: async () => ({
+      text: JSON.stringify({
+        items: [],
+        salience: [{ documentId: 10, score: 50 }],
+        plans: [{ documentId: 10, text: "フリーレンを最後まで見る", due: "this_week" }],
+      }),
+    }),
+    save: async (id, _hash, _impressions, _salience, followUp) => {
+      saved.push({ id, followUp });
+      return true;
+    },
+  });
+  assert.deepEqual(saved, [{ id: 10, followUp: { text: "フリーレンを最後まで見る", due: "this_week" } }]);
+});
+
+test("抽出プロンプトで予定の条件を伝える", () => {
+  const prompt = buildBotMemoryImpressionPrompt(documents);
+  assert.match(prompt, /# 予定 \(plans\)/);
+  assert.match(prompt, /すでに終わったこと、習慣、願望だけのこと/);
 });

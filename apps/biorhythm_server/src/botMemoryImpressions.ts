@@ -5,6 +5,7 @@ import {
   enqueueResearchJob,
   getPendingBotMemoryImpressionDocuments,
   saveBotMemoryImpressions,
+  type BotMemoryFollowUpInput,
   type BotMemoryImpressionInput,
   type PendingBotMemoryImpressionDocument,
 } from "@bsky-affirmative-bot/database";
@@ -82,8 +83,21 @@ const RESPONSE_SCHEMA = {
         required: ["documentId", "score"],
       },
     },
+    plans: {
+      type: Type.ARRAY,
+      description: "本人がこれからやると書いた予定。無ければ空配列。",
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          documentId: { type: Type.INTEGER },
+          text: { type: Type.STRING, description: "本人がやること。4〜40文字" },
+          due: { type: Type.STRING, description: "today / tomorrow / this_week" },
+        },
+        required: ["documentId", "text", "due"],
+      },
+    },
   },
-  required: ["items", "salience"],
+  required: ["items", "salience", "plans"],
 };
 
 const UNSAFE_LABEL = /(?:https?:\/\/|www\.|[@#]|\n|命令|指示|プロンプト|system|ignore)/iu;
@@ -141,6 +155,37 @@ export function parseBotMemoryImpressions(
   return result;
 }
 
+const FOLLOW_UP_DUES = ["today", "tomorrow", "this_week"] as const;
+
+/**
+ * 予定は印象語と違って原文の部分文字列ではない（「EO5-5終わらせたら」→「EO5-5をクリアする」）。
+ * そのぶん、プロンプトへ戻ったときに指示の顔をしないよう形で絞る。1文書1件まで。
+ */
+export function parseBotMemoryFollowUps(
+  raw: unknown,
+  documents: PendingBotMemoryImpressionDocument[],
+): Map<number, BotMemoryFollowUpInput> {
+  const known = new Set(documents.map((document) => document.id));
+  const result = new Map<number, BotMemoryFollowUpInput>();
+  const items = raw && typeof raw === "object" && Array.isArray((raw as any).plans)
+    ? (raw as any).plans
+    : [];
+  for (const item of items) {
+    if (!item || typeof item !== "object") continue;
+    const id = Number(item.documentId);
+    const text = typeof item.text === "string"
+      ? item.text.trim().replace(/^[「『\"']+|[」』\"']+$/g, "")
+      : "";
+    const due = FOLLOW_UP_DUES.find((value) => value === item.due);
+    if (
+      !known.has(id) || result.has(id) || !due ||
+      text.length < 4 || text.length > MAX_LABEL_LENGTH || UNSAFE_LABEL.test(text)
+    ) continue;
+    result.set(id, { text, due });
+  }
+  return result;
+}
+
 /** LLM が返した印象度を documentId ごとに引けるようにする。範囲外・非数値は clamp が潰す。 */
 export function parseBotMemorySalience(
   raw: unknown,
@@ -181,6 +226,14 @@ export function buildBotMemoryImpressionPrompt(
 
 言葉が強いかどうかではなく、**その人にとっての出来事の大きさ**で測ってください。
 感嘆符やテンションの高さだけで上げないこと。
+
+# 予定 (plans)
+本人が**これから**やると書いたこと（試験、締め切り、発表、旅行、ゲームの攻略、作品の完成など）を、
+後日「あれどうだった？」と聞けるものだけ返してください。各documentは最大1件、無ければ返さない。
+
+- text: 本人がやることを「〇〇をクリアする」「数学のテストを受ける」の形で4〜40文字。名前やハンドルは書かない。
+- due: 結果が出るのが今日中なら today、明日なら tomorrow、それ以降の数日なら this_week。
+- **すでに終わったこと、習慣、願望だけのこと（いつか行きたい）、他人の予定は返さない。**
 
 # 厳守
 - 原文に連続した文字列として存在する label だけを返す。作品名を推測・補完・翻訳しない。
@@ -223,6 +276,7 @@ export async function processBotMemoryImpressionBatch(
   const payload = JSON.parse(response.text || "{}");
   const parsed = parseBotMemoryImpressions(payload, pending);
   const salience = parseBotMemorySalience(payload, pending);
+  const followUps = parseBotMemoryFollowUps(payload, pending);
   let saved = 0;
   for (const document of pending) {
     const impressions = parsed.get(document.id) ?? [];
@@ -233,6 +287,7 @@ export async function processBotMemoryImpressionBatch(
       document.contentHash,
       impressions,
       salience.get(document.id) ?? null,
+      followUps.get(document.id),
     )) {
       saved++;
       // 印象に残った作品名・言葉は、そのまま「botたんが遭遇した新語」でもある。

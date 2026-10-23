@@ -20,6 +20,7 @@ import { followerMap } from "../bsky/followerManagement.js";
 import { replyRandom } from "./replyrandom.js";
 import {
     buildMemoryContext,
+    takeDueFollowUp,
     type BotMemorySearchResult,
 } from "@bsky-affirmative-bot/database";
 
@@ -37,8 +38,11 @@ export async function replyAI(
     let result: GeminiScore | undefined;
     const text_user = record.text;
 
-    const { relatedPosts, friendMemory, researchMemory, notableMemory } =
-        await loadReplyMemories(text_user, follower.did);
+    const [{ relatedPosts, friendMemory, researchMemory, notableMemory }, followUp] =
+        await Promise.all([
+            loadReplyMemories(text_user, follower.did),
+            loadDueFollowUp(follower.did),
+        ]);
     const image = await getImageUrl(follower.did, record.embed);
 
     // 引用ポスト・リンク解析
@@ -127,6 +131,7 @@ export async function replyAI(
             botContext: await getBotContext(),
             researchMemory,
             notableMemory,
+            followUp,
         });
 
         // お気に入りポスト登録
@@ -236,6 +241,17 @@ export async function loadReplyMemories(text: string, authorDid: string) {
             ? { content: context.notable.content, occurredAt: context.notable.occurredAt }
             : null,
     };
+}
+
+/** 期日を過ぎた本人の予定。記憶基盤が落ちても返信は止めない。 */
+async function loadDueFollowUp(authorDid: string) {
+    try {
+        const followUp = await takeDueFollowUp(authorDid);
+        return followUp ? { text: followUp.text, occurredAt: followUp.occurredAt } : null;
+    } catch (error) {
+        console.warn(`[WARN][${authorDid}] Failed to load follow-up:`, error);
+        return null;
+    }
 }
 
 async function getFollowersFriend(memory: BotMemorySearchResult | undefined) {

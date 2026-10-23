@@ -167,6 +167,7 @@ async function generateConversationReply(
       researchMemory: context.researchMemory,
       // 触れてよいかは検索側が判断済み。無ければプロンプトに行ごと出ない。
       notableMemory: context.notableMemory,
+      followUp: context.followUp,
       botContext: await getBotContext(),
       langStr,
     } as any,
@@ -289,6 +290,7 @@ export async function createNagiReply(
             researchMemory: context.researchMemory,
             // 触れてよいかは検索側が判断済み。無ければプロンプトに節ごと出ない。
             notableMemory: context.notableMemory,
+            followUp: context.followUp,
             botContext: await getBotContext(),
             langStr: language.name,
           } as any,

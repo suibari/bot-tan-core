@@ -249,6 +249,16 @@ export type UserInfoGemini = {
     content: string;
     occurredAt: Date;
   } | null;
+  /**
+   * 本人が前に「これからやる」と言っていて、期日を過ぎたこと。最大1件。
+   *
+   * 時間で引く（takeDueFollowUp）。notableMemory と違い今回の投稿と似ている必要はなく、
+   * 取り出した時点で「聞いた」扱いになるので、同じ予定が二度載ることはない。
+   */
+  followUp?: {
+    text: string;
+    occurredAt: Date;
+  } | null;
 };
 
 export interface Embed {
