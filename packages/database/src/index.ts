@@ -167,6 +167,9 @@ const REPO_WRITE_POINTS: Record<RepoWriteAction, number> = {
   delete: 1,
 };
 
+/** 朝の質問への答えの要約。おやすみポストが読む。 */
+export const QUESTION_ANSWER_SUMMARIES_KEY = "question_answer_summaries";
+
 export class MemoryService {
   static async getBotState(key: string): Promise<any> {
     try {
@@ -325,11 +328,42 @@ export class MemoryService {
     try {
       await Promise.all([
         this.setBotState('question_post_uri', uri),
-        this.setBotState('question_theme', theme)
+        this.setBotState('question_theme', theme),
+        // 新しい質問の答えだけを夜に振り返る。前の日の答えを持ち越さない。
+        this.setBotState(QUESTION_ANSWER_SUMMARIES_KEY, []),
       ]);
     } catch (error) {
       console.error("Failed to set question state:", error);
     }
+  }
+
+  /**
+   * 朝の質問への答えの要約（「猫派」など）を1件足す。おやすみポストで振り返る材料。
+   *
+   * 回答は並んで届くので、読んで足して書く形だと取りこぼす。1文の upsert で足す。
+   */
+  static async appendQuestionAnswerSummary(summary: string) {
+    await db.insert(bot_state)
+      .values({ key: QUESTION_ANSWER_SUMMARIES_KEY, value: [summary] })
+      .onConflictDoUpdate({
+        target: bot_state.key,
+        set: {
+          value: sql`(case when jsonb_typeof(${bot_state.value}) = 'array' then ${bot_state.value} else '[]'::jsonb end) || ${JSON.stringify([summary])}::jsonb`,
+          updated_at: new Date(),
+        },
+      });
+  }
+
+  static async getQuestionAnswerSummaries(): Promise<{ theme: unknown; summaries: unknown }> {
+    const [theme, summaries] = await Promise.all([
+      this.getBotState('question_theme'),
+      this.getBotState(QUESTION_ANSWER_SUMMARIES_KEY),
+    ]);
+    return { theme, summaries };
+  }
+
+  static async clearQuestionAnswerSummaries() {
+    await this.setBotState(QUESTION_ANSWER_SUMMARIES_KEY, []);
   }
 
   /**

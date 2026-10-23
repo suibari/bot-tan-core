@@ -36,7 +36,7 @@ import {
 import { fetchDisplayName } from "./displayName.js";
 import { jstDateString as jstDate } from "./jstDate.js";
 import { getRecentNewsArticleIds, recordRecentNewsArticle } from "./whimsicalPostNewsHistory.js";
-import { selectGoodNightLearnedTerms } from "./scheduledPostContent.js";
+import { selectGoodNightLearnedTerms, summarizeQuestionAnswers } from "./scheduledPostContent.js";
 import { buildMorningPostRequest, buildWhimsicalPostRequest, buildGoodNightPostRequest, buildMonologuePostRequest } from "./scheduledPostRequests.js";
 import { monologueImageSource } from "./monologueTriggers.js";
 import { readDailyPlanSummary } from "./dailyPlan.js";
@@ -528,6 +528,14 @@ export async function postGoodNight(currentMood: string, botContext?: BotContext
       }),
     );
 
+    // 今朝の質問への答え。朝の質問が出ていない日や、誰も答えなかった日は触れない。
+    const morningQuestion = await MemoryService.getQuestionAnswerSummaries()
+      .then(({ theme, summaries }) => summarizeQuestionAnswers(theme, summaries))
+      .catch((error) => {
+        console.error("[ERROR][BIO] Failed to load morning question answers:", error);
+        return undefined;
+      });
+
     // 日英の片方でも欠けたら投稿しない。textEn が空のまま通すと Nagi 側へ英訳が
     // seed されず、日英が分かれないまま公開されてしまう（2026-09-05 の事故）。
     // postWhimsical と同じく、3回とも駄目ならその日のおやすみポストは出さない。
@@ -537,6 +545,7 @@ export async function postGoodNight(currentMood: string, botContext?: BotContext
         followerMilestone,
         giftCandidates,
         learnedTerms: learnedTerms.length > 0 ? learnedTerms : undefined,
+        morningQuestion,
         botContext,
       });
       if (!result.textJa || !result.textEn) {
@@ -554,6 +563,12 @@ export async function postGoodNight(currentMood: string, botContext?: BotContext
       nightVideo: nightVideo ? { uri: nightVideo.post_uri, cid: nightVideo.post_cid } : null,
     }));
     if (results.bsky || results.nagi) {
+      // 振り返った答えは翌日へ持ち越さない（朝の質問が出なかった日に前日の答えを読まない）。
+      if (morningQuestion) {
+        await MemoryService.clearQuestionAnswerSummaries().catch((error) =>
+          console.error("[ERROR][BIO] Failed to clear morning question answers:", error),
+        );
+      }
       await rememberOwnPost({
         kind: "goodnight",
         text: generated.textJa,

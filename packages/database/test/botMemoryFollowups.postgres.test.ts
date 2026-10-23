@@ -79,6 +79,36 @@ test("予定は公開文書からだけ作られ、期日を過ぎたら一度�
     );
   } finally {
     await setup.end();
-    await memory.client.end();
   }
+});
+
+test("朝の質問の答えは並んで届いても取りこぼさずに積まれる", {
+  skip: !databaseUrl,
+}, async () => {
+  process.env.DATABASE_URL = databaseUrl;
+  const setup = postgres(databaseUrl!, { max: 1 });
+  const database = await import("@bsky-affirmative-bot/database");
+  try {
+    await setup`delete from affirmative_bot.bot_state where key = ${database.QUESTION_ANSWER_SUMMARIES_KEY}`;
+    // 配列でない値が残っていても配列として積み直す
+    await database.MemoryService.setBotState(database.QUESTION_ANSWER_SUMMARIES_KEY, "broken");
+    await Promise.all(
+      Array.from({ length: 10 }, (_, i) => database.MemoryService.appendQuestionAnswerSummary(`答え${i}`)),
+    );
+    const { summaries } = await database.MemoryService.getQuestionAnswerSummaries();
+    assert.ok(Array.isArray(summaries));
+    assert.equal((summaries as string[]).length, 10);
+
+    await database.MemoryService.clearQuestionAnswerSummaries();
+    assert.deepEqual((await database.MemoryService.getQuestionAnswerSummaries()).summaries, []);
+  } finally {
+    await setup.end();
+  }
+});
+
+// 2つのテストで同じ接続を使うので、閉じるのは最後に1回だけ。
+test.after(async () => {
+  if (!databaseUrl) return;
+  const database = await import("@bsky-affirmative-bot/database");
+  await database.client.end();
 });

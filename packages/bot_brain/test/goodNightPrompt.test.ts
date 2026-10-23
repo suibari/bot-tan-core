@@ -171,3 +171,17 @@ test("明日のひとことは短い日本語の1文だけ通す", () => {
 test("おやすみのプロンプトで明日のひとことを求める", () => {
   assert.match(buildGoodNightPrompt(base), /tomorrowJa/);
 });
+
+test("朝の質問の答えがあれば人数つきで載り、無ければ載らない", () => {
+  const prompt = buildGoodNightPrompt({
+    ...base,
+    morningQuestion: {
+      theme: "猫派？ 犬派？",
+      answers: [{ summary: "猫派", count: 3 }, { summary: "犬派", count: 1 }],
+    },
+  });
+  assert.match(prompt, /今朝の全肯定質問コーナー「猫派？ 犬派？」/);
+  assert.match(prompt, /- 猫派（3人）/);
+  assert.match(prompt, /答えた人の名前は書かないこと/);
+  assert.doesNotMatch(buildGoodNightPrompt(base), /今朝の全肯定質問コーナー/);
+});
