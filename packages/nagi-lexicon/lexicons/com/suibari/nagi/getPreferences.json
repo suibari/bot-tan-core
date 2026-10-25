@@ -82,30 +82,36 @@
     },
     "feedTab": {
       "type": "object",
-      "description": "フィードのタブ1枚。必要なフィールドは kind ごとに異なる（list / custom は source、hashtag / search は query）。",
+      "description": "フィードのタブ1枚。必要なフィールドは kind ごとに異なる（list / custom は source、hashtag / search は query、bsky は uri または source=following）。",
       "required": ["id", "kind"],
       "properties": {
         "id": { "type": "string", "maxLength": 64 },
         "kind": {
           "type": "string",
-          "knownValues": ["list", "global", "custom", "hashtag", "search"],
+          "knownValues": ["list", "global", "custom", "hashtag", "search", "bsky"],
           "maxLength": 32
         },
         "source": {
           "type": "string",
-          "knownValues": ["home", "affirmation"],
+          "knownValues": ["home", "affirmation", "following"],
           "maxLength": 32,
-          "description": "kind が list / custom のときの参照先（list=home, custom=affirmation）。将来のユーザー定義フィードは uri で指す。"
+          "description": "kind が list / custom のときの参照先（list=home, custom=affirmation）。kind が bsky のときは following（Bluesky のホームタイムライン）だけを取り、uri と排他。"
         },
         "query": {
           "type": "string",
           "maxLength": 128,
           "description": "kind が search のときは自由文の保存クエリ、hashtag のときはタグ（先頭の # を除いた小文字）。"
         },
+        "uri": {
+          "type": "string",
+          "format": "at-uri",
+          "maxLength": 512,
+          "description": "kind が bsky のときの app.bsky.feed.generator の AT-URI。source が following なら持たない。"
+        },
         "label": {
           "type": "string",
           "maxLength": 64,
-          "description": "表示名のスナップショット。権威は query 側。"
+          "description": "表示名のスナップショット。権威は query / uri 側。"
         }
       }
     },
