@@ -4,7 +4,8 @@ import { PgDialect } from "drizzle-orm/pg-core";
 
 process.env.DATABASE_URL ??= "postgres://user:pass@localhost:5432/test";
 const { db } = await import("@bsky-affirmative-bot/database");
-const { actorsNeedingReasons, computeReasons, refreshReasons } = await import("../src/NagiThemeWorker.js");
+const { actorsNeedingReasons, computeReasons, refreshReasons, refreshThemes, sameGenres } = await import("../src/NagiThemeWorker.js");
+const { nagiNewsReasons } = await import("@bsky-affirmative-bot/database");
 
 test("all articles are processed across batches, including unmatched articles beyond the old 30-item cap", async (t) => {
   const pending = Array.from({ length: 65 }, (_, i) => ({ uri: `news:${i}`, title: `title:${i}` }));
@@ -124,4 +125,50 @@ test("incomplete and failed users rotate behind waiting users while completion r
   pending.set("did:plc:5", []);
   assert.equal((await refreshReasons("did:plc:5", match)).complete, true);
   assert.ok(!(await actorsNeedingReasons(6)).includes("did:plc:5"));
+});
+
+test("genre sets are compared without regard to order", () => {
+  assert.equal(sameGenres(["音楽", "料理"], ["料理", "音楽"]), true);
+  assert.equal(sameGenres([], []), true);
+  assert.equal(sameGenres(["音楽"], ["音楽", "料理"]), false);
+  assert.equal(sameGenres(["音楽", "料理"], ["音楽", "ゲーム"]), false);
+});
+
+/** refreshThemes を1回走らせ、news_reasons を消したかと actors に書いた値を返す。 */
+async function runRefreshThemes(
+  t: import("node:test").TestContext,
+  previousGenres: string[],
+  nextGenres: string[],
+) {
+  const deleted: unknown[] = [];
+  const updates: Array<Record<string, unknown>> = [];
+  const tx = {
+    select: () => ({ from: () => ({ where: async () => previousGenres.map((genre) => ({ genre })) }) }),
+    delete: (table: unknown) => ({ where: async () => { deleted.push(table); } }),
+    insert: () => ({ values: () => ({ onConflictDoNothing: async () => {}, then: (resolve: () => void) => resolve() }) }),
+    update: () => ({ set: (values: Record<string, unknown>) => ({ where: async () => { updates.push(values); } }) }),
+  };
+  t.mock.method(db, "execute", async () => [{ text: "猫の写真を撮った" }]);
+  t.mock.method(db, "transaction", async (fn: (tx: unknown) => Promise<void>) => fn(tx));
+  const result = await refreshThemes("did:plc:viewer", async () => ({ themes: ["猫"], genres: nextGenres }));
+  return { ...result, clearedReasons: deleted.includes(nagiNewsReasons), updates };
+}
+
+test("unchanged genres keep existing news reasons so only new articles are matched", async (t) => {
+  const result = await runRefreshThemes(t, ["猫", "写真"], ["写真", "猫"]);
+  assert.equal(result.themes, 3);
+  assert.equal(result.genresChanged, false);
+  assert.equal(result.clearedReasons, false);
+  assert.equal(result.updates.length, 1);
+  assert.ok(result.updates[0].themesCheckedAt instanceof Date);
+  assert.ok(!("newsReasonsCheckedAt" in result.updates[0]));
+});
+
+test("changed genres clear news reasons and reset matching completion", async (t) => {
+  const result = await runRefreshThemes(t, ["猫"], ["猫", "写真"]);
+  assert.equal(result.genresChanged, true);
+  assert.equal(result.clearedReasons, true);
+  assert.equal(result.updates.length, 1);
+  assert.ok(result.updates[0].themesCheckedAt instanceof Date);
+  assert.equal(result.updates[0].newsReasonsCheckedAt, null);
 });

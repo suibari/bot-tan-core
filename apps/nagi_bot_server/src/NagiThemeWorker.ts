@@ -110,7 +110,17 @@ async function refreshHashtagThemes(did: string): Promise<void> {
   `);
 }
 
-async function refreshThemes(did: string): Promise<number> {
+/** 関心ジャンルが集合として同じか。並び順は LLM の気分で変わるので見ない。 */
+export function sameGenres(previous: readonly string[], next: readonly string[]): boolean {
+  const a = new Set(previous);
+  const b = new Set(next);
+  return a.size === b.size && [...a].every((genre) => b.has(genre));
+}
+
+export async function refreshThemes(
+  did: string,
+  extract: typeof extractActorInterests = extractActorInterests,
+): Promise<{ themes: number; genresChanged: boolean }> {
   const posts = await db.execute<{ text: string }>(sql`
     select text from nagi.posts
      where did = ${did}
@@ -120,8 +130,17 @@ async function refreshThemes(did: string): Promise<number> {
      order by indexed_at desc
      limit ${THEME_SOURCE_POSTS}
   `);
-  const interests = await extractActorInterests(posts.map((row) => row.text));
+  const interests = await extract(posts.map((row) => row.text));
+  let genresChanged = false;
   await db.transaction(async (tx) => {
+    const previous = await tx
+      .select({ genre: nagiActorInterestGenres.genre })
+      .from(nagiActorInterestGenres)
+      .where(eq(nagiActorInterestGenres.did, did));
+    genresChanged = !sameGenres(
+      previous.map((row) => row.genre),
+      interests.genres,
+    );
     // 取り直しなので古い行は消す（使わなくなったタグ・変わったテーマを落とす）。
     await tx
       .delete(nagiActorInterestKeywords)
@@ -152,17 +171,31 @@ async function refreshThemes(did: string): Promise<number> {
             updatedAt: new Date(),
           })),
         );
-    // テーマが変わったら理由は作り直し。古い理由が残ると、もう無い語を出しかねない。
-    await tx.delete(nagiNewsReasons).where(eq(nagiNewsReasons.did, did));
+    // ジャンルが変わったときだけ理由を作り直す。古い理由が残ると、もう無い語を出しかねない。
+    //
+    // 変わっていないのに消すと、24時間ごとに承認済みの全記事（2026-10-25 時点で1,392件）を
+    // 1人ずつ判定し直すことになる。本番では1人1日47回の突合がこれで、取り直しの時刻が
+    // 揃った11時台に GPU を68%占有していた。突合はジャンルと見出しだけで決まるので、
+    // ジャンルが同じなら既存の判定はそのまま有効。新着記事は computeReasons が拾う。
+    if (genresChanged) {
+      await tx.delete(nagiNewsReasons).where(eq(nagiNewsReasons.did, did));
+    }
     // themes が空でも「試した」印は付ける。付けないと次の tick でまた選ばれる。
-    // 理由は消したので、突合は未実施へ戻す。試行日時は公平な順番を保つため残す。
+    // 理由を消したときは突合を未実施へ戻す。試行日時は公平な順番を保つため残す。
     await tx
       .update(nagiActors)
-      .set({ themesCheckedAt: new Date(), newsReasonsCheckedAt: null })
+      .set(
+        genresChanged
+          ? { themesCheckedAt: new Date(), newsReasonsCheckedAt: null }
+          : { themesCheckedAt: new Date() },
+      )
       .where(eq(nagiActors.did, did));
   });
   await refreshHashtagThemes(did);
-  return interests.themes.length + interests.genres.length;
+  return {
+    themes: interests.themes.length + interests.genres.length,
+    genresChanged,
+  };
 }
 
 /** 突合が古い／未実施のユーザー。関心ジャンルを1つ以上持っている人だけが対象。 */
@@ -274,9 +307,9 @@ export function startNagiThemeWorker() {
     let worked = 0;
     for (const did of await actorsNeedingThemes(BATCH_SIZE)) {
       try {
-        const n = await refreshThemes(did);
-        console.info(LOG_PREFIX, { event: "themes", did, themes: n });
-        if (n > 0) worked++;
+        const result = await refreshThemes(did);
+        console.info(LOG_PREFIX, { event: "themes", did, ...result });
+        if (result.themes > 0) worked++;
       } catch (error) {
         // Ollama 不通など。テーマが無ければ理由が出ないだけで、推薦自体は動く。
         console.error(`[ERROR]${LOG_PREFIX} themes did=${did}`, error);
