@@ -28,6 +28,12 @@
             "maxGraphemes": 300,
             "description": "作者の意図。札を選んだときに考えていたストーリーなどの自由記述で、任意。記録・ニュースで公開される（表示側は最初は畳んでおく）。botたんの総評の参考にも使う。AppView はモデレーション判定が済むまで返さない。"
           },
+          "langs": {
+            "type": "array",
+            "maxLength": 3,
+            "items": { "type": "string", "format": "language" },
+            "description": "note の言語。投稿の langs と同じく、翻訳の原文言語の判定に使う。note が無いときは書かない。"
+          },
           "createdAt": { "type": "string", "format": "datetime" }
         }
       }

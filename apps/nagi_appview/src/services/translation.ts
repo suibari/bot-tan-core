@@ -3,6 +3,7 @@ import {
   db,
   nagiPosts,
   nagiTranslations,
+  nagiZenkatsuSubmissions,
 } from "@bsky-affirmative-bot/database";
 import {
   NAGI,
@@ -18,7 +19,7 @@ import {
   ollamaTextContextLength,
   ollamaNativeUrl,
 } from "@bsky-affirmative-bot/shared-configs";
-import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import { config } from "../config.js";
 import { ApiError } from "../middleware/errors.js";
 import { kossoriVisibility } from "../queries/timeline.js";
@@ -28,7 +29,16 @@ export const TRANSLATION_CACHE_VERSION = 4;
 export const MAX_TRANSLATION_BATCH_SIZE = 50;
 
 type Language = (typeof NAGI_LANGUAGES)[number];
-type Post = typeof nagiPosts.$inferSelect;
+/**
+ * 訳す元の文。Nagi 投稿の本文と、ゼンカツ提出の「作者の意図」（note）の2種類がある。
+ * どちらも AT URI で引き、訳文は同じ translations テーブルに URI で載せる。
+ */
+type TranslationSource = {
+  uri: string;
+  did: string;
+  text: string;
+  langs: unknown;
+};
 export type TranslationFailureCode =
   | "not_found"
   | "not_cached"
@@ -100,6 +110,28 @@ function targetLanguage(value: unknown): Language {
   throw new ApiError(400, "invalid_request", "Unsupported target language");
 }
 
+/**
+ * 訳してよい作者の意図の条件。表示（visibleZenkatsuNote）と同じく、判定待ちと
+ * 却下（note を NULL に戻している）は返さない。判定し直しの間はキャッシュ済みの訳も出さない。
+ */
+export const translatableZenkatsuNotes = (uris: string[]) =>
+  and(
+    inArray(nagiZenkatsuSubmissions.uri, uris),
+    isNull(nagiZenkatsuSubmissions.deletedAt),
+    isNotNull(nagiZenkatsuSubmissions.note),
+    isNotNull(nagiZenkatsuSubmissions.noteModerationVersion),
+  );
+
+/** ゼンカツ提出の AT URI か。訳すのは本文ではなく作者の意図。 */
+export function isZenkatsuUri(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    new RegExp(`^at://did:(?:plc|web):[^/]+/${NAGI.zenkatsu}/[^/]+$`).test(
+      value,
+    )
+  );
+}
+
 /** Nagi 投稿（standard.site のブログを含む）の AT URI か。 */
 export function isNagiPostUri(value: unknown): value is string {
   return (
@@ -111,7 +143,7 @@ export function isNagiPostUri(value: unknown): value is string {
 }
 
 function postUri(value: unknown): string {
-  if (!isNagiPostUri(value)) {
+  if (!isNagiPostUri(value) && !isZenkatsuUri(value)) {
     throw new ApiError(400, "invalid_request", "Invalid post URI");
   }
   return value;
@@ -295,7 +327,47 @@ const translationSlots = new Semaphore(config.translationConcurrency);
 const generationRequests = new SingleFlight<string>();
 const requestKey = (uri: string, target: Language) => `${uri}\n${target.code}`;
 
-const sourceLanguage = (post: Post) => sourceLanguageFrom(post.langs);
+const sourceLanguage = (source: TranslationSource) =>
+  sourceLanguageFrom(source.langs);
+
+const loadPostSources = (uris: string[]): Promise<TranslationSource[]> =>
+  db
+    .select({
+      uri: nagiPosts.uri,
+      did: nagiPosts.did,
+      text: nagiPosts.text,
+      langs: nagiPosts.langs,
+    })
+    .from(nagiPosts)
+    .where(translatablePosts(uris));
+
+const loadZenkatsuNoteSources = async (
+  uris: string[],
+): Promise<TranslationSource[]> =>
+  (
+    await db
+      .select({
+        uri: nagiZenkatsuSubmissions.uri,
+        did: nagiZenkatsuSubmissions.did,
+        note: nagiZenkatsuSubmissions.note,
+        langs: nagiZenkatsuSubmissions.noteLangs,
+      })
+      .from(nagiZenkatsuSubmissions)
+      .where(translatableZenkatsuNotes(uris))
+  ).map(({ note, ...rest }) => ({ ...rest, text: note ?? "" }));
+
+/** URI を投稿とゼンカツ提出に振り分け、それぞれの「訳してよい」条件で引く。 */
+async function loadTranslationSources(
+  uris: string[],
+): Promise<TranslationSource[]> {
+  const postUris = uris.filter((uri) => !isZenkatsuUri(uri));
+  const zenkatsuUris = uris.filter(isZenkatsuUri);
+  const [posts, notes] = await Promise.all([
+    postUris.length ? loadPostSources(postUris) : [],
+    zenkatsuUris.length ? loadZenkatsuNoteSources(zenkatsuUris) : [],
+  ]);
+  return [...posts, ...notes];
+}
 
 type TranslationRequestDependencies = {
   /** 使用するOllamaモデル。省略時は従来どおり翻訳専用モデル。 */
@@ -447,10 +519,10 @@ export async function requestTranslationWithRetry(
   );
 }
 
-async function generateTranslation(post: Post, target: Language) {
+async function generateTranslation(post: TranslationSource, target: Language) {
   // botたん本人の投稿だけ、口調を保った翻訳にする。他人の投稿を口調変換すると
   // 発言の捏造になるので、この分岐だけがペルソナ翻訳の適用範囲。
-  if (post.did === config.botDid) {
+  if (post.did === config.botDid && !isZenkatsuUri(post.uri)) {
     try {
       return await requestTranslationWithRetry(
         botTranslationPrompt(sourceLanguage(post), target, post.text),
@@ -470,7 +542,10 @@ async function generateTranslation(post: Post, target: Language) {
   );
 }
 
-function generateAndCache(post: Post, target: Language): Promise<string> {
+function generateAndCache(
+  post: TranslationSource,
+  target: Language,
+): Promise<string> {
   const key = requestKey(post.uri, target);
   return generationRequests.run(key, async () => {
     const text = await generateTranslation(post, target);
@@ -545,7 +620,10 @@ export async function seedAuthoredTranslations(
   return entries.length;
 }
 
-/** 新規投稿向けのbest-effort英訳。公開リクエストのIP生成枠は消費しない。 */
+/**
+ * 新規投稿（と判定を通ったゼンカツの意図）向けのbest-effort英訳。
+ * 公開リクエストのIP生成枠は消費しない。
+ */
 export async function prewarmEnglishTranslation(uri: string): Promise<void> {
   const cached = await db
     .select({ postUri: nagiTranslations.postUri })
@@ -560,12 +638,7 @@ export async function prewarmEnglishTranslation(uri: string): Promise<void> {
     .limit(1);
   if (cached[0]) return;
 
-  const posts = await db
-    .select()
-    .from(nagiPosts)
-    .where(translatablePosts([uri]))
-    .limit(1);
-  const post = posts[0];
+  const [post] = await loadTranslationSources([uri]);
   if (
     !post?.text.trim() ||
     hasContentWarning(post.text) ||
@@ -606,10 +679,7 @@ export async function translatePosts(
 ): Promise<TranslationBatchResult> {
   const normalizedUris = postUris(uris);
   const target = targetLanguage(targetLang);
-  const posts = await db
-    .select()
-    .from(nagiPosts)
-    .where(translatablePosts(normalizedUris));
+  const posts = await loadTranslationSources(normalizedUris);
   const postsByUri = new Map(posts.map((post) => [post.uri, post]));
   const failures = new Map<string, TranslationFailureCode>();
   const eligibleUris = normalizedUris.filter((uri) => {

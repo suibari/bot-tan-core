@@ -989,6 +989,8 @@ export type NagiZenkatsu = {
   cards: { volume: number; id: number }[];
   /** 作者の意図（任意・300字まで）。公開され、botたんの総評の参考にもなる。 */
   note?: string;
+  /** note の言語（投稿の langs と同じ）。翻訳の原文言語の判定に使う。 */
+  langs?: string[];
   createdAt: string;
 };
 /** お題のトーン。ネタ8割・素直2割で混ぜる。 */
@@ -1026,6 +1028,11 @@ export type ZenkatsuSubmissionView = {
    * 他人の解釈を先に見せないよう、クライアントは最初は畳んで出す。
    */
   note?: string;
+  /**
+   * note の言語（レコードの langs）。投稿の langs と同じく、翻訳するかの判定に使う。
+   * 訳文は translatePosts に提出の URI を渡して取る（投稿と同じキャッシュ・同じ枠）。
+   */
+  noteLangs?: string[];
   /**
    * その日の追い風に乗っていた枚数。**得点ではない**（得点は隠しで、どこにも出さない）。
    * 「何が起きたか」だけを見せる。
@@ -1117,6 +1124,8 @@ export type CardNewsItem = {
   commentEn?: string;
   /** type=zenkatsu のとき。作者の意図（判定済みのものだけ）。 */
   note?: string;
+  /** type=zenkatsu のとき。note の言語（ZenkatsuSubmissionView.noteLangs と同じ）。 */
+  noteLangs?: string[];
   /**
    * type=zenkatsu のとき。成立したコンボ。
    *

@@ -3,6 +3,7 @@ import {
   nagiActors,
   nagiCardInstances,
   nagiProfiles,
+  nagiTranslations,
   nagiZenkatsuAwardJobs,
   nagiZenkatsuCards,
   nagiZenkatsuComboDiscoveries,
@@ -361,9 +362,15 @@ export function decideZenkatsuSubmission(input: {
  */
 export const visibleZenkatsuNote = (row: {
   note: string | null;
+  noteLangs?: string[] | null;
   noteModerationVersion: string | null;
-}): { note: string } | Record<string, never> =>
-  row.note && row.noteModerationVersion ? { note: row.note } : {};
+}): { note: string; noteLangs?: string[] } | Record<string, never> =>
+  row.note && row.noteModerationVersion
+    ? {
+        note: row.note,
+        ...(row.noteLangs?.length ? { noteLangs: row.noteLangs } : {}),
+      }
+    : {};
 
 /** 検証を通した提出を索引する。原子性は呼び出し側のトランザクションに委ねる（DbLike 参照）。 */
 export async function indexZenkatsuSubmission(
@@ -423,6 +430,8 @@ export async function indexZenkatsuSubmission(
       score: decision.score.value,
       combos: decision.combos.map((c) => ({ volume: c.volume, id: c.id })),
       note,
+      // 言語は翻訳の原文判定にしか使わないので、意図が無ければ持たない。
+      noteLangs: note && record.langs?.length ? record.langs : null,
       noteModerationVersion: note ? null : MODERATION_SKIPPED,
       createdAt: new Date(record.createdAt),
     })
@@ -510,6 +519,10 @@ export async function removeZenkatsuSubmission(
   await tx
     .delete(nagiZenkatsuCommentJobs)
     .where(eq(nagiZenkatsuCommentJobs.submissionUri, uri));
+  // 作者の意図の訳も消す。翻訳 API は削除済みを訳さないが、本文の写しを残さない。
+  await tx
+    .delete(nagiTranslations)
+    .where(eq(nagiTranslations.postUri, uri));
 }
 
 const CURSOR_SEP = "::";
