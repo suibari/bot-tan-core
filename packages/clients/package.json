@@ -22,9 +22,9 @@
     "@bsky-affirmative-bot/bot-brain": "workspace:*",
     "@bsky-affirmative-bot/database": "workspace:*",
     "@bsky-affirmative-bot/shared-configs": "workspace:*",
-    "axios": "^1.13.5",
+    "axios": "^1.20.0",
     "dotenv": "^16.4.5",
-    "drizzle-orm": "^0.45.1"
+    "drizzle-orm": "^0.45.4"
   },
   "devDependencies": {
     "tsx": "^4.20.3",

@@ -27,11 +27,11 @@
     "@skyware/jetstream": "^0.2.5",
     "@suibari/nagi-passport": "^0.1.0",
     "cors": "^2.8.5",
-    "drizzle-orm": "^0.45.1",
-    "express": "^5.0.0",
+    "drizzle-orm": "^0.45.4",
+    "express": "^5.3.0",
     "express-rate-limit": "^8.2.1",
     "web-push": "^3.6.7",
-    "ws": "^8.18.0"
+    "ws": "^8.22.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",

@@ -16,10 +16,10 @@
     "test": "tsx --test test/*.test.ts"
   },
   "dependencies": {
-    "@bsky-affirmative-bot/shared-configs": "workspace:*",
     "@atproto/api": "^0.18.21",
+    "@bsky-affirmative-bot/shared-configs": "workspace:*",
     "@skyware/jetstream": "^0.2.5",
-    "ws": "^8.18.0"
+    "ws": "^8.22.0"
   },
   "devDependencies": {
     "@types/ws": "^8.5.10",

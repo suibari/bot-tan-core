@@ -146,9 +146,14 @@ test("YouTube Liveは通常プールへ1候補だけ入り、同日でも再選�
     youtubeLive,
     now: new Date("2026-08-22T03:00:00.000Z"),
   };
+  let basePoolSize = 0;
+  generator.getBotFunctions({ ...params, youtubeLive: undefined }, (pool) => {
+    basePoolSize = pool.length;
+    return pool[0];
+  });
   assert.equal(generator.getBotFunctions(params, selectLive).usedYoutubeLive, true);
   assert.equal(generator.getBotFunctions(params, selectLive).usedYoutubeLive, true);
-  assert.deepEqual(poolSizes, [12, 12]);
+  assert.deepEqual(poolSizes, [basePoolSize + 1, basePoolSize + 1]);
 });
 
 test("選出されたLive・Shorts URLをLLMが省略しても本文末尾へ1回だけ補う", () => {
