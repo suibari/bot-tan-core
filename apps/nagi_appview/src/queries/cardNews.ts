@@ -30,7 +30,11 @@ import { and, desc, eq, gte, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { config } from "../config.js";
 import { ApiError } from "../middleware/errors.js";
 import { getReactionViews } from "./reactions.js";
-import { getZenkatsuChiefDids, type DbLike } from "./zenkatsu.js";
+import {
+  getZenkatsuChiefDids,
+  visibleZenkatsuNote,
+  type DbLike,
+} from "./zenkatsu.js";
 
 /**
  * 全肯定カードのニュース。**R以上のドロー**と**ゼンカツのハイライト**が同じ列に並ぶ。
@@ -472,6 +476,7 @@ export async function getCardNews(opts: {
           : 0,
         ...(row.commentJa ? { commentJa: row.commentJa } : {}),
         ...(row.commentEn ? { commentEn: row.commentEn } : {}),
+        ...visibleZenkatsuNote(row),
         reactions: reactions.get(row.uri) ?? [],
       },
     ];

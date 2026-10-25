@@ -31,6 +31,8 @@ export async function runNagiZenkatsu(submissionUri: string): Promise<void> {
       themeVolume: nagiZenkatsuSubmissions.themeVolume,
       themeNumber: nagiZenkatsuSubmissions.themeNumber,
       reading: nagiZenkatsuSubmissions.reading,
+      note: nagiZenkatsuSubmissions.note,
+      noteModerationVersion: nagiZenkatsuSubmissions.noteModerationVersion,
       deletedAt: nagiZenkatsuSubmissions.deletedAt,
     })
     .from(nagiZenkatsuSubmissions)
@@ -90,6 +92,10 @@ export async function runNagiZenkatsu(submissionUri: string): Promise<void> {
     reading: Array.isArray(submission.reading)
       ? (submission.reading as string[])
       : [],
+    // 判定を通った意図だけを渡す（判定待ちの NULL・却下で消したものは渡らない）。
+    ...(submission.note && submission.noteModerationVersion
+      ? { note: submission.note }
+      : {}),
   });
   if (!comment.commentJa) throw new Error("zenkatsu: empty comment");
 

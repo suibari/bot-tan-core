@@ -56,6 +56,8 @@ import { getReactionViews } from "./reactions.js";
 import { zenkatsuPlayInventory } from "./zenkatsuPlayInventory.js";
 import { config } from "../config.js";
 import { ApiError } from "../middleware/errors.js";
+import { MODERATION_SKIPPED } from "../services/moderation/rules.js";
+import { moderationEnabled } from "../services/moderation/index.js";
 
 /**
  * ゼンカツ！。設計の経緯と理由は docs/zenkatsu.md。
@@ -353,6 +355,16 @@ export function decideZenkatsuSubmission(input: {
   return { ok: true, reading, combos, score, rarities: readingCards.map((card) => card.rarity) };
 }
 
+/**
+ * 作者の意図のうち、表示してよいもの。判定待ち（NULL）は出さない。
+ * 却下は note ごと NULL に戻しているので、ここでは版の有無だけを見ればよい。
+ */
+export const visibleZenkatsuNote = (row: {
+  note: string | null;
+  noteModerationVersion: string | null;
+}): { note: string } | Record<string, never> =>
+  row.note && row.noteModerationVersion ? { note: row.note } : {};
+
 /** 検証を通した提出を索引する。原子性は呼び出し側のトランザクションに委ねる（DbLike 参照）。 */
 export async function indexZenkatsuSubmission(
   tx: DbLike,
@@ -364,9 +376,18 @@ export async function indexZenkatsuSubmission(
     record: NagiZenkatsu;
     now?: Date;
   },
-): Promise<{ indexed: boolean; reason?: ZenkatsuRejection }> {
+): Promise<{
+  indexed: boolean;
+  reason?: ZenkatsuRejection;
+  /** 作者の意図の判定待ち。総評はモデレーションワーカーが判定後に起こす。 */
+  awaitingModeration?: boolean;
+}> {
   const now = input.now ?? new Date();
   const { record, did } = input;
+  const note = record.note?.trim() || null;
+  // 判定器が無い環境（OPENAI_API_KEY 未設定）では判定が永遠に来ない。意図は判定待ちのまま
+  // 出さず、総評は意図抜きで今まで通り作る（総評は判定済みの意図しか読まない）。
+  const awaitingModeration = !!note && moderationEnabled();
   const theme = await resolveThemeForDate(record.themeDate, tx);
   const [{ holdings, labels }, plays, everPlayed] = await Promise.all([
     loadHoldings(did, tx),
@@ -401,6 +422,8 @@ export async function indexZenkatsuSubmission(
       isHighlight: decision.reading.highlight,
       score: decision.score.value,
       combos: decision.combos.map((c) => ({ volume: c.volume, id: c.id })),
+      note,
+      noteModerationVersion: note ? null : MODERATION_SKIPPED,
       createdAt: new Date(record.createdAt),
     })
     .onConflictDoNothing()
@@ -451,17 +474,20 @@ export async function indexZenkatsuSubmission(
       )
       .onConflictDoNothing();
 
-  await tx
-    .insert(nagiZenkatsuCommentJobs)
-    .values({ submissionUri: input.uri })
-    .onConflictDoNothing();
+  // 作者の意図が付いていたら、判定が済むまで総評を作らない（未判定の文を LLM に渡さない）。
+  // ジョブはモデレーションワーカーが判定後に入れる。
+  if (!awaitingModeration)
+    await tx
+      .insert(nagiZenkatsuCommentJobs)
+      .values({ submissionUri: input.uri })
+      .onConflictDoNothing();
   // 翌朝の部長賞ジョブ。その日の最初の提出で作られ、以後は何もしない。
   await tx
     .insert(nagiZenkatsuAwardJobs)
     .values({ themeDate: record.themeDate })
     .onConflictDoNothing();
 
-  return { indexed: true };
+  return { indexed: true, awaitingModeration };
 }
 
 /**
@@ -659,6 +685,7 @@ export async function getZenkatsu(opts: {
         ...(row.commentJa ? { commentJa: row.commentJa } : {}),
         ...(row.commentEn ? { commentEn: row.commentEn } : {}),
         commentPending: !row.commentJa,
+        ...visibleZenkatsuNote(row),
         // 追い風の枚数とコンボは「何が起きたか」なので出す。得点は出さない。
         tailwindCount: (cardsByUri.get(row.uri) ?? []).filter(
           (c) => c.attribute === theme.attribute,

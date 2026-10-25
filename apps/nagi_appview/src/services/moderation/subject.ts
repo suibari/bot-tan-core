@@ -22,6 +22,7 @@ export const MODERATED_COLLECTIONS = [
   NAGI.profile,
   NAGI.channel,
   NAGI.news,
+  NAGI.zenkatsu,
   BLUEMOJI_ITEM,
 ] as string[];
 
@@ -106,6 +107,9 @@ export function moderationSubject(
         texts: [...text(record.titleJa), ...text(record.sourceName)],
         imageUrls: [],
       };
+    case NAGI.zenkatsu:
+      // 札は定義済みのものしか出せないので、見るのは作者の意図（自由記述）だけ。
+      return { texts: text(record.note), imageUrls: [] };
     case BLUEMOJI_ITEM:
       // 資産の実体は blob と inline bytes の両方があり、どちらも同じ配信URLに出る。
       // rkey は URI から取れないのでここでは名前と alt だけを見て、画像は

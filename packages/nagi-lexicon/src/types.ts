@@ -987,6 +987,8 @@ export type NagiZenkatsu = {
   themeDate: string;
   /** 出した札（1〜3枚）。並びは意味を持つ。同じ札の重複は不可。 */
   cards: { volume: number; id: number }[];
+  /** 作者の意図（任意・300字まで）。公開され、botたんの総評の参考にもなる。 */
+  note?: string;
   createdAt: string;
 };
 /** お題のトーン。ネタ8割・素直2割で混ぜる。 */
@@ -1019,6 +1021,11 @@ export type ZenkatsuSubmissionView = {
   commentEn?: string;
   /** true の間は総評を生成中。クライアントは取り直す。 */
   commentPending: boolean;
+  /**
+   * 作者の意図。モデレーション判定が済んだものだけを送る（判定待ち・却下は undefined）。
+   * 他人の解釈を先に見せないよう、クライアントは最初は畳んで出す。
+   */
+  note?: string;
   /**
    * その日の追い風に乗っていた枚数。**得点ではない**（得点は隠しで、どこにも出さない）。
    * 「何が起きたか」だけを見せる。
@@ -1108,6 +1115,8 @@ export type CardNewsItem = {
   themeEn?: string;
   commentJa?: string;
   commentEn?: string;
+  /** type=zenkatsu のとき。作者の意図（判定済みのものだけ）。 */
+  note?: string;
   /**
    * type=zenkatsu のとき。成立したコンボ。
    *

@@ -460,7 +460,13 @@ export function validateRecord(
     // ここで見るのは**形だけ**。所持・クールダウン・当日かの照合は AppView が DB を見て行う
     // （applyMutation 側）。形だけ通しても索引されないので、偽レコードは記録に出ない。
     return (
-      DATE_KEY.test(value.themeDate) && isValidZenkatsuSelection(value.cards)
+      DATE_KEY.test(value.themeDate) &&
+      isValidZenkatsuSelection(value.cards) &&
+      // 作者の意図は任意。上限は lexicon と同じ（300字・3000バイト）。
+      (value.note === undefined ||
+        (typeof value.note === "string" &&
+          graphemes(value.note) <= 300 &&
+          Buffer.byteLength(value.note) <= 3000))
     );
   return false;
 }

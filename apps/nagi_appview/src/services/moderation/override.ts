@@ -6,9 +6,10 @@ import {
   nagiNews,
   nagiPosts,
   nagiProfiles,
+  nagiZenkatsuSubmissions,
 } from "@bsky-affirmative-bot/database";
 import { BLUEMOJI_ITEM, NAGI } from "@bsky-affirmative-bot/nagi-lexicon";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNotNull } from "drizzle-orm";
 import { wakeModerationWorker } from "../../ingest/moderationWorker.js";
 import { ensurePdsRecord } from "../../ingest/reconcileRepo.js";
 import { parseRecordUri } from "../../ingest/recordUri.js";
@@ -121,6 +122,20 @@ async function requeue(row: DecisionRow): Promise<void> {
         .update(nagiNews)
         .set(pending)
         .where(and(eq(nagiNews.uri, row.uri), eq(nagiNews.cid, row.cid)));
+      return;
+    case NAGI.zenkatsu:
+      // 判定対象は作者の意図だけ。却下で消した意図は戻らない（提出の取り込みは先着のみで、
+      // PDS から取り直しても既存行は上書きしない）。ラベルの解除だけが効く。
+      await db
+        .update(nagiZenkatsuSubmissions)
+        .set({ noteModerationVersion: null })
+        .where(
+          and(
+            eq(nagiZenkatsuSubmissions.uri, row.uri),
+            eq(nagiZenkatsuSubmissions.cid, row.cid),
+            isNotNull(nagiZenkatsuSubmissions.note),
+          ),
+        );
       return;
   }
 }

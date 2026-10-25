@@ -9,11 +9,14 @@ import {
   nagiPosts,
   nagiProfiles,
   nagiTranslations,
+  nagiZenkatsuCommentJobs,
+  nagiZenkatsuSubmissions,
 } from "@bsky-affirmative-bot/database";
 import { createHash } from "node:crypto";
 import { BLUEMOJI_ITEM, NAGI } from "@bsky-affirmative-bot/nagi-lexicon";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNotNull, isNull } from "drizzle-orm";
 import { config } from "../config.js";
+import { startZenkatsuComment } from "../services/zenkatsuComment.js";
 import {
   allowOverrideApplies,
   emojiAssetUrl,
@@ -277,7 +280,50 @@ const sources: Source[] = [
       }));
     },
   },
+  {
+    // ゼンカツの「作者の意図」。札は定義済みのものしか出せないので、判定するのは意図だけ。
+    name: "zenkatsu",
+    async fetchBatch(limit) {
+      const rows = await db
+        .select({
+          uri: nagiZenkatsuSubmissions.uri,
+          cid: nagiZenkatsuSubmissions.cid,
+          did: nagiZenkatsuSubmissions.did,
+          note: nagiZenkatsuSubmissions.note,
+        })
+        .from(nagiZenkatsuSubmissions)
+        .where(
+          and(
+            isNull(nagiZenkatsuSubmissions.noteModerationVersion),
+            isNotNull(nagiZenkatsuSubmissions.note),
+            isNull(nagiZenkatsuSubmissions.deletedAt),
+          ),
+        )
+        .orderBy(desc(nagiZenkatsuSubmissions.indexedAt))
+        .limit(limit);
+      return rows.map((r) => ({
+        uri: r.uri,
+        cid: r.cid,
+        did: r.did,
+        collection: NAGI.zenkatsu,
+        input: moderationSubject(NAGI.zenkatsu, { note: r.note }, r.did)!,
+      }));
+    },
+  },
 ];
+
+/**
+ * 意図の判定が済んだ提出に、総評ジョブを入れて即時生成を起こす。
+ * 取り込み時は判定待ちなのでジョブを作っていない（未判定の文を LLM に渡さないため）。
+ * 解除で判定し直した場合は既に総評があるので、onConflictDoNothing で二重に作らない。
+ */
+async function releaseZenkatsuComment(uri: string): Promise<void> {
+  await db
+    .insert(nagiZenkatsuCommentJobs)
+    .values({ submissionUri: uri })
+    .onConflictDoNothing();
+  void startZenkatsuComment(uri);
+}
 
 /** 規約違反・入力不正と判断した投稿から、AppView 側の投影を落とす。 */
 async function rejectPost(uri: string): Promise<void> {
@@ -380,6 +426,23 @@ async function applyDecision(
             moderationVersion: MODERATION_RULE_VERSION,
           })
           .where(and(eq(nagiNews.uri, item.uri), eq(nagiNews.cid, item.cid)));
+      return;
+    case NAGI.zenkatsu:
+      // 却下でも提出（札と総評）は残す。落とすのは意図の文だけ。
+      await db
+        .update(nagiZenkatsuSubmissions)
+        .set({
+          ...(reject ? { note: null } : {}),
+          noteModerationLabels: reject ? [] : labels,
+          noteModerationVersion: MODERATION_RULE_VERSION,
+        })
+        .where(
+          and(
+            eq(nagiZenkatsuSubmissions.uri, item.uri),
+            eq(nagiZenkatsuSubmissions.cid, item.cid),
+          ),
+        );
+      await releaseZenkatsuComment(item.uri);
       return;
   }
 }
