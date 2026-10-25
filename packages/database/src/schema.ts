@@ -561,3 +561,37 @@ export const drawing_claims = affirmativeBotSchema.table(
     index("drawing_claims_surface_day_idx").on(table.surface, table.day),
   ],
 );
+
+/**
+ * 定型リプの3値分類（positive / neutral / negative）を、生成 LLM から埋め込み＋軽い分類器へ
+ * 移すための教師データ。今の LLM の判定をラベルとして、投稿の埋め込みと一緒にためる。
+ *
+ * **投稿本文と DID は保存しない。** 学習に要るのはベクトルとラベルだけで、本文を持つと
+ * 削除依頼に追従する仕組みまで要る。重複の除去と学習・評価の分割にだけ本文のハッシュを使う。
+ * Bluesky の公開投稿だけを積む（Nagi は退会時に本人由来の行を消す決まりがあるため対象外）。
+ *
+ * 埋め込みは文書側（接頭辞なし）。分類器を本番に入れるときも同じ埋め込み方をすること。
+ */
+export const polarity_samples = affirmativeBotSchema.table(
+  "polarity_samples",
+  {
+    id: serial("id").primaryKey(),
+    content_hash: text("content_hash").notNull(),
+    language_name: text("language_name").notNull(),
+    label: text("label").notNull(),
+    /** ラベルを付けたモデルと分類プロンプトの版。どちらかが変わると教師が別物になる。 */
+    label_model: text("label_model").notNull(),
+    label_version: text("label_version").notNull(),
+    embedding_model: text("embedding_model").notNull(),
+    embedding: vector("embedding", { dimensions: 1024 }).notNull(),
+    text_chars: integer("text_chars").notNull(),
+    created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("polarity_samples_hash_model_idx").on(table.content_hash, table.embedding_model),
+    check(
+      "polarity_samples_label_check",
+      sql`${table.label} in ('positive', 'neutral', 'negative')`,
+    ),
+  ],
+);
