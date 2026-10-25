@@ -1502,6 +1502,8 @@ export const nagiZenkatsuSubmissions = nagiSchema.table(
      * 判定で却下されたら NULL に戻す（札と総評は残す）。
      */
     note: text("note"),
+    /** note の言語（レコードの langs）。翻訳の原文言語に使う。 */
+    noteLangs: text("note_langs").array(),
     noteModerationLabels: text("note_moderation_labels").array().default([]).notNull(),
     /**
      * null=判定待ち（ワーカーが拾う） / 'skipped'=note 無し / それ以外はルールバージョン。

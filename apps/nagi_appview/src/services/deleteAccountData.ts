@@ -266,6 +266,9 @@ export async function deleteAccountData(did: string) {
       await tx
         .delete(nagiZenkatsuCards)
         .where(inArray(nagiZenkatsuCards.submissionUri, zenkatsuUris));
+      await tx
+        .delete(nagiTranslations)
+        .where(inArray(nagiTranslations.postUri, zenkatsuUris));
       // この人へのリアクション通知は、subject がこれらの URI を指したまま残る。
       await tx
         .delete(nagiNotifications)

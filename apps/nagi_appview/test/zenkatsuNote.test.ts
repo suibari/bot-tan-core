@@ -47,3 +47,31 @@ test("判定待ちの意図は返さない", () => {
     {},
   );
 });
+
+test("意図の言語は3件までの文字列配列なら通る", () => {
+  const withLangs = (langs: unknown) => ({ ...submission("雨の日の物語"), langs });
+  assert.equal(validateRecord(NAGI.zenkatsu, withLangs(["ja"])), true);
+  assert.equal(validateRecord(NAGI.zenkatsu, withLangs(["ja", "en", "ko"])), true);
+  assert.equal(validateRecord(NAGI.zenkatsu, withLangs(["ja", "en", "ko", "zh"])), false);
+  assert.equal(validateRecord(NAGI.zenkatsu, withLangs("ja")), false);
+  assert.equal(validateRecord(NAGI.zenkatsu, withLangs([1])), false);
+});
+
+test("判定済みの意図だけ、言語も添えて返す", () => {
+  assert.deepEqual(
+    visibleZenkatsuNote({
+      note: "物語",
+      noteLangs: ["ja"],
+      noteModerationVersion: "nagi-moderation-v4",
+    }),
+    { note: "物語", noteLangs: ["ja"] },
+  );
+  assert.deepEqual(
+    visibleZenkatsuNote({ note: "物語", noteLangs: [], noteModerationVersion: "nagi-moderation-v4" }),
+    { note: "物語" },
+  );
+  assert.deepEqual(
+    visibleZenkatsuNote({ note: "物語", noteLangs: ["ja"], noteModerationVersion: null }),
+    {},
+  );
+});

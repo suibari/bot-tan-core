@@ -14,7 +14,8 @@
               "type": "array",
               "minLength": 1,
               "maxLength": 50,
-              "items": { "type": "string", "format": "at-uri" }
+              "items": { "type": "string", "format": "at-uri" },
+              "description": "訳す対象。Nagi 投稿（com.suibari.nagi.post / site.standard.document）か、ゼンカツ提出（com.suibari.nagi.zenkatsu。訳すのは作者の意図 note で、判定済みのものだけ）。"
             },
             "targetLang": { "type": "string", "format": "language" },
             "cacheOnly": { "type": "boolean" }

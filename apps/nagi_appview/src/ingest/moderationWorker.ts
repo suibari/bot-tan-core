@@ -17,6 +17,7 @@ import { BLUEMOJI_ITEM, NAGI } from "@bsky-affirmative-bot/nagi-lexicon";
 import { and, desc, eq, isNotNull, isNull } from "drizzle-orm";
 import { config } from "../config.js";
 import { startZenkatsuComment } from "../services/zenkatsuComment.js";
+import { startEnglishPrewarm } from "../services/translation.js";
 import {
   allowOverrideApplies,
   emojiAssetUrl,
@@ -442,6 +443,12 @@ async function applyDecision(
             eq(nagiZenkatsuSubmissions.cid, item.cid),
           ),
         );
+      // 意図の訳は意図と一緒に消す。通ったら投稿と同じく英訳を先に作っておく。
+      if (reject)
+        await db
+          .delete(nagiTranslations)
+          .where(eq(nagiTranslations.postUri, item.uri));
+      else startEnglishPrewarm(item.uri);
       await releaseZenkatsuComment(item.uri);
       return;
   }

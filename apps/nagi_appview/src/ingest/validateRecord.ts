@@ -466,7 +466,11 @@ export function validateRecord(
       (value.note === undefined ||
         (typeof value.note === "string" &&
           graphemes(value.note) <= 300 &&
-          Buffer.byteLength(value.note) <= 3000))
+          Buffer.byteLength(value.note) <= 3000)) &&
+      (value.langs === undefined ||
+        (Array.isArray(value.langs) &&
+          value.langs.length <= 3 &&
+          value.langs.every((lang: unknown) => typeof lang === "string")))
     );
   return false;
 }

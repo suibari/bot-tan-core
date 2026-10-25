@@ -10,6 +10,7 @@ const {
   cachedTranslationResult,
   hasTranslationText,
   isNagiPostUri,
+  isZenkatsuUri,
   normalizeSeedEntries,
   MAX_TRANSLATION_BATCH_SIZE,
   requestTranslationWithRetry,
@@ -20,10 +21,13 @@ const {
   TRANSLATION_CACHE_VERSION,
   TranslationMissQuota,
   translatablePosts,
+  translatableZenkatsuNotes,
   translatePosts,
   translationPrompt,
 } = await import("../src/services/translation.js");
-const { db, nagiPosts } = await import("@bsky-affirmative-bot/database");
+const { db, nagiPosts, nagiZenkatsuSubmissions } = await import(
+  "@bsky-affirmative-bot/database"
+);
 const { config } = await import("../src/config.js");
 
 const validUri = "at://did:plc:example/com.suibari.nagi.post/3mtranslation";
@@ -383,4 +387,39 @@ test("kossori threads and deleted posts are never translated, even from cache", 
     "Date を raw SQL に渡さない",
   );
   assert.deepEqual(rendered.params, [validUri]);
+});
+
+const zenkatsuUri = "at://did:plc:example/com.suibari.nagi.zenkatsu/2026-09-19";
+
+test("ゼンカツ提出の URI は翻訳できるが、対訳の投入先にはならない", async () => {
+  assert.equal(isZenkatsuUri(zenkatsuUri), true);
+  assert.equal(isZenkatsuUri(validUri), false);
+  assert.equal(isZenkatsuUri("at://did:plc:example/com.suibari.nagi.cardGet/3m"), false);
+  // 投入（authored）は botたんの投稿だけ。ユーザーの意図に本人以外の訳を被せない。
+  assert.equal(isNagiPostUri(zenkatsuUri), false);
+  // 形の検証は通り、DB へ進む手前の言語検証で落ちる（URI としては受け付けている）。
+  await assert.rejects(
+    translatePosts([zenkatsuUri], "xx-invalid", "client"),
+    (error: any) => error.message === "Unsupported target language",
+  );
+});
+
+test("判定待ち・却下・削除済みの作者の意図は、キャッシュからも訳さない", () => {
+  const rendered = db
+    .select({ uri: nagiZenkatsuSubmissions.uri })
+    .from(nagiZenkatsuSubmissions)
+    .where(translatableZenkatsuNotes([zenkatsuUri]))
+    .toSQL();
+  const text = rendered.sql.replace(/\s+/g, " ");
+  assert.ok(text.includes('"nagi"."zenkatsu_submissions"."deleted_at" is null'), text);
+  assert.ok(text.includes('"nagi"."zenkatsu_submissions"."note" is not null'), text);
+  assert.ok(
+    text.includes('"nagi"."zenkatsu_submissions"."note_moderation_version" is not null'),
+    text,
+  );
+  assert.ok(
+    rendered.params.every((param) => !(param instanceof Date)),
+    "Date を raw SQL に渡さない",
+  );
+  assert.deepEqual(rendered.params, [zenkatsuUri]);
 });
