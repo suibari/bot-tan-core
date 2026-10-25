@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  NAGI_BLUESKY_VIEW_SCOPES,
   NAGI_CROSSPOST_SCOPE,
   NAGI_OAUTH_SCOPE,
   NAGI_OAUTH_SCOPE_FULL,
@@ -15,11 +16,15 @@ test("standard.site の書き込み権限は通常ログインで必須になる
     assert.equal(required.filter((item) => item === scope).length, 1);
   }
   assert.equal(required.includes(NAGI_CROSSPOST_SCOPE), false);
+  for (const scope of NAGI_BLUESKY_VIEW_SCOPES)
+    assert.equal(required.includes(scope), false);
 });
 
-test("最大スコープは必須権限に任意の Bluesky クロスポスト権限だけを加える", () => {
+test("最大スコープは必須権限に任意の Bluesky 連携（クロスポストと閲覧）の権限だけを加える", () => {
   const full = scopes(NAGI_OAUTH_SCOPE_FULL);
   assert.equal(full.includes(NAGI_CROSSPOST_SCOPE), true);
+  for (const scope of NAGI_BLUESKY_VIEW_SCOPES)
+    assert.equal(full.filter((item) => item === scope).length, 1);
   for (const scope of NAGI_STANDARD_SITE_SCOPES) {
     assert.equal(full.filter((item) => item === scope).length, 1);
   }

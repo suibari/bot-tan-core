@@ -76,6 +76,29 @@ test("hashtag タブのタグは # を外した小文字へ揃え、search タ�
     assert.throws(() => parseFeedTabs(invalid));
 });
 
+test("bsky タブは app.bsky.feed.generator の AT-URI だけを受け、ほかの kind の uri は落とす", () => {
+  const feed = "at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.generator/whats-hot";
+  assert.deepEqual(
+    parseFeedTabs([
+      { id: "b", kind: "bsky", uri: feed, label: "Discover" },
+      { id: "w", kind: "bsky", uri: "at://did:web:feeds.example.com/app.bsky.feed.generator/a" },
+      { id: "a", kind: "custom", source: "affirmation", uri: feed },
+    ]),
+    [
+      { id: "b", kind: "bsky", uri: feed, label: "Discover" },
+      { id: "w", kind: "bsky", uri: "at://did:web:feeds.example.com/app.bsky.feed.generator/a" },
+      { id: "a", kind: "custom", source: "affirmation" },
+    ],
+  );
+  for (const invalid of [
+    [{ id: "b", kind: "bsky" }],
+    [{ id: "b", kind: "bsky", uri: "at://did:plc:a/app.bsky.graph.list/1" }],
+    [{ id: "b", kind: "bsky", uri: "https://bsky.app/profile/a/feed/b" }],
+    [{ id: "b", kind: "bsky", uri: `at://did:plc:a/app.bsky.feed.generator/${"x".repeat(512)}` }],
+  ])
+    assert.throws(() => parseFeedTabs(invalid));
+});
+
 test("廃止した channel / タグ検索のタブは hashtag タブへ寄せる", async () => {
   const channelUri = "at://did:plc:a/com.suibari.nagi.channel/1";
   const upgraded = await upgradeLegacyFeedTabs(

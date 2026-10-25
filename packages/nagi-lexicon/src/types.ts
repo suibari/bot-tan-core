@@ -651,17 +651,20 @@ export const EMOJI_FAVORITES_LIMIT = 32;
 /**
  * フィードのタブ1枚の種別。
  * list / custom は「入れ物」で、どれを指すかは source が持つ（list はいまホームだけ、
- * custom はいま全肯定だけ）。将来ユーザーが定義したカスタムフィードも custom に入る。
+ * custom はいま全肯定だけ）。将来ユーザーが定義した Nagi のカスタムフィードも custom に入る。
+ * bsky は Bluesky のフィードジェネレータで、クライアントがユーザーの PDS 経由で読む。
  */
-export type FeedTabKind = "list" | "global" | "custom" | "hashtag" | "search";
+export type FeedTabKind =
+  "list" | "global" | "custom" | "hashtag" | "search" | "bsky";
 export const FEED_TAB_KINDS: readonly FeedTabKind[] = [
   "list",
   "global",
   "custom",
   "hashtag",
   "search",
+  "bsky",
 ] as const;
-/** list / custom が指す組み込みの中身。ユーザー定義のフィードは将来 uri で指す。 */
+/** list / custom が指す組み込みの中身。 */
 export type FeedTabSource = "home" | "affirmation";
 export const FEED_TAB_SOURCES: readonly FeedTabSource[] = [
   "home",
@@ -682,7 +685,9 @@ export type FeedTab = {
    * （先頭の # を除いた小文字）。
    */
   query?: string;
-  /** 表示名のスナップショット。権威は query 側で、これは初回描画用。 */
+  /** kind==='bsky' のときの app.bsky.feed.generator の AT-URI。 */
+  uri?: string;
+  /** 表示名のスナップショット。権威は query / uri 側で、これは初回描画用。 */
   label?: string;
 };
 /** タブ数の上限。 */

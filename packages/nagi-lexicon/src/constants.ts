@@ -316,8 +316,26 @@ export const NAGI_OAUTH_SCOPE = [
  */
 export const NAGI_CROSSPOST_SCOPE = "repo:app.bsky.feed.post?action=create";
 
-/** client-metadata.json に宣言する最大集合（クロスポスト権限を含む）。 */
+/**
+ * Bluesky のカスタムフィードを Nagi のタブで読むための権限。クロスポストと同じオプトインで
+ * まとめて要求する（同意の導線を増やさない）。クライアントはユーザーの PDS へ
+ * atproto-proxy 付きで投げ、Nagi AppView は Bluesky のコンテンツを中継しない。
+ * aud は NAGI_VIDEO_SCOPES と同じく、bare aud で照合する旧 PDS のため wildcard にする。
+ */
+export const NAGI_BLUESKY_VIEW_SCOPES = [
+  "rpc:app.bsky.feed.getFeed?aud=*",
+  // PDS は getFeed の代理リクエストで getFeedSkeleton 用の service auth を発行する
+  // （AppView がそのトークンをフィードジェネレータへ回すため）。これが無いと getFeed が通らない。
+  "rpc:app.bsky.feed.getFeedSkeleton?aud=*",
+  "rpc:app.bsky.feed.getFeedGenerators?aud=*",
+  "rpc:app.bsky.actor.getPreferences?aud=*",
+  "rpc:app.bsky.labeler.getServices?aud=*",
+  "rpc:app.bsky.feed.getLikes?aud=*",
+];
+
+/** client-metadata.json に宣言する最大集合（Bluesky 連携の権限を含む）。 */
 export const NAGI_OAUTH_SCOPE_FULL = [
   NAGI_OAUTH_SCOPE,
   NAGI_CROSSPOST_SCOPE,
+  ...NAGI_BLUESKY_VIEW_SCOPES,
 ].join(" ");

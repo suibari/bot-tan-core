@@ -172,6 +172,9 @@ const isFeedTabKind = (value: unknown): value is FeedTabKind =>
 const MAX_TAB_ID_LENGTH = 64;
 const MAX_TAB_QUERY_LENGTH = 128;
 const MAX_TAB_LABEL_LENGTH = 64;
+const MAX_TAB_URI_LENGTH = 512;
+const BSKY_FEED_GENERATOR_URI =
+  /^at:\/\/did:(plc|web):[^/]+\/app\.bsky\.feed\.generator\/[A-Za-z0-9._~:-]{1,512}$/;
 
 /**
  * フィードのタブ。クライアントの normalizeFeedTabs と同じルールで見る
@@ -213,6 +216,17 @@ export function parseFeedTabs(input: unknown): FeedTab[] {
       if (!query || query.length > MAX_TAB_QUERY_LENGTH)
         invalid("feedTabs.query");
       tab.query = query;
+    }
+    // Bluesky のフィードはクライアントが PDS 経由で読むので、AppView は指し先の形だけ見る。
+    if (tab.kind === "bsky") {
+      const uri = item.uri;
+      if (
+        typeof uri !== "string" ||
+        uri.length > MAX_TAB_URI_LENGTH ||
+        !BSKY_FEED_GENERATOR_URI.test(uri)
+      )
+        invalid("feedTabs.uri");
+      tab.uri = uri as string;
     }
     return tab;
   });
