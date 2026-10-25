@@ -664,11 +664,15 @@ export const FEED_TAB_KINDS: readonly FeedTabKind[] = [
   "search",
   "bsky",
 ] as const;
-/** list / custom が指す組み込みの中身。 */
-export type FeedTabSource = "home" | "affirmation";
+/**
+ * list / custom が指す組み込みの中身。bsky の following は Bluesky のホームタイムライン
+ * （フォロー中）で、uri の代わりにこれで指す。
+ */
+export type FeedTabSource = "home" | "affirmation" | "following";
 export const FEED_TAB_SOURCES: readonly FeedTabSource[] = [
   "home",
   "affirmation",
+  "following",
 ] as const;
 /**
  * フィードのタブ1枚。種別ごとの union にせずフラットに持つのは、lexicon で
@@ -678,14 +682,17 @@ export const FEED_TAB_SOURCES: readonly FeedTabSource[] = [
 export type FeedTab = {
   id: string;
   kind: FeedTabKind;
-  /** kind が list / custom のときの参照先（list=home, custom=affirmation）。 */
+  /**
+   * kind が list / custom のときの参照先（list=home, custom=affirmation）。
+   * kind が bsky のときは following（Bluesky のホームタイムライン）だけを取り、uri と排他。
+   */
   source?: FeedTabSource;
   /**
    * kind==='search' のときは自由文の保存クエリ、kind==='hashtag' のときはタグ
    * （先頭の # を除いた小文字）。
    */
   query?: string;
-  /** kind==='bsky' のときの app.bsky.feed.generator の AT-URI。 */
+  /** kind==='bsky' のときの app.bsky.feed.generator の AT-URI。source: following なら持たない。 */
   uri?: string;
   /** 表示名のスナップショット。権威は query / uri 側で、これは初回描画用。 */
   label?: string;

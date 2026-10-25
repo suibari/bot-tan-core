@@ -327,6 +327,7 @@ export const NAGI_BLUESKY_VIEW_SCOPES = [
   // PDS は getFeed の代理リクエストで getFeedSkeleton 用の service auth を発行する
   // （AppView がそのトークンをフィードジェネレータへ回すため）。これが無いと getFeed が通らない。
   "rpc:app.bsky.feed.getFeedSkeleton?aud=*",
+  "rpc:app.bsky.feed.getTimeline?aud=*",
   "rpc:app.bsky.feed.getFeedGenerators?aud=*",
   "rpc:app.bsky.actor.getPreferences?aud=*",
   "rpc:app.bsky.labeler.getServices?aud=*",

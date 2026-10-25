@@ -218,7 +218,12 @@ export function parseFeedTabs(input: unknown): FeedTab[] {
       tab.query = query;
     }
     // Bluesky のフィードはクライアントが PDS 経由で読むので、AppView は指し先の形だけ見る。
-    if (tab.kind === "bsky") {
+    // ホームタイムライン（フォロー中）は uri を持たないので source: following で指す。
+    if (tab.kind === "bsky" && item.source !== undefined) {
+      if (item.source !== "following" || item.uri !== undefined)
+        invalid("feedTabs.source");
+      tab.source = "following";
+    } else if (tab.kind === "bsky") {
       const uri = item.uri;
       if (
         typeof uri !== "string" ||

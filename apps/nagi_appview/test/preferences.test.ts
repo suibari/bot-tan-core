@@ -83,15 +83,20 @@ test("bsky タブは app.bsky.feed.generator の AT-URI だけを受け、ほか
       { id: "b", kind: "bsky", uri: feed, label: "Discover" },
       { id: "w", kind: "bsky", uri: "at://did:web:feeds.example.com/app.bsky.feed.generator/a" },
       { id: "a", kind: "custom", source: "affirmation", uri: feed },
+      { id: "f", kind: "bsky", source: "following", label: "Following" },
     ]),
     [
       { id: "b", kind: "bsky", uri: feed, label: "Discover" },
       { id: "w", kind: "bsky", uri: "at://did:web:feeds.example.com/app.bsky.feed.generator/a" },
       { id: "a", kind: "custom", source: "affirmation" },
+      { id: "f", kind: "bsky", source: "following", label: "Following" },
     ],
   );
   for (const invalid of [
     [{ id: "b", kind: "bsky" }],
+    [{ id: "b", kind: "bsky", source: "home" }],
+    [{ id: "b", kind: "bsky", source: "following", uri: feed }],
+    [{ id: "l", kind: "list", source: "following" }],
     [{ id: "b", kind: "bsky", uri: "at://did:plc:a/app.bsky.graph.list/1" }],
     [{ id: "b", kind: "bsky", uri: "https://bsky.app/profile/a/feed/b" }],
     [{ id: "b", kind: "bsky", uri: `at://did:plc:a/app.bsky.feed.generator/${"x".repeat(512)}` }],
