@@ -11,7 +11,6 @@ import {
   nextCardDrawAt,
   rollCard,
   rollRarity,
-  type CardRarity,
 } from "../src/cards.js";
 
 test("初段は30枚、レアリティ内訳は 12/9/6/2/1", () => {
@@ -96,25 +95,28 @@ test("rollRarity は境界値を重みどおりに割り当てる", () => {
   assert.equal(rollRarity(0.9999999), "AAR");
 });
 
-test("抽選分布が規定値に収束する（100万回・許容 0.1pt）", () => {
-  const trials = 1_000_000;
-  const hits: Record<string, number> = {};
-  const seen = new Set<string>();
-  for (let i = 0; i < trials; i++) {
-    const card = rollCard();
-    hits[card.rarity] = (hits[card.rarity] ?? 0) + 1;
-    seen.add(cardCode(card));
-  }
+/** rollCard に渡す乱数列。1つ目がレアリティ、2つ目がレアリティ内の位置を決める。 */
+const rolls = (...values: number[]) => {
+  let i = 0;
+  return () => values[i++];
+};
+
+test("rollCard は各レアリティの全カードに到達し、それ以外は返さない", () => {
+  // 出現率そのものは境界値テストで決まるので、ここではレアリティ内の均等抽選が
+  // プールを取りこぼしていないか（乱数の使い回しなど）を全区間の中央で走査して確かめる。
+  const reached = new Set<string>();
+  let lower = 0;
   for (const rarity of CARD_RARITIES) {
-    const actual = (hits[rarity] ?? 0) / trials;
-    const expected = RARITY_WEIGHTS[rarity as CardRarity];
-    assert.ok(
-      Math.abs(actual - expected) < 0.001,
-      `${rarity}: expected ${expected}, got ${actual}`,
-    );
+    const rarityRoll = lower + RARITY_WEIGHTS[rarity] / 2;
+    lower += RARITY_WEIGHTS[rarity];
+    const size = CARD_DEFS.filter((card) => card.rarity === rarity).length;
+    for (let i = 0; i < size; i++) {
+      const card = rollCard(rolls(rarityRoll, (i + 0.5) / size));
+      assert.equal(card.rarity, rarity);
+      reached.add(cardCode(card));
+    }
   }
-  // 全カードが到達可能（レアリティ内の均等抽選がプールを取りこぼしていない）。
-  assert.equal(seen.size, CARD_DEFS.length);
+  assert.deepEqual([...reached].sort(), CARD_DEFS.map(cardCode).sort());
 });
 
 test("日付境界は JST 4:00（3:59 はまだ前日、4:00 で切り替わる）", () => {

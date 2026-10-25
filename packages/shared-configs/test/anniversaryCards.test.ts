@@ -14,7 +14,7 @@ import {
   SLOT_NAGI_REGISTERED_DAY,
   SLOT_USER_ANNIVERSARY,
 } from "../src/anniversaryCards.js";
-import { CARD_ART_PATTERN, rollCard } from "../src/cards.js";
+import { CARD_ART_PATTERN, CARD_DEFS } from "../src/cards.js";
 
 test("slot は 0..99 で重複が無い", () => {
   const seen = new Set<number>();
@@ -85,7 +85,8 @@ test("resolveCardDef は通常段と記念日段のどちらも引ける", () =>
 
 test("ガチャは記念日カードを引かない", () => {
   // 抽選は CARD_DEFS しか見ないので段 0 は絶対に出ない。混ざるとコンプ率が壊れる。
-  for (let i = 0; i < 3000; i++) assert.notEqual(rollCard().volume, 0);
+  // rollCard が CARD_DEFS の全カードにだけ到達することは cards.test.ts で走査している。
+  assert.ok(CARD_DEFS.every((card) => !isAnniversaryCard(card.volume)));
 });
 
 test("その日のプリセット記念日を返す", () => {
