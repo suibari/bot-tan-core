@@ -6,7 +6,7 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
-    "test": "tsx --test test/*.test.ts",
+    "test": "tsx --test --import ./test/setup.ts test/*.test.ts",
     "start": "node --env-file=../../.env dist/index.js",
     "dev": "tsx watch --env-file=../../.env src/index.ts",
     "migrate:leaflet-standard": "pnpm --filter @bsky-affirmative-bot/clients build && tsx --env-file=../../.env scripts/migrateLeafletToStandardSite.ts"

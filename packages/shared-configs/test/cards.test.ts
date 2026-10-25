@@ -96,12 +96,26 @@ test("rollRarity は境界値を重みどおりに割り当てる", () => {
   assert.equal(rollRarity(0.9999999), "AAR");
 });
 
+/** 決定論的な擬似乱数（mulberry32）。分布テストが実行ごとの揺らぎで落ちないようにする。 */
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
 test("抽選分布が規定値に収束する（100万回・許容 0.1pt）", () => {
   const trials = 1_000_000;
   const hits: Record<string, number> = {};
   const seen = new Set<string>();
+  // 許容 0.1pt は R（22%）で約 2.4σ しかなく、Math.random では数%の確率で落ちる。
+  const rand = mulberry32(20260725);
   for (let i = 0; i < trials; i++) {
-    const card = rollCard();
+    const card = rollCard(rand);
     hits[card.rarity] = (hits[card.rarity] ?? 0) + 1;
     seen.add(cardCode(card));
   }

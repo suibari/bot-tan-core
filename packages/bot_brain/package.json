@@ -15,6 +15,11 @@
       "import": "./dist/ollamaChat.js",
       "default": "./dist/ollamaChat.js"
     },
+    "./ai-call-stats": {
+      "types": "./dist/ai/aiCallStats.d.ts",
+      "import": "./dist/ai/aiCallStats.js",
+      "default": "./dist/ai/aiCallStats.js"
+    },
     "./predefined-affirmation": {
       "types": "./dist/predefinedAffirmation.d.ts",
       "import": "./dist/predefinedAffirmation.js",
