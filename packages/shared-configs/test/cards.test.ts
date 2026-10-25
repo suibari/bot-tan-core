@@ -11,7 +11,6 @@ import {
   nextCardDrawAt,
   rollCard,
   rollRarity,
-  type CardRarity,
 } from "../src/cards.js";
 
 test("初段は30枚、レアリティ内訳は 12/9/6/2/1", () => {
@@ -96,39 +95,28 @@ test("rollRarity は境界値を重みどおりに割り当てる", () => {
   assert.equal(rollRarity(0.9999999), "AAR");
 });
 
-/** 決定論的な擬似乱数（mulberry32）。分布テストが実行ごとの揺らぎで落ちないようにする。 */
-function mulberry32(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
+/** rollCard に渡す乱数列。1つ目がレアリティ、2つ目がレアリティ内の位置を決める。 */
+const rolls = (...values: number[]) => {
+  let i = 0;
+  return () => values[i++];
+};
 
-test("抽選分布が規定値に収束する（100万回・許容 0.1pt）", () => {
-  const trials = 1_000_000;
-  const hits: Record<string, number> = {};
-  const seen = new Set<string>();
-  // 許容 0.1pt は R（22%）で約 2.4σ しかなく、Math.random では数%の確率で落ちる。
-  const rand = mulberry32(20260725);
-  for (let i = 0; i < trials; i++) {
-    const card = rollCard(rand);
-    hits[card.rarity] = (hits[card.rarity] ?? 0) + 1;
-    seen.add(cardCode(card));
-  }
+test("rollCard は各レアリティの全カードに到達し、それ以外は返さない", () => {
+  // 出現率そのものは境界値テストで決まるので、ここではレアリティ内の均等抽選が
+  // プールを取りこぼしていないか（乱数の使い回しなど）を全区間の中央で走査して確かめる。
+  const reached = new Set<string>();
+  let lower = 0;
   for (const rarity of CARD_RARITIES) {
-    const actual = (hits[rarity] ?? 0) / trials;
-    const expected = RARITY_WEIGHTS[rarity as CardRarity];
-    assert.ok(
-      Math.abs(actual - expected) < 0.001,
-      `${rarity}: expected ${expected}, got ${actual}`,
-    );
+    const rarityRoll = lower + RARITY_WEIGHTS[rarity] / 2;
+    lower += RARITY_WEIGHTS[rarity];
+    const size = CARD_DEFS.filter((card) => card.rarity === rarity).length;
+    for (let i = 0; i < size; i++) {
+      const card = rollCard(rolls(rarityRoll, (i + 0.5) / size));
+      assert.equal(card.rarity, rarity);
+      reached.add(cardCode(card));
+    }
   }
-  // 全カードが到達可能（レアリティ内の均等抽選がプールを取りこぼしていない）。
-  assert.equal(seen.size, CARD_DEFS.length);
+  assert.deepEqual([...reached].sort(), CARD_DEFS.map(cardCode).sort());
 });
 
 test("日付境界は JST 4:00（3:59 はまだ前日、4:00 で切り替わる）", () => {
