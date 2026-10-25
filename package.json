@@ -26,10 +26,10 @@
     "dev": "pnpm -r dev"
   },
   "devDependencies": {
-    "typescript": "^5.8.3",
-    "tsx": "^4.20.3",
     "@types/node": "^22.15.12",
+    "drizzle-orm": "^0.45.4",
     "postgres": "^3.4.8",
-    "drizzle-orm": "^0.45.1"
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3"
   }
 }

@@ -13,8 +13,8 @@
   },
   "dependencies": {
     "@atproto/api": "^0.18.21",
-    "@bsky-affirmative-bot/bot-runtime": "workspace:*",
     "@bsky-affirmative-bot/bot-brain": "workspace:*",
+    "@bsky-affirmative-bot/bot-runtime": "workspace:*",
     "@bsky-affirmative-bot/clients": "workspace:*",
     "@bsky-affirmative-bot/database": "workspace:*",
     "@bsky-affirmative-bot/nagi-lexicon": "workspace:*",
@@ -23,11 +23,11 @@
     "@napi-rs/canvas": "^0.1.92",
     "@skyware/jetstream": "^0.2.5",
     "async-retry": "^1.3.3",
-    "axios": "^1.6.0",
+    "axios": "^1.20.0",
     "compute-cosine-similarity": "^1.1.0",
     "dotenv": "^16.4.5",
-    "drizzle-orm": "^0.45.1",
-    "express": "^5.0.0",
+    "drizzle-orm": "^0.45.4",
+    "express": "^5.3.0",
     "gnews": "^1.0.0",
     "googleapis": "^144.0.0",
     "luxon": "^3.5.0",
@@ -35,7 +35,7 @@
     "rss-parser": "^3.13.0",
     "spotify-web-api-node": "^5.0.2",
     "ts-node": "^10.9.2",
-    "ws": "^8.18.0"
+    "ws": "^8.22.0"
   },
   "devDependencies": {
     "@types/async-retry": "^1.4.9",

@@ -20,7 +20,7 @@
   "dependencies": {
     "@bsky-affirmative-bot/shared-configs": "workspace:*",
     "dotenv": "^16.4.5",
-    "drizzle-orm": "^0.45.1",
+    "drizzle-orm": "^0.45.4",
     "postgres": "^3.4.8"
   },
   "devDependencies": {
