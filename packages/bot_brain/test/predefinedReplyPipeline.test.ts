@@ -4,6 +4,7 @@ import {
   classifyProductionPredefinedReply,
   createPredefinedReply,
   detectDirectSpecialLabel,
+  isLlmPolarityClassification,
   parsePredefinedReplySelectorMode,
   resolvePredefinedReplySelectorMode,
   type ProductionPredefinedReplyClassification,
@@ -127,6 +128,35 @@ test("random選択とLLM選択を両サービス共通で切り替えられる",
   );
   assert.equal(randomSelectInjected, true);
   assert.equal(llmSelectInjected, false);
+});
+
+test("分類が決まった時点で onClassified に渡す", async () => {
+  const seen: ProductionPredefinedReplyClassification[] = [];
+  await createPredefinedReply(
+    { text: "うれしい", languageName: "日本語", displayName: "なぎ" },
+    { surface: "bsky", selectorMode: "random" },
+    {
+      classify: async () => classification("positive", 1),
+      random: () => 0,
+      onClassified: (result) => seen.push(result),
+      affirm: async () => "よかったね",
+    },
+  );
+  assert.deepEqual(seen.map((result) => result.label), ["positive"]);
+});
+
+test("教師データに使うのは LLM が3値で判定した分だけ", () => {
+  assert.equal(isLlmPolarityClassification(classification("negative", 1)), true);
+  // 定型あいさつの規則で決まった分
+  assert.equal(
+    isLlmPolarityClassification({ ...classification("morning", 0), specialRule: "direct" }),
+    false,
+  );
+  // LLM が落ちて neutral に倒した分
+  assert.equal(
+    isLlmPolarityClassification({ ...classification("neutral", 1), error: "offline" }),
+    false,
+  );
 });
 
 test("日英以外は英語定型文を対象言語へ翻訳する", async () => {

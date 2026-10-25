@@ -34,6 +34,8 @@ export type ProductionPredefinedReplyDependencies = {
   random?: () => number;
   translate?: PredefinedAffirmationDependencies["translate"];
   now?: () => number;
+  /** 分類が決まった直後に呼ぶ。返信の生成を待たせないよう、中で await しないこと。 */
+  onClassified?: (classification: ProductionPredefinedReplyClassification) => void;
 };
 
 type SpecialRule = {
@@ -42,6 +44,12 @@ type SpecialRule = {
   positions: Array<"start" | "end">;
   aliases: string[];
 };
+
+/**
+ * THREE_WAY_PROMPT の版。教師データ（polarity_samples）のラベルの出どころを区別するので、
+ * プロンプトの文言を変えたら上げること。
+ */
+export const THREE_WAY_LABEL_VERSION = "three-way-v1";
 
 const THREE_WAY_PROMPT = `Classify the emotional sentiment of the user's text into exactly one category.
 Reply with only one word: negative, neutral, or positive.
@@ -247,6 +255,20 @@ export const PREDEFINED_REPLY_SELECTOR_MODE =
 const randomIndex = (length: number, random: () => number): number =>
   Math.min(length - 1, Math.floor(random() * length));
 
+/** LLM が3値で判定したか。定型あいさつの規則で決まった分と、失敗して neutral に倒した分は除く。 */
+export function isLlmPolarityClassification(
+  classification: ProductionPredefinedReplyClassification,
+): classification is ProductionPredefinedReplyClassification & { label: PolarityLabel } {
+  return (
+    classification.llmCalls === 1 &&
+    classification.specialRule === null &&
+    !classification.error &&
+    (classification.label === "positive" ||
+      classification.label === "neutral" ||
+      classification.label === "negative")
+  );
+}
+
 export async function createPredefinedReply(
   input: {
     text: string;
@@ -262,6 +284,7 @@ export async function createPredefinedReply(
   const classification = await (
     dependencies.classify ?? classifyProductionPredefinedReply
   )(input, dependencies);
+  dependencies.onClassified?.(classification);
   const selectorMode =
     options.selectorMode ?? PREDEFINED_REPLY_SELECTOR_MODE;
   console.info("[INFO][predefinedReply] classified", {
