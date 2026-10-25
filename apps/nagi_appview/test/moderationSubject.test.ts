@@ -66,6 +66,17 @@ test("news is text only", () => {
   assert.equal(news.imageUrls.length, 0);
 });
 
+test("zenkatsu submissions are judged by the author's note only", () => {
+  assert.ok(MODERATED_COLLECTIONS.includes(NAGI.zenkatsu));
+  const input = moderationSubject(
+    NAGI.zenkatsu,
+    { themeDate: "2026-09-19", cards: [{ volume: 1, id: 1 }], note: "雨の日の物語" },
+    DID,
+  )!;
+  assert.deepEqual(input.texts, ["雨の日の物語"]);
+  assert.equal(input.imageUrls.length, 0);
+});
+
 test("collections we must not send to OpenAI return null", () => {
   for (const collection of [
     NAGI.reaction,

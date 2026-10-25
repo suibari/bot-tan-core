@@ -1498,6 +1498,17 @@ export const nagiZenkatsuSubmissions = nagiSchema.table(
     commentModel: text("comment_model"),
     commentPromptVersion: text("comment_prompt_version"),
     /**
+     * 作者の意図（レコードの note）。公開される自由記述なので投稿と同じ自動判定に載せる。
+     * 判定で却下されたら NULL に戻す（札と総評は残す）。
+     */
+    note: text("note"),
+    noteModerationLabels: text("note_moderation_labels").array().default([]).notNull(),
+    /**
+     * null=判定待ち（ワーカーが拾う） / 'skipped'=note 無し / それ以外はルールバージョン。
+     * **note 付きの提出は判定が済むまで総評ジョブを作らない**（未判定の文を LLM に渡さない）。
+     */
+    noteModerationVersion: text("note_moderation_version").default("legacy"),
+    /**
      * サーバ側で決定論的に計算した「読み」のラベル（追い風の枚数、編成の傾向、初登板など）。
      * 量子化モデルに算術をさせないためにプロンプトへ渡すものだが、
      * ニュースの選別（isHighlight）と記録表示でも使い回すので保存する。

@@ -22,6 +22,12 @@
             "items": { "type": "ref", "ref": "#cardRef" },
             "description": "出した札。並びは意味を持つ（botたんの総評も順に読む）。同じ札を2枚以上入れることはできない。"
           },
+          "note": {
+            "type": "string",
+            "maxLength": 3000,
+            "maxGraphemes": 300,
+            "description": "作者の意図。札を選んだときに考えていたストーリーなどの自由記述で、任意。記録・ニュースで公開される（表示側は最初は畳んでおく）。botたんの総評の参考にも使う。AppView はモデレーション判定が済むまで返さない。"
+          },
           "createdAt": { "type": "string", "format": "datetime" }
         }
       }

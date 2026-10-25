@@ -707,7 +707,9 @@ export async function applyMutation(
           rkey: commit.rkey,
           record: value,
         });
-        if (result.indexed) zenkatsuCommentUri = uri;
+        // 意図付きは判定後にモデレーションワーカーが起こす（下の wakeModerationWorker）。
+        if (result.indexed && !result.awaitingModeration)
+          zenkatsuCommentUri = uri;
         if (!result.indexed)
           console.info(
             `[INFO] zenkatsu record rejected (${result.reason}): ${uri}`,
