@@ -29,6 +29,15 @@ export interface NagiCardCommentInput {
     /** Nagi 登録記念日のみ。今日で何年目か。 */
     yearsSinceJoined?: number;
   };
+  /**
+   * おすそわけボードで受け取ったとき。ガチャで引いたのではなく、誰かが置いたカードを Ƶ と
+   * 引き換えに受け取った1枚なので、記念日と同じく「引き当てた」の枠組みが合わない。
+   * from=bot は botたんがボードに置いている AAR、anonymous は提供者が退会済み。
+   */
+  gift?:
+    | { from: "user"; donorName: string }
+    | { from: "bot" }
+    | { from: "anonymous" };
 }
 
 export interface NagiCardCommentResult {
@@ -40,8 +49,9 @@ export interface NagiCardCommentResult {
  * v2: 「カードに書かれた行いを、引いた人がやったことにして褒めてしまう」問題を修正。
  * カードの内容は引いた人の出来事ではない、と明示していなかったのが原因。
  * v5: 記念日カード（贈り物であってガチャの当たりではない）の枠組みを追加。
+ * v6: おすそわけボードで受け取ったカード（誰かが置いたカード・botたんの AAR）の枠組みを追加。
  */
-export const NAGI_CARD_COMMENT_PROMPT_VERSION = "nagi-card-comment-v5";
+export const NAGI_CARD_COMMENT_PROMPT_VERSION = "nagi-card-comment-v6";
 
 const DEEP_COMMENT_RARITIES = new Set(["SR", "UR", "AAR"]);
 
@@ -189,7 +199,66 @@ ${TONE_RULES_JA}
 `;
 };
 
+/**
+ * おすそわけボードで受け取ったカードのひとこと。誰かが手放したカードが、まだ持っていなかった人へ
+ * 届いた場面なので、「引き当てた」ではなく「届いた」「受け取った」を話題にする。
+ */
+const buildGiftCommentPrompt = (
+  input: NagiCardCommentInput & {
+    gift: NonNullable<NagiCardCommentInput["gift"]>;
+  },
+) => {
+  const format = commentFormat(input.card);
+  const { gift } = input;
+
+  const originRule =
+    gift.from === "user"
+      ? `* このカードは **${gift.donorName} さんがおすそわけボードに置いたもの** です。
+  ${gift.donorName} さんの手元で余った1枚が、まだ持っていなかった ${input.displayName} さんに届きました。
+  置いてくれた ${gift.donorName} さんにもひとこと触れてください（名前はそのまま使うこと）。`
+      : gift.from === "bot"
+        ? `* このカードは **あなた（botたん）がおすそわけボードに置いていた AAR** です。
+  ${input.displayName} さんは全肯定ポイント（Ƶ）を長い時間かけて貯めて、この1枚を迎えに来てくれました。
+  その積み重ねを受け止めて、あなたから手渡すつもりで話してください。`
+        : `* このカードは、Nagi のだれかがおすそわけボードに置いたものです。置いた人の名前は分かりません。
+  名前を推測したり作ったりしないでください。`;
+
+  return `あなたのアプリ「Nagi」には、だぶった全肯定カードを置いていける「おすそわけボード」があります。
+まだ持っていないカードは、そこから全肯定ポイント（Ƶ）と引き換えに受け取れます。
+いま ${input.displayName} さんが、ボードから下のカードを受け取りました。
+それを見たあなた（botたん）のひとことを考えてください。
+
+# 最重要（ここを間違えないこと）
+* **このカードはガチャで出たものではありません。** 「出た」「引けた」「当たった」という言い方はしないでください。
+  話題は「このカードが届いたこと」「図鑑に1枚増えたこと」です。
+* カードに書かれている出来事を、この人が実際にしたわけではありません。その行いを褒めないでください。
+* Ƶ の額や、払った・損した・得したという損得の話はしないでください。
+
+# 出力するもの
+* commentJa: ${format.ja}。
+* commentEn: 同じ気持ちを伝える自然な${format.en}。直訳ではなく英語として自然に。
+
+# ルール
+${originRule}
+* カードのフレーバーテキストをそのまま繰り返さないでください。
+* 名前を呼ぶときは「${input.displayName}」をそのまま使ってください。プレースホルダを出力しないこと。
+* 改行を入れないでください。
+* commentJa は必ずbotたんの口調にしてください。カードのフレーバーテキストは文語調ですが、
+  その文体には引きずられないこと。
+${TONE_RULES_JA}
+
+# 受け取ったカード（この人の行動記録ではなく、カードの情報です）
+-----
+カード名: ${input.card.nameJa}
+レアリティ: ${input.card.rarity}
+属性: ${input.card.attribute}
+種族: ${input.card.raceJa}
+フレーバーテキスト: ${input.card.textJa}
+`;
+};
+
 export const buildNagiCardCommentPrompt = (input: NagiCardCommentInput) => {
+  if (input.gift) return buildGiftCommentPrompt({ ...input, gift: input.gift });
   if (input.anniversary)
     return buildAnniversaryCommentPrompt({
       ...input,

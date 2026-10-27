@@ -33,6 +33,7 @@ import { emojiView } from "../services/emoji.js";
 import { fetchPostRows, hydratePostViews } from "./timeline.js";
 import { diaryView, fetchDiaryRows } from "./diaries.js";
 import { loadMutes } from "./mutes.js";
+import { giftLedgerIdOf, loadGiftCards } from "./cardBoard.js";
 
 /**
  * ミュート相手からの通知を除く条件。行は残すので、ミュートを解除すれば過去分も復活する。
@@ -59,7 +60,7 @@ const validReactionNotification = sql`
  * ポストの URI ではないので、引き当ての対象からも返り値からも外す。
  */
 const hasPost = (type: (typeof nagiNotifications.$inferSelect)["type"]) =>
-  type !== "diary" && type !== "analysis";
+  type !== "diary" && type !== "analysis" && type !== "gift";
 
 export async function getNotifications(did: string, limit: number) {
   const mutes = await loadMutes(did);
@@ -122,6 +123,29 @@ export async function getNotifications(did: string, limit: number) {
       }),
     ),
   ]);
+  // おすそわけボードの「届きました」。subject は台帳の行を指す（PDS レコードではない）。
+  const giftCards = await loadGiftCards([
+    ...new Set(
+      rows.flatMap(({ notification }) => {
+        const id =
+          notification.type === "gift"
+            ? giftLedgerIdOf(notification.subjectUri)
+            : undefined;
+        return id ? [id] : [];
+      }),
+    ),
+  ]);
+  for (const { notification } of rows) {
+    if (notification.type !== "gift") continue;
+    const id = giftLedgerIdOf(notification.subjectUri);
+    const card = id ? giftCards.get(id) : undefined;
+    if (card)
+      cardSubjectByUri.set(notification.subjectUri, {
+        uri: notification.subjectUri,
+        type: "gift",
+        cards: [card],
+      });
+  }
   const posts = await hydratePostViews(postRows, did);
   const postByUri = new Map(posts.map((post) => [post.uri, post]));
   // リアクション通知の reasonUri はリアクションレコードの URI。押された絵文字は

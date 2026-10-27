@@ -1,0 +1,26 @@
+{
+  "lexicon": 1,
+  "id": "com.suibari.nagi.getCardBoard",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "おすそわけボード。図鑑のカードごとにボードに「ある／ない」と、自分が置ける枚数・取れるかを返す。在庫の枚数と提供者は返さない。AAR はボードに無くても botたんの分が常にあり、その額で並ぶ。Ƶ の残高も返す。はじめて開いたときに Ƶ を1回だけ配る。要認証。",
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["balance", "cards"],
+          "properties": {
+            "balance": { "type": "integer", "description": "自分の Ƶ 残高。本人にだけ返す。" },
+            "welcomeGranted": { "type": "integer", "description": "今回はじめての Ƶ を配ったときだけ、その額。" },
+            "cards": {
+              "type": "array",
+              "items": { "type": "unknown" },
+              "description": "図鑑順の CardBoardEntry。"
+            }
+          }
+        }
+      }
+    }
+  }
+}

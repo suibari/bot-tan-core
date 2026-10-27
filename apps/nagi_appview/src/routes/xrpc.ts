@@ -83,6 +83,11 @@ import {
   resetZenkatsuForDev,
 } from "../queries/zenkatsu.js";
 import { getCardNews } from "../queries/cardNews.js";
+import {
+  donateCards,
+  getCardBoard,
+  takeBoardCard,
+} from "../queries/cardBoard.js";
 import { getNewsQuotes } from "../queries/newsQuotes.js";
 import { loadPersonalizationContext } from "../queries/personalizedFeed.js";
 
@@ -1379,6 +1384,46 @@ xrpc.post(
             ? await claimAnniversaryCards(req.viewerDid!)
             : await drawCard(req.viewerDid!, source, reactionUri, guestToken),
         );
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+// おすそわけボード（docs/zenkatsu.md 13章）。Ƶ の残高は本人にしか返さないので、すべて要認証。
+xrpc.get(
+  `/${NAGI.getCardBoard}`,
+  requiredServiceAuth(NAGI.getCardBoard),
+  async (req, res, next) => {
+    try {
+      res
+        .set("Cache-Control", "private, no-store")
+        .json(await getCardBoard(req.viewerDid!));
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+xrpc.post(
+  `/${NAGI.donateCards}`,
+  requiredServiceAuth(NAGI.donateCards),
+  async (req, res, next) => {
+    try {
+      res
+        .set("Cache-Control", "private, no-store")
+        .json(await donateCards(req.viewerDid!, req.body));
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+xrpc.post(
+  `/${NAGI.takeBoardCard}`,
+  requiredServiceAuth(NAGI.takeBoardCard),
+  async (req, res, next) => {
+    try {
+      res
+        .set("Cache-Control", "private, no-store")
+        .json(await takeBoardCard(req.viewerDid!, req.body));
     } catch (e) {
       next(e);
     }

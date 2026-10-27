@@ -1,0 +1,39 @@
+{
+  "lexicon": 1,
+  "id": "com.suibari.nagi.takeBoardCard",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "おすそわけボードから、まだ持っていないカードを1枚、Ƶ を払って受け取る。早い者勝ち。AAR はボードに無ければ botたんの分を受け取る。提供者は枚数で重み付けしたランダムで選ばれ、カードに「〜からもらった」が付く。要認証。",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["card", "price"],
+          "properties": {
+            "card": { "type": "unknown", "description": "{ volume, id }" },
+            "price": { "type": "integer", "minimum": 1, "description": "画面に出ていた額。これより高くなっていたら out_of_stock（AAR がボードから消えて botたんの額になった）。" }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["card", "paid", "balance"],
+          "properties": {
+            "card": { "type": "unknown", "description": "受け取ったカードの CardView。receivedFrom が付く。コメントは非同期生成。" },
+            "paid": { "type": "integer" },
+            "balance": { "type": "integer" }
+          }
+        }
+      },
+      "errors": [
+        { "name": "AuthRequired" },
+        { "name": "already_owned" },
+        { "name": "out_of_stock" },
+        { "name": "insufficient_zenny" }
+      ]
+    }
+  }
+}

@@ -45,6 +45,12 @@ test("buildPushPayload applies the notification presentation policy", () => {
       title: "botたんがあなたの名刺を更新しました",
       body: "",
     },
+    {
+      type: "gift",
+      actionText: "三日坊主のリベンジャー",
+      title: "あなたの『三日坊主のリベンジャー』が凪さんに届きました",
+      body: "",
+    },
   ];
 
   for (const [index, expected] of cases.entries()) {

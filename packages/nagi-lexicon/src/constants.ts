@@ -120,6 +120,13 @@ export const NAGI = {
    */
   drawCard: "com.suibari.nagi.drawCard",
   /**
+   * おすそわけボード（docs/zenkatsu.md 13章）。だぶりを置いて Ƶ を受け取り、未所持のカードを
+   * Ƶ で受け取る。カードと同じく AppView 権威で、PDS レコードは書かない。要認証。
+   */
+  getCardBoard: "com.suibari.nagi.getCardBoard",
+  donateCards: "com.suibari.nagi.donateCards",
+  takeBoardCard: "com.suibari.nagi.takeBoardCard",
+  /**
    * ゼンカツ！の提出。**ユーザー自身の repo** に置く（rkey = themeDate なので1日1本）。
    * ドローと違いガチャ結果を含まず、既に所持している札を参照するだけなので、
    * 所持・クールダウン・当日かを AppView が取り込み時に照合できる＝偽レコードを索引しない。
