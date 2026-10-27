@@ -80,9 +80,9 @@ export async function generateImage(
       return null;
     }
 
-    // MOSS-Image（自然文）で描くか。サイドカーを MOSS 対応版にしてから切り替えること
-    // （古いサイドカーは engine を無視し、英文をそのまま SDXL に渡してしまう）。
-    const moss = process.env.IMAGEGEN_ENGINE === "moss";
+    // 既定は MOSS-Image（自然文）。SDXL へ戻すときだけ IMAGEGEN_ENGINE=sdxl にする。
+    // サイドカーは MOSS 対応版が要る（古いサイドカーは engine を無視し、英文をそのまま SDXL に渡す）。
+    const moss = process.env.IMAGEGEN_ENGINE !== "sdxl";
     const plan = await planImageScene(sourceText, options.purpose, { prose: moss });
     if (!plan) return null;
 

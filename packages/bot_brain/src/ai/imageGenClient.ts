@@ -49,8 +49,8 @@ export async function requestImage(request: ImageGenRequest): Promise<GeneratedI
 
   // 領域プロンプトは UNet を1ステップに4回呼ぶので通常の1.6〜2倍かかる。
   // 実測は1枚 8〜26秒だが、コールドスタート（チェックポイント読み込み）が7秒ほど乗る。
-  // MOSS は1枚約1分で、コールドスタートでは ComfyUI の起動も乗る。
-  const timeoutMs = Number(process.env.IMAGEGEN_TIMEOUT_MS ?? 180_000);
+  // MOSS は1枚約1分で、コールドスタートでは ComfyUI の起動も乗るので、既定は SDXL の 180秒より長く取る。
+  const timeoutMs = Number(process.env.IMAGEGEN_TIMEOUT_MS ?? (request.engine === "moss" ? 300_000 : 180_000));
 
   const body = {
     prompt: request.prompt,
