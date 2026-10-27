@@ -195,7 +195,7 @@ async function loadHoldings(
  * AGENTS.md が禁じている「raw sql への Date 補間」を踏む余地がそもそも無い。
  * (did, theme_date) の一意索引がそのまま効く。
  */
-async function loadRecentPlays(
+export async function loadRecentPlays(
   did: string,
   today: string,
   handle: DbLike = db,

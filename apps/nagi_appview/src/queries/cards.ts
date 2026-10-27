@@ -1,12 +1,14 @@
 import {
   db,
   followers,
+  nagiActors,
   nagiCardCommentJobs,
   nagiCardDraws,
   nagiGuestCardDraws,
   nagiCardInstances,
   nagiAgeAssurance,
   nagiProfiles,
+  RECEIVED_FROM_ANONYMOUS,
 } from "@bsky-affirmative-bot/database";
 import {
   anniversaryCardNumber,
@@ -29,13 +31,15 @@ import type {
   CardCollectionView,
   CardGachaSource,
   CardDrawStatus,
+  CardReceivedFrom,
   CardView,
   DrawCardResult,
   GuestCardDrawResult,
   PendingAnniversary,
 } from "@bsky-affirmative-bot/nagi-lexicon";
 import { createHash } from "node:crypto";
-import { and, eq, gt, isNull, lt, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, lt, sql } from "drizzle-orm";
+import { config } from "../config.js";
 import { ApiError } from "../middleware/errors.js";
 import { verifyReactionCardTrigger } from "../services/reactionCardEligibility.js";
 import { jstCalendarDate } from "../services/ageAssurance.js";
@@ -58,6 +62,7 @@ export type InstanceRow = {
   acquiredAt: Date;
   firstOwnerDid: string;
   anniversaryLabel: string | null;
+  receivedFromDid: string | null;
 };
 
 /**
@@ -68,6 +73,7 @@ export type InstanceRow = {
 export const cardView = (
   def: CardDefinition & { anniversary?: boolean; year?: number },
   row?: InstanceRow,
+  receivedFrom?: CardReceivedFrom,
 ): CardView => ({
   ...def,
   owned: !!row,
@@ -79,6 +85,7 @@ export const cardView = (
         duplicateCount: row.duplicateCount,
         acquiredAt: row.acquiredAt.toISOString(),
         firstOwnerDid: row.firstOwnerDid,
+        ...(receivedFrom ? { receivedFrom } : {}),
       }
     : {}),
 });
@@ -93,7 +100,45 @@ export const INSTANCE_COLUMNS = {
   acquiredAt: nagiCardInstances.acquiredAt,
   firstOwnerDid: nagiCardInstances.firstOwnerDid,
   anniversaryLabel: nagiCardInstances.anniversaryLabel,
+  receivedFromDid: nagiCardInstances.receivedFromDid,
 } as const;
+
+/** received_from_did を「〜からもらった」の表示に起こす。 */
+export async function loadReceivedFrom(
+  dids: (string | null | undefined)[],
+): Promise<Map<string, CardReceivedFrom>> {
+  const map = new Map<string, CardReceivedFrom>();
+  const users: string[] = [];
+  for (const did of new Set(dids)) {
+    if (!did) continue;
+    if (did === config.botDid) map.set(did, { kind: "bot" });
+    else if (did === RECEIVED_FROM_ANONYMOUS)
+      map.set(did, { kind: "anonymous" });
+    else users.push(did);
+  }
+  if (!users.length) return map;
+  const rows = await db
+    .select({
+      did: nagiActors.did,
+      handle: nagiActors.handle,
+      displayName: nagiProfiles.displayName,
+    })
+    .from(nagiActors)
+    .leftJoin(nagiProfiles, eq(nagiProfiles.did, nagiActors.did))
+    .where(inArray(nagiActors.did, users));
+  const byDid = new Map(rows.map((r) => [r.did, r]));
+  for (const did of users) {
+    const row = byDid.get(did);
+    map.set(did, {
+      kind: "user",
+      did,
+      handle: row?.handle ?? did,
+      ...(row?.displayName ? { displayName: row.displayName } : {}),
+    });
+  }
+  return map;
+}
+
 
 type OwnedCards = {
   /** 図鑑（通常段）の所持。コンプ率はこちらだけで数える。 */
@@ -336,10 +381,18 @@ export async function getCards(
     isSelf ? listUnmirroredDraws(actor, cardDrawDate(now)) : Promise.resolve([]),
   ]);
 
-  // 並びは CARD_DEFS の順（= 図鑑の順）。所持状況で並べ替えないこと。
-  const cards = CARD_DEFS.map((def) =>
-    cardView(def, owned.regular.get(cardKey(def))),
+  const receivedFrom = await loadReceivedFrom(
+    [...owned.regular.values()].map((row) => row.receivedFromDid),
   );
+  // 並びは CARD_DEFS の順（= 図鑑の順）。所持状況で並べ替えないこと。
+  const cards = CARD_DEFS.map((def) => {
+    const row = owned.regular.get(cardKey(def));
+    return cardView(
+      def,
+      row,
+      row?.receivedFromDid ? receivedFrom.get(row.receivedFromDid) : undefined,
+    );
+  });
   const anniversaryCards = anniversaryViews(owned.anniversary);
   // 「まだ受け取っていない」の判定は所持カードの差集合で出す。card_draws を使わないので、
   // これがそのまま自動モーダルを出すかどうかの根拠になる。

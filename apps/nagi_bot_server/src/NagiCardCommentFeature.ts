@@ -2,6 +2,7 @@ import {
   db,
   nagiCardInstances,
   nagiProfiles,
+  RECEIVED_FROM_ANONYMOUS,
 } from "@bsky-affirmative-bot/database";
 import {
   generateNagiCardComment,
@@ -21,8 +22,8 @@ import { eq } from "drizzle-orm";
 /**
  * 全肯定カードを引いた1枚に、botたんの吹き出しコメントを付ける。
  *
- * コメントはカード種ではなく **その1枚（card_instances の行）** に紐づく。だから
- * 交換で持ち主が変わってもコメントは付いていくし、同じカードでも人によって言葉が違う。
+ * コメントはカード種ではなく **その人の手元のカード（card_instances の行）** に紐づく。
+ * 同じカードでも人によって言葉が違う。
  * 引き直したときは AppView 側で comment を NULL に戻してから再エンキューされるので、
  * ここは常に「今の1枚に対する最新のひとこと」を書き込むだけでよい。
  */
@@ -49,6 +50,22 @@ function buildAnniversaryInput(
   };
 }
 
+/** 「〜からもらった」の相手をプロンプトの材料に起こす。 */
+async function giftInput(receivedFromDid: string) {
+  if (receivedFromDid === process.env.NAGI_BOT_DID) return { from: "bot" as const };
+  if (receivedFromDid === RECEIVED_FROM_ANONYMOUS)
+    return { from: "anonymous" as const };
+  const [donor] = await db
+    .select({ displayName: nagiProfiles.displayName })
+    .from(nagiProfiles)
+    .where(eq(nagiProfiles.did, receivedFromDid))
+    .limit(1);
+  // 表示名が無い人の名前を作らせない。名前の分からない提供者として扱う。
+  return donor?.displayName
+    ? { from: "user" as const, donorName: donor.displayName }
+    : { from: "anonymous" as const };
+}
+
 export async function runNagiCardComment(instanceId: string): Promise<void> {
   const [instance] = await db
     .select({
@@ -57,6 +74,7 @@ export async function runNagiCardComment(instanceId: string): Promise<void> {
       ownerDid: nagiCardInstances.ownerDid,
       duplicateCount: nagiCardInstances.duplicateCount,
       anniversaryLabel: nagiCardInstances.anniversaryLabel,
+      receivedFromDid: nagiCardInstances.receivedFromDid,
     })
     .from(nagiCardInstances)
     .where(eq(nagiCardInstances.id, instanceId))
@@ -89,10 +107,18 @@ export async function runNagiCardComment(instanceId: string): Promise<void> {
     .where(eq(nagiProfiles.did, instance.ownerDid))
     .limit(1);
 
+  // ボードで受け取った直後だけ「届いた」の枠組みにする。ラベルは引き直しても残るので、
+  // 2枚目以降（自分で引き直した）は通常のドローとして話させる。
+  const gift =
+    instance.receivedFromDid && instance.duplicateCount === 1
+      ? await giftInput(instance.receivedFromDid)
+      : undefined;
+
   const result = await generateNagiCardComment({
     card,
     displayName: profile?.displayName || "きみ",
     isDuplicate: instance.duplicateCount > 1,
+    ...(gift ? { gift } : {}),
     // 記念日カードは「引き当てた1枚」ではなく「贈った1枚」なので、プロンプトの枠組みごと切り替える。
     ...(isAnniversaryCard(instance.cardVolume)
       ? {

@@ -1,0 +1,46 @@
+{
+  "lexicon": 1,
+  "id": "com.suibari.nagi.donateCards",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "カードをおすそわけボードに置き、Ƶ を受け取る。手元に3枚を残し、ゼンカツでお休み中の在庫には手を付けない。mode=all は置けるぶんをすべて置く。置いたカードは取り下げられない。要認証。",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["mode"],
+          "properties": {
+            "mode": { "type": "string", "knownValues": ["all", "single"] },
+            "card": {
+              "type": "unknown",
+              "description": "mode=single のとき必須。{ volume, id }。"
+            },
+            "quantity": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "mode=single の枚数。省略時は1。置ける枚数を超えたらエラー。"
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["donated", "earned", "balance"],
+          "properties": {
+            "donated": {
+              "type": "array",
+              "items": { "type": "unknown" },
+              "description": "置いたカードごとの { volume, id, rarity, quantity, zenny }。図鑑順。演出の並びに使う。"
+            },
+            "earned": { "type": "integer" },
+            "balance": { "type": "integer" }
+          }
+        }
+      },
+      "errors": [{ "name": "AuthRequired" }, { "name": "not_donatable" }]
+    }
+  }
+}

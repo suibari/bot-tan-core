@@ -58,6 +58,8 @@ test("退会でこっそり投稿の翻訳キャッシュと、それへのリ�
       };
       return chain;
     },
+    // select がどの表にも同じ行を返すので、ボードの在庫の付け替え（insert）も通る。
+    insert: () => ({ values: () => ({ onConflictDoUpdate: async () => undefined }) }),
     update: () => ({ set: () => ({ where: async () => undefined }) }),
     delete: (table: any) => ({
       where: async (condition: any) => {
@@ -79,4 +81,72 @@ test("退会でこっそり投稿の翻訳キャッシュと、それへのリ�
     assert.ok(index >= 0, `${table} のこっそり分が消されていない`);
     assert.ok(index < postsIndex, `${table} は投稿の行より先に消す`);
   }
+});
+
+test("退会で置いたカードは残し、提供者と「〜からもらった」を匿名にする", async (t) => {
+  const did = "did:plc:leaving";
+  const dialect = new PgDialect();
+  const deletes: string[] = [];
+  const updates: Array<{ table: string; set: any; sql: string; params: unknown[] }> = [];
+  const inserts: Array<{ table: string; values: any }> = [];
+  const tx = {
+    select: () => {
+      const chain: any = {
+        from: (table: any) => {
+          chain.table = getTableConfig(table).name;
+          return chain;
+        },
+        where: () =>
+          Promise.resolve(
+            chain.table === "card_board_stock"
+              ? [{ donorDid: did, cardVolume: 1, cardNumber: 3, count: 2 }]
+              : [],
+          ),
+      };
+      return chain;
+    },
+    insert: (table: any) => ({
+      values: (values: any) => {
+        inserts.push({ table: getTableConfig(table).name, values });
+        return { onConflictDoUpdate: async () => undefined };
+      },
+    }),
+    update: (table: any) => ({
+      set: (set: any) => ({
+        where: async (condition: any) => {
+          const { sql, params } = dialect.sqlToQuery(condition);
+          updates.push({ table: getTableConfig(table).name, set, sql, params });
+        },
+      }),
+    }),
+    delete: (table: any) => ({
+      where: async () => {
+        deletes.push(getTableConfig(table).name);
+      },
+    }),
+  };
+  t.mock.method(database.db, "transaction", async (fn: any) => fn(tx));
+  t.mock.method(globalThis, "fetch", async () => new Response(null, { status: 200 }));
+
+  await deleteAccountData(did);
+
+  assert.deepEqual(inserts, [
+    {
+      table: "card_board_stock",
+      values: {
+        donorDid: database.RECEIVED_FROM_ANONYMOUS,
+        cardVolume: 1,
+        cardNumber: 3,
+        count: 2,
+      },
+    },
+  ]);
+  assert.ok(deletes.includes("card_board_stock"));
+  const label = updates.find((u) => u.table === "card_instances");
+  assert.deepEqual(label?.set, { receivedFromDid: database.RECEIVED_FROM_ANONYMOUS });
+  assert.deepEqual(label?.params, [did]);
+  const ledger = updates.find((u) => u.table === "zenny_ledger");
+  assert.deepEqual(ledger?.set, { counterpartyDid: database.RECEIVED_FROM_ANONYMOUS });
+  for (const table of ["zenny_ledger", "zenny_balances"])
+    assert.ok(deletes.includes(table), `${table} が消されていない`);
 });

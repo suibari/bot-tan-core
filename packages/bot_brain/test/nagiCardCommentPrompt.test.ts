@@ -126,3 +126,40 @@ test("記念日でない通常カードは今までどおりの枠組みのま�
   assert.match(prompt, /カードはガチャで/);
   assert.doesNotMatch(prompt, /ガチャで出たものではありません/);
 });
+
+// --- おすそわけボード。ガチャではなく、だれかが置いたカードが届いた ---
+
+test("ボードで受け取ったカードは、置いた人に触れ、引いたとは言わせない", () => {
+  const prompt = buildNagiCardCommentPrompt({
+    card: card(1),
+    displayName: "テストさん",
+    isDuplicate: false,
+    gift: { from: "user", donorName: "おくりぬし" },
+  });
+
+  assert.match(prompt, /おくりぬし さんがおすそわけボードに置いたもの/);
+  assert.match(prompt, /ガチャで出たものではありません/);
+  assert.doesNotMatch(prompt, /このレアカードで必ず行う掘り下げ/);
+});
+
+test("ボードに無い AAR は botたんから手渡す", () => {
+  const prompt = buildNagiCardCommentPrompt({
+    card: card(30),
+    displayName: "テストさん",
+    isDuplicate: false,
+    gift: { from: "bot" },
+  });
+
+  assert.match(prompt, /あなた（botたん）がおすそわけボードに置いていた AAR/);
+});
+
+test("退会した提供者の名前は作らせない", () => {
+  const prompt = buildNagiCardCommentPrompt({
+    card: card(1),
+    displayName: "テストさん",
+    isDuplicate: false,
+    gift: { from: "anonymous" },
+  });
+
+  assert.match(prompt, /名前を推測したり作ったりしないでください/);
+});

@@ -18,6 +18,10 @@ import {
   nagiCardGets,
   nagiGuestCardDraws,
   nagiCardInstances,
+  nagiCardBoardStock,
+  nagiZennyBalances,
+  nagiZennyLedger,
+  RECEIVED_FROM_ANONYMOUS,
   nagiZenkatsuCards,
   nagiZenkatsuCommentJobs,
   nagiZenkatsuSubmissions,
@@ -53,7 +57,7 @@ import {
   nagiTranslations,
 } from "@bsky-affirmative-bot/database";
 import { NAGI } from "@bsky-affirmative-bot/nagi-lexicon";
-import { and, eq, inArray, like, or } from "drizzle-orm";
+import { and, eq, inArray, like, or, sql } from "drizzle-orm";
 
 const NAGI_BOT_SERVER_URL =
   process.env.NAGI_BOT_SERVER_URL || "http://localhost:3003";
@@ -238,8 +242,9 @@ export async function deleteAccountData(did: string) {
     await tx.delete(nagiChannels).where(eq(nagiChannels.did, did));
 
     // カード。comment_jobs → draws → instances の順で、instance_id を引ける間に消す。
-    // 交換機能は未実装なので owner_did = first_owner_did であり、owner で消せば
-    // first_owner_did 側に DID が残ることもない。交換を入れるときはここを見直すこと。
+    // おすそわけボードの受け渡しでは受け取る側に新しい行を作るので owner_did = first_owner_did
+    // のままで、owner で消せば first_owner_did 側に DID は残らない。他人の手元に残る
+    // 「〜からもらった」は、下のボードの処理で匿名に置き換える。
     const cardInstanceIds = (
       await tx
         .select({ id: nagiCardInstances.id })
@@ -296,6 +301,39 @@ export async function deleteAccountData(did: string) {
     await tx
       .delete(nagiCardInstances)
       .where(eq(nagiCardInstances.ownerDid, did));
+
+    // おすそわけボード。置いたカードはみんなのものになったので消さず、提供者だけ匿名にする。
+    // 他人が受け取ったカードのラベルと、他人の台帳の相手も同じく匿名にする。
+    const donated = await tx
+      .select()
+      .from(nagiCardBoardStock)
+      .where(eq(nagiCardBoardStock.donorDid, did));
+    for (const row of donated) {
+      await tx
+        .insert(nagiCardBoardStock)
+        .values({ ...row, donorDid: RECEIVED_FROM_ANONYMOUS })
+        .onConflictDoUpdate({
+          target: [
+            nagiCardBoardStock.donorDid,
+            nagiCardBoardStock.cardVolume,
+            nagiCardBoardStock.cardNumber,
+          ],
+          set: { count: sql`${nagiCardBoardStock.count} + ${row.count}` },
+        });
+    }
+    await tx
+      .delete(nagiCardBoardStock)
+      .where(eq(nagiCardBoardStock.donorDid, did));
+    await tx
+      .update(nagiCardInstances)
+      .set({ receivedFromDid: RECEIVED_FROM_ANONYMOUS })
+      .where(eq(nagiCardInstances.receivedFromDid, did));
+    await tx
+      .update(nagiZennyLedger)
+      .set({ counterpartyDid: RECEIVED_FROM_ANONYMOUS })
+      .where(eq(nagiZennyLedger.counterpartyDid, did));
+    await tx.delete(nagiZennyLedger).where(eq(nagiZennyLedger.did, did));
+    await tx.delete(nagiZennyBalances).where(eq(nagiZennyBalances.did, did));
 
     // プッシュ購読。端末を特定しうる唯一の行なので必ず消す。
     await tx

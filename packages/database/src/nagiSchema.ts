@@ -45,8 +45,17 @@ export const notificationType = nagiSchema.enum("notification_type", [
   "mention",
   "diary",
   // 自動分析（名刺）の更新。ingest 起点ではなく nagi_bot_server → AppView の
-  // 内部エンドポイント経由で作られる唯一の種別。
+  // 内部エンドポイント経由で作られる。
   "analysis",
+  // おすそわけボードに置いたカードが誰かに届いた。AppView の受け取り処理が直接作る。
+  "gift",
+]);
+/** Ƶ（全肯定ポイント）の台帳の理由。docs/zenkatsu.md 13.3。 */
+export const zennyLedgerReason = nagiSchema.enum("zenny_ledger_reason", [
+  "donate",
+  "take",
+  "shelf",
+  "welcome",
 ]);
 export const botJobState = nagiSchema.enum("bot_job_state", [
   "pending",
@@ -1173,11 +1182,13 @@ export const nagiModerationPreferences = nagiSchema.table(
  *
  * **PDS レコードにはしない**（ミュートと同じ判断だが理由は別）。ガチャ結果をユーザー自身の
  * repo に置くと、クライアントが createRecord で AAR を自作できてしまい非改竄性が保てない。
- * また将来の交換は2つの repo にまたがるため原子的に行えない。よって AppView が権威を持つ。
- * この DB を作り直すと所持カードは失われる。
+ * またおすそわけボードの受け渡しは2つの repo にまたがるため原子的に行えない。よって AppView が
+ * 権威を持つ。この DB を作り直すと所持カードは失われる。
  *
- * id は交換しても不変（所有者が変わっても「その1枚」であり続ける）。botたんコメントは
- * この行に紐づくので、owner_did を差し替えるだけで「交換してもコメントは維持される」が成立する。
+ * 行は「1人×1種」の集合で、枚数は duplicate_count が持つ。1枚単位の実体ではないので、
+ * owner_did を差し替えて受け渡すことはできない（相手が同じカードを持っていれば一意索引に衝突し、
+ * だぶりの1枚だけを渡すこともできない）。受け渡しは「渡す側の duplicate_count を減らし、
+ * 受け取る側の行を作る」を1トランザクションで行う（docs/zenkatsu.md 13章）。
  * どのカードかは (card_volume, card_number) で決まり、shared-configs の cards_v{n}.json を指す。
  * **一度リリースした番号は変更禁止**（振り直すとこの列の指す先が変わる）。
  *
@@ -1193,16 +1204,19 @@ export const nagiCardInstances = nagiSchema.table(
     cardVolume: integer("card_volume").notNull(),
     /** 段内の通し番号。定義本体（名前/フレーバー/ATK）は JSON 側が真実源で DB には持たない。 */
     cardNumber: integer("card_number").notNull(),
-    /** 現所有者。交換で書き換わる唯一の列。 */
+    /** 所有者。受け渡しでも書き換えない（受け取る側には新しい行を作る）。 */
     ownerDid: text("owner_did").notNull(),
-    /** 最初にこの1枚を引いた人。交換で流通しても出所が追える。 */
+    /**
+     * この行を最初に得た人。行は受け渡しで所有者が変わらないので owner_did と常に同じ。
+     * ボードから受け取ったカードの出どころは received_from_did が持つ。
+     */
     firstOwnerDid: text("first_owner_did").notNull(),
     /** 引いた瞬間に botたんが付けるコメント。NULL = まだ生成待ち（UI はコメント無しで表示）。 */
     commentJa: text("comment_ja"),
     commentEn: text("comment_en"),
     commentModel: text("comment_model"),
     commentPromptVersion: text("comment_prompt_version"),
-    /** 同じカードを引き直した回数（初回=1）。将来の交換素材にも使える。 */
+    /** 所持枚数（初回=1）。ゼンカツの在庫で、4枚目以降はおすそわけボードに置ける。 */
     duplicateCount: integer("duplicate_count").default(1).notNull(),
     /**
      * 記念日カード（card_volume = 0）のうち、ユーザーが自分で登録した記念日の名前。
@@ -1210,7 +1224,14 @@ export const nagiCardInstances = nagiSchema.table(
      * プリセット祝日と Nagi 登録記念日は NULL で、名前は card_number の slot から引く。
      */
     anniversaryLabel: text("anniversary_label"),
-    /** 現所有者がこの1枚を手にした時刻（引き直し・交換で更新される）。 */
+    /**
+     * おすそわけボードから受け取ったカードの提供者。常設棚の AAR は botたん の DID。
+     * NULL = 自分で引いた。ボードからは未所持のカードしか取れないので、行を作った経路が
+     * そのまま「〜からもらった」になり、あとで同じカードを引き直しても書き換えない。
+     * 提供者が退会したら RECEIVED_FROM_ANONYMOUS に置き換える。
+     */
+    receivedFromDid: text("received_from_did"),
+    /** 所有者がこのカードを最後に手にした時刻（引き直し・受け取りで更新される）。 */
     acquiredAt: timestamp("acquired_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -1223,6 +1244,77 @@ export const nagiCardInstances = nagiSchema.table(
       t.cardVolume,
       t.cardNumber,
     ),
+  ],
+);
+
+/** 退会した提供者の代わりに received_from_did / donor_did へ入れる印。DID ではない。 */
+export const RECEIVED_FROM_ANONYMOUS = "anonymous";
+
+/**
+ * おすそわけボードの在庫（docs/zenkatsu.md 13章）。提供者ごとに枚数を持つ。
+ *
+ * 1枚ずつの行にしないのは、まとめ置きで数百枚が一度に来るから。受け取るときは
+ * 提供者を枚数で重み付けして選ぶので、1枚ずつが等しく選ばれる。表示は「ある／ない」だけ。
+ */
+export const nagiCardBoardStock = nagiSchema.table(
+  "card_board_stock",
+  {
+    donorDid: text("donor_did").notNull(),
+    cardVolume: integer("card_volume").notNull(),
+    cardNumber: integer("card_number").notNull(),
+    count: integer("count").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.donorDid, t.cardVolume, t.cardNumber] }),
+    // 受け取り時にカードごとの在庫行をまとめてロックする。
+    index("nagi_card_board_stock_card_idx").on(t.cardVolume, t.cardNumber),
+    check("nagi_card_board_stock_count_check", sql`${t.count} >= 0`),
+  ],
+);
+
+/**
+ * Ƶ の残高。受け取りの二重払いを防ぐため、使う側はこの行を FOR UPDATE で押さえる。
+ * 本人にだけ見せる（公開すると比べ合いになる。docs/zenkatsu.md 1章）。
+ */
+export const nagiZennyBalances = nagiSchema.table(
+  "zenny_balances",
+  {
+    did: text("did").primaryKey(),
+    balance: integer("balance").default(0).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [check("nagi_zenny_balances_balance_check", sql`${t.balance} >= 0`)],
+);
+
+/**
+ * Ƶ の台帳。残高の内訳と、受け取り通知の宛先（counterparty_did = 選ばれた提供者）を残す。
+ * はじめての Ƶ（welcome）は1人1回だけで、部分一意索引がそれを担保する。
+ */
+export const nagiZennyLedger = nagiSchema.table(
+  "zenny_ledger",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    did: text("did").notNull(),
+    delta: integer("delta").notNull(),
+    reason: zennyLedgerReason("reason").notNull(),
+    /** 置いた・受け取ったカード。welcome では NULL。 */
+    cardVolume: integer("card_volume"),
+    cardNumber: integer("card_number"),
+    /** 置いた・受け取った枚数。 */
+    quantity: integer("quantity").default(1).notNull(),
+    /** take では選ばれた提供者、shelf では botたん。 */
+    counterpartyDid: text("counterparty_did"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    index("nagi_zenny_ledger_did_idx").on(t.did, t.createdAt),
+    uniqueIndex("nagi_zenny_ledger_welcome_idx")
+      .on(t.did)
+      .where(sql`${t.reason} = 'welcome'`),
   ],
 );
 
