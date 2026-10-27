@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildImagePrompt,
+  buildMossImagePrompt,
   normalizeScenePlan,
   sceneSystemFor,
   type ImageScenePlan,
@@ -441,4 +442,110 @@ test("名前だけの依頼でシーンが空なら、既存キャラは立ち�
   assert.match(built.prompt, /shimakaze \(kancolle\).*standing, smile, waving/);
   // キャラが解決できていなければ、従来どおり同じ絵の量産を防ぐ。
   assert.equal(buildImagePrompt(plan({ ...empty, botTan: false }), "crayon-diary", []), null);
+});
+
+
+// ---------------------------------------------------------------------------
+// MOSS-Image
+// ---------------------------------------------------------------------------
+
+const prose = {
+  sentence: "Bot-tan is sipping cocoa at her desk.",
+  props: ["A mug of cocoa is in her hands."],
+  background: "Her cozy room with furniture in the background.",
+};
+
+test("MOSS: 合図の文 → 場面 → 小物 → 背景 → 構図 → 人物の順で、領域は割らない", () => {
+  const built = buildMossImagePrompt(plan({ prose }), "crayon-diary");
+  assert.ok(built);
+  assert.ok(
+    built.prompt.startsWith(
+      "crayon picture diary style. Bot-tan is sipping cocoa at her desk. A mug of cocoa is in her hands. " +
+        "Her cozy room with furniture in the background. Upper-body view. The girl is Bot-tan,",
+    ),
+    built.prompt,
+  );
+  assert.deepEqual(built.regions, []);
+  assert.equal(built.engine, "moss");
+  assert.equal(built.checkpoint, "moss_image_base_int8_convrot.safetensors");
+  assert.deepEqual(built.loras, [["moss-crayon2-v1.safetensors", 1.0]]);
+});
+
+test("MOSS: 靴は全身の構図のときだけ書く（上半身で書くと靴が宙に浮く）", () => {
+  const upper = buildMossImagePrompt(plan({ prose }), "crayon-diary");
+  const full = buildMossImagePrompt(plan({ prose, framing: "full-body" }), "crayon-diary");
+  assert.ok(upper && full);
+  assert.doesNotMatch(upper.prompt, /loafers/);
+  assert.match(full.prompt, /with white socks and brown loafers/);
+});
+
+test("MOSS: 服の種類と予定表の私服を文にする", () => {
+  const pajamas = buildMossImagePrompt(plan({ prose }), "anime", [], { outfit: { kind: "pajamas" } });
+  assert.match(pajamas!.prompt, /Bot-tan wears light-blue long-sleeved pajamas with long pants\./);
+  const casual = buildMossImagePrompt(plan({ prose }), "anime", [], {
+    outfit: { kind: "casual", casualTags: "white dress, sandals" },
+  });
+  assert.match(casual!.prompt, /Bot-tan wears white dress, sandals\./);
+});
+
+test("MOSS: 仲間の女の子もモルフォも同じ1本の文に書き、横長にする", () => {
+  const built = buildMossImagePrompt(
+    plan({ prose: { ...prose, sentence: "Bot-tan and Latte-chan share a parfait." }, companions: ["latte-chan", "morpho"] }),
+    "crayon-diary",
+  );
+  assert.ok(built);
+  assert.match(built.prompt, /With her is Latte-chan, another girl with very long pink hair/);
+  assert.match(built.prompt, /With her is Morpho, her big fluffy white Samoyed dog\./);
+  assert.deepEqual([built.width, built.height], [1216, 832]);
+});
+
+test("MOSS: 描かない仲間の名前が文にあれば、タグ列から言い直す", () => {
+  const built = buildMossImagePrompt(
+    plan({ prose: { ...prose, sentence: "Bot-tan chats with Kotomi-chan." } }),
+    "crayon-diary",
+  );
+  assert.ok(built);
+  assert.doesNotMatch(built.prompt, /Kotomi-chan/);
+  assert.match(built.prompt, /Bot-tan, sitting, smile, holding cup, indoors, night, mug\./);
+});
+
+test("MOSS: 既存キャラは名前・作品・Danbooru の外見で書く", () => {
+  const built = buildMossImagePrompt(
+    plan({ prose: { ...prose, sentence: "Shimakaze is waving on a pier." }, botTan: false }),
+    "anime",
+    [shimakaze],
+  );
+  assert.ok(built);
+  assert.match(
+    built.prompt,
+    /The girl is Shimakaze from Kantai Collection, with blonde hair, long hair, black hairband, striped thighhighs\./,
+  );
+  assert.doesNotMatch(built.prompt, /Bot-tan/);
+});
+
+test("MOSS: シーンが薄ければ SDXL と同じく描かない", () => {
+  assert.equal(
+    buildMossImagePrompt(plan({ pose: [], expression: [], action: [], setting: ["indoors"], objects: [], prose }), "anime"),
+    null,
+  );
+});
+
+test("英文にもタグと同じ禁止を当てる（寝具の文は丸ごと落とす）", () => {
+  const normalized = normalizeScenePlan({
+    pose: ["sitting"], expression: ["smile"], action: ["reading book"], setting: ["indoors"], objects: ["book"],
+    companions: [], framing: "upper-body", outdoor: false,
+    sentence: "Bot-tan is reading a book in bed",
+    props: ["A book is open on her lap", "A pillow lies beside her."],
+    background: "A quiet library in the background",
+  });
+  assert.deepEqual(normalized.prose, {
+    sentence: "",
+    props: ["A book is open on her lap."],
+    background: "A quiet library in the background.",
+  });
+});
+
+test("英文を書かせていない計画には prose を付けない", () => {
+  const normalized = normalizeScenePlan({ pose: ["sitting"], companions: [], framing: "upper-body", outdoor: false });
+  assert.equal(normalized.prose, undefined);
 });

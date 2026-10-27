@@ -1,6 +1,6 @@
 import { ollamaChat } from "../ollamaChat.js";
 import type { CharacterRequest, ResolvedCharacter } from "./characterLookup.js";
-import { CLOTHING_TAG_PATTERN, parseSceneCues, type SceneCues } from "./botOutfit.js";
+import { CLOTHING_TAG_PATTERN, parseSceneCues, type BotOutfit, type SceneCues } from "./botOutfit.js";
 
 /**
  * botたんのイラスト生成プロンプトを組み立てる層。
@@ -223,7 +223,16 @@ export type ImageScenePlan = {
   botTan: boolean;
   /** 服を選ぶ手がかり（botOutfit.ts）。服のタグそのものは LLM に書かせない。 */
   cues?: SceneCues;
+  /** MOSS-Image 用の英文（planImageScene の prose: true のときだけ）。 */
+  prose?: ImageSceneProse;
 };
+
+/**
+ * MOSS-Image に渡す英文。MOSS のテキストエンコーダは Qwen3.5 で、booru タグより文を読む。
+ * 小物は場面の文に埋めると LoRA で消えやすいので、1つずつ独立した文にさせる
+ * （bot-tan-imagegen の RESULTS.md「小物を独立した一文にする」で 2/8 → 8/8）。
+ */
+export type ImageSceneProse = { sentence: string; props: string[]; background: string };
 
 /** 1回の絵に描く既存キャラの上限。MAX_FIGURES を超えるぶんは描けない。 */
 const MAX_CHARACTER_REQUESTS = 2;
@@ -338,6 +347,27 @@ ${SCENE_RULES}
 * NEVER output sexual, nude, gore or violent tags, whatever the text says.
 * Pick one clear moment.`;
 
+/** MOSS-Image 用に、同じ呼び出しで英文も書かせる。タグは描くかどうかの判定と SDXL の切り戻しに残す。 */
+const PROSE_RULES = `
+Also write English prose for a second image generator that reads sentences:
+* sentence: ONE English sentence about what is happening in the picture and where. Use the same moment as the tags. Refer to our own girl as "Bot-tan", and mention Latte-chan, Kotomi-chan or Morpho by name only if they are listed in companions. Never describe hair, eyes or clothing. Same safety rules as the tags.
+* props: each visible object from objects as its OWN short sentence that says where it is, e.g. "On the desk in front of her is an open bento box with a golden omelette." At most 3. Clothing is not a prop.
+* background: ONE short sentence about the background, e.g. "A sunny park with grass and trees in the background."`;
+
+const PROSE_PROPERTIES = {
+  sentence: { type: "string" },
+  props: { type: "array", items: { type: "string" } },
+  background: { type: "string" },
+};
+
+function withProse<T extends { properties: object; required: string[] }>(schema: T): T {
+  return {
+    ...schema,
+    properties: { ...schema.properties, ...PROSE_PROPERTIES },
+    required: [...schema.required, ...Object.keys(PROSE_PROPERTIES)],
+  };
+}
+
 export type ImageScenePurpose = "good-night" | "picture";
 
 /** テスト用に出してある。どの材料にどの指示を当てるかを1箇所で決める。 */
@@ -408,18 +438,21 @@ const SOLO_NEGATIVE = "multiple girls, 2girls, multiple views, twins, clone";
 export async function planImageScene(
   sourceText: string,
   purpose: ImageScenePurpose = "good-night",
+  options: { prose?: boolean } = {},
 ): Promise<ImageScenePlan | null> {
+  const schema = purpose === "picture" ? PICTURE_SCENE_SCHEMA : SCENE_SCHEMA;
   const raw = await ollamaChat(
     "BSKY_IMAGE_PROMPT",
     [
-      { role: "system", content: sceneSystemFor(purpose) },
+      { role: "system", content: sceneSystemFor(purpose) + (options.prose ? PROSE_RULES : "") },
       { role: "user", content: sourceText },
     ],
     {
-      maxTokens: 500,
+      // 英文を書かせる分だけ出力が伸びる
+      maxTokens: options.prose ? 900 : 500,
       temperature: 0.2,
       timeoutMs: 120_000,
-      format: purpose === "picture" ? PICTURE_SCENE_SCHEMA : SCENE_SCHEMA,
+      format: options.prose ? withProse(schema) : schema,
     },
   );
   if (!raw) return null;
@@ -477,6 +510,7 @@ export function normalizeScenePlan(parsed: unknown): ImageScenePlan {
     characters: characterRequests((value as { characters?: unknown }).characters),
     botTan: true,
     cues: parseSceneCues(value as Record<string, unknown>),
+    ...("sentence" in (value as object) ? { prose: sceneProse(value as Record<string, unknown>, dropped) } : {}),
   };
   // 明示的に false と言われ、しかも描くキャラがいるときだけ botたんを外す。
   if ((value as { bot_tan?: unknown }).bot_tan === false && plan.characters.length > 0) {
@@ -486,6 +520,32 @@ export function normalizeScenePlan(parsed: unknown): ImageScenePlan {
     console.warn("[WARN][IMGGEN] 使えないタグを落とした:", dropped.join(", "));
   }
   return plan;
+}
+
+/** 英文の小物の上限。多いと場面の文より小物が主役になる。 */
+const MAX_PROSE_PROPS = 3;
+
+/**
+ * 英文を整える。**タグと同じ禁止を文にも当てる。** 寝具・閉じた目・危ない語を含む文は丸ごと落とす
+ * （文の一部だけ消すと意味が崩れる）。場面の文が落ちたら、buildMossImagePrompt がタグ列から言い直す。
+ */
+function sceneProse(value: Record<string, unknown>, dropped: string[]): ImageSceneProse {
+  const clean = (input: unknown): string => {
+    const text = typeof input === "string" ? input.replace(/\s+/g, " ").trim() : "";
+    if (!text) return "";
+    const lower = text.toLowerCase();
+    if (SLEEP_PATTERN.test(lower) || UNSAFE_PATTERN.test(lower)) {
+      dropped.push(`「${text}」`);
+      return "";
+    }
+    return /[.!?]$/.test(text) ? text : `${text}.`;
+  };
+  const props = Array.isArray(value.props) ? value.props.map(clean).filter(Boolean) : [];
+  return {
+    sentence: clean(value.sentence),
+    props: props.slice(0, MAX_PROSE_PROPS),
+    background: clean(value.background),
+  };
 }
 
 /** 既存キャラの指名を検査する。名前は Danbooru へ送るだけで、プロンプトには入らない。 */
@@ -516,6 +576,9 @@ export type BuiltImagePrompt = {
   width: number;
   height: number;
   loras: Array<[string, number]>;
+  /** MOSS-Image で描くときだけ入る（buildMossImagePrompt）。 */
+  engine?: "moss";
+  checkpoint?: string;
 };
 
 /** シーンのタグを1本に並べる。順序は設定 → 姿勢 → 表情 → 行為 → 小物。 */
@@ -580,6 +643,63 @@ function countTags(figures: Figure[]): string {
 }
 
 /**
+ * 絵に描く人物を決める。人物は MAX_FIGURES 人まで。溢れたぶんは後ろから捨てる。
+ * 同伴者の順序は LLM が返したまま（先に挙げたほうがその場面で目立っていたはず）。
+ * キャラを1人も解決できなければ、頼まれた名前が何であれ botたんの絵に戻す。
+ */
+function selectFigures(plan: ImageScenePlan, characters: ResolvedCharacter[], outfitTags?: string): Figure[] {
+  const companionGirls = plan.companions.filter((name): name is (typeof GIRL_COMPANIONS)[number] =>
+    (GIRL_COMPANIONS as readonly string[]).includes(name),
+  );
+  const withBotTan = plan.botTan || characters.length === 0;
+  const requested: Figure[] = [
+    ...characters.map(characterFigure),
+    ...(withBotTan ? [ownFigure("bot-tan", outfitTags)] : []),
+    ...companionGirls.map((name) => ownFigure(name)),
+  ];
+  const figures = requested.slice(0, MAX_FIGURES);
+  if (figures.length < requested.length) {
+    console.warn(
+      `[WARN][IMGGEN] 人物は${MAX_FIGURES}人までなので絞った:`,
+      requested.map((figure) => figure.label).join(", "),
+      "->",
+      figures.map((figure) => figure.label).join(", "),
+    );
+  }
+  return figures;
+}
+
+/**
+ * シーンのタグ列。1人の絵では2人目を呼ぶタグを落とす。薄すぎて描けないときは null。
+ */
+function drawableScene(plan: ImageScenePlan, solo: boolean, hasCharacters: boolean): string | null {
+  let scene = sceneTags(plan);
+  if (solo) {
+    const others = scene.split(", ").filter((tag) => OTHER_PERSON_PATTERN.test(tag));
+    if (others.length > 0) {
+      console.warn("[WARN][IMGGEN] 1人の絵なので2人目を呼ぶタグを落とした:", others.join(", "));
+      scene = scene
+        .split(", ")
+        .filter((tag) => !OTHER_PERSON_PATTERN.test(tag))
+        .join(", ");
+    }
+  }
+  const thin = scene.split(",").filter((tag) => tag.trim()).length < MIN_SCENE_TAGS;
+  if (thin && hasCharacters) {
+    // 「艦これの島風」「初音ミク」のように名前だけの依頼では、gemma が characters だけ埋めて
+    // タグ欄を空で返す（2026-09-16 に4件中3件）。キャラが違えば絵も違うので、
+    // MIN_SCENE_TAGS が防ぎたい「毎回同じ絵」にはならない。立ち絵で描く。
+    console.warn("[WARN][IMGGEN] シーンが薄いので既存キャラの立ち絵にする:", scene);
+    return [scene, CHARACTER_PORTRAIT_SCENE].filter(Boolean).join(", ");
+  }
+  if (thin) {
+    console.warn("[WARN][IMGGEN] シーンのタグが少なすぎるので描かない:", scene);
+    return null;
+  }
+  return scene;
+}
+
+/**
  * シーン計画を実際のプロンプトにする。
  *
  * 2人（botたん + ラテちゃん、既存キャラ2人など）のときは **領域プロンプト** を組む。
@@ -600,51 +720,10 @@ export function buildImagePrompt(
   characters: ResolvedCharacter[] = [],
   options: { outfit?: { tags: string; negative: string } } = {},
 ): BuiltImagePrompt | null {
-  // 人物は MAX_FIGURES 人まで。溢れたぶんは後ろから捨てる。
-  // 同伴者の順序は LLM が返したまま（先に挙げたほうがその場面で目立っていたはず）。
-  const companionGirls = plan.companions.filter((name): name is (typeof GIRL_COMPANIONS)[number] =>
-    (GIRL_COMPANIONS as readonly string[]).includes(name),
-  );
-  // キャラを1人も解決できなければ、頼まれた名前が何であれ botたんの絵に戻す。
-  const withBotTan = plan.botTan || characters.length === 0;
-  const requested: Figure[] = [
-    ...characters.map(characterFigure),
-    ...(withBotTan ? [ownFigure("bot-tan", options.outfit?.tags)] : []),
-    ...companionGirls.map((name) => ownFigure(name)),
-  ];
-  const figures = requested.slice(0, MAX_FIGURES);
-  if (figures.length < requested.length) {
-    console.warn(
-      `[WARN][IMGGEN] 人物は${MAX_FIGURES}人までなので絞った:`,
-      requested.map((figure) => figure.label).join(", "),
-      "->",
-      figures.map((figure) => figure.label).join(", "),
-    );
-  }
+  const figures = selectFigures(plan, characters, options.outfit?.tags);
   const solo = figures.length === 1;
-
-  let scene = sceneTags(plan);
-  if (solo) {
-    const others = scene.split(", ").filter((tag) => OTHER_PERSON_PATTERN.test(tag));
-    if (others.length > 0) {
-      console.warn("[WARN][IMGGEN] 1人の絵なので2人目を呼ぶタグを落とした:", others.join(", "));
-      scene = scene
-        .split(", ")
-        .filter((tag) => !OTHER_PERSON_PATTERN.test(tag))
-        .join(", ");
-    }
-  }
-  const thin = scene.split(",").filter((tag) => tag.trim()).length < MIN_SCENE_TAGS;
-  if (thin && characters.length > 0) {
-    // 「艦これの島風」「初音ミク」のように名前だけの依頼では、gemma が characters だけ埋めて
-    // タグ欄を空で返す（2026-09-16 に4件中3件）。キャラが違えば絵も違うので、
-    // MIN_SCENE_TAGS が防ぎたい「毎回同じ絵」にはならない。立ち絵で描く。
-    console.warn("[WARN][IMGGEN] シーンが薄いので既存キャラの立ち絵にする:", scene);
-    scene = [scene, CHARACTER_PORTRAIT_SCENE].filter(Boolean).join(", ");
-  } else if (thin) {
-    console.warn("[WARN][IMGGEN] シーンのタグが少なすぎるので描かない:", scene);
-    return null;
-  }
+  const scene = drawableScene(plan, solo, characters.length > 0);
+  if (scene === null) return null;
 
   const spec = STYLES[style];
   const count = countTags(figures);
@@ -711,6 +790,163 @@ export function buildImagePrompt(
     width: splitRegions ? 1216 : 832,
     height: splitRegions ? 832 : 1216,
     loras: spec.loras ?? [],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// MOSS-Image（IMAGEGEN_ENGINE=moss）
+// ---------------------------------------------------------------------------
+
+/**
+ * 自然文のキャラと服。bot-tan-imagegen の fixtures/promptConfig.json の "moss" と同じ文
+ * （bot は Raspberry Pi で動き、あちらのファイルを読めないので写して持つ）。
+ * feet は全身の構図のときだけ書く。上半身の構図で靴まで書くと全身を描こうとして、靴が宙に浮く。
+ */
+const MOSS_BOT_TAN =
+  "Bot-tan, a teenage girl with very long light-blue hair, a single curled ahoge strand sticking up from the top of her head, " +
+  "thick eyebrows, sleepy half-closed blue eyes, and a blue butterfly hair clip";
+const MOSS_BOT_TAN_OUTFITS: Record<BotOutfit, { wear: string; feet: string }> = {
+  uniform: {
+    wear: "a loose mint-green sweater with long sleeves over a white collared shirt with a blue neck ribbon, and a blue pleated skirt",
+    feet: "white socks and brown loafers",
+  },
+  casual: { wear: "an open mint-green cardigan over a white frilled shirt with long sleeves, and a blue skirt", feet: "" },
+  pajamas: { wear: "light-blue long-sleeved pajamas with long pants", feet: "" },
+  swimsuit: { wear: "a light-blue frilled one-piece swimsuit", feet: "" },
+};
+/** 仲間の服は SDXL 側と同じく署名の1着で固定する（ことみちゃんはアイドル衣装）。 */
+const MOSS_COMPANIONS: Record<(typeof GIRL_COMPANIONS)[number], string> = {
+  "latte-chan":
+    "Latte-chan, another girl with very long pink hair, white cat ears and a white cat tail, green eyes, " +
+    "wearing a black-and-white maid outfit with a maid headdress and a red ribbon",
+  "kotomi-chan":
+    "Kotomi-chan, another girl with short orange hair, a single ahoge strand, green eyes, freckles and a red bow, " +
+    "wearing an idol outfit: a pink shirt with puffy frilled short sleeves, a corset and a black frilled skirt",
+};
+const MOSS_MORPHO = "Morpho, her big fluffy white Samoyed dog";
+
+type MossStyle = { checkpoint: string; loras: Array<[string, number]>; trigger: string };
+
+/**
+ * 画風。合図の文は LoRA の学習時にキャプションの先頭に置いた文で、プロンプトの先頭に置く。
+ * クレヨンは Base + crayon v2（Nagi 114枚、10 epoch）。合図の文にキャラ名を入れると、
+ * 他のキャラに botたんの見た目が混ざったので外してある。
+ */
+const MOSS_STYLES: Record<ImageStyle, MossStyle> = {
+  "crayon-diary": {
+    checkpoint: "moss_image_base_int8_convrot.safetensors",
+    loras: [["moss-crayon2-v1.safetensors", 1.0]],
+    trigger: "crayon picture diary style.",
+  },
+  anime: {
+    checkpoint: "moss_image_sft_int8_convrot.safetensors",
+    loras: [],
+    trigger: "Anime illustration with flat cel shading.",
+  },
+};
+
+/** MOSS のネガティブは短く保つ（評価では長いネガティブは効かなかった）。 */
+const MOSS_NEGATIVE = "nsfw, worst quality, bad anatomy, watermark, jpeg artifact";
+
+/** `shimakaze (kancolle)` → `Shimakaze`、`kantai collection` → `Kantai Collection`。 */
+function titleCase(tag: string): string {
+  return tag
+    .replace(/\s*\([^)]*\)\s*$/, "")
+    .split(" ")
+    .map((word) => (word ? word[0].toUpperCase() + word.slice(1) : word))
+    .join(" ");
+}
+
+/** 既存キャラの紹介文。MOSS が知らないキャラでも服まで出るよう、Danbooru の外見タグも添える。 */
+function mossCharacter(character: ResolvedCharacter): string {
+  const name = titleCase(character.tag);
+  const series = character.series ? ` from ${titleCase(character.series)}` : "";
+  const looks = character.appearance.length > 0 ? `, with ${character.appearance.join(", ")}` : "";
+  return `${name}${series}${looks}`;
+}
+
+export type BuiltMossPrompt = BuiltImagePrompt & { engine: "moss"; checkpoint: string };
+
+/**
+ * シーン計画を MOSS-Image 用の自然文プロンプトにする。
+ *
+ * 順序は bot-tan-imagegen の評価（scripts/mossEval.py）と同じ:
+ * 合図の文 → 場面の文 → 小物の文 → 背景 → 構図 → 人物。
+ * キャラを先に長く書くと白背景の立ち絵に引っ張られる。
+ *
+ * 2人の絵も **領域を割らずに1本の文で書く。** MOSS は分けなくても混ざらなかった
+ * （2人の場面 12/12、RESULTS.md「破綻は減るか」）。人物の上限・描かない判定は SDXL と同じ。
+ *
+ * 場面の文が無いとき（英文を書かせていない、禁止語で落ちた）や、絵に描かない仲間の名前を
+ * 含むときは、タグ列から言い直す。名前が残っていると MOSS はその子も描く。
+ *
+ * @param options.outfit botたんの服の種類と、予定表から起こした私服のタグ（botOutfit.ts）。
+ */
+export function buildMossImagePrompt(
+  plan: ImageScenePlan,
+  style: ImageStyle,
+  characters: ResolvedCharacter[] = [],
+  options: { outfit?: { kind: BotOutfit; casualTags?: string } } = {},
+): BuiltMossPrompt | null {
+  const figures = selectFigures(plan, characters);
+  const solo = figures.length === 1;
+  const scene = drawableScene(plan, solo, characters.length > 0);
+  if (scene === null) return null;
+
+  const labels = new Set(figures.map((figure) => figure.label));
+  const morpho = plan.companions.includes("morpho");
+  const named: Array<[string, boolean]> = [
+    ["Bot-tan", labels.has("bot-tan")],
+    ["Latte-chan", labels.has("latte-chan")],
+    ["Kotomi-chan", labels.has("kotomi-chan")],
+    ["Morpho", morpho],
+  ];
+  let sentence = plan.prose?.sentence ?? "";
+  const strays = named.filter(([name, drawn]) => !drawn && sentence.includes(name)).map(([name]) => name);
+  if (!sentence || strays.length > 0) {
+    if (strays.length > 0) console.warn("[WARN][IMGGEN] 描かない人の名前が文にあるのでタグから言い直す:", strays.join(", "));
+    sentence = `${labels.has("bot-tan") ? "Bot-tan" : "A scene"}, ${scene}.`;
+  }
+
+  const fullBody = plan.framing !== "upper-body";
+  const kind = options.outfit?.kind ?? "uniform";
+  const outfit = MOSS_BOT_TAN_OUTFITS[kind];
+  const wear = kind === "casual" && options.outfit?.casualTags ? options.outfit.casualTags : outfit.wear;
+  const feet = fullBody && outfit.feet ? `, with ${outfit.feet}` : "";
+
+  const pronoun = figures[0].count === "1boy" ? "him" : "her";
+  const people = figures.map((figure, index) => {
+    const lead = index === 0 ? `The ${figure.count === "1boy" ? "boy" : "girl"} is` : `With ${pronoun} is`;
+    if (figure.label === "bot-tan") return `${lead} ${MOSS_BOT_TAN}. Bot-tan wears ${wear}${feet}.`;
+    if (figure.label in MOSS_COMPANIONS) {
+      return `${lead} ${MOSS_COMPANIONS[figure.label as keyof typeof MOSS_COMPANIONS]}.`;
+    }
+    const character = characters.find((c) => c.tag === figure.label);
+    return `${lead} ${character ? mossCharacter(character) : figure.label}.`;
+  });
+  if (morpho) people.push(`With ${pronoun} is ${labels.has("bot-tan") ? MOSS_MORPHO : "a big fluffy white Samoyed dog"}.`);
+
+  const spec = MOSS_STYLES[style];
+  const prompt = [
+    spec.trigger,
+    sentence,
+    ...(plan.prose?.props ?? []),
+    plan.prose?.background ?? "",
+    fullBody ? "Full-body view." : "Upper-body view.",
+    ...people,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  return {
+    prompt,
+    negativePrompt: MOSS_NEGATIVE,
+    regions: [],
+    width: solo ? 832 : 1216,
+    height: solo ? 1216 : 832,
+    loras: spec.loras,
+    engine: "moss",
+    checkpoint: spec.checkpoint,
   };
 }
 
