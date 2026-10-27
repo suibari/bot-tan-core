@@ -1,6 +1,7 @@
 import { resolveAiImageRoute } from "@bsky-affirmative-bot/shared-configs";
 import {
   buildImagePrompt,
+  buildMossImagePrompt,
   planImageScene,
   type ImageScenePurpose,
   type ImageStyle,
@@ -79,7 +80,10 @@ export async function generateImage(
       return null;
     }
 
-    const plan = await planImageScene(sourceText, options.purpose);
+    // 既定は MOSS-Image（自然文）。SDXL へ戻すときだけ IMAGEGEN_ENGINE=sdxl にする。
+    // サイドカーは MOSS 対応版が要る（古いサイドカーは engine を無視し、英文をそのまま SDXL に渡す）。
+    const moss = process.env.IMAGEGEN_ENGINE !== "sdxl";
+    const plan = await planImageScene(sourceText, options.purpose, { prose: moss });
     if (!plan) return null;
 
     // 既存キャラの名前は Danbooru のタグへ解決する。解決できなければ botたんの絵に戻る。
@@ -93,12 +97,16 @@ export async function generateImage(
     });
     const casualTags = outfitKind === "casual" ? await casualOutfitTags(options.outfit?.casualOutfit) : "";
     console.log(`[INFO][IMGGEN] outfit=${outfitKind} cues=${JSON.stringify(plan.cues ?? DEFAULT_SCENE_CUES)}`);
-    const built = buildImagePrompt(plan, style, characters, { outfit: botOutfitSpec(outfitKind, casualTags) });
+    const built = moss
+      ? buildMossImagePrompt(plan, style, characters, { outfit: { kind: outfitKind, casualTags } })
+      : buildImagePrompt(plan, style, characters, { outfit: botOutfitSpec(outfitKind, casualTags) });
     // シーンが薄いときは buildImagePrompt が null を返す。**そのまま描かせてはいけない。**
     // キャラ固定タグだけの同じプロンプトになり、同じ絵が毎日出る（PoC で3枚重複した）。
     if (!built) return null;
 
-    console.log(`[INFO][IMGGEN] style=${style} regions=${built.regions.length} prompt=${built.prompt}`);
+    console.log(
+      `[INFO][IMGGEN] engine=${moss ? "moss" : "sdxl"} style=${style} regions=${built.regions.length} prompt=${built.prompt}`,
+    );
     // 描き直しは requestImage の「リトライしない」とは別物。あちらはサイドカーの失敗で、
     // ここは描けた絵が検査で落ちた場合。シードはサイドカーが毎回変えるので別の絵になる。
     const redraws = imageInspectionRedraws();
@@ -110,6 +118,8 @@ export async function generateImage(
         height: built.height,
         regions: built.regions,
         loras: built.loras,
+        engine: built.engine,
+        checkpoint: built.checkpoint,
         ...(maxBytes ? { maxBytes } : {}),
       });
       if (!generated) return null;
