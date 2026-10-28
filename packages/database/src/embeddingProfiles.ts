@@ -37,6 +37,15 @@ export type EmbeddingProfile = {
   semRelMargin: number;
   /** プロフィール検索用。短文で距離が出やすいので投稿より緩める。 */
   actorDistMax: number;
+  /**
+   * 絵文字検索のクエリ接頭辞。検索対象が投稿ではないので指示文を分ける
+   * （投稿用の「日本語のSNS投稿を探す」指示のままだと、短い絵文字の説明文から遠ざかる）。
+   */
+  emojiQueryPrefix: string;
+  /** 絵文字検索の距離しきい値。 */
+  emojiDistMax: number;
+  /** 絵文字検索の relativeCut のマージン。 */
+  emojiRelMargin: number;
 };
 
 const PROFILES: Record<string, EmbeddingProfile> = {
@@ -50,6 +59,15 @@ const PROFILES: Record<string, EmbeddingProfile> = {
     semRelMargin: 0.08,
     // 投稿側 + 0.15。プロフィールは displayName + description + 分析の短文なので遠くなる。
     actorDistMax: 0.75,
+    // 2026-10-28 実測（本番のカスタム絵文字30件 + Unicode 1,923件 × 18クエリ）。
+    // 関連ヒットはカスタム 0.36〜0.51（「おめでとう」→:medetai: 0.36、「怒り」→:mou_shiranai: 0.51）、
+    // Unicode 0.31〜0.45（「怒り」→💢 0.31、「ねこ」→🐱 0.36）。無関係な裾は 0.52 以上から始まり、
+    // 「ねこ」に対するカスタム絵文字（猫の絵文字は標本に無い）は全件 0.60 以上だった。
+    // 接頭辞を投稿用にしても順位はほぼ同じで、Unicode では絵文字用のほうが少し良かった。
+    emojiQueryPrefix:
+      "Instruct: Given a search query, retrieve emoji whose meaning matches the query\nQuery: ",
+    emojiDistMax: 0.52,
+    emojiRelMargin: 0.08,
   },
 
   // 2026-09-04 まで本番。過去の設定を再現できるよう残してある。
@@ -60,6 +78,10 @@ const PROFILES: Record<string, EmbeddingProfile> = {
     semDistMax: 0.8,
     semRelMargin: 0.12,
     actorDistMax: 0.95,
+    // 絵文字は実測していない（2026-10-28 時点で本番は qwen3）。投稿と同じ値で置いておく。
+    emojiQueryPrefix: "query: ",
+    emojiDistMax: 0.8,
+    emojiRelMargin: 0.12,
   },
 };
 
@@ -74,6 +96,9 @@ const FALLBACK: EmbeddingProfile = {
   semDistMax: 1.0,
   semRelMargin: 0.12,
   actorDistMax: 1.0,
+  emojiQueryPrefix: "",
+  emojiDistMax: 1.0,
+  emojiRelMargin: 0.12,
 };
 
 /** `:latest` などのタグを落として引く。Ollama は同じモデルを別表記で返すことがある。 */

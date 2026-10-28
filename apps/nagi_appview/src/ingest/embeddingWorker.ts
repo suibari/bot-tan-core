@@ -4,12 +4,15 @@ import {
   generateEmbeddings,
   isEmbeddingAvailable,
   nagiActorAnalyses,
+  nagiEmojis,
   nagiNews,
   nagiNewsApprovals,
   nagiPosts,
   nagiProfiles,
+  nagiUnicodeEmojis,
 } from "@bsky-affirmative-bot/database";
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
+import { customEmojiEmbedText } from "../services/emojiSearchText.js";
 
 // 一度に埋め込む件数。Ollama へのバッチ入力サイズ兼 DB 更新単位。
 const BATCH_SIZE = 16;
@@ -135,6 +138,81 @@ const sources: EmbedSource[] = [
             .set({ embedding })
             .where(and(eq(nagiNews.uri, r.uri), eq(nagiNews.cid, r.cid)))
             .returning({ uri: nagiNews.uri });
+          return w.length > 0;
+        },
+      }));
+    },
+  },
+  {
+    // 絵文字検索。EmojiCaptionWorker が search_text を書いた（＝現在の cid を読み終えた）行だけ。
+    // 読み取り前に名前だけで埋めると、読み取り後に作り直す分だけ二度手間になる。
+    name: "emojis",
+    async fetchBatch(limit) {
+      const rows = await db
+        .select({
+          uri: nagiEmojis.uri,
+          cid: nagiEmojis.cid,
+          name: nagiEmojis.name,
+          alt: nagiEmojis.alt,
+          searchText: nagiEmojis.searchText,
+        })
+        .from(nagiEmojis)
+        .where(
+          and(
+            isNull(nagiEmojis.embedding),
+            eq(nagiEmojis.adultOnly, false),
+            sql`${nagiEmojis.searchTextCid} = ${nagiEmojis.cid}`,
+          ),
+        )
+        .orderBy(desc(nagiEmojis.indexedAt))
+        .limit(limit);
+      return rows.map((r) => ({
+        key: `emojis:${r.uri}`,
+        text: customEmojiEmbedText(r),
+        async save(embedding) {
+          const w = await db
+            .update(nagiEmojis)
+            .set({ embedding })
+            .where(
+              and(
+                eq(nagiEmojis.uri, r.uri),
+                eq(nagiEmojis.cid, r.cid),
+                sql`${nagiEmojis.searchText} is not distinct from ${r.searchText}`,
+              ),
+            )
+            .returning({ uri: nagiEmojis.uri });
+          return w.length > 0;
+        },
+      }));
+    },
+  },
+  {
+    // Unicode 絵文字（約1,900件）。初回とデータ版の更新時にだけ埋まる。
+    name: "unicode_emojis",
+    async fetchBatch(limit) {
+      const rows = await db
+        .select({
+          emoji: nagiUnicodeEmojis.emoji,
+          embedText: nagiUnicodeEmojis.embedText,
+        })
+        .from(nagiUnicodeEmojis)
+        .where(isNull(nagiUnicodeEmojis.embedding))
+        .orderBy(asc(nagiUnicodeEmojis.sortOrder))
+        .limit(limit);
+      return rows.map((r) => ({
+        key: `unicode_emojis:${r.emoji}`,
+        text: r.embedText,
+        async save(embedding) {
+          const w = await db
+            .update(nagiUnicodeEmojis)
+            .set({ embedding })
+            .where(
+              and(
+                eq(nagiUnicodeEmojis.emoji, r.emoji),
+                eq(nagiUnicodeEmojis.embedText, r.embedText),
+              ),
+            )
+            .returning({ emoji: nagiUnicodeEmojis.emoji });
           return w.length > 0;
         },
       }));

@@ -219,12 +219,19 @@ export async function embedSearchQuery(
      * 詳細は queryExpansion.ts。
      */
     expand?: boolean;
+    /**
+     * 何を探すか。絵文字は短い説明文なので、投稿用とは別の指示文を付ける
+     * （embeddingProfiles.ts の emojiQueryPrefix）。
+     */
+    target?: "posts" | "emojis";
   } = {},
 ): Promise<number[] | null> {
   const t = text.trim();
   if (!t) return null;
   const q = opts.expand ? await expandSearchQuery(t) : t;
-  return generateEmbedding(`${searchQueryPrefix()}${q}`);
+  const prefix =
+    opts.target === "emojis" ? embeddingProfile().emojiQueryPrefix : searchQueryPrefix();
+  return generateEmbedding(`${prefix}${q}`);
 }
 
 /**

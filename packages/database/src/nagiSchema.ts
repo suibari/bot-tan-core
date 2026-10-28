@@ -557,11 +557,46 @@ export const nagiEmojis = nagiSchema.table(
     indexedAt: timestamp("indexed_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
+    // 意味検索用に視覚モデルが画像から読み取った文字と連想語（"残念\nがっかり\n惜しい"）。
+    // 本番の絵文字は alt がほぼ無く名前もローマ字なので、これが無いと意味が引けない。
+    // EmojiCaptionWorker が埋める。読み取れない画像（Lottie など）は空文字で確定させる。
+    searchText: text("search_text"),
+    /** searchText を作ったときの cid。cid と違えば作り直す（画像の差し替え）。 */
+    searchTextCid: text("search_text_cid"),
+    // 名前 + alt + searchText の埋め込み。searchText を書き直すときに NULL へ戻し、
+    // EmbeddingWorker が埋め直す。
+    embedding: vector("embedding", { dimensions: 1024 }),
   },
+  // embedding に HNSW は張らない。行数が千単位なら全件の厳密計算で数ms で、
+  // 近似探索に距離の WHERE を重ねると近い行を取りこぼす（2026-10-28 に「かなしい」で 😢 が消えた）。
   (t) => [
     index("nagi_emoji_did_name_idx").on(t.did, t.name),
     index("nagi_emoji_name_idx").on(t.name),
   ],
+);
+/**
+ * 絵文字検索で Unicode 絵文字をカスタム絵文字と同じクエリ埋め込みで引くための表。
+ * 中身は emoji-picker-element-data（クライアントのピッカーと同じデータ）から
+ * 起動時に同期する。データ版が変わったら upsert し、埋め込み文が変わった行だけ作り直す。
+ */
+export const nagiUnicodeEmojis = nagiSchema.table(
+  "unicode_emojis",
+  {
+    emoji: text("emoji").primaryKey(),
+    labelJa: text("label_ja").notNull(),
+    labelEn: text("label_en").notNull(),
+    /** 正規化済みの表示名（ja/en）。改行区切り。語彙一致の最上位判定に使う。 */
+    labels: text("labels").notNull(),
+    /** 正規化済みの表示名・ショートコード・タグ（ja/en）。改行区切り。 */
+    keywords: text("keywords").notNull(),
+    /** emojibase の並び順。同点時の並びに使う。 */
+    sortOrder: integer("sort_order").notNull(),
+    /** 埋め込む文。これが変わったら embedding を NULL に戻す。 */
+    embedText: text("embed_text").notNull(),
+    // 約1,900行なので索引は張らない（nagiEmojis と同じ理由）。
+    embedding: vector("embedding", { dimensions: 1024 }),
+    dataVersion: text("data_version").notNull(),
+  },
 );
 export const nagiProfiles = nagiSchema.table(
   "profiles",

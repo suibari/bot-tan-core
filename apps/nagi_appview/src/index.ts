@@ -23,6 +23,8 @@ import {
 } from "./ingest/botReplyIndexWorker.js";
 import { startEmbeddingWorker } from "./ingest/embeddingWorker.js";
 import { startModerationWorker } from "./ingest/moderationWorker.js";
+import { startEmojiCaptionWorker } from "./ingest/emojiCaptionWorker.js";
+import { syncUnicodeEmojis } from "./services/unicodeEmojiIndex.js";
 import { startActorResolveWorker } from "./ingest/actorResolveWorker.js";
 import { startWorkerLoop } from "@bsky-affirmative-bot/bot-runtime";
 import { emojiGenerationTick } from "./services/emojiGeneration.js";
@@ -140,6 +142,12 @@ reportHeartbeat("nagi-appview").catch(() => {});
 // OLLAMA_BASE_URL 未設定なら実質 no-op。
 startEmbeddingWorker();
 startModerationWorker();
+// 絵文字の意味検索。Unicode 絵文字の検索表を同期し、カスタム絵文字の画像を読み取る。
+// 同期に失敗しても起動は止めない（Unicode 絵文字が検索に出ないだけ）。
+syncUnicodeEmojis().catch((error) =>
+  console.error("[ERROR][UNICODE_EMOJI] sync failed:", error),
+);
+const emojiCaptionWorker = startEmojiCaptionWorker();
 // did→handle/pds を解決して nagiActors をインデックス（searchActors とハンドル表示に必要）。
 startActorResolveWorker();
 startReconcileWorker();
@@ -190,6 +198,7 @@ const shutdown = async () => {
   clearInterval(appviewHeartbeat);
   clearInterval(botReplyIndexWorker);
   clearInterval(emojiGenerationWorker);
+  clearInterval(emojiCaptionWorker);
   const serverClosed = new Promise<void>((resolve) =>
     server.close(() => resolve()),
   );

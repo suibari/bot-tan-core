@@ -134,10 +134,12 @@ const semRelMargin = (): number => embeddingProfile().semRelMargin;
 export function relativeCut<T>(
   rows: T[],
   distanceOf: (row: T) => number | null | undefined,
+  /** 既定は semRelMargin()。絵文字のように距離感が違う対象だけ差し替える。 */
+  margin: number = semRelMargin(),
 ): T[] {
   const best = rows.length ? distanceOf(rows[0]) : null;
   if (best === null || best === undefined || !Number.isFinite(best)) return rows;
-  const limit = best + semRelMargin();
+  const limit = best + margin;
   const cut = rows.findIndex((row) => {
     const d = distanceOf(row);
     return d !== null && d !== undefined && Number.isFinite(d) && d > limit;

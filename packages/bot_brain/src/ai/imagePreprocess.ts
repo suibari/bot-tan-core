@@ -178,8 +178,10 @@ function scaleToLongSide(
   width: number,
   height: number,
   longSide: number,
+  { allowUpscale = false }: { allowUpscale?: boolean } = {},
 ): { width: number; height: number } {
-  const scale = Math.min(1, longSide / Math.max(width, height));
+  const ratio = longSide / Math.max(width, height);
+  const scale = allowUpscale ? ratio : Math.min(1, ratio);
   return {
     width: Math.max(1, Math.round(width * scale)),
     height: Math.max(1, Math.round(height * scale)),
@@ -195,7 +197,21 @@ function scaleToLongSide(
 export async function prepareModelImages(
   buffer: Buffer,
   mimeType: string,
-  options: { strict?: boolean } = {},
+  options: {
+    strict?: boolean;
+    /**
+     * 全体像の長辺がこれ未満なら拡大する。絵文字（128px）のような小さい画像向け。
+     * 2026-10-28 の実測で、128px のまま渡すと「解散」を「凱旋」、「ダメ。」を
+     * 「グッジョ」と読んだ。拡大しても画素は増えないが、視覚エンコーダが文字を
+     * 小さな模様としてではなく字として見るようになる。
+     */
+    minLongSide?: number;
+    /**
+     * 透過部分を塗る色。JPEG へ変換すると透過は黒になるので、透過 PNG/WebP の
+     * 黒い文字が黒背景に溶けて読めなくなる。
+     */
+    background?: string;
+  } = {},
 ): Promise<PreparedImage[]> {
   try {
     if (!isDecodableImage(buffer)) {
@@ -209,9 +225,17 @@ export async function prepareModelImages(
     const encode = (
       sx: number, sy: number, sw: number, sh: number, longSide: number,
     ): string => {
-      const { width, height } = scaleToLongSide(sw, sh, longSide);
+      const minLongSide = Math.min(options.minLongSide ?? 0, longSide);
+      const { width, height } =
+        Math.max(sw, sh) < minLongSide
+          ? scaleToLongSide(sw, sh, minLongSide, { allowUpscale: true })
+          : scaleToLongSide(sw, sh, longSide);
       const canvas = createCanvas(width, height);
       const context = canvas.getContext("2d");
+      if (options.background) {
+        context.fillStyle = options.background;
+        context.fillRect(0, 0, width, height);
+      }
       context.drawImage(source, sx, sy, sw, sh, 0, 0, width, height);
       return canvas.toBuffer("image/jpeg", JPEG_QUALITY).toString("base64");
     };
