@@ -113,8 +113,6 @@ const EXPECTED: Record<AiFeatureKey, [model: string, tier: "flex" | "standard" |
   NAGI_CARD_COMMENT: [LITE, "standard"],
   NAGI_ZENKATSU: [LITE, "standard"],
   NAGI_ZENKATSU_AWARD: [LITE, "standard"],
-  NAGI_CHANNEL_WELCOME: [LITE, "flex"],
-  NAGI_CHANNEL_TOPIC: [LITE, "flex"],
   NAGI_NAME_INTENT: [LITE, "standard"],
   NAGI_DRAWING_GIFT: [DEFAULT_OLLAMA_TEXT_MODEL, undefined],
   NAGI_CHRONICLE_MONTH: [DEFAULT_OLLAMA_TEXT_MODEL, undefined],

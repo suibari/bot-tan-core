@@ -240,8 +240,6 @@ bsky の全機能は `callbacks.ts` の共通リトライ（初回+2回）に包
 | `NAGI_REPLY_ATTEMPT_LATE` | `flash-standard` | リプライ 5回目以降 + 会話は初回から |
 | `NAGI_ANALYSIS` | `lite-standard` | 自動アクター分析 |
 | `NAGI_CARD_COMMENT` | `lite-standard` | カードのbotたんコメント |
-| `NAGI_CHANNEL_WELCOME` | `lite-flex` | チャンネル作成時の歓迎 |
-| `NAGI_CHANNEL_TOPIC` | `lite-flex` | チャンネルへの話題ふり |
 | `NAGI_NAME_INTENT` | `lite-standard` | 呼称指定・訂正の判定（返信投稿前に完了待ち） |
 | `NAGI_DRAWING_GIFT` | `ollama-chat` | お絵描きの贈り物: 投稿者の気持ちが大きく動いているかと、贈る絵の場面 |
 | `NAGI_AUTO_REACTION` | `ollama-chat` | botたん が返信・総評と同時に付ける最初の絵文字選び（ローカル固定） |
