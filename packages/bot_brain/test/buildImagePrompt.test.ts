@@ -5,6 +5,7 @@ import {
   buildMossImagePrompt,
   normalizeScenePlan,
   sceneSystemFor,
+  writableWords,
   type ImageScenePlan,
 } from "../src/ai/buildImagePrompt.js";
 import type { ResolvedCharacter } from "../src/ai/characterLookup.js";
@@ -44,7 +45,7 @@ const tanjirou: ResolvedCharacter = {
 };
 
 test("キャラの外見タグはコード側が必ず連結する", () => {
-  const built = buildImagePrompt(plan(), "crayon-diary");
+  const built = buildImagePrompt(plan(), "suibari");
   assert.ok(built);
   // 揺れると同一性が壊れるので、LLM ではなく定数から来ていることを固定する。
   assert.match(built.prompt, /light blue hair/);
@@ -57,22 +58,18 @@ test("キャラの外見タグはコード側が必ず連結する", () => {
 });
 
 test("雲の髪飾りは入れない（背景に雲が湧く）", () => {
-  const built = buildImagePrompt(plan(), "crayon-diary");
+  const built = buildImagePrompt(plan(), "suibari");
   assert.ok(built);
   assert.doesNotMatch(built.prompt, /cloud hair ornament/);
 });
 
-test("crayon-diary は score タグを反転する", () => {
-  const built = buildImagePrompt(plan(), "crayon-diary");
+test("suibari は合図の語を先頭に置き、画風の LoRA を当てる", () => {
+  const built = buildImagePrompt(plan(), "suibari");
   assert.ok(built);
-  // masterpiece/high score が正に入っている限り素人の絵にならない。
-  assert.match(built.prompt, /average score/);
-  assert.doesNotMatch(built.prompt, /masterpiece/);
-  assert.match(built.negativePrompt, /masterpiece, high score, great score/);
-  // 画材を小道具として描かせないネガティブ。
-  assert.match(built.negativePrompt, /sketchbook/);
-  // 画風と画材は不可分。LoRA が外れると質感が出ない。
-  assert.deepEqual(built.loras, [["crayons_v1_sdxl.safetensors", 1.0]]);
+  assert.match(built.prompt, /^suibari style, 1girl, solo,/);
+  assert.match(built.prompt, /masterpiece, high score, great score$/);
+  // 画風と LoRA は不可分。LoRA が外れると画風が出ない。
+  assert.deepEqual(built.loras, [["suibari-style-v1.safetensors", 0.5]]);
 });
 
 test("anime はスコアタグを反転しない", () => {
@@ -83,7 +80,7 @@ test("anime はスコアタグを反転しない", () => {
 });
 
 test("1キャラなら領域を割らず縦長", () => {
-  const built = buildImagePrompt(plan(), "crayon-diary");
+  const built = buildImagePrompt(plan(), "suibari");
   assert.ok(built);
   assert.equal(built.regions.length, 0);
   assert.match(built.prompt, /1girl, solo/);
@@ -92,7 +89,7 @@ test("1キャラなら領域を割らず縦長", () => {
 });
 
 test("ラテちゃんが居るときは領域を割り、横長にする", () => {
-  const built = buildImagePrompt(plan({ companions: ["latte-chan"] }), "crayon-diary");
+  const built = buildImagePrompt(plan({ companions: ["latte-chan"] }), "suibari");
   assert.ok(built);
   // 1本のプロンプトに2キャラを詰めると属性が混ざる。別プロンプトで予測させて空間で混ぜる。
   assert.equal(built.regions.length, 2);
@@ -122,7 +119,7 @@ test("1人の絵では2人目を呼ぶタグを落とし、人数のネガティ
       setting: ["indoors", "dim lighting"],
       objects: ["screen"],
     }),
-    "crayon-diary",
+    "suibari",
   );
   assert.ok(built);
   assert.doesNotMatch(built.prompt, /side by side|sharing emotion|hand on shoulder/);
@@ -137,7 +134,7 @@ test("1人の絵では鏡と相手のいない抱きつきも落とし、物や�
       action: ["looking at mirror", "hugging plushie", "talking"],
       objects: ["mirror", "plushie"],
     }),
-    "crayon-diary",
+    "suibari",
   );
   assert.ok(built);
   const tags = built.prompt.split(", ");
@@ -151,7 +148,7 @@ test("1人の絵では鏡と相手のいない抱きつきも落とし、物や�
 });
 
 test("自分の手を合わせる姿勢は1人の絵でも残す", () => {
-  const built = buildImagePrompt(plan({ pose: ["sitting", "hands together"] }), "crayon-diary");
+  const built = buildImagePrompt(plan({ pose: ["sitting", "hands together"] }), "suibari");
   assert.ok(built);
   assert.match(built.prompt, /hands together/);
 });
@@ -159,7 +156,7 @@ test("自分の手を合わせる姿勢は1人の絵でも残す", () => {
 test("2人の絵では向かい合うタグを残し、領域に全体の人数タグを入れない", () => {
   const built = buildImagePrompt(
     plan({ pose: ["sitting", "facing each other"], companions: ["latte-chan"] }),
-    "crayon-diary",
+    "suibari",
   );
   assert.ok(built);
   assert.match(built.prompt, /facing each other/);
@@ -176,13 +173,13 @@ test("2人の絵では向かい合うタグを残し、領域に全体の人数�
 test("2人目を呼ぶタグを落として薄くなったシーンは描かない", () => {
   const built = buildImagePrompt(
     plan({ pose: ["side by side"], expression: ["smile"], action: ["comforting"], setting: ["indoors"], objects: [] }),
-    "crayon-diary",
+    "suibari",
   );
   assert.equal(built, null);
 });
 
 test("ことみちゃんが居るときも領域を割り、外見が混ざらない", () => {
-  const built = buildImagePrompt(plan({ companions: ["kotomi-chan"] }), "crayon-diary");
+  const built = buildImagePrompt(plan({ companions: ["kotomi-chan"] }), "suibari");
   assert.ok(built);
   assert.equal(built.regions.length, 2);
   assert.match(built.prompt, /2girls/);
@@ -201,7 +198,7 @@ test("女の子は2人で止める（3人目は捨てる）", () => {
   // 予定表は3人同伴の日を作るが、1216x832 を3分割するとキャラが崩れる。
   const built = buildImagePrompt(
     plan({ companions: ["latte-chan", "kotomi-chan"] }),
-    "crayon-diary",
+    "suibari",
   );
   assert.ok(built);
   assert.equal(built.regions.length, 2);
@@ -214,7 +211,7 @@ test("女の子は2人で止める（3人目は捨てる）", () => {
 test("モルフォとことみちゃんが同時でも、モルフォは領域を割らない", () => {
   const built = buildImagePrompt(
     plan({ companions: ["morpho", "kotomi-chan"] }),
-    "crayon-diary",
+    "suibari",
   );
   assert.ok(built);
   assert.equal(built.regions.length, 2);
@@ -224,28 +221,24 @@ test("モルフォとことみちゃんが同時でも、モルフォは領域�
 });
 
 test("モルフォは領域を割らない（1girl と競合しないので混線しない）", () => {
-  const built = buildImagePrompt(plan({ companions: ["morpho"] }), "crayon-diary");
+  const built = buildImagePrompt(plan({ companions: ["morpho"] }), "suibari");
   assert.ok(built);
   assert.equal(built.regions.length, 0);
   assert.match(built.prompt, /samoyed/);
   assert.match(built.prompt, /1girl, solo/);
 });
 
-test("屋外でも crayon-diary は背景タグを足さない", () => {
-  const built = buildImagePrompt(plan({ outdoor: true }), "crayon-diary");
-  assert.ok(built);
-  assert.doesNotMatch(built.prompt, /scenery/);
-});
-
-test("anime は屋外なら背景タグを足す（無いと空や単色へ逃げる）", () => {
-  const built = buildImagePrompt(plan({ outdoor: true }), "anime");
-  assert.ok(built);
-  assert.match(built.prompt, /scenery, detailed background/);
+test("屋外なら背景タグを足す（無いと空や単色へ逃げる）", () => {
+  for (const style of ["suibari", "anime"] as const) {
+    const built = buildImagePrompt(plan({ outdoor: true }), style);
+    assert.ok(built);
+    assert.match(built.prompt, /scenery, detailed background/);
+  }
 });
 
 test("構図タグに姿勢語を混ぜない", () => {
   // standing を混ぜると「床から立てない」が「立っている」に化ける。
-  const built = buildImagePrompt(plan({ pose: ["lying down", "on floor"] }), "crayon-diary");
+  const built = buildImagePrompt(plan({ pose: ["lying down", "on floor"] }), "suibari");
   assert.ok(built);
   assert.match(built.prompt, /lying down, on floor/);
   assert.doesNotMatch(built.prompt, /\bstanding\b/);
@@ -255,7 +248,7 @@ test("シーンが薄すぎるときは描かない", () => {
   // 空のまま描かせると、キャラ固定タグだけの同じプロンプトになり同じ絵が量産される。
   const built = buildImagePrompt(
     plan({ pose: [], expression: [], action: ["smile"], setting: [], objects: [] }),
-    "crayon-diary",
+    "suibari",
   );
   assert.equal(built, null);
 });
@@ -290,11 +283,11 @@ test("落とした結果タグが薄くなったら描かない（寝ている�
     framing: "upper-body",
     outdoor: false,
   });
-  assert.equal(buildImagePrompt(plan, "crayon-diary"), null);
+  assert.equal(buildImagePrompt(plan, "suibari"), null);
 });
 
 test("寝具はネガティブでも追い出す。ただし closed eyes は入れない", () => {
-  for (const style of ["crayon-diary", "anime"] as const) {
+  for (const style of ["suibari", "anime"] as const) {
     const built = buildImagePrompt(plan(), style);
     assert.ok(built);
     assert.match(built.negativePrompt, /sleeping, bed, on bed, pillow, blanket/);
@@ -354,7 +347,7 @@ test("描いてはいけないタグはどの材料でも落とす", () => {
 });
 
 test("既存キャラを頼まれたら botたんではなくそのキャラを描く", () => {
-  const built = buildImagePrompt(plan({ botTan: false }), "crayon-diary", [shimakaze]);
+  const built = buildImagePrompt(plan({ botTan: false }), "suibari", [shimakaze]);
   assert.ok(built);
   assert.equal(built.regions.length, 0);
   assert.match(built.prompt, /1girl, solo, shimakaze \(kancolle\), kantai collection, blonde hair/);
@@ -365,7 +358,7 @@ test("既存キャラを頼まれたら botたんではなくそのキャラを�
 });
 
 test("botたんの絵には既存キャラ用のネガティブを足さない（PoC で詰めた値のまま）", () => {
-  const built = buildImagePrompt(plan(), "crayon-diary");
+  const built = buildImagePrompt(plan(), "suibari");
   assert.ok(built);
   assert.doesNotMatch(built.negativePrompt, /panties/);
 });
@@ -373,7 +366,7 @@ test("botたんの絵には既存キャラ用のネガティブを足さない�
 test("キャラを解決できなければ botTan=false でも botたんの絵に戻す", () => {
   const built = buildImagePrompt(
     plan({ botTan: false, characters: [{ name: "謎のキャラ", series: "" }] }),
-    "crayon-diary",
+    "suibari",
     [],
   );
   assert.ok(built);
@@ -381,7 +374,7 @@ test("キャラを解決できなければ botTan=false でも botたんの絵�
 });
 
 test("botたんと既存キャラの2人は領域を割り、キャラを先に置く", () => {
-  const built = buildImagePrompt(plan(), "crayon-diary", [shimakaze]);
+  const built = buildImagePrompt(plan(), "suibari", [shimakaze]);
   assert.ok(built);
   assert.equal(built.regions.length, 2);
   assert.match(built.prompt, /2girls/);
@@ -393,18 +386,18 @@ test("botたんと既存キャラの2人は領域を割り、キャラを先に�
 });
 
 test("男の子のキャラは 1boy で数える", () => {
-  const solo = buildImagePrompt(plan({ botTan: false }), "crayon-diary", [tanjirou]);
+  const solo = buildImagePrompt(plan({ botTan: false }), "suibari", [tanjirou]);
   assert.ok(solo);
   assert.match(solo.prompt, /1boy, solo, kamado tanjirou/);
 
-  const pair = buildImagePrompt(plan({ botTan: false }), "crayon-diary", [shimakaze, tanjirou]);
+  const pair = buildImagePrompt(plan({ botTan: false }), "suibari", [shimakaze, tanjirou]);
   assert.ok(pair);
-  assert.match(pair.prompt, /^child's drawing, crayon \(medium\), traditional media, 1girl, 1boy,/);
+  assert.match(pair.prompt, /^suibari style, 1girl, 1boy,/);
   assert.match(pair.regions[1].prompt, /^1boy, kamado tanjirou/);
 });
 
 test("人物は2人で止める（キャラ2人 + botたんなら botたんが落ちる）", () => {
-  const built = buildImagePrompt(plan({ botTan: true }), "crayon-diary", [shimakaze, tanjirou]);
+  const built = buildImagePrompt(plan({ botTan: true }), "suibari", [shimakaze, tanjirou]);
   assert.ok(built);
   assert.equal(built.regions.length, 2);
   assert.doesNotMatch(built.regions.map((region) => region.prompt).join("\n"), /light blue hair/);
@@ -437,11 +430,11 @@ test("キャラ指名を検査する（botたんたち自身・重複・空は�
 
 test("名前だけの依頼でシーンが空なら、既存キャラは立ち絵で描く（botたんは描かないまま）", () => {
   const empty = { pose: [], expression: [], action: [], setting: [], objects: [] };
-  const built = buildImagePrompt(plan({ ...empty, botTan: false }), "crayon-diary", [shimakaze]);
+  const built = buildImagePrompt(plan({ ...empty, botTan: false }), "suibari", [shimakaze]);
   assert.ok(built);
   assert.match(built.prompt, /shimakaze \(kancolle\).*standing, smile, waving/);
   // キャラが解決できていなければ、従来どおり同じ絵の量産を防ぐ。
-  assert.equal(buildImagePrompt(plan({ ...empty, botTan: false }), "crayon-diary", []), null);
+  assert.equal(buildImagePrompt(plan({ ...empty, botTan: false }), "suibari", []), null);
 });
 
 
@@ -453,27 +446,74 @@ const prose = {
   sentence: "Bot-tan is sipping cocoa at her desk.",
   props: ["A mug of cocoa is in her hands."],
   background: "Her cozy room with furniture in the background.",
+  text: "",
 };
 
+
 test("MOSS: 合図の文 → 場面 → 小物 → 背景 → 構図 → 人物の順で、領域は割らない", () => {
-  const built = buildMossImagePrompt(plan({ prose }), "crayon-diary");
+  const built = buildMossImagePrompt(plan({ prose }), "suibari");
   assert.ok(built);
   assert.ok(
     built.prompt.startsWith(
-      "crayon picture diary style. Bot-tan is sipping cocoa at her desk. A mug of cocoa is in her hands. " +
+      "suibari style. A loose hand-drawn sketch with rough lines and simple flat colors. Bot-tan is sipping cocoa at her desk. A mug of cocoa is in her hands. " +
         "Her cozy room with furniture in the background. Upper-body view. The girl is Bot-tan,",
     ),
     built.prompt,
   );
   assert.deepEqual(built.regions, []);
   assert.equal(built.engine, "moss");
-  assert.equal(built.checkpoint, "moss_image_base_int8_convrot.safetensors");
-  assert.deepEqual(built.loras, [["moss-crayon2-v1.safetensors", 1.0]]);
+  assert.equal(built.checkpoint, "moss_image_sft_int8_convrot.safetensors");
+  assert.deepEqual(built.loras, [["moss-suibari-v1-000006.safetensors", 1.0]]);
+});
+
+test("MOSS: 書く言葉を指定しない絵は、文字を書かせない", () => {
+  const built = buildMossImagePrompt(
+    plan({ prose: { ...prose, props: ["A sign that reads \"OPEN\" hangs on the door.", ...prose.props] } }),
+    "suibari",
+  );
+  assert.ok(built);
+  // gemma が勝手に書いた看板の文字は落とす（言葉の決まっていない文字は謎の文字になる）。
+  assert.doesNotMatch(built.prompt, /OPEN/);
+  assert.match(built.prompt, /A mug of cocoa is in her hands\./);
+  assert.match(built.negativePrompt, /text, letters, writing, words/);
+});
+
+test("MOSS: 依頼文が頼んだ言葉は、依頼のときだけ書かせる", () => {
+  const asked = {
+    ...prose,
+    props: ["She holds up a sign that clearly reads \"おはよう\".", "A tree with a sign that reads \"PARK\"."],
+    text: "おはよう",
+  };
+  const requested = buildMossImagePrompt(plan({ prose: asked }), "suibari", [], { writing: "requested" });
+  assert.ok(requested);
+  assert.match(requested.prompt, /She holds up a sign that clearly reads "おはよう"\./);
+  assert.doesNotMatch(requested.prompt, /PARK/);
+  assert.doesNotMatch(requested.negativePrompt, /writing/);
+
+  // 依頼でなければ（おやすみ・ひとりごと）、頼まれた言葉があっても書かせない。
+  const unasked = buildMossImagePrompt(plan({ prose: asked }), "suibari");
+  assert.ok(unasked);
+  assert.doesNotMatch(unasked.prompt, /おはよう/);
+  assert.match(unasked.negativePrompt, /writing/);
+
+  // 言葉を書く小物を gemma が書き忘れたら、言葉だけでも書かせる。
+  const missing = buildMossImagePrompt(plan({ prose: { ...prose, text: "おはよう" } }), "suibari", [], {
+    writing: "requested",
+  });
+  assert.match(missing!.prompt, /The words "おはよう" are clearly written in the picture\./);
+});
+
+test("MOSS: 呼び出し側が決めた言葉は、その文で書かせる", () => {
+  const sentence = 'Bot-tan holds out a handwritten letter with both hands, and the letter clearly reads "すいばりさんへ".';
+  const built = buildMossImagePrompt(plan({ prose }), "suibari", [], { writing: { words: "すいばりさんへ", sentence } });
+  assert.ok(built);
+  assert.ok(built.prompt.includes(`A mug of cocoa is in her hands. ${sentence} Her cozy room`), built.prompt);
+  assert.doesNotMatch(built.negativePrompt, /writing/);
 });
 
 test("MOSS: 靴は全身の構図のときだけ書く（上半身で書くと靴が宙に浮く）", () => {
-  const upper = buildMossImagePrompt(plan({ prose }), "crayon-diary");
-  const full = buildMossImagePrompt(plan({ prose, framing: "full-body" }), "crayon-diary");
+  const upper = buildMossImagePrompt(plan({ prose }), "suibari");
+  const full = buildMossImagePrompt(plan({ prose, framing: "full-body" }), "suibari");
   assert.ok(upper && full);
   assert.doesNotMatch(upper.prompt, /loafers/);
   assert.match(full.prompt, /with white socks and brown loafers/);
@@ -491,7 +531,7 @@ test("MOSS: 服の種類と予定表の私服を文にする", () => {
 test("MOSS: 仲間の女の子もモルフォも同じ1本の文に書き、横長にする", () => {
   const built = buildMossImagePrompt(
     plan({ prose: { ...prose, sentence: "Bot-tan and Latte-chan share a parfait." }, companions: ["latte-chan", "morpho"] }),
-    "crayon-diary",
+    "suibari",
   );
   assert.ok(built);
   assert.match(built.prompt, /With her is Latte-chan, another girl with very long pink hair/);
@@ -502,7 +542,7 @@ test("MOSS: 仲間の女の子もモルフォも同じ1本の文に書き、横�
 test("MOSS: 描かない仲間の名前が文にあれば、タグ列から言い直す", () => {
   const built = buildMossImagePrompt(
     plan({ prose: { ...prose, sentence: "Bot-tan chats with Kotomi-chan." } }),
-    "crayon-diary",
+    "suibari",
   );
   assert.ok(built);
   assert.doesNotMatch(built.prompt, /Kotomi-chan/);
@@ -537,12 +577,24 @@ test("英文にもタグと同じ禁止を当てる（寝具の文は丸ごと�
     sentence: "Bot-tan is reading a book in bed",
     props: ["A book is open on her lap", "A pillow lies beside her."],
     background: "A quiet library in the background",
+    text: "",
   });
   assert.deepEqual(normalized.prose, {
     sentence: "",
     props: ["A book is open on her lap."],
     background: "A quiet library in the background.",
+    text: "",
   });
+});
+
+test("絵に書かせる言葉は、引用符と絵文字を外し、長すぎれば書かせない", () => {
+  const prose = (text: string) =>
+    normalizeScenePlan({ pose: ["sitting"], companions: [], framing: "upper-body", outdoor: false, sentence: "x", text })
+      .prose?.text;
+  assert.equal(prose("「おはよう」🌞"), "おはよう");
+  assert.equal(prose("Happy Birthday!"), "Happy Birthday!");
+  assert.equal(prose("あ".repeat(21)), "");
+  assert.equal(writableWords("  GOOD  NIGHT "), "GOOD NIGHT");
 });
 
 test("英文を書かせていない計画には prose を付けない", () => {

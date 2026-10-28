@@ -137,51 +137,35 @@ const CHIBI_NEGATIVE = "chibi, deformed, sd character, child, big head";
 const SLEEP_NEGATIVE =
   "sleeping, bed, on bed, pillow, blanket, futon, pajamas, nightgown, zzz";
 
-/** 画材が「小道具として絵の中に描かれる」のを止める。これが無いと床にクレヨンが転がる。 */
-const ART_PROP_NEGATIVE =
-  "sketchbook, art tools, crayon, pencil, colored pencil, frame, picture frame, canvas, easel";
-
-export type ImageStyle = "crayon-diary" | "anime";
+export type ImageStyle = "suibari" | "anime";
 
 type StyleSpec = {
-  /** プロンプトの先頭に置くか。クレヨンは先頭に置かないとベースモデルの絵柄に負ける。 */
+  /** プロンプトの先頭に置く合図の語。後ろに置くとベースモデルの絵柄に負ける。 */
   leading?: string;
   /** 末尾に置く品質タグ。 */
   quality: string;
   negative: string;
-  /** 屋外でも背景タグを足さない。 */
-  skipScenery?: boolean;
   /**
    * この画風に不可欠な LoRA（サイドカーの models/loras/ にあるファイル名）。
-   * **画風と画材は不可分**なので、env ではなくここに置く。クレヨンのプロンプトだけ投げて
-   * LoRA を当て忘れると、質感の出ない中途半端な絵が黙って出てくる。
+   * **画風と LoRA は不可分**なので、env ではなくここに置く。合図の語だけ投げて
+   * LoRA を当て忘れると、画風の出ない中途半端な絵が黙って出てくる。
    */
   loras?: Array<[string, number]>;
 };
 
 const STYLES: Record<ImageStyle, StyleSpec> = {
   /**
-   * 「botたんが描いた日記」。3つの組み合わせで初めて成立する。
-   *  1. 画材タグを Danbooru の medium 形（`crayon (medium)`）にする。
-   *     `crayon drawing` や `sketchbook` と書くと小道具として絵の中に描かれる
-   *  2. **score タグを反転する。** Animagine は score タグで絵の巧さを直接操作できる設計で、
-   *     `masterpiece, high score` を入れている限り素人の絵にならない。ネガティブへ回し、
-   *     正には `average score` を置く。`low score, bad score` まで振ると顔が崩れた
-   *  3. クレヨン LoRA を当てる（サイドカー側が持つ）。ワックスのストローク・紙目・
-   *     ムラのある塗りは、ベースモデル単体では絶対に出ない
+   * すいばりさんの画風（本人の絵43枚で学習した LoRA）。bot-tan-imagegen の
+   * fixtures/promptConfig.json の styles.suibari と同じ。weight 0.5 は calendar の壁紙で
+   * 0〜0.7 を比べて本人が選んだ値（0.6 以上はポーズや服が崩れ始める）。
+   *
+   * 2026-10-28 まではクレヨンの日記風（crayon-diary）が既定だったが、使わないと決めて外した。
    */
-  "crayon-diary": {
-    leading: "child's drawing, crayon (medium), traditional media",
-    quality: "average score",
-    negative:
-      `${BASE_NEGATIVE}, ${CHIBI_NEGATIVE}, ${ART_PROP_NEGATIVE}, ${SLEEP_NEGATIVE}, ` +
-      "realistic, photorealistic, 3d, anime screencap, digital painting, " +
-      "depth of field, bokeh, film grain, glowing, sparkle, " +
-      "masterpiece, high score, great score",
-    skipScenery: true,
-    // ostris/Crayon Style - SDXL。トリガーワード無し、weight 1.0 が作者推奨。
-    // ライセンスは生成画像の商用利用可・サービスホスト可・モデル販売は不可。
-    loras: [["crayons_v1_sdxl.safetensors", 1.0]],
+  suibari: {
+    leading: "suibari style",
+    quality: "masterpiece, high score, great score",
+    negative: `${BASE_NEGATIVE}, low score, bad score, average score, ${CHIBI_NEGATIVE}, ${SLEEP_NEGATIVE}`,
+    loras: [["suibari-style-v1.safetensors", 0.5]],
   },
   /** 通常のアニメ塗り。切り戻し用に残してある。 */
   anime: {
@@ -232,7 +216,13 @@ export type ImageScenePlan = {
  * 小物は場面の文に埋めると LoRA で消えやすいので、1つずつ独立した文にさせる
  * （bot-tan-imagegen の RESULTS.md「小物を独立した一文にする」で 2/8 → 8/8）。
  */
-export type ImageSceneProse = { sentence: string; props: string[]; background: string };
+export type ImageSceneProse = {
+  sentence: string;
+  props: string[];
+  background: string;
+  /** 依頼文が絵の中に書いてほしいと頼んだ言葉。頼まれていなければ空。使うかは呼び出し側が決める。 */
+  text: string;
+};
 
 /** 1回の絵に描く既存キャラの上限。MAX_FIGURES を超えるぶんは描けない。 */
 const MAX_CHARACTER_REQUESTS = 2;
@@ -352,12 +342,16 @@ const PROSE_RULES = `
 Also write English prose for a second image generator that reads sentences:
 * sentence: ONE English sentence about what is happening in the picture and where. Use the same moment as the tags. Refer to our own girl as "Bot-tan", and mention Latte-chan, Kotomi-chan or Morpho by name only if they are listed in companions. Never describe hair, eyes or clothing. Same safety rules as the tags.
 * props: each visible object from objects as its OWN short sentence that says where it is, e.g. "On the desk in front of her is an open bento box with a golden omelette." At most 3. Clothing is not a prop.
-* background: ONE short sentence about the background, e.g. "A sunny park with grass and trees in the background."`;
+* background: ONE short sentence about the background, e.g. "A sunny park with grass and trees in the background."
+* text: the exact words the description asks to be written in the picture (on a sign, a letter, a cake and so on), copied as written. An empty string unless the description explicitly asks for written words. Never invent words.
+* When text is not empty, write it in double quotes in the prop that carries it, e.g. "She holds up a sign that clearly reads \"おはよう\"." Otherwise never write quoted words, titles or labels anywhere.
+* Do not mention things that usually carry writing (menus, menu boards, posters, signs, book covers or spines, screens, newspapers, labels) unless the description asks for them. Choose other props and backgrounds instead: a cafe can show cups, plants and wooden shelves.`;
 
 const PROSE_PROPERTIES = {
   sentence: { type: "string" },
   props: { type: "array", items: { type: "string" } },
   background: { type: "string" },
+  text: { type: "string" },
 };
 
 function withProse<T extends { properties: object; required: string[] }>(schema: T): T {
@@ -541,11 +535,29 @@ function sceneProse(value: Record<string, unknown>, dropped: string[]): ImageSce
     return /[.!?]$/.test(text) ? text : `${text}.`;
   };
   const props = Array.isArray(value.props) ? value.props.map(clean).filter(Boolean) : [];
+  const text = typeof value.text === "string" ? writableWords(value.text) : "";
   return {
     sentence: clean(value.sentence),
     props: props.slice(0, MAX_PROSE_PROPS),
     background: clean(value.background),
+    text: text && !UNSAFE_PATTERN.test(text.toLowerCase()) ? text : "",
   };
+}
+
+/** 絵に書かせる言葉の上限。長いと MOSS でも崩れる。 */
+const MAX_WRITING_LENGTH = 20;
+
+/**
+ * 絵に書かせる言葉を整える。引用符・改行・絵文字は外す（プロンプトの引用符が壊れる、
+ * 絵文字は描けない）。長すぎるものは書かせない（途中で切ると意味が変わる）。
+ */
+export function writableWords(input: string): string {
+  const words = input
+    .replace(/["“”「」『』]/g, "")
+    .replace(/[\p{Extended_Pictographic}\u{FE0F}\u{200D}]/gu, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return words.length > MAX_WRITING_LENGTH ? "" : words;
 }
 
 /** 既存キャラの指名を検査する。名前は Danbooru へ送るだけで、プロンプトには入らない。 */
@@ -731,7 +743,7 @@ export function buildImagePrompt(
   const tail = [
     "safe",
     scene,
-    ...(plan.outdoor && !spec.skipScenery ? [SCENERY_TAGS] : []),
+    ...(plan.outdoor ? [SCENERY_TAGS] : []),
     plan.framing === "upper-body" ? "upper body" : "full body",
     spec.quality,
   ];
@@ -829,14 +841,16 @@ type MossStyle = { checkpoint: string; loras: Array<[string, number]>; trigger: 
 
 /**
  * 画風。合図の文は LoRA の学習時にキャプションの先頭に置いた文で、プロンプトの先頭に置く。
- * クレヨンは Base + crayon v2（Nagi 114枚、10 epoch）。合図の文にキャラ名を入れると、
- * 他のキャラに botたんの見た目が混ざったので外してある。
+ * suibari は SFT + suibari LoRA の 6 epoch（LoRA は fixtures/promptConfig.json の moss.styles.suibari と同じ）。
+ * 絵の中の文字を書き起こしたキャプションで学び直した v2 は、謎の文字が減らなかったので採らなかった。
+ * 合図の文のあとに手書き風の文を足す。鉛筆・色鉛筆の言い方も試したが、ラフなスケッチと平塗りの
+ * 言い方がいちばん手描きらしかった（2026-10-28）。
  */
 const MOSS_STYLES: Record<ImageStyle, MossStyle> = {
-  "crayon-diary": {
-    checkpoint: "moss_image_base_int8_convrot.safetensors",
-    loras: [["moss-crayon2-v1.safetensors", 1.0]],
-    trigger: "crayon picture diary style.",
+  suibari: {
+    checkpoint: "moss_image_sft_int8_convrot.safetensors",
+    loras: [["moss-suibari-v1-000006.safetensors", 1.0]],
+    trigger: "suibari style. A loose hand-drawn sketch with rough lines and simple flat colors.",
   },
   anime: {
     checkpoint: "moss_image_sft_int8_convrot.safetensors",
@@ -847,6 +861,27 @@ const MOSS_STYLES: Record<ImageStyle, MossStyle> = {
 
 /** MOSS のネガティブは短く保つ（評価では長いネガティブは効かなかった）。 */
 const MOSS_NEGATIVE = "nsfw, worst quality, bad anatomy, watermark, jpeg artifact";
+
+/**
+ * 文字を書かせない絵に足すネガティブ。
+ *
+ * 書く言葉が決まっていない文字（本の背表紙、メニュー板）は、MOSS が謎の文字で埋める。
+ * 言葉を指定すれば正しく書けるので、書かせるときは引用符で言葉を渡し、それ以外は書かせない
+ * （2026-10-28、bot-tan-imagegen で看板 8/8・宛名 5/6 が正しく書け、背表紙とメニューは謎の文字になった）。
+ *
+ * **「文字はない」と文で書いても効かない。** menu や screen の語に引かれて、かえってそれを描いた
+ * （同日、3場面×2シード）。文字の出やすい物はシーン変換の段で書かせない（PROSE_RULES）。
+ * ネガティブは少しだけ効いた。
+ */
+const MOSS_TEXT_NEGATIVE = "text, letters, writing, words, signature";
+
+/**
+ * 絵の中に書かせる言葉。
+ *  - "requested": 依頼文が頼んだ言葉（plan.prose.text）だけを書く。お絵描きの依頼で使う
+ *  - words と sentence: 呼び出し側が決めた言葉を、その文で書かせる（贈り物の手紙の宛名）
+ * 省くと何も書かせない。
+ */
+export type ImageWriting = "requested" | { words: string; sentence: string };
 
 /** `shimakaze (kancolle)` → `Shimakaze`、`kantai collection` → `Kantai Collection`。 */
 function titleCase(tag: string): string {
@@ -886,7 +921,7 @@ export function buildMossImagePrompt(
   plan: ImageScenePlan,
   style: ImageStyle,
   characters: ResolvedCharacter[] = [],
-  options: { outfit?: { kind: BotOutfit; casualTags?: string } } = {},
+  options: { outfit?: { kind: BotOutfit; casualTags?: string }; writing?: ImageWriting } = {},
 ): BuiltMossPrompt | null {
   const figures = selectFigures(plan, characters);
   const solo = figures.length === 1;
@@ -901,7 +936,13 @@ export function buildMossImagePrompt(
     ["Kotomi-chan", labels.has("kotomi-chan")],
     ["Morpho", morpho],
   ];
+  const writing = options.writing;
+  const words = writing === "requested" ? (plan.prose?.text ?? "") : (writing?.words ?? "");
+  // 書かせる言葉以外の引用は、gemma が勝手に書いた看板やメニューの文字。謎の文字の元になるので落とす。
+  const quoted = (text: string) => /["“”]/.test(text) && !(words && text.includes(`"${words}"`));
+
   let sentence = plan.prose?.sentence ?? "";
+  if (quoted(sentence)) sentence = "";
   const strays = named.filter(([name, drawn]) => !drawn && sentence.includes(name)).map(([name]) => name);
   if (!sentence || strays.length > 0) {
     if (strays.length > 0) console.warn("[WARN][IMGGEN] 描かない人の名前が文にあるのでタグから言い直す:", strays.join(", "));
@@ -926,11 +967,20 @@ export function buildMossImagePrompt(
   });
   if (morpho) people.push(`With ${pronoun} is ${labels.has("bot-tan") ? MOSS_MORPHO : "a big fluffy white Samoyed dog"}.`);
 
+  const props = (plan.prose?.props ?? []).filter((prop) => !quoted(prop));
+  const written = [sentence, ...props].some((text) => words && text.includes(`"${words}"`));
+  let writingSentence = "";
+  if (words && !written) {
+    writingSentence =
+      typeof writing === "object" ? writing.sentence : `The words "${words}" are clearly written in the picture.`;
+  }
+
   const spec = MOSS_STYLES[style];
   const prompt = [
     spec.trigger,
     sentence,
-    ...(plan.prose?.props ?? []),
+    ...props,
+    writingSentence,
     plan.prose?.background ?? "",
     fullBody ? "Full-body view." : "Upper-body view.",
     ...people,
@@ -940,7 +990,7 @@ export function buildMossImagePrompt(
 
   return {
     prompt,
-    negativePrompt: MOSS_NEGATIVE,
+    negativePrompt: words ? MOSS_NEGATIVE : `${MOSS_NEGATIVE}, ${MOSS_TEXT_NEGATIVE}`,
     regions: [],
     width: solo ? 832 : 1216,
     height: solo ? 1216 : 832,

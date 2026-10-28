@@ -5,11 +5,10 @@ import { MemoryService, botBiothythmManager, botLabelerManager } from "@bsky-aff
 import { BADGE_DEF } from "@bsky-affirmative-bot/shared-configs";
 import { AppBskyFeedPost } from "@atproto/api"; type Record = AppBskyFeedPost.Record;
 import { handleMode, isPast } from "./utils.js";
-import { generateFortuneResult, generateImage, isImageGenerationAvailable } from "@bsky-affirmative-bot/bot-brain";
+import { generateFortuneResult } from "@bsky-affirmative-bot/bot-brain";
 import { getLangStr, uniteDidNsidRkey } from "../bsky/util.js";
 import { UserInfoGemini, GeminiResponseResult } from "@bsky-affirmative-bot/shared-configs";
-import { claimDailyDrawing, releaseDailyDrawing } from "@bsky-affirmative-bot/database";
-import { claimedImageGenerator, composeFortuneImage, type FortuneImage } from "./fortuneImage.js";
+import { composeFortuneImage, type FortuneImage } from "./fortuneImage.js";
 import { agent } from "../bsky/agent.js";
 
 export class FortuneFeature implements BotFeature {
@@ -18,9 +17,8 @@ export class FortuneFeature implements BotFeature {
     /**
      * 作った占い画像を投稿URIごとに持っておく。
      *
-     * callbacks.ts は handle を3回までリトライするが、画像生成はリトライしてはいけない
-     * （imageGenClient.ts の requestImage のコメント）。投稿で落ちたときに描き直さないよう、
-     * 次の試行ではここから使う。成功したら消す。
+     * callbacks.ts は handle を3回までリトライする。投稿で落ちたときに占い直して
+     * 結果が変わらないよう、次の試行ではここから使う。成功したら消す。
      */
     private readonly prepared = new Map<string, FortuneImage>();
 
@@ -71,20 +69,7 @@ export class FortuneFeature implements BotFeature {
             console.log("[DEBUG] bot>>> " + JSON.stringify(fortune));
         }
 
-        const did = userinfo.follower.did;
-        // 背景の絵はお絵描きと同じ日次枠を使う（GPU の混み具合を見るための枠）。
-        const generate = claimedImageGenerator(
-            generateImage,
-            {
-                claim: () => claimDailyDrawing({ surface: "bsky", did, sourceUri: uri }),
-                release: (day) =>
-                    releaseDailyDrawing({ surface: "bsky", sourceUri: uri, day }).catch((error) => {
-                        console.error(`[ERROR][${did}] Failed to release fortune drawing claim:`, error);
-                    }),
-            },
-            did,
-        );
-        const image = await composeFortuneImage(fortune, { generateImage: generate, isImageGenerationAvailable }, did);
+        const image = await composeFortuneImage(fortune);
         // 3回とも失敗した投稿のぶんは消されずに残るので、古いものから捨てる。
         if (this.prepared.size >= 20) this.prepared.delete(this.prepared.keys().next().value!);
         this.prepared.set(uri, image);

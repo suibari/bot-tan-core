@@ -24,21 +24,20 @@ The bot has the following features:
 9. **Diary mode**: Summarizes your daily posts and replies every evening at around 22:00 with a diary image and a daily "Title Badge" (valid for 24 hours).
 10. **Anniversary mode**: Celebrates preset holidays, your personal registered anniversaries, and your Bluesky registration date. For personal registered anniversaries, it gifts you an "Anniversary Badge" (valid for 24 hours).
 11. **Year Recap**: Collects your posts for the past year (up to 1,000 posts) and analyzes monthly activity, top words, and top interacted users to reply with a yearly summary image.
-12. **Drawing**: Ask Bot-tan for a picture and she replies with a crayon drawing for you.
-13. **Badge (Bluesky Label) Feature**: Gifts special badges and titles directly onto your Bluesky profile under specific conditions.
+12. **Badge (Bluesky Label) Feature**: Gifts special badges and titles directly onto your Bluesky profile under specific conditions.
 
 Joining the bot community unlocks additional features.
 
-- 🎮 **Discord Community**: Join the [Bot-tan Discord Server](https://discord.gg/hshXWQEMgu) and link your Bluesky account to access the Diary feature, Cheering feature, Anniversary feature, Year Recap feature, Drawing feature, and Team Affirmation Badge.
+- 🎮 **Discord Community**: Join the [Bot-tan Discord Server](https://discord.gg/hshXWQEMgu) and link your Bluesky account to access the Diary feature, Cheering feature, Anniversary feature, Year Recap feature, and Team Affirmation Badge.
 - 💖 **Subscription (Pixiv Fanbox)**: Support on [Fanbox](https://suibari.fanbox.cc/posts/10174305) to additionally access the Conversation feature and high-quality AI replies.
 
 Below is a summary of features available at each tier.
 
-| Tier | Template Replies | AI Replies | Fortune | Frequency Control | Conversation | Analysis | Cheering | DJ | Diary | Anniversary | Year Recap | Drawing | Badges※1 |
-| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| Regular Follower | ✓ | ✓※2 | ✓ | ✓ | | ✓ | | ✓ | | | | | ✓ |
-| Discord Member   | ✓ | ✓※2 | ✓ | ✓ | | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Subscriber       | ✓ | ✓   | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Tier | Template Replies | AI Replies | Fortune | Frequency Control | Conversation | Analysis | Cheering | DJ | Diary | Anniversary | Year Recap | Badges※1 |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| Regular Follower | ✓ | ✓※2 | ✓ | ✓ | | ✓ | | ✓ | | | | ✓ |
+| Discord Member   | ✓ | ✓※2 | ✓ | ✓ | | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Subscriber       | ✓ | ✓   | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 ※1: Regular followers and Discord members can earn all badges except the Team Affirmation Badge. Discord members can also earn the Team Affirmation Badge.
 ※2: AI-generated replies for regular followers and Discord members occur randomly.
@@ -144,21 +143,12 @@ Extracts a beautiful summary of your entire year's activities on Bluesky!
 
 (*You can only use this once every **6 days**.*)
 
-### Drawing
-*(※Discord Member or Subscriber Member Only)*
+### Drawing (Nagi only)
+Drawing requests on Bluesky have ended. Drawing is available to all users on Nagi.
 
-Ask Bot-tan for a picture and she will draw one for you with her crayons.
-There is no per-user daily limit on drawing requests.
+You can ask Bot-tan for a picture, and when something makes you very happy or you are feeling very down, she may also decide on her own to draw you one. In the pictures she sends on her own, your name is written somewhere that fits the scene, such as a letter, a card or a sign. Requests have no per-user daily limit; drawings Bot-tan sends on her own are limited to one per user per day.
 
-1. Make sure you are followed back by the bot.
-2. Mention or reply to the bot asking for a picture and saying what to draw (e.g., "Bot-tan, draw me a cat", "botたん、猫の絵を描いて！").
-   There is no fixed keyword. Bot-tan reads your post to decide whether it is a drawing request.
-3. The bot draws the picture and replies with it. Bot-tan herself appears in the picture.
-
-*Note: Bot-tan cannot draw sexual or violent content, real people, or characters from existing works.*
-*Note: When she is busy or the drawing does not turn out, she tells you instead. If a drawing fails, you can try asking again later.*
-
-On Nagi, drawing is available to all users. You can ask Bot-tan for a picture just like on Bluesky, and when something makes you very happy or you are feeling very down, she may also decide on her own to draw you one. Requests have no per-user daily limit; drawings Bot-tan sends on her own are limited to one per user per day.
+If you want words in the picture, write the words in your request (e.g., "Draw Bot-tan holding a sign that says \"Good morning\""). Otherwise the picture has no writing in it.
 
 ---
 

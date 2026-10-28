@@ -1,7 +1,12 @@
+import { eq } from "drizzle-orm";
 import {
   claimDailyDrawing,
+  db,
   drawingServiceDailyLimit,
   hasDailyDrawingGift,
+  nagiActors,
+  nagiPreferredNames,
+  nagiProfiles,
   releaseDailyDrawing,
   type DrawingClaimResult,
 } from "@bsky-affirmative-bot/database";
@@ -10,10 +15,12 @@ import {
   isImageGenerationAvailable,
   judgeDrawingGift,
   judgeDrawingRequest,
+  writableWords,
   type DrawingGiftJudgement,
   type DrawingGiftMood,
   type DrawingRequestJudgement,
   type GeneratedImage,
+  type ImageWriting,
 } from "@bsky-affirmative-bot/bot-brain";
 import { hasDrawingHint } from "@bsky-affirmative-bot/shared-configs";
 import type { ImageRef } from "@bsky-affirmative-bot/shared-configs";
@@ -33,6 +40,11 @@ import { uploadScheduledImage } from "./ScheduledPostFeature.js";
  * 絵はどちらも、きっかけになったユーザー投稿への直接リプライとして置く。
  * 受付・通常返信へぶら下げると直接の返信先が botたん自身になり、完成時の通知が
  * ユーザーへ届かないため。
+ *
+ * ## 絵の中の文字
+ * 贈り物は、相手の名前を宛名にした言葉（「〇〇さんへ」）を絵に入れる（giftWriting）。何に書くか
+ * （手紙、カード、看板、ケーキのプレートなど）は場面に合わせて gemma が決める。
+ * 依頼は、依頼文が頼んだ言葉だけを書く。どちらでもない文字は書かせない（謎の文字になる）。
  *
  * ## 依頼には AI の返信を返さない
  * 返信ワーカーは依頼に気付くと、AI の返信の代わりに「描いてみるね」を返す（NagiReplyWorker）。
@@ -125,6 +137,40 @@ export function nagiDrawingGiftText(mood: DrawingGiftMood, lang: DrawingLang): s
     : "I drew a picture for you today. Please don't push yourself, and take it easy.";
 }
 
+/** 宛名に使う名前の上限。長い名前は絵の中で崩れる。 */
+const MAX_GIFT_NAME_LENGTH = 12;
+
+/**
+ * 贈り物の絵に入れる宛名。名前が使えない（空、長すぎる、絵文字だけ）ときは文字を入れない。
+ * 日本語は「〜さんへ」。呼び名に敬称が付いていれば重ねない。
+ *
+ * sentence は、gemma が場面のどこにも宛名を書かなかったときの代わり（手紙を持たせる）。
+ */
+export function giftWriting(name: string | null, lang: DrawingLang): ImageWriting | undefined {
+  const clean = writableWords(name ?? "");
+  if (!clean || clean.length > MAX_GIFT_NAME_LENGTH) return undefined;
+  const words =
+    lang === "ja" ? `${clean}${/(さん|ちゃん|くん|君|様|さま)$/.test(clean) ? "" : "さん"}へ` : `To ${clean}`;
+  return {
+    words,
+    sentence: `Bot-tan holds out a handwritten letter with both hands, and the letter clearly reads "${words}".`,
+  };
+}
+
+/**
+ * 贈り物の場面の材料。宛名があれば、何に書くかを場面に合わせて選ばせる
+ * （シーン変換の text と、それを書いた小物の文になる。buildImagePrompt.ts の PROSE_RULES）。
+ */
+export function giftSourceText(scene: string, writing: ImageWriting | undefined): string {
+  const source = `### botたんが贈る絵の場面\n${scene}`;
+  if (typeof writing !== "object") return source;
+  return (
+    `${source}\n### 絵に書く言葉\n「${writing.words}」。この言葉をそのまま、場面の中にある物に書く。` +
+    "手紙やカードに限らず、場面にいちばん合う物を選ぶ（ケーキならチョコのプレート、ゴールなら横断幕、" +
+    "教室なら黒板、マグカップ、旗、看板など）。"
+  );
+}
+
 export type NagiDrawingThread = {
   sourceUri: string;
   authorDid: string;
@@ -163,8 +209,10 @@ export type NagiDrawingDeps = {
   judgeGift(text: string, images?: readonly ImageRef[]): Promise<DrawingGiftJudgement>;
   claim(did: string, sourceUri: string): Promise<DrawingClaimResult>;
   release(sourceUri: string, day: string): Promise<void>;
+  /** 贈り物の手紙の宛名。覚えている呼び名、Nagi の表示名、ハンドルの順（ラジオと同じ）。 */
+  recipientName(did: string): Promise<string | null>;
   /** sourceText はシーン変換（planImageScene）の材料。見出し付きで渡す。 */
-  draw(sourceText: string): Promise<GeneratedImage | null>;
+  draw(sourceText: string, writing?: ImageWriting): Promise<GeneratedImage | null>;
   publish(thread: NagiDrawingThread, content: NagiDrawingContent): Promise<void>;
 };
 
@@ -176,10 +224,10 @@ async function drawAndPublish(
   job: NagiDrawingJob,
   day: string,
   deps: NagiDrawingDeps,
-  content: { sourceText: string; text: string; alt: string; failedText?: string },
+  content: { sourceText: string; writing?: ImageWriting; text: string; alt: string; failedText?: string },
 ): Promise<NagiDrawingOutcome> {
   try {
-    const image = await deps.draw(content.sourceText);
+    const image = await deps.draw(content.sourceText, content.writing);
     if (image) {
       await deps.publish(job, { text: content.text, image, alt: content.alt });
       return "drawn";
@@ -212,6 +260,7 @@ export async function processNagiDrawingJob(
     return drawAndPublish(job, job.day, deps, {
       // 見出しを付けて渡す。シーン変換は材料に書かれたものを描くので、何の記述かを明示しておく。
       sourceText: `### 描いてほしいと頼まれた絵\n${job.scene ?? job.subject}`,
+      writing: "requested",
       text: nagiDrawingRequestText("drawn", job.lang, job.subject),
       alt: job.lang === "ja" ? `全肯定botたんが描いた絵: ${job.subject}` : `A picture drawn by Bot-tan: ${job.subject}`,
       failedText: nagiDrawingRequestText("failed", job.lang, job.subject),
@@ -227,9 +276,11 @@ export async function processNagiDrawingJob(
   const claim = await deps.claim(job.authorDid, job.sourceUri);
   if (claim.status !== "claimed") return "limited";
 
+  const writing = giftWriting(await deps.recipientName(job.authorDid).catch(() => null), job.lang);
   return drawAndPublish(job, claim.day, deps, {
     // 材料は判定が書いた「贈る絵の場面」で、投稿本文ではない（judgeDrawing.ts の DRAWING_GIFT_SYSTEM）。
-    sourceText: `### botたんが贈る絵の場面\n${judgement.scene}`,
+    sourceText: giftSourceText(judgement.scene, writing),
+    writing,
     text: nagiDrawingGiftText(judgement.mood, job.lang),
     // 場面の記述は落ち込んだ投稿から作ったものなので、代替テキストへは出さない。
     alt: job.lang === "ja" ? "全肯定botたんが描いた絵" : "A picture drawn by Bot-tan",
@@ -363,7 +414,16 @@ const defaultDeps: NagiDrawingDeps = {
   judgeGift: (text, images) => judgeDrawingGift(text, images),
   claim: (did, sourceUri) => claimDailyDrawing({ surface: "nagi", did, sourceUri, kind: "gift" }),
   release: (sourceUri, day) => releaseDailyDrawing({ surface: "nagi", sourceUri, day }),
-  draw: (sourceText) => generateImage(sourceText, IMAGE_MAX_BYTES, { purpose: "picture" }),
+  async recipientName(did) {
+    const [preferred, profile, actor] = await Promise.all([
+      db.select({ name: nagiPreferredNames.name }).from(nagiPreferredNames).where(eq(nagiPreferredNames.did, did)).limit(1),
+      db.select({ displayName: nagiProfiles.displayName }).from(nagiProfiles).where(eq(nagiProfiles.did, did)).limit(1),
+      db.select({ handle: nagiActors.handle }).from(nagiActors).where(eq(nagiActors.did, did)).limit(1),
+    ]);
+    // ハンドルは最初の区切りまで（suibari.bsky.social → suibari）。
+    return preferred[0]?.name || profile[0]?.displayName || actor[0]?.handle?.split(".")[0] || null;
+  },
+  draw: (sourceText, writing) => generateImage(sourceText, IMAGE_MAX_BYTES, { purpose: "picture", writing }),
   async publish(thread, content) {
     const uploaded = content.image
       ? await uploadScheduledImage({
