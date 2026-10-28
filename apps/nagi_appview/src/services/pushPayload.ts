@@ -21,7 +21,7 @@
 
 /** 通知種別。nagi.notifications.type と対応する。 */
 export type PushNotificationType =
-  "reply" | "reaction" | "mention" | "diary" | "analysis" | "gift";
+  "reply" | "reaction" | "mention" | "diary" | "analysis" | "gift" | "emoji";
 
 export interface PushPayload {
   title: string;
@@ -124,6 +124,15 @@ function compose(
           ? `あなたの『${actionText}』が${name}さんに届きました`
           : `あなたのカードが${name}さんに届きました`,
         body: "",
+      };
+    case "emoji":
+      // 絵文字の生成が終わった。actionText は依頼した文字列、contentText は失敗のときだけ "failed"。
+      return {
+        title:
+          contentText === "failed"
+            ? `「${actionText}」の絵文字を作れませんでした`
+            : `「${actionText}」の絵文字ができました`,
+        body: contentText === "failed" ? "" : "候補から選んで登録できます",
       };
   }
 }

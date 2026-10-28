@@ -1,0 +1,28 @@
+{
+  "lexicon": 1,
+  "id": "com.suibari.nagi.getEmojiGenerations",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "自分の絵文字生成を新しい順に返す。最新の結果1件と、描いている途中の依頼1件まで（新しい結果が出ると前の結果は消える）。候補は透過 PNG の data URL で、1日で消える。要認証。",
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "generations"
+          ],
+          "properties": {
+            "generations": {
+              "type": "array",
+              "items": {
+                "type": "unknown"
+              },
+              "description": "EmojiGenerationView（id, prompt, lettering?, name, description, aspect, state, queuePosition?, candidates, total, error?, createdAt, finishedAt?, expiresAt）。state は queued / running / done / failed、queuePosition は queued のときだけ。"
+            }
+          }
+        }
+      }
+    }
+  }
+}

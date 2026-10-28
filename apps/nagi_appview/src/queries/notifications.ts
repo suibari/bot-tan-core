@@ -60,7 +60,7 @@ const validReactionNotification = sql`
  * ポストの URI ではないので、引き当ての対象からも返り値からも外す。
  */
 const hasPost = (type: (typeof nagiNotifications.$inferSelect)["type"]) =>
-  type !== "diary" && type !== "analysis" && type !== "gift";
+  type !== "diary" && type !== "analysis" && type !== "gift" && type !== "emoji";
 
 export async function getNotifications(did: string, limit: number) {
   const mutes = await loadMutes(did);

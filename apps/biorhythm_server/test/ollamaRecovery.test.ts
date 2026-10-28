@@ -63,6 +63,34 @@ test("disabled recovery, cooldown and incorrect reload context do not report suc
   assert.equal(reloads, 1);
 });
 
+test("a released imagegen skips the cooldown and shortens stabilization", async () => {
+  const policy = new OllamaRecovery({ lastAttemptAt: 1000, failures: 0, requiredBytes: 9 * GiB });
+  let reloads = 0; let status: any;
+  const tick = (time: number, released: boolean) => policy.tick(mixed, time, true, async () => { reloads++; return full; },
+    async d => { status = d; }, async () => {}, released);
+  // 直前に試行したばかりなので、通常は30分待つ
+  await tick(2000, false);
+  await tick(200_000, false);
+  assert.equal(status.recovery, "cooldown");
+  // imggen が降りたら待たない。ただし30秒は安定を確かめる
+  policy.resetWindow();
+  await tick(300_000, true);
+  assert.equal(status.recovery, "stabilizing");
+  await tick(330_000, true);
+  assert.equal(reloads, 1);
+  assert.equal(status.recovery, "recovered");
+});
+
+test("a released imagegen still respects the failure circuit and capacity", async () => {
+  const policy = new OllamaRecovery({ lastAttemptAt: 0, failures: 3, requiredBytes: 9 * GiB });
+  let status: any;
+  await policy.tick(mixed, 1000, true, async () => full, async d => { status = d; }, async () => {}, true);
+  assert.equal(status.recovery, "blocked");
+  const short = new OllamaRecovery();
+  await short.tick({ ...mixed, freeBytes: GiB }, 1000, true, async () => full, async d => { status = d; }, async () => {}, true);
+  assert.equal(status.recovery, "capacity");
+});
+
 test("reentrant ticks cannot issue overlapping reloads", async () => {
   const policy = new OllamaRecovery(); let reloads = 0;
   let release!: () => void;

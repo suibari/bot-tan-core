@@ -118,3 +118,18 @@ test("postPushBody normalizes whitespace and truncates long text", () => {
   const long = "波".repeat(81);
   assert.equal(postPushBody({ text: long }), `${"波".repeat(80)}…`);
 });
+
+test("emoji generation push names the requested text", () => {
+  const done = buildPushPayload({ type: "emoji", notificationId: "n1", actorName: "botたん", actionText: "それな" });
+  assert.equal(done.title, "「それな」の絵文字ができました");
+  assert.equal(done.body, "候補から選んで登録できます");
+  const failed = buildPushPayload({
+    type: "emoji",
+    notificationId: "n2",
+    actorName: "botたん",
+    actionText: "それな",
+    contentText: "failed",
+  });
+  assert.equal(failed.title, "「それな」の絵文字を作れませんでした");
+  assert.equal(failed.tag, "emoji-n2");
+});

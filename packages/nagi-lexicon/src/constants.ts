@@ -127,6 +127,12 @@ export const NAGI = {
   donateCards: "com.suibari.nagi.donateCards",
   takeBoardCard: "com.suibari.nagi.takeBoardCard",
   /**
+   * 絵文字の生成（docs/emoji-generation.md）。GPU 機の imggen で候補を描き、AppView の DB に
+   * 下書きとして1日置く。登録は本人がいつものカスタム絵文字の登録で行う。要認証。
+   */
+  createEmojiGeneration: "com.suibari.nagi.createEmojiGeneration",
+  getEmojiGenerations: "com.suibari.nagi.getEmojiGenerations",
+  /**
    * ゼンカツ！の提出。**ユーザー自身の repo** に置く（rkey = themeDate なので1日1本）。
    * ドローと違いガチャ結果を含まず、既に所持している札を参照するだけなので、
    * 所持・クールダウン・当日かを AppView が取り込み時に照合できる＝偽レコードを索引しない。

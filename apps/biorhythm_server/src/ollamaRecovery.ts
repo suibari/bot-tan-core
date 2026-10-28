@@ -71,9 +71,15 @@ export class OllamaRecovery {
         || this.state.failures < 0 || this.state.requiredBytes < 9 * GiB) throw new Error("Invalid recovery state");
   }
   resetWindow(): void { this.sufficientSince = null; }
+  /**
+   * imagegenReleased: imggen（ComfyUI）が直前まで GPU を使っていて、今は降りている。
+   * 混在の原因が絵文字などの画像生成と分かっているので、30分の再試行間隔を待たず、安定確認も
+   * 30秒に縮める。待つと、その間 bot の返信が CPU 混在のまま遅くなる（2026-10-28）。
+   * 連続失敗での停止と容量の確認はそのまま効く。
+   */
   async tick(p: Placement | null, now: number, enabled: boolean,
     recover: () => Promise<Placement>, publish: (detail: Record<string, unknown>) => Promise<void>,
-    save: (state: RecoveryState) => Promise<void>): Promise<void> {
+    save: (state: RecoveryState) => Promise<void>, imagegenReleased = false): Promise<void> {
     if (this.inFlight) return;
     this.inFlight = true;
     try {
@@ -98,9 +104,10 @@ export class OllamaRecovery {
       const enough = p.freeBytes + p.gpuBytes >= this.state.requiredBytes;
       if (!enough) this.resetWindow();
       else this.sufficientSince ??= now;
-      const cooling = this.state.lastAttemptAt > 0 && now - this.state.lastAttemptAt < 30 * 60_000;
+      const cooling = !imagegenReleased && this.state.lastAttemptAt > 0 && now - this.state.lastAttemptAt < 30 * 60_000;
+      const stabilizeMs = imagegenReleased ? 30_000 : 120_000;
       const reason = !enabled ? "disabled" : this.state.failures >= 3 ? "blocked" : !enough ? "capacity"
-        : cooling ? "cooldown" : now - this.sufficientSince! < 120_000 ? "stabilizing" : "recovering";
+        : cooling ? "cooldown" : now - this.sufficientSince! < stabilizeMs ? "stabilizing" : "recovering";
       await publish({ ...detail, recovery: reason });
       if (reason !== "recovering") return;
       this.state.lastAttemptAt = now;

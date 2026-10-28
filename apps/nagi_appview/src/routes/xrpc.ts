@@ -89,6 +89,10 @@ import {
   takeBoardCard,
 } from "../queries/cardBoard.js";
 import { getNewsQuotes } from "../queries/newsQuotes.js";
+import {
+  createEmojiGeneration,
+  getEmojiGenerations,
+} from "../services/emojiGeneration.js";
 import { loadPersonalizationContext } from "../queries/personalizedFeed.js";
 
 /** 全肯定ニュースの動的枠の件数。一覧の頭に置くので、多いと時系列が押し下げられる。 */
@@ -1424,6 +1428,33 @@ xrpc.post(
       res
         .set("Cache-Control", "private, no-store")
         .json(await takeBoardCard(req.viewerDid!, req.body));
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+// 絵文字の生成（docs/emoji-generation.md）。依頼と候補は本人にしか見せない。
+xrpc.post(
+  `/${NAGI.createEmojiGeneration}`,
+  requiredServiceAuth(NAGI.createEmojiGeneration),
+  async (req, res, next) => {
+    try {
+      res
+        .set("Cache-Control", "private, no-store")
+        .json(await createEmojiGeneration(req.viewerDid!, req.body));
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+xrpc.get(
+  `/${NAGI.getEmojiGenerations}`,
+  requiredServiceAuth(NAGI.getEmojiGenerations),
+  async (req, res, next) => {
+    try {
+      res
+        .set("Cache-Control", "private, no-store")
+        .json(await getEmojiGenerations(req.viewerDid!));
     } catch (e) {
       next(e);
     }
