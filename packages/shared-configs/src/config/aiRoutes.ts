@@ -280,8 +280,6 @@ export const AI_FEATURES = {
   NAGI_ZENKATSU: "lite-standard",
   // 前日ぶんの「今日のナギカツ部長」を1日1回選ぶ。候補はサーバが数件へ絞ってから渡す。
   NAGI_ZENKATSU_AWARD: "lite-standard",
-  NAGI_CHANNEL_WELCOME: "lite-flex", // チャンネル作成時の歓迎
-  NAGI_CHANNEL_TOPIC: "lite-flex", // チャンネルへの話題ふり
   // 呼び名の指定/訂正かどうかの判定。返信生成と並列だが投稿前に完了を待つため、
   // 通常返信と同じく Standard で応答時間を優先する。
   NAGI_NAME_INTENT: "lite-standard",

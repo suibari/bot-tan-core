@@ -11,10 +11,6 @@ import {
   syncNagiBotProfile,
 } from "./NagiBotProfileFeature.js";
 import { onNagiPost } from "./NagiReplyFeature.js";
-import {
-  onNagiChannel,
-  startNagiChannelTopicScheduler,
-} from "./NagiChannelFeature.js";
 import { startNagiReplyWorker } from "./NagiReplyWorker.js";
 import { startNagiAnalysisWorker } from "./NagiAnalysisWorker.js";
 import { startNagiCardCommentWorker } from "./NagiCardCommentWorker.js";
@@ -63,12 +59,10 @@ async function start() {
 
   startBotJetstream({
     endpoint: process.env.URL_JETSTREAM,
-    // Phase 2 の「創設時の盛り上げ投稿」に備え、CH 作成イベントも購読しておく（ハンドラは現状スタブ）。
-    wantedCollections: [NAGI.post, STANDARD_SITE_DOCUMENT, NAGI.channel],
+    wantedCollections: [NAGI.post, STANDARD_SITE_DOCUMENT],
     onCreate: {
       [NAGI.post]: onNagiPost,
       [STANDARD_SITE_DOCUMENT]: onNagiPost,
-      [NAGI.channel]: onNagiChannel,
     },
     onHealth: (event) => {
       const report = event.ok
@@ -113,8 +107,6 @@ async function start() {
   startNewsInterestWorker();
   schedulePositiveNewsUpdates();
   scheduleUserNewsReviews();
-  // 過疎チャンネルへの話題提供（Phase 2）。作成時の盛り上げ投稿は onNagiChannel が担う。
-  startNagiChannelTopicScheduler();
 
   scheduleAllNagiDiaries().catch((error) => {
     console.error("[ERROR][NAGI] Failed to schedule diaries:", error);
