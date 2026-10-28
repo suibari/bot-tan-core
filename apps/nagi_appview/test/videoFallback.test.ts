@@ -19,6 +19,7 @@ const PDS_BLOB = `https://pds.example/xrpc/com.atproto.sync.getBlob?did=did%3Apl
 
 type Setup = {
   upstreamStatus?: number;
+  upstreamFiles?: Record<string, { status?: number; body: string }>;
   blob?: { status?: number; type?: string; body?: Uint8Array | ReadableStream<Uint8Array> };
   postExists?: boolean;
   runFfmpeg?: (args: string[], cwd: string) => Promise<void>;
@@ -46,7 +47,15 @@ async function setup(options: Setup = {}) {
     fetch: (async (input: string | URL) => {
       const url = input.toString();
       requests.push(url);
-      if (url.startsWith(UPSTREAM)) return new Response("#EXTM3U", { status: options.upstreamStatus ?? 404 });
+      if (url.startsWith(UPSTREAM)) {
+        const file = url.slice(UPSTREAM.length + 1);
+        const entry = options.upstreamFiles?.[file];
+        return new Response(entry?.body ?? (file === "playlist.m3u8"
+          ? "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1000\n360p/video.m3u8?session_id=test\n"
+          : file.startsWith("360p/video.m3u8")
+            ? '#EXTM3U\n#EXT-X-MAP:URI="init.mp4"\n#EXTINF:6,\nseg000.m4s\n'
+            : "segment"), { status: entry?.status ?? options.upstreamStatus ?? 404 });
+      }
       if (url === PDS_BLOB) {
         const blob = options.blob ?? {};
         return new Response(blob.body ?? new Uint8Array([1, 2, 3]), {
@@ -80,8 +89,38 @@ test("video.bsky.app に残っている動画はそちらへ回し、PDS には�
     kind: "upstream",
     url: `${UPSTREAM}/thumbnail.jpg`,
   });
-  assert.equal(env.requests.length, 1, "有ると分かった結果はしばらく覚えておく");
+  assert.equal(env.requests.length, 4, "有ると分かった結果はしばらく覚えておく");
   assert.equal(env.ffmpegRuns(), 0);
+});
+
+test("親だけ200でも、子・init・動画が404ならPDSへ切り替える", async () => {
+  for (const file of ["360p/video.m3u8?session_id=test", "360p/init.mp4", "360p/seg000.m4s"]) {
+    await using env = await setup({
+      upstreamStatus: 200,
+      upstreamFiles: { [file]: { status: 404, body: "video not found" } },
+    });
+    assert.equal((await env.fallback.resolve(DID, CID, "playlist.m3u8")).kind, "local", file);
+    assert.ok(env.requests.includes(PDS_BLOB));
+  }
+});
+
+test("一部の画質だけ消えていてもPDSへ切り替える", async () => {
+  await using env = await setup({
+    upstreamStatus: 200,
+    upstreamFiles: {
+      "playlist.m3u8": { body: "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1000\n360p/video.m3u8?session_id=test\n#EXT-X-STREAM-INF:BANDWIDTH=2000\n720p/video.m3u8\n" },
+      "720p/video.m3u8": { status: 404, body: "video not found" },
+    },
+  });
+  assert.equal((await env.fallback.resolve(DID, CID, "playlist.m3u8")).kind, "local");
+});
+
+test("空の一覧や外部ホストへの参照は転送せずPDSへ切り替える", async () => {
+  for (const body of ["#EXTM3U", "not a playlist", "#EXTM3U\nhttps://internal.example/secret"]) {
+    await using env = await setup({ upstreamStatus: 200, upstreamFiles: { "playlist.m3u8": { body } } });
+    assert.equal((await env.fallback.resolve(DID, CID, "playlist.m3u8")).kind, "local");
+    assert.ok(env.requests.every((url) => !url.includes("internal.example")));
+  }
 });
 
 test("video.bsky.app から消えた動画は、PDS の mp4 から HLS とサムネイルを作って返す", async () => {
