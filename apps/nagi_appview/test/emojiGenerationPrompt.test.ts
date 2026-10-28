@@ -24,6 +24,10 @@ test("lettering widens the emoji as the text gets longer", () => {
   assert.equal(letteringAspect("ありがとう"), "long");
   // 結合文字も1文字
   assert.equal(letteringAspect("👍🏽"), "square");
+  // 横に絵も描くなら1段広げる
+  assert.equal(letteringAspect("おつ", true), "wide");
+  assert.equal(letteringAspect("新機能！", true), "long");
+  assert.equal(letteringAspect("ありがとう", true), "xlong");
 });
 
 test("parseEmojiGenerationInput takes one prompt", () => {
@@ -62,6 +66,37 @@ test("normalizeEmojiPlan sizes lettering by length and drops overly long text", 
     outfit: "none",
   });
   assert.equal(normalizeEmojiPlan({ subject: "", lettering: "草" }), undefined);
+});
+
+test("normalizeEmojiPlan widens lettering drawn beside a picture", () => {
+  assert.deepEqual(
+    normalizeEmojiPlan({ subject: "A cat saying おつ.", lettering: "おつ", drawing: true, name: "otsu_cat", description: "おつねこ" }),
+    { name: "otsu_cat", description: "おつねこ", subject: "A cat saying おつ.", lettering: "おつ", drawing: true, aspect: "wide", outfit: "none" },
+  );
+  // botたんの名前があれば、gemma が false と返しても絵として扱う
+  assert.deepEqual(
+    normalizeEmojiPlan(
+      { subject: "Bot-tan happily presenting the words 新機能！.", lettering: "新機能！", drawing: false, name: "new_feature", description: "新機能" },
+      "新機能！の文字と喜んでいるbotたん",
+    ),
+    {
+      name: "new_feature",
+      description: "新機能",
+      subject: "Bot-tan happily presenting the words 新機能！.",
+      lettering: "新機能！",
+      drawing: true,
+      aspect: "long",
+      outfit: "none",
+    },
+  );
+  // 文字が無ければ drawing は付けない（縦横比は gemma の判断のまま）
+  assert.deepEqual(normalizeEmojiPlan({ subject: "A cat.", lettering: "", drawing: true, aspect: "square" }), {
+    name: "emoji",
+    description: "",
+    subject: "A cat.",
+    aspect: "square",
+    outfit: "none",
+  });
   assert.equal(normalizeEmojiPlan(undefined), undefined);
 });
 
@@ -136,6 +171,17 @@ test("characterDescriptions adds the looks of bot-tan and friends", () => {
     /Bot-tan cheering\. Upper-body view, from the chest up\. Bot-tan, a teenage girl .*\. The text "フレーフレー"/,
   );
   assert.match(request.negativePrompt, /full body, legs, feet, shoes/);
+  assert.doesNotMatch(request.prompt, /as tall as the picture/);
+
+  const beside = buildEmojiImageRequest({
+    plan: { name: "cheer", description: "応援", subject: "Bot-tan cheering", lettering: "フレーフレー", drawing: true, aspect: "xlong", outfit: "none" },
+    style: 0,
+    key: "magenta",
+    characters: characterDescriptions("フレーフレーと応援するbotたん"),
+  });
+  assert.equal(beside.width, 1536);
+  assert.equal(beside.height, 384);
+  assert.match(beside.prompt, /Bot-tan, a teenage girl .*\. The text "フレーフレー" is written in one horizontal line beside the picture, .*\. The letters are huge, as tall as the picture, filling the full height of the image\./);
 });
 
 test("characterDescriptions swaps or drops the outfit as requested", () => {
