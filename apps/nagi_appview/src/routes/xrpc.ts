@@ -49,7 +49,11 @@ import {
   getLinkMetadata,
   getLinkThumbnail,
 } from "../services/linkMetadata.js";
-import { getEmoji, searchEmojis } from "../services/emoji.js";
+import {
+  getEmoji,
+  searchEmojis,
+  searchEmojisSemantic,
+} from "../services/emoji.js";
 import { resolveLexicon } from "../queries/resolveLexicon.js";
 import { getMutesView, setMute } from "../queries/mutes.js";
 import {
@@ -522,14 +526,24 @@ xrpc.get(
   optionalServiceAuth(NAGI.searchEmojis),
   async (req, res, next) => {
     try {
+      const q = String(req.query.q ?? "").slice(0, 64) || undefined;
+      // 意味検索は検索語があるときだけ。空なら従来の新着一覧（ページングあり）。
+      const semantic = req.query.semantic === "true" && q;
       res.set("Cache-Control", "public, max-age=60").json(
-        await searchEmojis({
-          q: String(req.query.q ?? "") || undefined,
-          repo: String(req.query.repo ?? "") || undefined,
-          excludeRepo: String(req.query.excludeRepo ?? "") || undefined,
-          limit: limit(req.query.limit),
-          cursor: String(req.query.cursor ?? "") || undefined,
-        }),
+        semantic
+          ? await searchEmojisSemantic({
+              q,
+              limit: limit(req.query.limit),
+              includeUnicode: req.query.includeUnicode === "true",
+              preferRepo: String(req.query.preferRepo ?? "") || undefined,
+            })
+          : await searchEmojis({
+              q,
+              repo: String(req.query.repo ?? "") || undefined,
+              excludeRepo: String(req.query.excludeRepo ?? "") || undefined,
+              limit: limit(req.query.limit),
+              cursor: String(req.query.cursor ?? "") || undefined,
+            }),
       );
     } catch (e) {
       next(e);

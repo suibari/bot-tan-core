@@ -243,6 +243,7 @@ bsky の全機能は `callbacks.ts` の共通リトライ（初回+2回）に包
 | `NAGI_NAME_INTENT` | `lite-standard` | 呼称指定・訂正の判定（返信投稿前に完了待ち） |
 | `NAGI_DRAWING_GIFT` | `ollama-chat` | お絵描きの贈り物: 投稿者の気持ちが大きく動いているかと、贈る絵の場面 |
 | `NAGI_AUTO_REACTION` | `ollama-chat` | botたん が返信・総評と同時に付ける最初の絵文字選び（ローカル固定） |
+| `NAGI_EMOJI_CAPTION` | `ollama-chat` | カスタム絵文字の画像から文字と連想語を読み取る（絵文字の意味検索の材料。ローカル固定） |
 
 Nagi のリプライは**失敗するたびに段を上げる再試行ラダー**になっている（`apps/nagi_bot_server/src/nagiReplyRetry.ts`）。
 段の刻み方（1-2 / 3-4 / 5以降）はコード側、各段が何を使うかは上の3キーが決める。

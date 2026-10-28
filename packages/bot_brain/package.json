@@ -20,6 +20,11 @@
       "import": "./dist/ai/aiCallStats.js",
       "default": "./dist/ai/aiCallStats.js"
     },
+    "./emoji-caption": {
+      "types": "./dist/ai/captionEmoji.d.ts",
+      "import": "./dist/ai/captionEmoji.js",
+      "default": "./dist/ai/captionEmoji.js"
+    },
     "./predefined-affirmation": {
       "types": "./dist/predefinedAffirmation.d.ts",
       "import": "./dist/predefinedAffirmation.js",

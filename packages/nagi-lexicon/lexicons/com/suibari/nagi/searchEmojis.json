@@ -8,6 +8,20 @@
         "type": "params",
         "properties": {
           "q": { "type": "string", "maxLength": 64 },
+          "semantic": {
+            "type": "boolean",
+            "default": false,
+            "description": "Rank by meaning as well as name. Requires q. Returns a single page (no cursor); repo, excludeRepo and cursor are ignored."
+          },
+          "includeUnicode": {
+            "type": "boolean",
+            "default": false,
+            "description": "With semantic, also return matching Unicode emoji in `unicode`, ranked after `emojis`."
+          },
+          "preferRepo": {
+            "type": "string",
+            "description": "With semantic, list this repo's emoji first among equally good name matches."
+          },
           "repo": {
             "type": "string",
             "description": "Restrict results to a single repo (DID)."
@@ -32,9 +46,22 @@
           "required": ["emojis"],
           "properties": {
             "emojis": { "type": "array", "items": { "type": "unknown" } },
+            "unicode": {
+              "type": "array",
+              "items": { "type": "ref", "ref": "#unicodeEmojiView" }
+            },
             "cursor": { "type": "string" }
           }
         }
+      }
+    },
+    "unicodeEmojiView": {
+      "type": "object",
+      "required": ["emoji", "labelJa", "labelEn"],
+      "properties": {
+        "emoji": { "type": "string" },
+        "labelJa": { "type": "string" },
+        "labelEn": { "type": "string" }
       }
     }
   }

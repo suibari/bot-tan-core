@@ -40,7 +40,7 @@ import {
   type PostRow,
 } from "./timeline.js";
 import { getApprovedNewsViews, type NewsLang } from "./positiveNews.js";
-import { emojiView } from "../services/emoji.js";
+import { emojiColumns, emojiView } from "../services/emoji.js";
 import { isBirthdayToday } from "../services/ageAssurance.js";
 
 export function profileInterestKeywords(
@@ -263,7 +263,7 @@ export async function getReactedFeed(opts: {
   ];
   const hiddenEmojiRows = hiddenEmojiUris.length
     ? await db
-        .select()
+        .select(emojiColumns)
         .from(nagiEmojis)
         .where(inArray(nagiEmojis.uri, hiddenEmojiUris))
     : [];
