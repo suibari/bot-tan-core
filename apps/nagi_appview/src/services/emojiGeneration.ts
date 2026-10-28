@@ -2,7 +2,7 @@
  * 絵文字の生成。docs/emoji-generation.md。
  *
  * 1回の依頼で1枚描く。30〜45秒（ComfyUI の起動が乗ると倍）かかるので、受け付けたらジョブとして DB に置き、
- * ワーカーが1枚ずつ描く。依頼した人は画面を離れてよく、終わったら通知で知らせる。
+ * ワーカーが1枚ずつ描く。依頼した人は画面を離れてよく、結果は絵文字の生成画面で確認する。
  *
  * GPU（5070 Ti）は bot の Ollama と共有している。MOSS の速度は落とせないので VRAM の上限は
  * 設けず、OOM で Ollama が一部 CPU へ逃げたら GPU 機の ollama-recovery が載せ直す前提にする。
@@ -12,7 +12,6 @@
 import {
   db,
   nagiEmojiGenerations,
-  nagiNotifications,
   readHeartbeats,
 } from "@bsky-affirmative-bot/database";
 import { ollamaNativeUrl } from "@bsky-affirmative-bot/shared-configs";
@@ -41,7 +40,6 @@ import {
   evaluateModerationInput,
   moderationEnabled,
 } from "./moderation/index.js";
-import { dispatchPush } from "./pushDispatch.js";
 
 /** 候補を残す期間。登録されなかった下書きはここで消える（登録した絵文字は PDS にある）。 */
 const RETENTION_MS = 24 * 60 * 60_000;
@@ -397,30 +395,6 @@ async function releaseSidecar(deps: EmojiWorkerDeps) {
   }
 }
 
-async function notifyFinished(row: GenerationRow, failed: boolean) {
-  const uri = `at://${row.did}/emoji-generation/${row.id}`;
-  const [inserted] = await db
-    .insert(nagiNotifications)
-    .values({
-      recipientDid: row.did,
-      type: "emoji",
-      actorDid: config.botDid,
-      subjectUri: uri,
-      reasonUri: uri,
-    })
-    .onConflictDoNothing()
-    .returning({ id: nagiNotifications.id });
-  if (inserted)
-    void dispatchPush({
-      recipientDid: row.did,
-      type: "emoji",
-      actorDid: config.botDid,
-      notificationId: inserted.id,
-      actionText: row.lettering ?? row.prompt,
-      contentText: failed ? "failed" : undefined,
-    });
-}
-
 /**
  * 描き終えたら（描けなかったときも）、その人の前の結果を消す。画面は最新の1件だけを見せ、
  * 描き直している間は前の絵の上にスピナーを出すので、新しい結果が出た時点で前のものは要らない。
@@ -442,7 +416,6 @@ async function finish(row: GenerationRow, error?: string) {
         ),
       );
   });
-  await notifyFinished(row, failed);
 }
 
 /**
