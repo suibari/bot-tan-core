@@ -5,6 +5,7 @@ import {
   planImageScene,
   type ImageScenePurpose,
   type ImageStyle,
+  type ImageWriting,
 } from "./buildImagePrompt.js";
 import { generateImageGemini } from "./generateImageGemini.js";
 import { isImageGenConfigured, requestImage, type GeneratedImage } from "./imageGenClient.js";
@@ -50,8 +51,8 @@ export function isImageGenerationAvailable(): boolean {
  *                   おやすみポストの本文をそのまま渡す使い方を想定している。
  * @param maxBytes   配信先の blob 上限。Leaflet の coverImage と Nagi はどちらも
  *                   1,000,000 バイトなので、余裕を見た値を呼び出し側が渡す。
- * @param options.purpose 材料の種類。既定はおやすみポスト。お絵描き（DrawingFeature /
- *                   nagiDrawingGift）は "picture" で、材料は「描いてほしい絵」の記述になる。
+ * @param options.purpose 材料の種類。既定はおやすみポスト。お絵描き（nagiDrawing.ts）と
+ *                   ひとりごとは "picture" で、材料は「描いてほしい絵」の記述になる。
  */
 export async function generateImage(
   sourceText: string,
@@ -63,6 +64,11 @@ export async function generateImage(
      * （ひとりごと）だけ渡す。casualOutfit は予定表の「今日の服」の文。
      */
     outfit?: { status?: string; casualOutfit?: string; now?: Date };
+    /**
+     * 絵の中に書かせる言葉（buildImagePrompt.ts の ImageWriting）。省くと文字を書かせない。
+     * MOSS だけが読む。SDXL は文字を書けないので無視する。
+     */
+    writing?: ImageWriting;
   } = {},
 ): Promise<GeneratedImage | null> {
   const route = resolveAiImageRoute("BSKY_IMAGE");
@@ -89,7 +95,7 @@ export async function generateImage(
     // 既存キャラの名前は Danbooru のタグへ解決する。解決できなければ botたんの絵に戻る。
     const characters = await resolveCharacters(plan.characters);
 
-    const style = (process.env.IMAGEGEN_STYLE as ImageStyle) || "crayon-diary";
+    const style = (process.env.IMAGEGEN_STYLE as ImageStyle) || "suibari";
     const outfitKind = chooseBotOutfit({
       cues: plan.cues ?? DEFAULT_SCENE_CUES,
       status: options.outfit?.status,
@@ -98,7 +104,7 @@ export async function generateImage(
     const casualTags = outfitKind === "casual" ? await casualOutfitTags(options.outfit?.casualOutfit) : "";
     console.log(`[INFO][IMGGEN] outfit=${outfitKind} cues=${JSON.stringify(plan.cues ?? DEFAULT_SCENE_CUES)}`);
     const built = moss
-      ? buildMossImagePrompt(plan, style, characters, { outfit: { kind: outfitKind, casualTags } })
+      ? buildMossImagePrompt(plan, style, characters, { outfit: { kind: outfitKind, casualTags }, writing: options.writing })
       : buildImagePrompt(plan, style, characters, { outfit: botOutfitSpec(outfitKind, casualTags) });
     // シーンが薄いときは buildImagePrompt が null を返す。**そのまま描かせてはいけない。**
     // キャラ固定タグだけの同じプロンプトになり、同じ絵が毎日出る（PoC で3枚重複した）。

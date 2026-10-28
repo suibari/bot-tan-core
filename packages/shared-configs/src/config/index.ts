@@ -151,7 +151,7 @@ export const DRAWING_HINTS = [
   "picture",
 ];
 
-/** LLM の依頼判定（judgeDrawingRequest）を回す前の足切り。Bluesky と Nagi で共通。 */
+/** LLM の依頼判定（judgeDrawingRequest）を回す前の足切り。お絵描きは Nagi だけ。 */
 export function hasDrawingHint(text: string): boolean {
   const lower = text.toLowerCase();
   return DRAWING_HINTS.some((hint) => lower.includes(hint.toLowerCase()));

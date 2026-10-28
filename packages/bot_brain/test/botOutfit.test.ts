@@ -84,27 +84,27 @@ const plan: ImageScenePlan = {
 };
 
 test("選んだ服が制服の代わりに入り、服のネガティブが付く", () => {
-  const built = buildImagePrompt(plan, "crayon-diary", [], { outfit: botOutfitSpec("casual") })!;
+  const built = buildImagePrompt(plan, "suibari", [], { outfit: botOutfitSpec("casual") })!;
   assert.match(built.prompt, /mint green cardigan/);
   assert.doesNotMatch(built.prompt, /school uniform/);
   assert.match(built.negativePrompt, /school uniform, neck ribbon, wings/);
 });
 
 test("服を渡さなければ従来どおり制服", () => {
-  const built = buildImagePrompt(plan, "crayon-diary")!;
+  const built = buildImagePrompt(plan, "suibari")!;
   assert.match(built.prompt, new RegExp(BOT_TAN_OUTFITS.uniform.tags));
 });
 
 test("パジャマの絵では画風の寝具ネガティブから pajamas を外す", () => {
-  const pajamas = buildImagePrompt(plan, "crayon-diary", [], { outfit: botOutfitSpec("pajamas") })!;
+  const pajamas = buildImagePrompt(plan, "suibari", [], { outfit: botOutfitSpec("pajamas") })!;
   assert.match(pajamas.prompt, /light blue pajamas/);
   assert.doesNotMatch(pajamas.negativePrompt, /(^|, )pajamas(,|$)/);
-  const casual = buildImagePrompt(plan, "crayon-diary", [], { outfit: botOutfitSpec("casual") })!;
+  const casual = buildImagePrompt(plan, "suibari", [], { outfit: botOutfitSpec("casual") })!;
   assert.match(casual.negativePrompt, /(^|, )pajamas(,|$)/);
 });
 
 test("2人の絵では服のネガティブを足さない（仲間の服まで消える）", () => {
-  const built = buildImagePrompt({ ...plan, companions: ["kotomi-chan"] }, "crayon-diary", [], {
+  const built = buildImagePrompt({ ...plan, companions: ["kotomi-chan"] }, "suibari", [], {
     outfit: botOutfitSpec("casual"),
   })!;
   assert.doesNotMatch(built.negativePrompt, /neck ribbon/);

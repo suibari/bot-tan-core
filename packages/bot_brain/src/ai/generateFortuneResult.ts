@@ -6,8 +6,6 @@ export interface FortuneResult {
   /** 画像へ描く占い本文。セクションごとに改行済み。 */
   fortune: string;
   emojis: string;
-  /** 背景画像の題材（日本語の短い情景文）。取れなかったときは空文字。 */
-  picture: string;
 }
 
 type LuckyCategory = {
@@ -76,7 +74,7 @@ export async function generateFortuneResult(userinfo: UserInfoGemini): Promise<F
     "Length guide: advice up to 300 characters, lucky_action up to 160 characters, each lucky reason up to 120 characters.";
 
   const place_language = ja ? "日本" : "世界";
-  const part_language = `**${userinfo.langStr}で出力してください**（picture だけは日本語）。`;
+  const part_language = `**${userinfo.langStr}で出力してください**。`;
   const category_main = ["日常", "冒険", "リラックス", "自己成長", "絆", "笑い", "チャレンジ", "創造性", "感謝", "スピード", "バランス", "決断", "整理整頓", "推し活", "恋愛"];
   const category_action_place = ["公共交通機関", "コンビニ", "公園", "カフェ", "スーパーマーケット", "いつもと違う道", "会社や学校", "ショッピングモール"];
   const category_action_attr = ["赤色", "青色", "緑色", "白色", "黒色", "暖かみのある", "恋愛にまつわるもの", "歴史にまつわるもの", "ホラーにまつわるもの", "混んでいる", "空いている", "かわいい", "全肯定botたんっぽい"];
@@ -104,11 +102,6 @@ ${part_luckies}
 悪い内容が一切含まれないようにしてください。
 
 emojis: この占い結果を総括（サマリー）する絵文字を【必ずちょうど3つ】考えてください。
-
-picture: この占い結果をモチーフにした1枚の絵の情景を、日本語で80文字以内で書いてください。
-全肯定botたんが、ラッキーアクションやラッキー項目（場所・食べ物・動物など、目に見えるもの）を楽しんでいる場面にしてください。
-主語は必ず「botたん」と三人称で書き、「わたし」などの一人称は使わないでください（絵の生成で別作品のキャラ名と取り違えられるため）。
-ゲーム・アニメ・映画・楽曲の作品名、キャラクター名、実在の人物名は書かないでください（雰囲気や小物に置き換える）。
 
 以下がユーザ名です。
 -----
@@ -166,9 +159,8 @@ picture: この占い結果をモチーフにした1枚の絵の情景を、日�
             type: Type.STRING,
             description: "絵文字3つのみ（スペースや区切り文字等は含めず、例: 🔮✨🍀）"
           },
-          picture: { type: Type.STRING, description: "占い結果をモチーフにした絵の情景（日本語、80文字以内）" },
         },
-        required: ["advice", "lucky_action", ...LUCKY_KEYS, "emojis", "picture"]
+        required: ["advice", "lucky_action", ...LUCKY_KEYS, "emojis"]
       }
     }
   }, 3, userinfo);
@@ -188,14 +180,12 @@ picture: この占い結果をモチーフにした1枚の絵の情景を、日�
     return {
       fortune,
       emojis: oneLine(json.emojis) || "🔮✨🍀",
-      picture: oneLine(json.picture),
     };
   } catch (e) {
     console.error("[ERROR] Failed to parse Structured Outputs JSON in generateFortuneResult:", e);
     return {
       fortune: response.text || "",
       emojis: "🔮✨🍀",
-      picture: "",
     };
   }
 }

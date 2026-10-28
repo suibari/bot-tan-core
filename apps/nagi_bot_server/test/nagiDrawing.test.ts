@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { hasDrawingHint } from "@bsky-affirmative-bot/shared-configs";
 import {
   createNagiDrawingQueue,
+  giftSourceText,
+  giftWriting,
   nagiDrawingGiftText,
   nagiDrawingLang,
   nagiDrawingReplyThread,
@@ -31,6 +34,8 @@ const image = { data: Buffer.from("png"), mimeType: "image/png", width: 832, hei
 function fakeDeps(overrides: Partial<NagiDrawingDeps> = {}) {
   const calls: string[] = [];
   const published: Array<{ text: string; hasImage: boolean }> = [];
+  const writings: unknown[] = [];
+  const sources: string[] = [];
   const deps: NagiDrawingDeps = {
     async hasDrawnToday() {
       calls.push("hasDrawnToday");
@@ -47,8 +52,13 @@ function fakeDeps(overrides: Partial<NagiDrawingDeps> = {}) {
     async release(sourceUri, day) {
       calls.push(`release:${sourceUri}:${day}`);
     },
-    async draw(sourceText) {
+    async recipientName() {
+      return "すいばり";
+    },
+    async draw(sourceText, writing) {
       calls.push(`draw:${sourceText.split("\n")[0]}`);
+      writings.push(writing);
+      sources.push(sourceText);
       return image;
     },
     async publish(_thread, content) {
@@ -57,7 +67,7 @@ function fakeDeps(overrides: Partial<NagiDrawingDeps> = {}) {
     },
     ...overrides,
   };
-  return { deps, calls, published };
+  return { deps, calls, published, writings, sources };
 }
 
 const quiet = async <T>(run: () => Promise<T>): Promise<T> => {
@@ -169,6 +179,8 @@ test("依頼の絵は描いて投稿し、描けなければ枠を返して知�
   const drawn = fakeDeps();
   assert.equal(await processNagiDrawingJob(request(), drawn.deps), "drawn");
   assert.deepEqual(drawn.calls, ["draw:### 描いてほしいと頼まれた絵", "publish"]);
+  // 依頼は、依頼文が頼んだ言葉だけを書く。
+  assert.deepEqual(drawn.writings, ["requested"]);
   assert.deepEqual(drawn.published, [{ text: "できたよ！「猫」を描いてみたよ。受け取ってくれたらうれしいな。", hasImage: true }]);
 
   const failed = fakeDeps({ draw: async () => null });
@@ -184,10 +196,31 @@ test("依頼の絵は描いて投稿し、描けなければ枠を返して知�
 // ---------------------------------------------------------------------------
 
 test("気持ちが大きく動いた投稿には、判定後に枠を取ってその場面を描いて贈る", async () => {
-  const { deps, calls, published } = fakeDeps();
+  const { deps, calls, published, writings, sources: drawnSources } = fakeDeps();
   assert.equal(await processNagiDrawingJob(gift(), deps), "drawn");
   assert.deepEqual(calls, ["hasDrawnToday", "judgeGift", "claim", "draw:### botたんが贈る絵の場面", "publish"]);
   assert.equal(published[0].hasImage, true);
+  // 相手の名前を宛名にして絵に入れる。何に書くかは場面に合わせてシーン変換が選ぶ。
+  assert.deepEqual(writings, [giftWriting("すいばり", "ja")]);
+  assert.match(drawnSources.at(-1)!, /### 絵に書く言葉\n「すいばりさんへ」/);
+});
+
+test("贈り物の宛名が使えなければ、場面の材料に書く言葉を足さない", () => {
+  assert.equal(giftSourceText("場面", undefined), "### botたんが贈る絵の場面\n場面");
+});
+
+test("贈り物の宛名は、敬称を重ねず、使えない名前なら文字を入れない", () => {
+  const ja = giftWriting("すいばり", "ja");
+  assert.ok(ja && typeof ja === "object");
+  assert.equal(ja.words, "すいばりさんへ");
+  assert.match(ja.sentence, /letter clearly reads "すいばりさんへ"/);
+  assert.equal((giftWriting("ぎんちゃん", "ja") as { words: string }).words, "ぎんちゃんへ");
+  assert.equal((giftWriting("suibari", "en") as { words: string }).words, "To suibari");
+  // 絵文字と引用符は外す。
+  assert.equal((giftWriting("🌸「すいばり」🌸", "ja") as { words: string }).words, "すいばりさんへ");
+  assert.equal(giftWriting(null, "ja"), undefined);
+  assert.equal(giftWriting("🌸🌸", "ja"), undefined);
+  assert.equal(giftWriting("とてもとてもながいなまえのひとです", "ja"), undefined);
 });
 
 test("元投稿の添付画像を贈り物の場面判定へ渡す", async () => {
@@ -333,4 +366,13 @@ test("参考画像が読めないときは枠を取らず再送を案内する",
   assert.equal(prepared!.onReplyPosted, undefined);
   assert.equal(calls.includes("claim"), false);
   assert.equal(enqueued.length, 0);
+});
+
+test("絵の話をしている投稿だけを LLM の判定へ回す", () => {
+  for (const text of ["botたん、猫の絵描いて！", "なにかイラストかいてほしいな", "Bot-tan, draw me a cat"]) {
+    assert.equal(hasDrawingHint(text), true, text);
+  }
+  for (const text of ["botたんおはよう", "DJお願い", "分析して"]) {
+    assert.equal(hasDrawingHint(text), false, text);
+  }
 });

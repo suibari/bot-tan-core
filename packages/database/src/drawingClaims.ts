@@ -7,11 +7,11 @@ import { db, drawing_claims } from "./db.js";
  * 絵は GPU 機のサイドカーが1枚ずつ直列に描く。同じ GPU に Ollama が常駐しているので、
  * 描いた枚数はそのままテキスト生成の遅延になる。**GPU は面も用途も区別しない**ので、
  * 枠は面ごとではなく全体で1本、1日 DRAWING_SERVICE_DAILY_LIMIT 枚として数える
- * （0 でお絵描きと占いを止める）。surface は記録用のラベルとして残す。
+ * （0 でお絵描きとひとりごとの絵を止める）。surface は記録用のラベルとして残す。
  *
  * 数える対象はサイドカーを回すすべての経路。
- *  - お絵描き（Bluesky の依頼 / Nagi の依頼と贈り物）: 枠が無ければ描かない
- *  - 占いの背景: 枠が無ければ固定背景へ戻る
+ *  - お絵描き（Nagi の依頼と贈り物）: 枠が無ければ描かない
+ *  - ひとりごとの絵: 枠が無ければ絵なしで出す
  *  - おやすみポストの絵: botたん自身の定期投稿なので **必ず描く**。枠は消費するが
  *    上限では止めない（bypassServiceLimit）。止めると毎晩の絵が人の依頼次第で欠ける。
  *
@@ -21,7 +21,10 @@ import { db, drawing_claims } from "./db.js";
  * day を文字列で持つのは、枠の判定に Date を一切使わないため（AGENTS.md の timestamp の規則）。
  */
 
-/** 記録用のラベル。枠の数え方には影響しない（全体で1本）。"scheduled" は定期投稿の絵。 */
+/**
+ * 記録用のラベル。枠の数え方には影響しない（全体で1本）。"scheduled" は定期投稿の絵。
+ * "bsky" は 2026-10 に終えた Bluesky のお絵描きと占いの背景の記録で、今は付かない。
+ */
 export type DrawingSurface = "bsky" | "nagi" | "scheduled";
 export type DrawingKind = "request" | "gift";
 

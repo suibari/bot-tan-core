@@ -1,90 +1,21 @@
-import type { FortuneResult, generateImage } from "@bsky-affirmative-bot/bot-brain";
-import { textToImageBufferWithBackground, textToImageBufferWithGeneratedBackground } from "../util/canvas.js";
+import type { FortuneResult } from "@bsky-affirmative-bot/bot-brain";
+import { textToImageBufferWithBackground } from "../util/canvas.js";
 
-/** app.bsky.embed.images の blob 上限は 1,000,000 バイト。符号化の誤差ぶん下げる。 */
-export const FORTUNE_IMAGE_MAX_BYTES = 950_000;
-const FALLBACK_BACKGROUND = "./img/bot-tan-fortune.png";
-
-/**
- * 画像生成は引数で受け取る。
- *
- * scripts/probeFortune.mts は bot_brain を src から読むので、ここで
- * `@bsky-affirmative-bot/bot-brain`（dist）を import すると別インスタンスになり、
- * スクリプト側で差し替えた観測先（telemetry）が効かなくなる。
- */
-export type FortuneImageDeps = {
-    generateImage: typeof generateImage;
-    isImageGenerationAvailable: () => boolean;
-};
-
-type GeneratedBackground = NonNullable<Awaited<ReturnType<typeof generateImage>>>;
+const BACKGROUND = "./img/bot-tan-fortune.png";
 
 export type FortuneImage = {
-    fortune: FortuneResult;
-    data: Buffer;
-    mimeType: string;
-    /** 背景に使った生成画像。固定背景に戻ったときは undefined。 */
-    background?: GeneratedBackground;
-};
-
-export function fortuneBackgroundSource(picture: string): string {
-    return `### 描いてほしいと頼まれた絵\n今日の占い結果をモチーフにした絵。${picture}`;
-}
-
-export type FortuneImageClaims = {
-    /** 今日の枠を1つ取る。 */
-    claim: () => Promise<{ status: string; day: string }>;
-    /** 描けなかったときに枠を返す。 */
-    release: (day: string) => Promise<void>;
+  fortune: FortuneResult;
+  data: Buffer;
+  mimeType: string;
 };
 
 /**
- * 枠を取ってから描く generateImage を作る。
+ * 占い本文を固定の背景に重ねる。
  *
- * 占いの背景も GPU のサイドカーを回すので、お絵描きと同じ枠を消費する（drawingClaims.ts）。
- * 枠が取れなければ描かず、composeFortuneImage が固定背景へ戻す。描けなかったら枠は返す。
+ * 2026-09 から占い結果を題材に AI で背景を描いていたが、AI の絵は Nagi でだけ使うと決めたので
+ * （2026-10-28）、それ以前の固定背景に戻した。
  */
-export function claimedImageGenerator(
-    generate: FortuneImageDeps["generateImage"],
-    claims: FortuneImageClaims,
-    logLabel: string,
-): FortuneImageDeps["generateImage"] {
-    return async (source, maxBytes, options) => {
-        const claim = await claims.claim();
-        if (claim.status !== "claimed") {
-            console.log(`[INFO][${logLabel}] Fortune background skipped, REASON: ${claim.status}`);
-            return null;
-        }
-        const image = await generate(source, maxBytes, options);
-        if (!image) await claims.release(claim.day);
-        return image;
-    };
-}
-
-/** 占い結果を題材に描いた絵を背景にする。描けなければ従来の固定背景に戻す。 */
-export async function composeFortuneImage(
-    fortune: FortuneResult,
-    deps: FortuneImageDeps,
-    logLabel: string,
-): Promise<FortuneImage> {
-    if (fortune.picture && deps.isImageGenerationAvailable()) {
-        console.log(`[INFO][${logLabel}] Fortune background: ${fortune.picture}`);
-        // generateImage は失敗しても throw せず null を返す。
-        const background = await deps.generateImage(
-            fortuneBackgroundSource(fortune.picture),
-            FORTUNE_IMAGE_MAX_BYTES,
-            { purpose: "picture" },
-        );
-        if (background) {
-            try {
-                const composed = await textToImageBufferWithGeneratedBackground(fortune.fortune, background.data, FORTUNE_IMAGE_MAX_BYTES);
-                return { fortune, ...composed, background };
-            } catch (error) {
-                console.warn(`[WARN][${logLabel}] Failed to compose fortune background, using fixed image:`, error);
-            }
-        }
-    }
-
-    const data = await textToImageBufferWithBackground(fortune.fortune, FALLBACK_BACKGROUND);
-    return { fortune, data, mimeType: "image/png" };
+export async function composeFortuneImage(fortune: FortuneResult): Promise<FortuneImage> {
+  const data = await textToImageBufferWithBackground(fortune.fortune, BACKGROUND);
+  return { fortune, data, mimeType: "image/png" };
 }
