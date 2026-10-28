@@ -127,11 +127,45 @@ export function createVideoFallback(deps: VideoFallbackDeps) {
     const key = keyOf(did, cid);
     if ((upstreamOkUntil.get(key) ?? 0) > now()) return true;
     try {
-      const response = await fetcher(blueskyVideoUrls(did, cid).playlist, {
-        signal: AbortSignal.timeout(UPSTREAM_CHECK_TIMEOUT_MS),
-      });
-      await response.body?.cancel();
-      if (response.ok) {
+      const playlist = new URL(blueskyVideoUrls(did, cid).playlist);
+      // 親だけが CDN に残り、子プレイリストや動画本体が消えていることがある。
+      // 全画質の子と先頭セグメント（fMP4 なら init も）まで確認してから転送する。
+      const signal = AbortSignal.timeout(UPSTREAM_CHECK_TIMEOUT_MS);
+      async function check(url: URL, depth: number): Promise<boolean> {
+        if (url.origin !== playlist.origin || depth > 2) return false;
+        const response = await fetcher(url, { signal, redirect: "error" });
+        if (!response.ok) {
+          await response.body?.cancel();
+          return false;
+        }
+        const text = await response.text();
+        const lines = text.trim().split(/\r?\n/).map((line) => line.trim());
+        if (lines[0] !== "#EXTM3U") return false;
+        const references = lines.filter((line) => line && !line.startsWith("#"));
+        if (!references.length) return false;
+        if (lines.some((line) => line.startsWith("#EXT-X-STREAM-INF:"))) {
+          if (references.length > 8) return false;
+          for (const reference of references) {
+            if (!(await check(new URL(reference, url), depth + 1))) return false;
+          }
+          return true;
+        }
+        const init = lines.find((line) => line.startsWith("#EXT-X-MAP:"))
+          ?.match(/URI="([^"]+)"/)?.[1];
+        for (const reference of [init, references[0]]) {
+          if (!reference) continue;
+          const segment = new URL(reference, url);
+          if (segment.origin !== playlist.origin) return false;
+          // GET + Range で実体を確認し、Range 非対応でも本文は読み込まない。
+          const result = await fetcher(segment, {
+            signal, redirect: "error", headers: { Range: "bytes=0-0" },
+          });
+          await result.body?.cancel();
+          if (!result.ok) return false;
+        }
+        return true;
+      }
+      if (await check(playlist, 0)) {
         upstreamOkUntil.set(key, now() + UPSTREAM_OK_TTL_MS);
         return true;
       }
