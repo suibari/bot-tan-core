@@ -2028,7 +2028,9 @@ export const nagiEmojiGenerations = nagiSchema.table(
     subject: text("subject").notNull(),
     /** 絵文字に書く文字。無ければ NULL。 */
     lettering: text("lettering"),
-    /** "square" | "wide" | "long"。書く文字があれば文字数で決まる。 */
+    /** 書く文字の横に絵も描くか。true なら縦横比を1段広げ、文字を高さいっぱいに描かせる。 */
+    drawing: boolean("drawing").default(false).notNull(),
+    /** "square" | "wide" | "long" | "xlong"。書く文字があれば文字数（と drawing）で決まる。 */
     aspect: text("aspect").notNull(),
     /** 服の指定（none / uniform / casual / pajamas / swimsuit / other）。botたんたちの服の差し替えに使う。 */
     outfit: text("outfit").default("none").notNull(),

@@ -17,8 +17,8 @@ import {
 } from "@bsky-affirmative-bot/shared-configs";
 import { ApiError } from "../middleware/errors.js";
 
-/** square は 1:1、wide は 2:1、long は約3:1。 */
-export type EmojiAspect = "square" | "wide" | "long";
+/** square は 1:1、wide は 2:1、long は約3:1、xlong は4:1。 */
+export type EmojiAspect = "square" | "wide" | "long" | "xlong";
 export type ChromaKey = "magenta" | "green";
 
 export const EMOJI_PROMPT_MAX_GRAPHEMES = 100;
@@ -35,13 +35,17 @@ export const EMOJI_CONFLICT_THRESHOLD = 0.05;
 const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 const graphemeLength = (value: string) => [...segmenter.segment(value)].length;
 
+const ASPECTS: readonly EmojiAspect[] = ["square", "wide", "long", "xlong"];
+
 /**
  * 3文字以上を正方形に収めると、26px のリアクション表示で読めない（検証で確認）。
  * Nagi は横長の絵文字を高さで揃えて出すので、文字数で横に伸ばす。
+ * 文字の横に絵（キャラなど）も描くなら、もう1段広げる。同じ枠に並べると、文字が縦の3分の1ほどに
+ * 縮み、本文の行の高さでは読めなかった（2026-10-28 の「新機能！」と botたん。文字は6px前後）。
  */
-export function letteringAspect(text: string): EmojiAspect {
+export function letteringAspect(text: string, drawing = false): EmojiAspect {
   const n = graphemeLength(text);
-  return n <= 2 ? "square" : n <= 4 ? "wide" : "long";
+  return ASPECTS[(n <= 2 ? 0 : n <= 4 ? 1 : 2) + (drawing ? 1 : 0)];
 }
 
 export function parseEmojiGenerationInput(body: unknown): { prompt: string } {
@@ -58,6 +62,7 @@ export const EMOJI_SIZES: Record<EmojiAspect, { width: number; height: number }>
   square: { width: 768, height: 768 },
   wide: { width: 1088, height: 544 },
   long: { width: 1280, height: 448 },
+  xlong: { width: 1536, height: 384 },
 };
 
 const KEY_BACKGROUND: Record<ChromaKey, string> = {
@@ -150,6 +155,8 @@ export type EmojiPlan = {
   subject: string;
   /** 絵文字に書く文字。無ければ undefined。 */
   lettering?: string;
+  /** 書く文字の横に絵（キャラ・動物・物）も描くか。文字が無いときは付けない。 */
+  drawing?: true;
   aspect: EmojiAspect;
   /** 服の指定（botたんたちの服の差し替えに使う）。 */
   outfit: EmojiOutfit;
@@ -184,9 +191,12 @@ export function buildEmojiImageRequest(params: {
   const fill =
     plan.aspect === "square" ? "Centered, filling most of the frame," : "Centered, filling the frame horizontally,";
   const subject = `${plan.subject.replace(/[.\s]+$/, "")}.`;
-  const lettering = plan.lettering
-    ? ` The text "${plan.lettering}" is written in one horizontal line, ${style.lettering}.`
-    : style.extra;
+  // 絵と並べると文字が小さく描かれるので、文字を画像の高さいっぱいにさせる（絵は省かせない）
+  const lettering = !plan.lettering
+    ? style.extra
+    : plan.drawing
+      ? ` The text "${plan.lettering}" is written in one horizontal line beside the picture, ${style.lettering}. The letters are huge, as tall as the picture, filling the full height of the image.`
+      : ` The text "${plan.lettering}" is written in one horizontal line, ${style.lettering}.`;
   return {
     prompt: `${SUIBARI_TRIGGER} ${shape} ${subject}${characters}${lettering} ${fill} ${KEY_BACKGROUND[key]}.`,
     negativePrompt: params.characters?.length ? `${NEGATIVE}, ${FULL_BODY_NEGATIVE}` : NEGATIVE,
@@ -209,6 +219,7 @@ export function planPrompt(prompt: string): string {
     "  If the whole request is a short word or phrase meant to be shown as lettering (slang, a reaction, a greeting, a short exclamation), put it in lettering and describe it as lettering in subject.",
     "  If the request quotes words to write (in 「」 or quotes), put exactly those words in lettering.",
     '- Keep these character names as they are in English (their looks are added separately): Bot-tan (botたん), Latte-chan (ラテちゃん), Kotomi-chan (ことみちゃん), Morpho (モルフォ).',
+    '- "drawing": true if anything besides the lettering should be drawn (a character, a person, an animal, an object), false if the emoji is only lettering.',
     '- "aspect": "wide" if the picture is naturally wide (a long object, a scene lined up side by side), otherwise "square".',
     '- "name": a short emoji name in lowercase ASCII letters, digits, "_" or "-" (at most 32 characters), like "fist_pump_penguin" or "sorena". Romanize Japanese words.',
     '- "description": a short description of the emoji in the same language as the request (at most 40 characters).',
@@ -223,12 +234,13 @@ export const EMOJI_PLAN_SCHEMA = {
   properties: {
     subject: { type: "string" },
     lettering: { type: "string" },
+    drawing: { type: "boolean" },
     aspect: { type: "string", enum: ["square", "wide"] },
     name: { type: "string" },
     description: { type: "string" },
     outfit: { type: "string", enum: OUTFITS },
   },
-  required: ["subject", "lettering", "aspect", "name", "description", "outfit"],
+  required: ["subject", "lettering", "drawing", "aspect", "name", "description", "outfit"],
 } as const;
 
 const clean = (value: unknown) =>
@@ -261,8 +273,19 @@ export function normalizeEmojiPlan(output: unknown, prompt = ""): EmojiPlan | un
     .join("");
   const outfit = OUTFITS.includes(raw.outfit as EmojiOutfit) ? (raw.outfit as EmojiOutfit) : "none";
   const lettering = clean(raw.lettering).replace(/^[「『]|[」』]$/g, "");
-  if (lettering && graphemeLength(lettering) <= EMOJI_LETTERING_MAX_GRAPHEMES)
-    return { name, description, subject, lettering, aspect: letteringAspect(lettering), outfit };
+  if (lettering && graphemeLength(lettering) <= EMOJI_LETTERING_MAX_GRAPHEMES) {
+    // botたんたちの名前があれば、gemma が false と言っても描く（見た目の文が必ず足されるため）
+    const drawing = raw.drawing === true || characterDescriptions(`${prompt} ${subject}`).length > 0;
+    return {
+      name,
+      description,
+      subject,
+      lettering,
+      ...(drawing ? { drawing: true as const } : {}),
+      aspect: letteringAspect(lettering, drawing),
+      outfit,
+    };
+  }
   // 長すぎる文字は書かせない（崩れるうえに、絵文字として読めない）。絵だけで描く
   return { name, description, subject, aspect: raw.aspect === "wide" ? "wide" : "square", outfit };
 }
