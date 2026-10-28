@@ -41,6 +41,7 @@ import {
   nagiPreferredNames,
   nagiMutes,
   nagiNotifications,
+  nagiEmojiGenerations,
   nagiNews,
   nagiNewsApprovals,
   nagiNewsReviewJobs,
@@ -219,6 +220,7 @@ export async function deleteAccountData(did: string) {
     // 本人所有 Bluemoji の複製は消すが、それを使った他ユーザーのリアクションは
     // そのユーザーのデータなので残す。表示時は emoji のフォールバック文字列を使う。
     await tx.delete(nagiEmojis).where(eq(nagiEmojis.did, did));
+    await tx.delete(nagiEmojiGenerations).where(eq(nagiEmojiGenerations.did, did));
     await tx.delete(nagiDiaries).where(eq(nagiDiaries.subjectDid, did));
     await tx.delete(nagiRadioReadStates).where(eq(nagiRadioReadStates.subjectDid, did));
     await tx.delete(nagiRadioTracks).where(eq(nagiRadioTracks.subjectDid, did));

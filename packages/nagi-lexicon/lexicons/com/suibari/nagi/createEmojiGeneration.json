@@ -1,0 +1,66 @@
+{
+  "lexicon": 1,
+  "id": "com.suibari.nagi.createEmojiGeneration",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "絵文字の生成を依頼する。プロンプトを1つ書くだけで、botたんが文字か絵かを読み取って候補を描く。候補は1枚ずつ描かれ、終わると通知が届く。未完了の依頼は1人1件まで。要認証。",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "prompt"
+          ],
+          "properties": {
+            "prompt": {
+              "type": "string",
+              "maxGraphemes": 100,
+              "description": "何を描くか。「それな」のような短い言葉は文字の絵文字になる。"
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "generation",
+            "estimatedWaitSeconds"
+          ],
+          "properties": {
+            "generation": {
+              "type": "unknown",
+              "description": "EmojiGenerationView。"
+            },
+            "estimatedWaitSeconds": {
+              "type": "integer",
+              "description": "待ちの目安（秒）。前に並んでいる依頼の数から見積もる。"
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired"
+        },
+        {
+          "name": "already_active",
+          "description": "未完了の依頼がすでにある。"
+        },
+        {
+          "name": "inappropriate",
+          "description": "入力がモデレーションで弾かれた。"
+        },
+        {
+          "name": "busy",
+          "description": "待ちが一杯、または GPU の自動回復が止まっている。"
+        },
+        {
+          "name": "not_configured"
+        }
+      ]
+    }
+  }
+}

@@ -24,6 +24,8 @@ import {
 import { startEmbeddingWorker } from "./ingest/embeddingWorker.js";
 import { startModerationWorker } from "./ingest/moderationWorker.js";
 import { startActorResolveWorker } from "./ingest/actorResolveWorker.js";
+import { startWorkerLoop } from "@bsky-affirmative-bot/bot-runtime";
+import { emojiGenerationTick } from "./services/emojiGeneration.js";
 import {
   startReconcileWorker,
   stopReconcileWorker,
@@ -143,6 +145,13 @@ startActorResolveWorker();
 startReconcileWorker();
 // botたんの返信が AppView に載り損ねていないかの監視と回収。
 const botReplyIndexWorker = startBotReplyIndexWorker();
+// 絵文字の生成。1 tick で1枚描く。IMAGEGEN_BASE_URL 未設定なら no-op。
+const emojiGenerationWorker = startWorkerLoop({
+  name: "EMOJI_GEN",
+  intervalMs: 5_000,
+  immediate: true,
+  tick: () => emojiGenerationTick(),
+});
 // 本番機がうっかり NODE_ENV=development で起動していたら、ここで気づけるようにする。
 // 開発補助は config.dev に集約してあるので、この1行が「何が開いているか」の一覧になる。
 if (config.dev) {
@@ -180,6 +189,7 @@ const shutdown = async () => {
   shuttingDown = true;
   clearInterval(appviewHeartbeat);
   clearInterval(botReplyIndexWorker);
+  clearInterval(emojiGenerationWorker);
   const serverClosed = new Promise<void>((resolve) =>
     server.close(() => resolve()),
   );

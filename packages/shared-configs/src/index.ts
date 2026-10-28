@@ -15,3 +15,4 @@ export * from "./zenkatsuAwards.js";
 export * from "./userDiaryMediaReference.js";
 export * from "./postMood.js";
 export * from "./blueskyVideo.js";
+export * from "./mossCharacters.js";

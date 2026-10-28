@@ -70,6 +70,8 @@
             "com.suibari.nagi.getCardBoard",
             "com.suibari.nagi.donateCards",
             "com.suibari.nagi.takeBoardCard",
+            "com.suibari.nagi.createEmojiGeneration",
+            "com.suibari.nagi.getEmojiGenerations",
             "com.suibari.nagi.createSsoTicket",
             "com.suibari.nagi.getPreferences",
             "com.suibari.nagi.putPreferences",

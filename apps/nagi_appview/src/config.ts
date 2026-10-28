@@ -230,6 +230,14 @@ export const config = {
   // ポストおたすけ。共通 Gemma runner を返信と共有するので、本人1人あたりの回数で絞る。
   postAssistModel: aiModel("OLLAMA_POST_ASSIST"),
   postAssistLimitPerMinute: integer("NAGI_POST_ASSIST_LIMIT_PER_MINUTE", 6, 1, 60),
+  // 絵文字の生成（docs/emoji-generation.md）。GPU 機の imggen サイドカーで描く。
+  // 未設定なら機能ごと無効（bot の IMAGEGEN_BASE_URL と同じ値を入れる）。
+  imagegenUrl: process.env.IMAGEGEN_BASE_URL
+    ? url("IMAGEGEN_BASE_URL")
+    : undefined,
+  // 1人あたりの回数制限は設けない。GPU を bot の Ollama と共有するので、全体で絞る。
+  emojiGenerationQueueLimit: integer("NAGI_EMOJI_GENERATION_QUEUE_LIMIT", 20, 1, 1_000),
+  emojiGenerationHourlyLimit: integer("NAGI_EMOJI_GENERATION_HOURLY_LIMIT", 60, 1, 10_000),
   translationMissLimitPerMinute: integer(
     "TRANSLATION_MISS_LIMIT_PER_MINUTE",
     60,

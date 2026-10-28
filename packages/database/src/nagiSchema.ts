@@ -49,6 +49,8 @@ export const notificationType = nagiSchema.enum("notification_type", [
   "analysis",
   // おすそわけボードに置いたカードが誰かに届いた。AppView の受け取り処理が直接作る。
   "gift",
+  // 絵文字の生成が終わった。AppView の生成ワーカーが直接作る。
+  "emoji",
 ]);
 /** Ƶ（全肯定ポイント）の台帳の理由。docs/zenkatsu.md 13.3。 */
 export const zennyLedgerReason = nagiSchema.enum("zenny_ledger_reason", [
@@ -56,6 +58,13 @@ export const zennyLedgerReason = nagiSchema.enum("zenny_ledger_reason", [
   "take",
   "shelf",
   "welcome",
+]);
+/** 絵文字生成ジョブ。docs/emoji-generation.md。 */
+export const emojiGenerationState = nagiSchema.enum("emoji_generation_state", [
+  "queued",
+  "running",
+  "done",
+  "failed",
 ]);
 export const botJobState = nagiSchema.enum("bot_job_state", [
   "pending",
@@ -1996,4 +2005,49 @@ export const nagiChronicleNews = nagiSchema.table(
       .notNull(),
   },
   (t) => [index("nagi_chronicle_news_ready_idx").on(t.state, t.nextAttemptAt)],
+);
+
+/**
+ * 絵文字の生成ジョブと、できた候補。docs/emoji-generation.md。
+ *
+ * 生成は数分かかるので、依頼した人が画面を離れても後で見られるよう DB に置く。
+ * 候補は登録前の下書きで PDS には無い。expires_at を過ぎたら消す。
+ * 未完了（queued / running）は1人1件だけで、部分一意索引がそれを担保する。
+ */
+export const nagiEmojiGenerations = nagiSchema.table(
+  "emoji_generations",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    did: text("did").notNull(),
+    /** 本人が書いたプロンプト。 */
+    prompt: text("prompt").notNull(),
+    /** 受付時に gemma が付けた登録名と説明の案。本人は見て登録を押すだけにする。 */
+    name: text("name").notNull(),
+    description: text("description").notNull(),
+    /** 受付時に gemma がプロンプトから起こした「何を描くか」の英文。 */
+    subject: text("subject").notNull(),
+    /** 絵文字に書く文字。無ければ NULL。 */
+    lettering: text("lettering"),
+    /** "square" | "wide" | "long"。書く文字があれば文字数で決まる。 */
+    aspect: text("aspect").notNull(),
+    /** 服の指定（none / uniform / casual / pajamas / swimsuit / other）。botたんたちの服の差し替えに使う。 */
+    outfit: text("outfit").default("none").notNull(),
+    state: emojiGenerationState("state").default("queued").notNull(),
+    /** EmojiCandidate の配列。透過 PNG を base64 で持つ（1枚十数KB）。 */
+    candidates: jsonb("candidates").default([]).notNull(),
+    error: text("error"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    index("nagi_emoji_generations_did_idx").on(t.did, t.createdAt),
+    index("nagi_emoji_generations_queue_idx").on(t.state, t.createdAt),
+    uniqueIndex("nagi_emoji_generations_active_idx")
+      .on(t.did)
+      .where(sql`${t.state} in ('queued', 'running')`),
+  ],
 );

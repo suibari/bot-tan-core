@@ -1,6 +1,12 @@
 import { ollamaChat } from "../ollamaChat.js";
 import type { CharacterRequest, ResolvedCharacter } from "./characterLookup.js";
 import { CLOTHING_TAG_PATTERN, parseSceneCues, type BotOutfit, type SceneCues } from "./botOutfit.js";
+import {
+  MOSS_BOT_TAN,
+  MOSS_BOT_TAN_OUTFITS,
+  MOSS_COMPANIONS,
+  MOSS_MORPHO,
+} from "@bsky-affirmative-bot/shared-configs";
 
 /**
  * botたんのイラスト生成プロンプトを組み立てる層。
@@ -809,33 +815,7 @@ export function buildImagePrompt(
 // MOSS-Image（IMAGEGEN_ENGINE=moss）
 // ---------------------------------------------------------------------------
 
-/**
- * 自然文のキャラと服。bot-tan-imagegen の fixtures/promptConfig.json の "moss" と同じ文
- * （bot は Raspberry Pi で動き、あちらのファイルを読めないので写して持つ）。
- * feet は全身の構図のときだけ書く。上半身の構図で靴まで書くと全身を描こうとして、靴が宙に浮く。
- */
-const MOSS_BOT_TAN =
-  "Bot-tan, a teenage girl with very long light-blue hair, a single curled ahoge strand sticking up from the top of her head, " +
-  "thick eyebrows, sleepy half-closed blue eyes, and a blue butterfly hair clip";
-const MOSS_BOT_TAN_OUTFITS: Record<BotOutfit, { wear: string; feet: string }> = {
-  uniform: {
-    wear: "a loose mint-green sweater with long sleeves over a white collared shirt with a blue neck ribbon, and a blue pleated skirt",
-    feet: "white socks and brown loafers",
-  },
-  casual: { wear: "an open mint-green cardigan over a white frilled shirt with long sleeves, and a blue skirt", feet: "" },
-  pajamas: { wear: "light-blue long-sleeved pajamas with long pants", feet: "" },
-  swimsuit: { wear: "a light-blue frilled one-piece swimsuit", feet: "" },
-};
-/** 仲間の服は SDXL 側と同じく署名の1着で固定する（ことみちゃんはアイドル衣装）。 */
-const MOSS_COMPANIONS: Record<(typeof GIRL_COMPANIONS)[number], string> = {
-  "latte-chan":
-    "Latte-chan, another girl with very long pink hair, white cat ears and a white cat tail, green eyes, " +
-    "wearing a black-and-white maid outfit with a maid headdress and a red ribbon",
-  "kotomi-chan":
-    "Kotomi-chan, another girl with short orange hair, a single ahoge strand, green eyes, freckles and a red bow, " +
-    "wearing an idol outfit: a pink shirt with puffy frilled short sleeves, a corset and a black frilled skirt",
-};
-const MOSS_MORPHO = "Morpho, her big fluffy white Samoyed dog";
+// キャラと服の自然文（MOSS_BOT_TAN など）は shared-configs の mossCharacters.ts。Nagi の絵文字生成と共有する。
 
 type MossStyle = { checkpoint: string; loras: Array<[string, number]>; trigger: string };
 

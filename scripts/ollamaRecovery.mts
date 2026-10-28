@@ -39,6 +39,19 @@ async function probe() {
   if (!stdout.trim() || !Number.isFinite(free)) throw new Error("Invalid GPU free memory");
   return parsePlacement(data, model!, free * 1024 ** 2);
 }
+// 同じ GPU の imggen サイドカー（bot-tan-imagegen）。絵文字の生成で混在になったときだけ、
+// 再試行間隔を待たずに載せ直す（OllamaRecovery.tick の imagegenReleased）。
+const imagegen = (process.env.IMAGEGEN_BASE_URL ?? "http://127.0.0.1:7998").replace(/\/$/, "");
+/** 直近30分に使われていて、今は ComfyUI も SDXL も降りている。取れなければ false（通常の間隔）。 */
+async function imagegenReleased(): Promise<boolean> {
+  try {
+    const response = await fetch(`${imagegen}/health`, { signal: AbortSignal.timeout(5000) });
+    if (!response.ok) return false;
+    const h = await response.json();
+    return h.busy === false && h.comfy_running === false && Array.isArray(h.models_loaded)
+      && h.models_loaded.length === 0 && typeof h.idle_sec === "number" && h.idle_sec < 30 * 60;
+  } catch { return false; }
+}
 let lastDetail: Record<string, unknown> = {};
 async function publish(detail: Record<string, unknown>) {
   lastDetail = { ...detail, gpuUuid: gpu };
@@ -67,7 +80,10 @@ async function recover() {
 }
 startWorkerLoop({ name: "OLLAMA_RECOVERY", intervalMs: 30_000, immediate: true, tick: async () => {
   try {
-    await policy.tick(await probe(), Date.now(), process.env.OLLAMA_RECOVERY_ENABLED !== "0", recover, publish, save);
+    const placement = await probe();
+    // 混在のときだけ imggen を見る（通常の30秒ごとの監視で余計に叩かない）
+    const released = placement && placement.gpuBytes < placement.sizeBytes ? await imagegenReleased() : false;
+    await policy.tick(placement, Date.now(), process.env.OLLAMA_RECOVERY_ENABLED !== "0", recover, publish, save, released);
   } catch (error) {
     policy.resetWindow();
     console.error("[ERROR][OLLAMA_RECOVERY]", error);
