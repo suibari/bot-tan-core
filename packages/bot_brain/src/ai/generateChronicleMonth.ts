@@ -24,6 +24,11 @@ import { validateChaosExcerpt } from "./generateUserDiary.js";
 
 /** v1: 初版。 */
 export const NAGI_CHRONICLE_PROMPT_VERSION = "nagi-chronicle-v1";
+/**
+ * 週次ロールアップ版。2026-11 から年表は週ごと（月曜〜日曜）に0〜1件を拾う。
+ * 材料・検証は月次と共通で、変わるのは期間の言い方と上限件数だけ。
+ */
+export const NAGI_CHRONICLE_WEEK_PROMPT_VERSION = "nagi-chronicle-week-v1";
 
 /** 見出し・ひとことの上限。年表は一覧で読むので、長いと軸が崩れる。 */
 /*
@@ -41,6 +46,8 @@ export const CHRONICLE_DETAIL_MAX_EN = 120;
 
 /** 1か月から選ぶ出来事の上限。**下限は無い。0件の月は正常。** */
 export const CHRONICLE_MAX_HIGHLIGHTS = 3;
+/** 1週から選ぶ出来事の上限。年表が週ごとの目印1つずつで並ぶようにする。 */
+export const CHRONICLE_WEEK_MAX_HIGHLIGHTS = 1;
 
 /** 逐語抜粋の最小文字数。validateChaosExcerpt と揃える。 */
 const EVIDENCE_MIN_CHARS = 12;
@@ -69,6 +76,19 @@ export interface ChronicleMonthInput {
   /** 日本語で書かせるか。日記と同じ判定を呼び出し側から渡す。 */
   japanese: boolean;
   /** その月の日記。日付昇順。 */
+  diaries: ChronicleMonthDiary[];
+  /** 週次ロールアップのときだけ。期間の言い方と上限件数が週向けに変わる。 */
+  week?: { start: string; end: string };
+}
+
+export interface ChronicleWeekInput {
+  displayName: string;
+  /** 週の初日（月曜）"YYYY-MM-DD"。 */
+  weekStart: string;
+  /** 週の最終日（日曜）"YYYY-MM-DD"。 */
+  weekEnd: string;
+  japanese: boolean;
+  /** その週の日記。日付昇順。 */
   diaries: ChronicleMonthDiary[];
 }
 
@@ -110,6 +130,18 @@ const TONE_REJECT = [
   /record high/i,
   /ranking/i,
 ];
+
+/** その入力で選んでよい件数の上限。 */
+export function chronicleMaxHighlights(input: ChronicleMonthInput): number {
+  return input.week ? CHRONICLE_WEEK_MAX_HIGHLIGHTS : CHRONICLE_MAX_HIGHLIGHTS;
+}
+
+/** プロンプトに書く期間。 */
+function chroniclePeriod(input: ChronicleMonthInput): { label: string; unit: string } {
+  return input.week
+    ? { label: `${input.week.start}〜${input.week.end}の週`, unit: "週" }
+    : { label: input.month, unit: "月" };
+}
 
 export function rejectChronicleTone(text: string): boolean {
   return TONE_REJECT.some((pattern) => pattern.test(text));
@@ -175,7 +207,10 @@ export function buildChronicleMonthMaterial(input: ChronicleMonthInput): string 
       return `## ${diary.date}${title}\n${body}`;
     })
     .join("\n\n");
-  return `<diaries month="${input.month}" subject="${input.displayName}">
+  const period = input.week
+    ? `week="${input.week.start}/${input.week.end}"`
+    : `month="${input.month}"`;
+  return `<diaries ${period} subject="${input.displayName}">
 ${diaries}
 </diaries>`;
 }
@@ -185,25 +220,27 @@ export function buildChronicleMonthInstruction(
   input: ChronicleMonthInput,
 ): string {
   const lang = input.japanese ? "日本語" : "英語";
+  const { label, unit } = chroniclePeriod(input);
+  const max = chronicleMaxHighlights(input);
   return `
 # いまやること
-${input.displayName} さんの「自分年表」に載せる節目を、${input.month} の日記から選びます。
+${input.displayName} さんの「自分年表」に載せる節目を、${label} の日記から選びます。
 あなたが選んだものは、その人があとから何度も見返す場所に**ずっと残ります**。
 
 # 最重要（ここを間違えないこと）
 * 日記に書かれていないことを足さないこと。**推測で補わない。**
 * 行為者を取り違えないこと。日記に出てくる家族・友人がやったことを、本人がやったことにしない。
 * まだ終わっていないこと（「〜したら」「〜する予定」）を、**終わったことにして祝わない。**
-* 迷ったら**選ばない**。この月に節目が無いのは、まったく正常です。0件で構いません。
+* 迷ったら**選ばない**。この${unit}に節目が無いのは、まったく正常です。0件で構いません。
 
 # 選び方
-* 「その月をあとから思い出すとき、目印になるか」だけで選んでください。
-* 多くても ${CHRONICLE_MAX_HIGHLIGHTS} 件まで。似たものが続くなら1件にまとめず、どれか1つだけ選ぶこと。
+* 「その${unit}をあとから思い出すとき、目印になるか」だけで選んでください。
+* 多くても ${max} 件まで。似たものが続くなら1件にまとめず、どれか1つだけ選ぶこと。
 * 日常のささやかなことでも、その人にとって区切りなら選んでよいです。
 
 # 絶対に書かないこと（このアプリは全肯定がコンセプトです）
 * **連続日数・ストリークを数えない。** 数えた瞬間に「途切れさせてはいけない義務」になります。
-* **他の月や去年と比べない。** 「今月は少なかった」は書かない。
+* **他の${unit}や去年と比べない。** 「今${unit}は少なかった」は書かない。
 * **順位・点数・達成率を書かない。**
 * 足りなかったこと・できなかったことを指摘しない。
 
@@ -225,15 +262,18 @@ ${TONE_RULES_JA}
  * 返すこと自体がデコード時点で不可能になる（プロンプトの禁止文は確率的にしか効かない）。
  * ニュースも同じ理由で候補の添字で選ばせ、見出しも URL も自由記述させない。
  */
-export function chronicleMonthSchema(dates: string[]) {
+export function chronicleMonthSchema(
+  dates: string[],
+  maxHighlights = CHRONICLE_MAX_HIGHLIGHTS,
+) {
   return {
     type: Type.OBJECT,
     properties: {
       highlights: {
         type: Type.ARRAY,
-        maxItems: CHRONICLE_MAX_HIGHLIGHTS,
+        maxItems: maxHighlights,
         description:
-          "この月の節目。無理に埋めず、目印になるものだけ。0件でよい。",
+          "この期間の節目。無理に埋めず、目印になるものだけ。0件でよい。",
         items: {
           type: Type.OBJECT,
           properties: {
@@ -292,7 +332,7 @@ export function acceptChronicleMonth(
   const highlights: ChronicleHighlight[] = [];
 
   for (const item of Array.isArray(raw.highlights) ? raw.highlights : []) {
-    if (highlights.length >= CHRONICLE_MAX_HIGHLIGHTS) break;
+    if (highlights.length >= chronicleMaxHighlights(input)) break;
     const row = (item ?? {}) as Record<string, unknown>;
     const date = String(row.date ?? "");
     const diary = byDate.get(date);
@@ -345,6 +385,7 @@ export async function generateChronicleMonth(
         responseMimeType: "application/json",
         responseSchema: chronicleMonthSchema(
           input.diaries.map((diary) => diary.date),
+          chronicleMaxHighlights(input),
         ),
         // 0〜3件ぶん。明示しないと maxTextLength:null 側の 4096 が載り、
         // そのぶんプロンプト予算が無駄に狭くなる。
@@ -365,4 +406,21 @@ export async function generateChronicleMonth(
     );
     return { highlights: [] };
   }
+}
+
+/** 週次ロールアップ。材料・検証は月次と同じで、期間と上限だけ週向けにする。 */
+export function toChronicleWeekMonthInput(input: ChronicleWeekInput): ChronicleMonthInput {
+  return {
+    displayName: input.displayName,
+    month: input.weekStart.slice(0, 7),
+    japanese: input.japanese,
+    diaries: input.diaries,
+    week: { start: input.weekStart, end: input.weekEnd },
+  };
+}
+
+export function generateChronicleWeek(
+  input: ChronicleWeekInput,
+): Promise<ChronicleMonthResult> {
+  return generateChronicleMonth(toChronicleWeekMonthInput(input));
 }

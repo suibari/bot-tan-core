@@ -1,12 +1,20 @@
 import { and, asc, eq, lte, or } from "drizzle-orm";
-import { db, nagiChronicleJobs, nagiChronicleNews } from "@bsky-affirmative-bot/database";
+import {
+  db,
+  nagiChronicleJobs,
+  nagiChronicleNews,
+  nagiChronicleWeekJobs,
+} from "@bsky-affirmative-bot/database";
 import { cardDrawDate } from "@bsky-affirmative-bot/shared-configs";
 import {
   processChronicleMonth,
   processChronicleNews,
+  processChronicleWeek,
   sweepChronicleJobs,
   sweepChronicleNews,
+  sweepChronicleWeekJobs,
 } from "./NagiChronicleFeature.js";
+import { notifyChronicleUpdated } from "./appviewInternal.js";
 import { startWorkerLoop } from "./workerLoop.js";
 
 const MAX_ATTEMPTS = 5;
@@ -26,9 +34,9 @@ const SWEEP_LIMIT = 200;
 let running = false;
 
 /**
- * 自分年表の月次ロールアップワーカー。
+ * 自分年表のロールアップワーカー（2026-10 までは月次、2026-11 からは週次）。
  *
- * **「月が閉じた」を cron ではなく条件で表現する。** 対象は cardDrawDate（JST 4:00 始まり）で
+ * **「月／週が閉じた」を cron ではなく条件で表現する。** 対象は cardDrawDate（JST 4:00 始まり）で
  * 見た今月より前の月だけ。サーバのタイムゾーンにもワーカーの起動時刻にも依存せず、
  * 落ちていた間のぶんも起動後に古い月から自然に片付く（ZENKATSU_AWARD と同じ形）。
  */
@@ -38,8 +46,10 @@ export function startNagiChronicleWorker() {
 
   const run = async () => {
     const now = new Date();
-    const currentMonth = cardDrawDate(now).slice(0, 7);
+    const today = cardDrawDate(now);
+    const currentMonth = today.slice(0, 7);
     await sweepChronicleJobs(currentMonth, SWEEP_LIMIT);
+    await sweepChronicleWeekJobs(today, SWEEP_LIMIT);
     await sweepChronicleNews(currentMonth);
 
     /*
@@ -70,7 +80,10 @@ export function startNagiChronicleWorker() {
       .limit(1);
 
     const job = jobs[0];
-    if (!job) return;
+    if (!job) {
+      await runPendingWeek(now);
+      return;
+    }
     const key = and(
       eq(nagiChronicleJobs.subjectDid, job.subjectDid),
       eq(nagiChronicleJobs.month, job.month),
@@ -167,6 +180,81 @@ async function runPendingNews(now: Date): Promise<boolean> {
     // 上限まで失敗しても、欠けるのは背景の1行だけ。年表そのものは成立し続ける。
     await db
       .update(nagiChronicleNews)
+      .set({
+        state: attempts >= MAX_ATTEMPTS ? "failed" : "pending",
+        lastError: error instanceof Error ? error.message : String(error),
+        leaseExpiresAt: null,
+        nextAttemptAt: new Date(Date.now() + backoffMs),
+        updatedAt: new Date(),
+      })
+      .where(key);
+  }
+  return true;
+}
+
+/**
+ * 待っている週を1件だけ確定する。処理したら true。
+ *
+ * 新しい節目が載ったら本人へ通知する。AppView 側が (did, 週) で1通にまとめるので、
+ * 遅れて入った日記で作り直しても二重には届かない。
+ */
+async function runPendingWeek(now: Date): Promise<boolean> {
+  const rows = await db
+    .select()
+    .from(nagiChronicleWeekJobs)
+    .where(
+      and(
+        or(
+          eq(nagiChronicleWeekJobs.state, "pending"),
+          eq(nagiChronicleWeekJobs.state, "processing"),
+        ),
+        lte(nagiChronicleWeekJobs.nextAttemptAt, now),
+        or(
+          eq(nagiChronicleWeekJobs.state, "pending"),
+          lte(nagiChronicleWeekJobs.leaseExpiresAt, now),
+        ),
+      ),
+    )
+    // 古い週から（月次と同じ理由）。
+    .orderBy(asc(nagiChronicleWeekJobs.weekStart))
+    .limit(1);
+  const job = rows[0];
+  if (!job) return false;
+  const key = and(
+    eq(nagiChronicleWeekJobs.subjectDid, job.subjectDid),
+    eq(nagiChronicleWeekJobs.weekStart, job.weekStart),
+  );
+
+  await db
+    .update(nagiChronicleWeekJobs)
+    .set({
+      state: "processing",
+      leaseExpiresAt: new Date(Date.now() + LEASE_DURATION_MS),
+      attempts: job.attempts + 1,
+      updatedAt: now,
+    })
+    .where(key);
+
+  try {
+    const result = await processChronicleWeek(job.subjectDid, job.weekStart);
+    await db
+      .update(nagiChronicleWeekJobs)
+      .set({
+        state: "posted",
+        diaryCount: result.diaryCount,
+        leaseExpiresAt: null,
+        lastError: null,
+        updatedAt: new Date(),
+      })
+      .where(key);
+    if (result.written > 0 && result.changed) {
+      await notifyChronicleUpdated(job.subjectDid, job.weekStart);
+    }
+  } catch (error) {
+    const attempts = job.attempts + 1;
+    const backoffMs = Math.min(MAX_BACKOFF_MS, 2 ** attempts * 10_000);
+    await db
+      .update(nagiChronicleWeekJobs)
       .set({
         state: attempts >= MAX_ATTEMPTS ? "failed" : "pending",
         lastError: error instanceof Error ? error.message : String(error),

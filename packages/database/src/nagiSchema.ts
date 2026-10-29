@@ -51,6 +51,8 @@ export const notificationType = nagiSchema.enum("notification_type", [
   "gift",
   // 絵文字の生成が終わった。AppView の生成ワーカーが直接作る。
   "emoji",
+  // 年表に週のトピックが載った。nagi_bot_server → AppView の内部エンドポイント経由。
+  "chronicle",
 ]);
 /** Ƶ（全肯定ポイント）の台帳の理由。docs/zenkatsu.md 13.3。 */
 export const zennyLedgerReason = nagiSchema.enum("zenny_ledger_reason", [
@@ -1925,8 +1927,13 @@ export const nagiChronicleEvents = nagiSchema.table(
      * （card_gets.source と同じ割り切り）。将来ゼンカツのトロフィーを足すのもこれで済む。
      */
     kind: text("kind").notNull(),
-    /** どの月のロールアップが作ったか。"YYYY-MM"。 */
+    /** どの月のロールアップが作ったか。"YYYY-MM"。週次の行は週の初日の月。 */
     sourceMonth: text("source_month").notNull(),
+    /**
+     * 週次ロールアップ（2026-11〜）が作った行だけ、その週の月曜 "YYYY-MM-DD"。
+     * 週ごとの置換はこの列で消す。月次の行は NULL のまま。
+     */
+    sourceWeek: text("source_week"),
     /** 月内で閉じた置換キー。 */
     dedupeKey: text("dedupe_key").notNull(),
     titleJa: text("title_ja").notNull(),
@@ -1959,6 +1966,8 @@ export const nagiChronicleEvents = nagiSchema.table(
     index("nagi_chronicle_events_timeline_idx").on(t.subjectDid, t.eventDate),
     // 月ごとの置換（source_month で消す）が乗る。
     index("nagi_chronicle_events_month_idx").on(t.subjectDid, t.sourceMonth),
+    // 週ごとの置換（source_week で消す）が乗る。
+    index("nagi_chronicle_events_week_idx").on(t.subjectDid, t.sourceWeek),
   ],
 );
 
@@ -1996,6 +2005,37 @@ export const nagiChronicleJobs = nagiSchema.table(
   (t) => [
     primaryKey({ columns: [t.subjectDid, t.month] }),
     index("nagi_chronicle_jobs_ready_idx").on(t.state, t.nextAttemptAt),
+  ],
+);
+
+/**
+ * 週次ロールアップのリースキュー。chronicle_jobs と同型で、鍵が月ではなく週の月曜。
+ * 2026-11 から年表は週ごとに0〜1件を拾う（それ以前の月は chronicle_jobs のまま）。
+ */
+export const nagiChronicleWeekJobs = nagiSchema.table(
+  "chronicle_week_jobs",
+  {
+    subjectDid: text("subject_did").notNull(),
+    /** 対象週の月曜。"YYYY-MM-DD"。 */
+    weekStart: text("week_start").notNull(),
+    diaryCount: integer("diary_count").notNull(),
+    state: botJobState("state").default("pending").notNull(),
+    attempts: integer("attempts").default(0).notNull(),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.subjectDid, t.weekStart] }),
+    index("nagi_chronicle_week_jobs_ready_idx").on(t.state, t.nextAttemptAt),
   ],
 );
 

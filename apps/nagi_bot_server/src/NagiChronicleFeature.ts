@@ -3,6 +3,7 @@ import {
   nagiChronicleEvents,
   nagiChronicleJobs,
   nagiChronicleNews,
+  nagiChronicleWeekJobs,
   nagiDiaries,
   nagiNews,
   nagiNewsApprovals,
@@ -13,20 +14,34 @@ import {
   CHRONICLE_NEWS_CANDIDATE_LIMIT,
   generateChronicleMonth,
   generateChronicleNews,
+  generateChronicleWeek,
   NAGI_CHRONICLE_NEWS_PROMPT_VERSION,
   NAGI_CHRONICLE_PROMPT_VERSION,
+  NAGI_CHRONICLE_WEEK_PROMPT_VERSION,
+  type ChronicleMonthDiary,
   type ChronicleMonthInput,
   type ChronicleNewsCandidate,
 } from "@bsky-affirmative-bot/bot-brain";
 import { cardDrawDate } from "@bsky-affirmative-bot/shared-configs";
-import { and, asc, desc, eq, gte, isNull, lt, notInArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, isNull, lt, notInArray, sql, type SQL } from "drizzle-orm";
+import {
+  CHRONICLE_WEEKLY_SINCE,
+  CHRONICLE_WEEKLY_SINCE_MONTH,
+  chronicleWeekEnd,
+  chronicleWeekRange,
+  chronicleWeekStart,
+  isChronicleDate,
+} from "./chronicleWeek.js";
 
 /**
- * 自分年表の月次ロールアップ。
+ * 自分年表のロールアップ。
  *
- * その月の日記をまとめて読み、「大きな出来事」と「そのころ世の中では」を
- * nagi.chronicle_events へ書く。**書き込みは月ごと丸ごと置換**なので、何度走らせても
+ * 日記をまとめて読み、「大きな出来事」と「そのころ世の中では」を
+ * nagi.chronicle_events へ書く。**書き込みは期間ごと丸ごと置換**なので、何度走らせても
  * 増えないし、あとから日記が増えたら作り直せる。
+ *
+ * 2026-10 までは月ごと（月0〜3件）、2026-11 からは週ごと（週0〜1件）。
+ * 「そのころ世の中では」は月ごとのまま。
  */
 
 const MONTH = /^\d{4}-\d{2}$/;
@@ -168,23 +183,7 @@ export async function processChronicleMonth(
 ): Promise<ChronicleMonthRun> {
   if (!MONTH.test(month)) throw new Error(`chronicle: invalid month "${month}"`);
 
-  const diaries = await db
-    .select({
-      date: nagiDiaries.diaryDate,
-      text: nagiDiaries.text,
-      uri: nagiDiaries.uri,
-      titleJa: nagiDiaries.titleJa,
-      langs: nagiDiaries.langs,
-    })
-    .from(nagiDiaries)
-    .where(
-      and(
-        eq(nagiDiaries.subjectDid, did),
-        gte(nagiDiaries.diaryDate, `${month}-01`),
-        lt(nagiDiaries.diaryDate, nextMonthStart(month)),
-      ),
-    )
-    .orderBy(asc(nagiDiaries.diaryDate));
+  const diaries = await loadDiaries(did, `${month}-01`, nextMonthStart(month));
 
   if (!diaries.length) {
     console.log(`[INFO][NAGI][CHRONICLE][${did}] no diaries in ${month}`);
@@ -192,30 +191,8 @@ export async function processChronicleMonth(
     return { written: 0, diaryCount: 0 };
   }
 
-  const profile = await db
-    .select({ displayName: nagiProfiles.displayName })
-    .from(nagiProfiles)
-    .where(eq(nagiProfiles.did, did))
-    .limit(1);
-
-  // 日記と同じ言語判定。その月の最後に言語が付いていた日記に合わせる。
-  const langs = [...diaries]
-    .reverse()
-    .find((row) => Array.isArray(row.langs) && row.langs.length)?.langs as
-    | string[]
-    | undefined;
-  const japanese = !langs?.length || langs[0].startsWith("ja");
-
-  const input: ChronicleMonthInput = {
-    displayName: profile[0]?.displayName || "あなた",
-    month,
-    japanese,
-    diaries: diaries.map((row) => ({
-      date: row.date,
-      ...(row.titleJa ? { titleJa: row.titleJa } : {}),
-      text: row.text,
-    })),
-  };
+  const material = await loadMaterial(did, diaries);
+  const input: ChronicleMonthInput = { ...material, month };
 
   const result = await generateChronicleMonth(input);
   const uriByDate = new Map(diaries.map((row) => [row.date, row.uri]));
@@ -246,18 +223,179 @@ export async function processChronicleMonth(
 
 type ChronicleRow = typeof nagiChronicleEvents.$inferInsert;
 
+/** [from, until) の日記。日付昇順。 */
+async function loadDiaries(did: string, from: string, until: string) {
+  return db
+    .select({
+      date: nagiDiaries.diaryDate,
+      text: nagiDiaries.text,
+      uri: nagiDiaries.uri,
+      titleJa: nagiDiaries.titleJa,
+      langs: nagiDiaries.langs,
+    })
+    .from(nagiDiaries)
+    .where(
+      and(
+        eq(nagiDiaries.subjectDid, did),
+        gte(nagiDiaries.diaryDate, from),
+        lt(nagiDiaries.diaryDate, until),
+      ),
+    )
+    .orderBy(asc(nagiDiaries.diaryDate));
+}
+
+/** プロンプトに渡す本人の名前・言語・日記。月次と週次で共通。 */
+async function loadMaterial(
+  did: string,
+  diaries: Awaited<ReturnType<typeof loadDiaries>>,
+): Promise<{ displayName: string; japanese: boolean; diaries: ChronicleMonthDiary[] }> {
+  const profile = await db
+    .select({ displayName: nagiProfiles.displayName })
+    .from(nagiProfiles)
+    .where(eq(nagiProfiles.did, did))
+    .limit(1);
+
+  // 日記と同じ言語判定。期間内で最後に言語が付いていた日記に合わせる。
+  const langs = [...diaries]
+    .reverse()
+    .find((row) => Array.isArray(row.langs) && row.langs.length)?.langs as
+    | string[]
+    | undefined;
+  const japanese = !langs?.length || langs[0].startsWith("ja");
+
+  return {
+    displayName: profile[0]?.displayName || "あなた",
+    japanese,
+    diaries: diaries.map((row) => ({
+      date: row.date,
+      ...(row.titleJa ? { titleJa: row.titleJa } : {}),
+      text: row.text,
+    })),
+  };
+}
+
+export interface ChronicleWeekRun extends ChronicleMonthRun {
+  /** 今回の生成で、前回まで無かった行（または中身が変わった行）があったか。 */
+  changed: boolean;
+}
+
+/**
+ * 1人ぶん・1週ぶんを確定する（2026-11〜）。
+ *
+ * 呼び出し口は週次ワーカーと `POST /chronicle/run`。週ごと丸ごと置換で書く。
+ * 通知を出すかどうかは呼び出し側が written で決める（ここは書くだけ）。
+ */
+export async function processChronicleWeek(
+  did: string,
+  weekStart: string,
+): Promise<ChronicleWeekRun> {
+  if (!isChronicleDate(weekStart) || chronicleWeekStart(weekStart) !== weekStart) {
+    throw new Error(`chronicle: invalid week "${weekStart}"`);
+  }
+  const { from, until } = chronicleWeekRange(weekStart);
+  const diaries = from < until ? await loadDiaries(did, from, until) : [];
+
+  if (!diaries.length) {
+    console.log(`[INFO][NAGI][CHRONICLE][${did}] no diaries in week ${weekStart}`);
+    await replaceWeek(did, weekStart, []);
+    return { written: 0, diaryCount: 0, changed: false };
+  }
+
+  const material = await loadMaterial(did, diaries);
+  const result = await generateChronicleWeek({
+    ...material,
+    weekStart,
+    weekEnd: chronicleWeekEnd(weekStart),
+  });
+  const uriByDate = new Map(diaries.map((row) => [row.date, row.uri]));
+
+  const rows: ChronicleRow[] = result.highlights.map((highlight, index) => ({
+    subjectDid: did,
+    eventDate: highlight.date,
+    kind: "highlight",
+    sourceMonth: weekStart.slice(0, 7),
+    sourceWeek: weekStart,
+    dedupeKey: `llm-week:${weekStart}:${index}`,
+    titleJa: highlight.titleJa,
+    titleEn: highlight.titleEn,
+    detailJa: highlight.detailJa,
+    detailEn: highlight.detailEn,
+    evidence: highlight.evidence,
+    diaryUri: uriByDate.get(highlight.date) ?? null,
+    newsUri: null,
+    promptVersion: NAGI_CHRONICLE_WEEK_PROMPT_VERSION,
+  }));
+
+  const changed = await replaceWeek(did, weekStart, rows);
+  console.log(
+    `[INFO][NAGI][CHRONICLE][${did}] week ${weekStart}: wrote ${rows.length} event(s) from ${diaries.length} diaries${changed ? " (changed)" : ""}`,
+  );
+  return { written: rows.length, diaryCount: diaries.length, changed };
+}
+
 /**
  * その月ぶんを丸ごと置き換える。
  *
  * **UNIQUE(subject_did, dedupe_key) の upsert だけでは足りない。** 前回3件・今回1件のとき、
  * 前回の2件目以降が残ってしまう。同じ月で今回の鍵に無い行を必ず消す。
  */
-async function replaceMonth(
+function replaceMonth(
   did: string,
   month: string,
   rows: ChronicleRow[],
-): Promise<void> {
-  await db.transaction(async (tx) => {
+): Promise<boolean> {
+  return replaceRows(
+    and(
+      eq(nagiChronicleEvents.subjectDid, did),
+      eq(nagiChronicleEvents.sourceMonth, month),
+      // 週次の行は source_month も持つので、月次の置換で巻き込まない。
+      isNull(nagiChronicleEvents.sourceWeek),
+    )!,
+    rows,
+  );
+}
+
+/** 週ぶんを丸ごと置き換える。replaceMonth の週版。 */
+function replaceWeek(
+  did: string,
+  weekStart: string,
+  rows: ChronicleRow[],
+): Promise<boolean> {
+  return replaceRows(
+    and(
+      eq(nagiChronicleEvents.subjectDid, did),
+      eq(nagiChronicleEvents.sourceWeek, weekStart),
+    )!,
+    rows,
+  );
+}
+
+/**
+ * scope の行を rows で丸ごと置き換える。
+ * 返り値は「新しく増えた、または見出し・ひとことが変わった行があったか」（通知の判断用）。
+ */
+async function replaceRows(scope: SQL, rows: ChronicleRow[]): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    const before = await tx
+      .select({
+        dedupeKey: nagiChronicleEvents.dedupeKey,
+        eventDate: nagiChronicleEvents.eventDate,
+        titleJa: nagiChronicleEvents.titleJa,
+        detailJa: nagiChronicleEvents.detailJa,
+      })
+      .from(nagiChronicleEvents)
+      .where(scope);
+    const previous = new Map(before.map((row) => [row.dedupeKey, row]));
+    const changed = rows.some((row) => {
+      const old = previous.get(row.dedupeKey);
+      return (
+        !old ||
+        old.eventDate !== row.eventDate ||
+        old.titleJa !== row.titleJa ||
+        old.detailJa !== (row.detailJa ?? null)
+      );
+    });
+
     if (rows.length) {
       await tx
         .insert(nagiChronicleEvents)
@@ -268,6 +406,7 @@ async function replaceMonth(
             eventDate: sql`excluded.event_date`,
             kind: sql`excluded.kind`,
             sourceMonth: sql`excluded.source_month`,
+            sourceWeek: sql`excluded.source_week`,
             titleJa: sql`excluded.title_ja`,
             titleEn: sql`excluded.title_en`,
             detailJa: sql`excluded.detail_ja`,
@@ -285,13 +424,13 @@ async function replaceMonth(
       .delete(nagiChronicleEvents)
       .where(
         and(
-          eq(nagiChronicleEvents.subjectDid, did),
-          eq(nagiChronicleEvents.sourceMonth, month),
+          scope,
           ...(keys.length
             ? [notInArray(nagiChronicleEvents.dedupeKey, keys)]
             : []),
         ),
       );
+    return changed;
   });
 }
 
@@ -305,6 +444,9 @@ export async function sweepChronicleJobs(
   currentMonth: string,
   limit = 200,
 ): Promise<number> {
+  // 2026-11 からは週次（sweepChronicleWeekJobs）。月次はそれより前の月だけ。
+  const until =
+    currentMonth < CHRONICLE_WEEKLY_SINCE_MONTH ? currentMonth : CHRONICLE_WEEKLY_SINCE_MONTH;
   const months = await db
     .select({
       subjectDid: nagiDiaries.subjectDid,
@@ -312,7 +454,7 @@ export async function sweepChronicleJobs(
       diaryCount: sql<number>`count(*)::int`,
     })
     .from(nagiDiaries)
-    .where(lt(sql`substr(${nagiDiaries.diaryDate}, 1, 7)`, currentMonth))
+    .where(lt(sql`substr(${nagiDiaries.diaryDate}, 1, 7)`, until))
     .groupBy(nagiDiaries.subjectDid, sql`substr(${nagiDiaries.diaryDate}, 1, 7)`)
     .limit(limit);
   if (!months.length) return 0;
@@ -341,6 +483,64 @@ export async function sweepChronicleJobs(
           eq(nagiChronicleJobs.subjectDid, row.subjectDid),
           eq(nagiChronicleJobs.month, row.month),
           sql`${nagiChronicleJobs.diaryCount} <> ${row.diaryCount}`,
+        ),
+      );
+  }
+  return inserted.length;
+}
+
+/**
+ * まだジョブの無い「閉じた週」を積む（2026-11〜）。sweepChronicleJobs の週版。
+ *
+ * 週は月曜始まり（Postgres の date_trunc('week') と同じ ISO 週）。
+ * today は cardDrawDate で見た今日で、その日を含む週より前の週だけが対象。
+ */
+export async function sweepChronicleWeekJobs(
+  today: string,
+  limit = 200,
+): Promise<number> {
+  const currentWeek = chronicleWeekStart(today);
+  const weekExpr = sql<string>`to_char(date_trunc('week', ${nagiDiaries.diaryDate}::date), 'YYYY-MM-DD')`;
+  const weeks = await db
+    .select({
+      subjectDid: nagiDiaries.subjectDid,
+      weekStart: weekExpr,
+      diaryCount: sql<number>`count(*)::int`,
+    })
+    .from(nagiDiaries)
+    .where(
+      and(
+        gte(nagiDiaries.diaryDate, CHRONICLE_WEEKLY_SINCE),
+        lt(nagiDiaries.diaryDate, currentWeek),
+      ),
+    )
+    .groupBy(nagiDiaries.subjectDid, weekExpr)
+    .limit(limit);
+  if (!weeks.length) return 0;
+
+  const inserted = await db
+    .insert(nagiChronicleWeekJobs)
+    .values(weeks)
+    .onConflictDoNothing()
+    .returning({ subjectDid: nagiChronicleWeekJobs.subjectDid });
+
+  // 日記が増えていた週は作り直す（すでに posted でも戻す）。
+  for (const row of weeks) {
+    await db
+      .update(nagiChronicleWeekJobs)
+      .set({
+        state: "pending",
+        diaryCount: row.diaryCount,
+        attempts: 0,
+        leaseExpiresAt: null,
+        nextAttemptAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(nagiChronicleWeekJobs.subjectDid, row.subjectDid),
+          eq(nagiChronicleWeekJobs.weekStart, row.weekStart),
+          sql`${nagiChronicleWeekJobs.diaryCount} <> ${row.diaryCount}`,
         ),
       );
   }
@@ -387,12 +587,15 @@ export async function enqueueChronicleMonths(
   return inserted.length;
 }
 
-/** アカウント削除との整合用。AppView 側の deleteAccountData も同じ2テーブルを消す。 */
+/** アカウント削除との整合用。AppView 側の deleteAccountData も同じ3テーブルを消す。 */
 export async function purgeChronicle(did: string): Promise<void> {
   await db
     .delete(nagiChronicleEvents)
     .where(eq(nagiChronicleEvents.subjectDid, did));
   await db.delete(nagiChronicleJobs).where(eq(nagiChronicleJobs.subjectDid, did));
+  await db
+    .delete(nagiChronicleWeekJobs)
+    .where(eq(nagiChronicleWeekJobs.subjectDid, did));
 }
 
 export { monthEnd, nextMonthStart };

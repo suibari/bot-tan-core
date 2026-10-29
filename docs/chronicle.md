@@ -261,6 +261,31 @@ UPDATE nagi.chronicle_jobs j
 **同じ `source_month` で今回の鍵に無い行を必ず消す。** `UNIQUE(subject_did, dedupe_key)` だけでは
 「前回3件・今回1件」のときに前回の2件目以降が残る。
 
+### 週次ロールアップ（2026-11〜）
+
+月に一度だけ年表が動くのでは、見に来る理由が月末まで無い。**2026-11-01 から、日記の拾い上げは
+週ごと（月曜〜日曜、週0〜1件）に切り替えた。** それより前の月は月次の行をそのまま残し、作り直さない。
+
+- 切替日は `CHRONICLE_WEEKLY_SINCE`（`apps/nagi_bot_server/src/chronicleWeek.ts`）。
+  月次の sweep は `2026-11` より前の月だけ、週次の sweep はこの日以降の日記だけを積む。
+  11/1 は日曜なので、最初の週（10/26 の週）は 11/1 の1日だけが材料になる。取りこぼしも二重もない。
+- 週は Postgres の `date_trunc('week')`（ISO 週、月曜始まり）。閉じたかどうかは月次と同じく
+  `cardDrawDate()` で見た今日を含む週より前かで決める。
+- ジョブは `chronicle_week_jobs`（`chronicle_jobs` と同型、鍵は週の月曜）。
+  行は `source_week` に週の月曜を持ち、`dedupe_key` は `llm-week:{YYYY-MM-DD}:{n}`。
+  置換は `source_week` で行う（月次の置換は `source_week IS NULL` の行だけを対象にして、週次の行を巻き込まない）。
+- プロンプトは月次と共通（`generateChronicleWeek` は期間の書き方と上限件数だけ変える）。
+  `prompt_version` は `nagi-chronicle-week-v1`。全肯定の禁止ルールはそのまま。
+- 「そのころ世の中では」は**月ごとのまま**（全ユーザー共通で月1回）。
+
+### 年表更新の通知
+
+週を確定して**新しい節目が増えた（または見出しが変わった）ときだけ**、bot server が
+`POST /internal/notifications/chronicle {did, weekStart}` を叩き、AppView が `type: 'chronicle'` の
+通知と Web Push を作る（名刺更新の `analysis` と同じ経路）。`reasonUri` は
+`at://{did}/chronicle/{weekStart}` で、遅れて入った日記で同じ週を作り直しても通知は増えない。
+クライアントは通知から `/diary?tab=chronicle` へ飛ぶ。
+
 ## 6. LLM の呼び方（ここは踏みやすい落とし穴が3つある）
 
 ### (a) 指示は `systemInstruction`、材料は `contents` 1本

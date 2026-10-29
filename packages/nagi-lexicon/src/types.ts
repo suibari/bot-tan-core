@@ -524,7 +524,8 @@ export type NotificationView = {
   id: string;
   /** "analysis" は名刺（自動分析）の更新。actor は常に botたん、post も diary も付かない。 */
   /** "gift" はおすそわけボードに置いたカードが届いた。actor は受け取った人、cardSubject にカードが入る。 */
-  type: "reply" | "reaction" | "mention" | "diary" | "analysis" | "gift";
+  /** "chronicle" は年表に週のトピックが載った。actor は常に botたん、post も diary も付かない。 */
+  type: "reply" | "reaction" | "mention" | "diary" | "analysis" | "gift" | "emoji" | "chronicle";
   actor: ActorView;
   post?: PostView;
   /** type が "diary" のときの日記本体。post は付かない。 */

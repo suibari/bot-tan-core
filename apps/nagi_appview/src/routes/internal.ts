@@ -158,6 +158,55 @@ internal.post("/notifications/analysis", async (req, res, next) => {
 });
 
 /**
+ * 年表に週のトピックが載ったことの通知を作る（analysis と同じ形）。
+ *
+ * 年表は AppView の Postgres にしか無いので、生成側（nagi_bot_server）が週の確定後に叩く。
+ * reasonUri を週の月曜で切るので、遅れて入った日記で同じ週を作り直しても通知は増えない。
+ */
+internal.post("/notifications/chronicle", async (req, res, next) => {
+  try {
+    const did = String(req.body?.did ?? "");
+    const weekStart = String(req.body?.weekStart ?? "");
+    if (!did.startsWith("did:")) {
+      res.status(400).json({ error: "did is required" });
+      return;
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(weekStart)) {
+      res.status(400).json({ error: "weekStart must be YYYY-MM-DD" });
+      return;
+    }
+
+    const inserted = await db
+      .insert(nagiNotifications)
+      .values({
+        recipientDid: did,
+        type: "chronicle",
+        actorDid: config.botDid,
+        subjectUri: `at://${did}`,
+        reasonUri: `at://${did}/chronicle/${weekStart}`,
+      })
+      .onConflictDoNothing()
+      .returning({ id: nagiNotifications.id });
+
+    if (!inserted.length) {
+      res.status(200).json({ created: false });
+      return;
+    }
+
+    void dispatchPush({
+      recipientDid: did,
+      type: "chronicle",
+      actorDid: config.botDid,
+      notificationId: inserted[0].id,
+    });
+
+    res.status(200).json({ created: true, notificationId: inserted[0].id });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
  * botたん本人が生成した対訳を翻訳キャッシュへ投入する。
  *
  * 定時投稿は Gemini が textJa と textEn を同時に生成しているのに、Nagi へは日本語しか
