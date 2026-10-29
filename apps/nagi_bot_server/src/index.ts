@@ -18,7 +18,9 @@ import { processNagiZenkatsuJob, startNagiZenkatsuWorker } from "./NagiZenkatsuW
 import { startNagiZenkatsuAwardWorker } from "./NagiZenkatsuAwardWorker.js";
 import { startNagiChronicleWorker } from "./NagiChronicleWorker.js";
 import { startNagiPostMoodWorker } from "./NagiPostMoodWorker.js";
-import { processChronicleMonth } from "./NagiChronicleFeature.js";
+import { processChronicleMonth, processChronicleWeek } from "./NagiChronicleFeature.js";
+import { chronicleWeekStart, isChronicleDate } from "./chronicleWeek.js";
+import { notifyChronicleUpdated } from "./appviewInternal.js";
 import { startNagiThemeWorker } from "./NagiThemeWorker.js";
 import { startNewsInterestWorker } from "./NewsInterestWorker.js";
 import { enqueueAnalysis, runNagiAnalysis } from "./NagiAnalysisFeature.js";
@@ -186,15 +188,30 @@ async function start() {
       res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
     }
   });
-  // 月が閉じるのを待たずに年表を作る（動作確認・手動リカバリ・バックフィルの検証用）。
+  // 月／週が閉じるのを待たずに年表を作る（動作確認・手動リカバリ・バックフィルの検証用）。
+  // {did, month: "YYYY-MM"} は月次、{did, week: "YYYY-MM-DD"（月曜）} は週次。
+  // 週次は新しい節目が載れば本人に通知も出す（ワーカーと同じ）。
   // **in-flight ガードは付けない。** 呼ぶのは人の手だけなので並列は暴れないし、
   // ここで弾くと待っている本人の結果が次の tick まで遅れる（AGENTS.md）。
   app.post("/chronicle/run", async (req, res) => {
     try {
       const did = String(req.body?.did ?? "");
       const month = String(req.body?.month ?? "");
+      const week = String(req.body?.week ?? "");
       if (!did.startsWith("did:")) {
         res.status(400).json({ error: "did is required" });
+        return;
+      }
+      if (week) {
+        if (!isChronicleDate(week) || chronicleWeekStart(week) !== week) {
+          res.status(400).json({ error: "week must be a Monday YYYY-MM-DD" });
+          return;
+        }
+        const result = await processChronicleWeek(did, week);
+        if (result.written > 0 && result.changed) {
+          await notifyChronicleUpdated(did, week);
+        }
+        res.status(200).json(result);
         return;
       }
       if (!/^\d{4}-\d{2}$/.test(month)) {

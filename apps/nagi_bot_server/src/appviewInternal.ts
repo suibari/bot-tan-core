@@ -126,6 +126,21 @@ export function notifyAnalysisUpdated(
 }
 
 /**
+ * 年表に週のトピックが載ったことを伝えて通知を作らせる。
+ * AppView 側は (did, weekStart) で1通にまとめるので、作り直しても二重に届かない。
+ */
+export function notifyChronicleUpdated(
+  did: string,
+  weekStart: string,
+): Promise<boolean> {
+  return postInternal(
+    "/internal/notifications/chronicle",
+    { did, weekStart },
+    "CHRONICLE",
+  );
+}
+
+/**
  * botたん本人が生成した対訳を翻訳キャッシュへ投入させる。
  * 投稿直後に呼ぶことで、AppView の英訳プリウォーム（機械翻訳）より先に本物が入る。
  */

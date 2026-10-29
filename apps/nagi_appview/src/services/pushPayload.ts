@@ -21,7 +21,14 @@
 
 /** 通知種別。nagi.notifications.type と対応する。 */
 export type PushNotificationType =
-  "reply" | "reaction" | "mention" | "diary" | "analysis" | "gift" | "emoji";
+  | "reply"
+  | "reaction"
+  | "mention"
+  | "diary"
+  | "analysis"
+  | "gift"
+  | "emoji"
+  | "chronicle";
 
 export interface PushPayload {
   title: string;
@@ -117,6 +124,9 @@ function compose(
     case "analysis":
       // 分析＝名刺の更新。actorName は常に botたんなので使わない。
       return { title: "botたんがあなたの名刺を更新しました", body: "" };
+    case "chronicle":
+      // 年表に週のトピックが載った。actorName は常に botたんなので使わない。
+      return { title: "botたんがあなたの年表を更新しました", body: "" };
     case "gift":
       // おすそわけボードに置いたカードが届いた。actionText はカードの名前。
       return {

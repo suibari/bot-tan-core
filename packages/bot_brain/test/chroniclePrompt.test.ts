@@ -16,6 +16,8 @@ import {
   chronicleMonthFits,
   chronicleMonthSchema,
   rejectChronicleTone,
+  CHRONICLE_WEEK_MAX_HIGHLIGHTS,
+  toChronicleWeekMonthInput,
   type ChronicleMonthInput,
 } from "../src/ai/generateChronicleMonth.js";
 
@@ -234,4 +236,60 @@ test("前後の空白と改行だけは整える", () => {
   });
   assert.equal(result.highlights[0].titleJa, "グラボ換装");
   assert.equal(result.highlights[0].detailJa, "おめでとう！ すごいね！");
+});
+
+const week = () =>
+  toChronicleWeekMonthInput({
+    displayName: "すいばり",
+    weekStart: "2026-11-02",
+    weekEnd: "2026-11-08",
+    japanese: true,
+    diaries: [
+      { date: "2026-11-02", text: "ひさしぶりに海まで歩いていった日のこと。" },
+      { date: "2026-11-04", text: "新しいキーボードが届いて、ずっと打っていた。" },
+    ],
+  });
+
+test("週次は期間を週で書き、上限を1件にする", () => {
+  const input = week();
+  assert.equal(CHRONICLE_WEEK_MAX_HIGHLIGHTS, 1);
+  const instruction = buildChronicleMonthInstruction(input);
+  assert.match(instruction, /2026-11-02〜2026-11-08の週 の日記から選びます/);
+  assert.match(instruction, /多くても 1 件まで/);
+  assert.doesNotMatch(instruction, /この月/);
+  assert.match(buildChronicleMonthMaterial(input), /<diaries week="2026-11-02\/2026-11-08"/);
+  const schema = chronicleMonthSchema(["2026-11-02", "2026-11-04"], 1);
+  assert.equal(schema.properties.highlights.maxItems, 1);
+  assert.equal(chronicleMonthFits(input), true);
+});
+
+test("週次はモデルが2件返しても1件だけ採る", () => {
+  const result = acceptChronicleMonth(week(), {
+    highlights: [
+      {
+        date: "2026-11-02",
+        titleJa: "海まで歩いた",
+        titleEn: "Walked to the sea",
+        detailJa: "ひさしぶりの海。",
+        detailEn: "The sea, after a long while.",
+        evidence: "ひさしぶりに海まで歩いていった",
+      },
+      {
+        date: "2026-11-04",
+        titleJa: "キーボードが来た",
+        titleEn: "A new keyboard",
+        detailJa: "ずっと打っていた。",
+        detailEn: "Typed all day.",
+        evidence: "新しいキーボードが届いて",
+      },
+    ],
+  });
+  assert.deepEqual(
+    result.highlights.map((h) => h.date),
+    ["2026-11-02"],
+  );
+});
+
+test("週次でも0件は正常系", () => {
+  assert.deepEqual(acceptChronicleMonth(week(), { highlights: [] }), { highlights: [] });
 });

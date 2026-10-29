@@ -46,6 +46,11 @@ test("buildPushPayload applies the notification presentation policy", () => {
       body: "",
     },
     {
+      type: "chronicle",
+      title: "botたんがあなたの年表を更新しました",
+      body: "",
+    },
+    {
       type: "gift",
       actionText: "三日坊主のリベンジャー",
       title: "あなたの『三日坊主のリベンジャー』が凪さんに届きました",

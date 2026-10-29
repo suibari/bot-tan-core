@@ -28,6 +28,7 @@ import {
   nagiChannels,
   nagiChronicleEvents,
   nagiChronicleJobs,
+  nagiChronicleWeekJobs,
   nagiDiaries,
   nagiRadioReadStates,
   nagiRadioTracks,
@@ -231,6 +232,9 @@ export async function deleteAccountData(did: string) {
     await tx
       .delete(nagiChronicleJobs)
       .where(eq(nagiChronicleJobs.subjectDid, did));
+    await tx
+      .delete(nagiChronicleWeekJobs)
+      .where(eq(nagiChronicleWeekJobs.subjectDid, did));
     await tx.delete(nagiNewsReviewJobs).where(eq(nagiNewsReviewJobs.did, did));
     await tx
       .delete(nagiNewsApprovals)

@@ -3,6 +3,7 @@ import { after, test } from "node:test";
 import {
   ensureNagiBotRecordIndexed,
   getNagiAppviewInternalUrl,
+  notifyChronicleUpdated,
 } from "../src/appviewInternal.js";
 
 const originalPort = process.env.NAGI_APPVIEW_INTERNAL_PORT;
@@ -51,5 +52,26 @@ test("取り込み口が落ちていても投稿処理は止めない", async ()
   } finally {
     globalThis.fetch = originalFetch;
     console.warn = originalWarn;
+  }
+});
+
+test("年表の更新は did と週の月曜を通知口へ渡す", async () => {
+  process.env.NAGI_APPVIEW_INTERNAL_PORT = "3205";
+  const originalFetch = globalThis.fetch;
+  const calls: Array<{ url: string; body: unknown }> = [];
+  globalThis.fetch = (async (url: string, init: RequestInit) => {
+    calls.push({ url, body: JSON.parse(String(init.body)) });
+    return new Response("{}", { status: 200 });
+  }) as typeof fetch;
+  try {
+    assert.equal(await notifyChronicleUpdated("did:plc:alice", "2026-11-02"), true);
+    assert.deepEqual(calls, [
+      {
+        url: "http://127.0.0.1:3205/internal/notifications/chronicle",
+        body: { did: "did:plc:alice", weekStart: "2026-11-02" },
+      },
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
   }
 });
