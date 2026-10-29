@@ -70,3 +70,13 @@ test("初回返信でも今回より後のリアクションは拾わない", ()
   assert.doesNotMatch(query.sql, /"indexed_at" > \$/);
   assert.deepEqual(query.params, [currentReplyAt.toISOString()]);
 });
+
+test("カスタム絵文字の説明と画像由来の意味を返信へ渡す", () => {
+  assert.deepEqual(receivedNagiReaction({
+    emoji: ":tea:", emojiUri: "at://emoji/one", emojiName: ":tea:",
+    emojiAlt: " お茶のねこ ", emojiSearchText: " おつかれさま ねぎらい ",
+  }), {
+    emoji: ":tea:", customEmojiName: ":tea:",
+    customEmojiAlt: "お茶のねこ", customEmojiSearchText: "おつかれさま ねぎらい",
+  });
+});
