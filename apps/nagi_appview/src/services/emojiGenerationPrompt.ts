@@ -22,8 +22,11 @@ export type EmojiAspect = "square" | "wide" | "long" | "xlong";
 export type ChromaKey = "magenta" | "green";
 
 export const EMOJI_PROMPT_MAX_GRAPHEMES = 100;
-/** 絵文字に書く文字の上限。MOSS は6文字まで誤字なしだった。それより長いと崩れやすいが、ご愛敬。 */
-export const EMOJI_LETTERING_MAX_GRAPHEMES = 10;
+/**
+ * 絵文字に書く文字の上限。MOSS は6文字まで誤字なしだった。12文字（「素数を数えて落ち着くんだ」）は
+ * 文字だけなら誤字なし、絵と並べると1文字混ざることがあった（2026-10-29）。崩れても、ご愛敬。
+ */
+export const EMOJI_LETTERING_MAX_GRAPHEMES = 12;
 /**
  * 1回の依頼で描く枚数。1枚30〜45秒（ComfyUI の起動が乗ると倍）かかるので、1枚にして、
  * 気に入らなければ頼み直してもらう。3枚だと待ちが数分になり、GPU を bot と取り合う時間も3倍になる。
@@ -219,6 +222,7 @@ export function planPrompt(prompt: string): string {
     "  If the whole request is a short word or phrase meant to be shown as lettering (slang, a reaction, a greeting, a short exclamation), put it in lettering and describe it as lettering in subject.",
     "  If the request quotes words to write (in 「」 or quotes), put exactly those words in lettering.",
     '- Keep these character names as they are in English (their looks are added separately): Bot-tan (botたん), Latte-chan (ラテちゃん), Kotomi-chan (ことみちゃん), Morpho (モルフォ).',
+    "- If the request names a character from an existing work (anime, manga, game, film, mascot), write the character's full official English name (given name and family name, not a title or nickname) and the title of the work (碇シンジ is Shinji Ikari from Neon Genesis Evangelion). Use the official English spelling, not a syllable-by-syllable romanization. Do not describe the character's looks yourself: the image model knows many characters by name, and a wrong description draws someone else. Keep any looks the request itself describes.",
     '- "drawing": true if anything besides the lettering should be drawn (a character, a person, an animal, an object), false if the emoji is only lettering.',
     '- "aspect": "wide" if the picture is naturally wide (a long object, a scene lined up side by side), otherwise "square".',
     '- "name": a short emoji name in lowercase ASCII letters, digits, "_" or "-" (at most 32 characters), like "fist_pump_penguin" or "sorena". Romanize Japanese words.',

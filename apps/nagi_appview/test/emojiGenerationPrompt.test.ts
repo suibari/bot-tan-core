@@ -58,7 +58,7 @@ test("normalizeEmojiPlan sizes lettering by length and drops overly long text", 
     ),
     { name: "fist_pump", description: "ガッツポーズするペンギン", subject: "A penguin doing a fist pump.", aspect: "wide", outfit: "none" },
   );
-  assert.deepEqual(normalizeEmojiPlan({ subject: "A cat.", lettering: "あ".repeat(11), aspect: "odd" }), {
+  assert.deepEqual(normalizeEmojiPlan({ subject: "A cat.", lettering: "あ".repeat(13), aspect: "odd" }), {
     name: "emoji",
     description: "",
     subject: "A cat.",
