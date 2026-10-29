@@ -1,3 +1,4 @@
+import { nagiReactionInstruction } from './nagiReactionPrompt.js';
 import { PartListUnion } from '@google/genai';
 import {
   SYSTEM_INSTRUCTION,
@@ -185,17 +186,8 @@ const notableMemoryLine = (userinfo: UserInfoGemini, ja: boolean, now = new Date
 };
 
 export const buildConversationPrompt = (userinfo: UserInfoGemini) => {
-  const reaction = userinfo.receivedNagiReaction;
-  const reactionInstructionJa = reaction
-    ? reaction.customEmojiName
-      ? `- ユーザがNagiであなたの投稿にカスタム絵文字「${reaction.customEmojiName}」でリアクションしてくれました。「いいね」と言い換えず、その名前に自然に触れて感謝してください。`
-      : `- ユーザがNagiであなたの投稿に「${reaction.emoji}」の絵文字でリアクションしてくれました。「いいね」と言い換えず、その絵文字に自然に触れて感謝してください。`
-    : '';
-  const reactionInstructionEn = reaction
-    ? reaction.customEmojiName
-      ? `- The user reacted to your post on Nagi with the custom emoji named ${reaction.customEmojiName}. Mention that name naturally and thank them; do not call it a like.`
-      : `- The user reacted to your post on Nagi with the ${reaction.emoji} emoji. Mention that emoji naturally and thank them; do not call it a like.`
-    : '';
+  const reactionInstructionJa = nagiReactionInstruction(userinfo, true);
+  const reactionInstructionEn = nagiReactionInstruction(userinfo, false);
   const base =
     userinfo.langStr === '日本語'
       ? `以下のユーザからメッセージが来ているので、会話してください。

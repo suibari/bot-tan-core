@@ -209,6 +209,9 @@ export type UserInfoGemini = {
   receivedNagiReaction?: {
     emoji: string;
     customEmojiName?: string;
+    customEmojiAlt?: string;
+    /** 画像から抽出した文字・連想語。解釈の手掛かりであり意図の断定には使わない。 */
+    customEmojiSearchText?: string;
   };
   history?: Content[];
   image?: ImageRef[];

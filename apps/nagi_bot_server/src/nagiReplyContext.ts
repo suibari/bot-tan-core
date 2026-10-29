@@ -18,7 +18,7 @@ import {
 import type { ImageRef } from "@bsky-affirmative-bot/shared-configs";
 import { loadPreferredName } from "@bsky-affirmative-bot/clients";
 import { isAppviewOwnedUri, nagiPostMedia } from "@bsky-affirmative-bot/nagi-lexicon";
-import { and, desc, eq, gt, isNotNull, isNull, lt, lte } from "drizzle-orm";
+import { sql, and, desc, eq, gt, isNotNull, isNull, lt, lte } from "drizzle-orm";
 
 type ContextLink = { uri: string; title?: string; description?: string };
 
@@ -34,6 +34,8 @@ type NagiReactionPromptRow = {
   emoji: string;
   emojiUri: string | null;
   emojiName: string | null;
+  emojiAlt?: string | null;
+  emojiSearchText?: string | null;
 };
 
 /** DBのリアクション行を、生成プロンプトへ渡す最小限の情報へ変換する。 */
@@ -42,7 +44,13 @@ export function receivedNagiReaction(row?: NagiReactionPromptRow) {
   return {
     emoji: row.emoji,
     ...(row.emojiUri
-      ? { customEmojiName: row.emojiName ?? row.emoji }
+      ? {
+          customEmojiName: row.emojiName ?? row.emoji,
+          ...(row.emojiAlt?.trim() ? { customEmojiAlt: row.emojiAlt.trim() } : {}),
+          ...(row.emojiSearchText?.trim()
+            ? { customEmojiSearchText: row.emojiSearchText.trim() }
+            : {}),
+        }
       : {}),
   };
 }
@@ -221,6 +229,8 @@ export async function buildNagiReplyContext(job: any) {
           emoji: nagiReactions.emoji,
           emojiUri: nagiReactions.emojiUri,
           emojiName: nagiEmojis.name,
+          emojiAlt: nagiEmojis.alt,
+          emojiSearchText: sql<string | null>`case when ${nagiEmojis.searchTextCid} = ${nagiEmojis.cid} then ${nagiEmojis.searchText} else null end`,
         })
         .from(nagiReactions)
         .innerJoin(nagiPosts, eq(nagiPosts.uri, nagiReactions.subjectUri))

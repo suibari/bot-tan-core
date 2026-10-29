@@ -1,3 +1,4 @@
+import { nagiReactionInstruction } from './nagiReactionPrompt.js';
 import { UserInfoGemini, GeminiScore } from '@bsky-affirmative-bot/shared-configs';
 import { generateSingleResponseWithScore, memoryAgeLabel } from './util.js';
 import { assertSourcedUrls, createUrlAllowance } from './urlGuard.js';
@@ -319,23 +320,8 @@ const formatPreviousPosts = (userinfo: UserInfoGemini, empty: string) => {
 const urlContextEnabled = (userinfo: UserInfoGemini) =>
   userinfo.urlContextEnabled ?? Boolean(userinfo.embed?.uri_embed && userinfo.isSubscriber);
 
-const nagiReactionInstructionJa = (userinfo: UserInfoGemini) => {
-  const reaction = userinfo.receivedNagiReaction;
-  if (!reaction) return '';
-  if (reaction.customEmojiName) {
-    return `ユーザがNagiであなたの投稿にカスタム絵文字「${reaction.customEmojiName}」でリアクションしてくれました。「いいね」と言い換えず、そのカスタム絵文字の名前に自然に触れて感謝を伝えてください。`;
-  }
-  return `ユーザがNagiであなたの投稿に「${reaction.emoji}」の絵文字でリアクションしてくれました。「いいね」と言い換えず、その絵文字に自然に触れて感謝を伝えてください。`;
-};
-
-const nagiReactionInstructionEn = (userinfo: UserInfoGemini) => {
-  const reaction = userinfo.receivedNagiReaction;
-  if (!reaction) return '';
-  if (reaction.customEmojiName) {
-    return `The user reacted to your post on Nagi with the custom emoji named ${reaction.customEmojiName}. Mention that custom emoji name naturally and thank them; do not call it a like.`;
-  }
-  return `The user reacted to your post on Nagi with the ${reaction.emoji} emoji. Mention that emoji naturally and thank them; do not call it a like.`;
-};
+const nagiReactionInstructionJa = (userinfo: UserInfoGemini) => nagiReactionInstruction(userinfo, true);
+const nagiReactionInstructionEn = (userinfo: UserInfoGemini) => nagiReactionInstruction(userinfo, false);
 
 /**
  * プロンプトの「指示」部分。ユーザ投稿は含めない。

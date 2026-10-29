@@ -72,3 +72,22 @@ test("Blueskyの既存いいね指示はNagiリアクションと分離して維
   assert.match(prompt, /ユーザがあなたの投稿にイイネしてくれた/);
   assert.doesNotMatch(prompt, /Nagiであなたの投稿に/);
 });
+
+test("絵文字の意味の資料と感謝に偏らない指示を肯定・会話の日英へ渡す", async () => {
+  for (const lang of ["日本語", "English"] as const) {
+    const info = userinfo(lang, {
+      receivedNagiReaction: {
+        emoji: ":otsukare:",
+        customEmojiName: ":otsukare:",
+        customEmojiAlt: "お茶を差し出すねこ",
+        customEmojiSearchText: "おつかれさま ねぎらい お茶",
+      },
+    });
+    for (const prompt of [await buildAffirmativePrompt(info), buildConversationPrompt(info)]) {
+      assert.match(prompt, /お茶を差し出すねこ/);
+      assert.match(prompt, /おつかれさま ねぎらい お茶/);
+      assert.match(prompt, lang === "日本語" ? /感謝は必須ではありません/ : /Thanks are optional/);
+      assert.match(prompt, lang === "日本語" ? /見た目や由来を捏造せず/ : /without inventing an appearance or origin/);
+    }
+  }
+});
