@@ -25,6 +25,7 @@ export const EMOJI_PROMPT_MAX_GRAPHEMES = 100;
 /**
  * 絵文字に書く文字の上限。MOSS は6文字まで誤字なしだった。12文字（「素数を数えて落ち着くんだ」）は
  * 文字だけなら誤字なし、絵と並べると1文字混ざることがあった（2026-10-29）。崩れても、ご愛敬。
+ * 句読点・「！？」・空白は数えない（letteringLength）。
  */
 export const EMOJI_LETTERING_MAX_GRAPHEMES = 12;
 /**
@@ -37,6 +38,12 @@ export const EMOJI_CONFLICT_THRESHOLD = 0.05;
 
 const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 const graphemeLength = (value: string) => [...segmenter.segment(value)].length;
+/**
+ * 上限の判定に使う文字数。句読点や「！？」は誤字の元にならず、セリフの末尾に付けたいだけで
+ * 上限を超えると文字ごと捨てることになる（2026-10-30 の「俺たちの満足はこれからだ！」は13文字で落ちた）。
+ */
+const letteringLength = (value: string) =>
+  [...segmenter.segment(value)].filter((s) => !/^[\p{P}\s]+$/u.test(s.segment)).length;
 
 const ASPECTS: readonly EmojiAspect[] = ["square", "wide", "long", "xlong"];
 
@@ -89,6 +96,8 @@ const SUIBARI_LORA: [string, number] = ["moss-suibari-v1-000006.safetensors", 1.
 const SUIBARI_TRIGGER =
   "suibari style. A loose hand-drawn sketch with rough lines and simple flat colors.";
 const NEGATIVE = "nsfw, worst quality, watermark, jpeg artifact";
+/** 書く文字が無い絵文字は、MOSS が subject から文字を拾って小さく描き込まないよう止める。 */
+const TEXT_NEGATIVE = "text, letters, writing";
 /**
  * 絵文字は小さいので、人は胸から上までしか見分けられない。bot-tan-imagegen の promptConfig.json の
  * shots["upper-body"] と同じ言い方に「胸から上」を足し、全身はネガティブでも止める。
@@ -202,7 +211,11 @@ export function buildEmojiImageRequest(params: {
       : ` The text "${plan.lettering}" is written in one horizontal line, ${style.lettering}.`;
   return {
     prompt: `${SUIBARI_TRIGGER} ${shape} ${subject}${characters}${lettering} ${fill} ${KEY_BACKGROUND[key]}.`,
-    negativePrompt: params.characters?.length ? `${NEGATIVE}, ${FULL_BODY_NEGATIVE}` : NEGATIVE,
+    negativePrompt: [
+      NEGATIVE,
+      ...(params.characters?.length ? [FULL_BODY_NEGATIVE] : []),
+      ...(plan.lettering ? [] : [TEXT_NEGATIVE]),
+    ].join(", "),
     ...EMOJI_SIZES[plan.aspect],
     checkpoint: MOSS_CHECKPOINT,
     lora: [SUIBARI_LORA],
@@ -277,7 +290,7 @@ export function normalizeEmojiPlan(output: unknown, prompt = ""): EmojiPlan | un
     .join("");
   const outfit = OUTFITS.includes(raw.outfit as EmojiOutfit) ? (raw.outfit as EmojiOutfit) : "none";
   const lettering = clean(raw.lettering).replace(/^[「『]|[」』]$/g, "");
-  if (lettering && graphemeLength(lettering) <= EMOJI_LETTERING_MAX_GRAPHEMES) {
+  if (lettering && letteringLength(lettering) <= EMOJI_LETTERING_MAX_GRAPHEMES) {
     // botたんたちの名前があれば、gemma が false と言っても描く（見た目の文が必ず足されるため）
     const drawing = raw.drawing === true || characterDescriptions(`${prompt} ${subject}`).length > 0;
     return {
@@ -290,6 +303,27 @@ export function normalizeEmojiPlan(output: unknown, prompt = ""): EmojiPlan | un
       outfit,
     };
   }
-  // 長すぎる文字は書かせない（崩れるうえに、絵文字として読めない）。絵だけで描く
-  return { name, description, subject, aspect: raw.aspect === "wide" ? "wide" : "square", outfit };
+  // 長すぎる文字は書かせない（崩れるうえに、絵文字として読めない）。絵だけで描く。
+  // subject に文字が残っていると、MOSS が正方形の中へ小さく描き込むので消す
+  return {
+    name,
+    description,
+    subject: lettering ? withoutLettering(subject, lettering) : subject,
+    aspect: raw.aspect === "wide" ? "wide" : "square",
+    outfit,
+  };
+}
+
+/** subject から書く文字と、その前の「the lettering」「the words」などを消す。消しすぎて空なら元のまま。 */
+function withoutLettering(subject: string, lettering: string): string {
+  const escaped = lettering.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const stripped = subject
+    .replace(
+      new RegExp(`(?:\\s*\\b(?:the\\s+)?(?:lettering|words?|text|phrase)\\b)?\\s*[「『']?${escaped}[」』']?`, "gi"),
+      "",
+    )
+    .replace(/\s+([.,!?])/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+  return stripped.replace(/[.\s]/g, "") ? stripped : subject;
 }
