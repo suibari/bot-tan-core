@@ -68,6 +68,29 @@ test("normalizeEmojiPlan sizes lettering by length and drops overly long text", 
   assert.equal(normalizeEmojiPlan({ subject: "", lettering: "草" }), undefined);
 });
 
+test("normalizeEmojiPlan does not count punctuation toward the lettering limit", () => {
+  // 13文字だが「！」を除けば12文字（2026-10-30 に文字ごと落ちていた）
+  const plan = normalizeEmojiPlan(
+    { subject: "Bot-tan shouting 俺たちの満足はこれからだ！.", lettering: "俺たちの満足はこれからだ！", drawing: true },
+    "「俺たちの満足はこれからだ！」と叫ぶbotたん",
+  );
+  assert.equal(plan?.lettering, "俺たちの満足はこれからだ！");
+  assert.equal(plan?.aspect, "xlong");
+  assert.equal(normalizeEmojiPlan({ subject: "A cat.", lettering: "あ、".repeat(12) })?.lettering, "あ、".repeat(12));
+});
+
+test("normalizeEmojiPlan removes dropped lettering from the subject", () => {
+  const lettering = "あ".repeat(13);
+  assert.equal(
+    normalizeEmojiPlan({ subject: `Bot-tan is shouting the lettering ${lettering} with a passionate expression.`, lettering })
+      ?.subject,
+    "Bot-tan is shouting with a passionate expression.",
+  );
+  assert.equal(normalizeEmojiPlan({ subject: `A cat holding a sign 「${lettering}」.`, lettering })?.subject, "A cat holding a sign.");
+  // 文字しか無い subject は空にせず元のまま（ネガティブで文字を止める）
+  assert.equal(normalizeEmojiPlan({ subject: lettering, lettering })?.subject, lettering);
+});
+
 test("normalizeEmojiPlan widens lettering drawn beside a picture", () => {
   assert.deepEqual(
     normalizeEmojiPlan({ subject: "A cat saying おつ.", lettering: "おつ", drawing: true, name: "otsu_cat", description: "おつねこ" }),
@@ -138,6 +161,9 @@ test("buildEmojiImageRequest fixes style and background around the plan", () => 
   // キャラが出ない絵には構図も全身のネガティブも足さない（ラーメンに「胸から上」は要らない）
   assert.doesNotMatch(illust.prompt, /Upper-body/);
   assert.doesNotMatch(illust.negativePrompt, /full body/);
+  // 書く文字が無ければ文字を描かせない
+  assert.match(illust.negativePrompt, /text, letters, writing/);
+  assert.doesNotMatch(text.negativePrompt, /text, letters/);
   assert.match(illust.prompt, /magenta \(#FF00FF\)/);
 
   // スタイルごとに文が変わる（頼み直しで違う絵にする）
