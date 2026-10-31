@@ -14,6 +14,8 @@
     "mood-song:discovery:evaluate": "tsx --env-file=.env scripts/evaluateMoodSongDiscovery.mts",
     "embedding:evaluate": "tsx --env-file=.env scripts/evaluateEmbeddingModels.mts",
     "test:embedding": "tsx --test scripts/test/embeddingEvaluation.test.ts",
+    "polarity:train": "tsx scripts/trainPolarityClassifier.mts",
+    "test:polarity": "tsx --test scripts/test/polaritySoftmax.test.ts",
     "searxng:probe": "tsx --env-file=.env scripts/probeSearxng.mts",
     "reply:probe": "tsx --env-file=.env scripts/probeReply.mts",
     "imagegen:probe": "tsx --env-file=.env scripts/probeImageGen.mts",
