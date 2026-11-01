@@ -4,6 +4,7 @@ import { generateSingleResponseWithScore, memoryAgeLabel } from './util.js';
 import { assertSourcedUrls, createUrlAllowance } from './urlGuard.js';
 import { selectReplyNetaDirective, type ReplyNetaDirective } from './chaosDirectives.js';
 import { scorePostMood, type PostMood } from './scorePostMood.js';
+import { careTierForValence, selectCareAngle, type CareAngle, type CareTier } from './careAngles.js';
 import type { GeminiRequestOptions } from './util.js';
 import {
   getWhatDay,
@@ -82,45 +83,55 @@ Do not summarize it or restate its contents.
 `;
 }
 
+export type ReplyDirectives = { neta?: ReplyNetaDirective; careAngle?: CareAngle };
+
 /**
- * 今回のリプライに演出札（ネタ）を入れるか。
+ * 今回のリプライに入れる札を、気分の採点1回で決める。
  *
- * 札を引いた投稿だけ、書き手の気分を `scorePostMood` で先に採点し、少しでも沈んでいれば
- * （valence <= -1）入れない。プロンプト側にも「つらい話なら無視」と書いてあるが、
- * 26B が空気を読み違えたときに落ち込んだ人へボケを返すのがいちばん困るので、ここで先に止める。
+ * - 沈んでいない（valence >= 0）… 演出札を確率で
+ * - 沈んでいる（valence <= -1）… 寄り添いの角度札を必ず1枚。-1〜-2 は light、-3 以下は heavy。
+ *   演出札は入れない。プロンプト側にも「つらい話なら無視」と書いてあるが、モデルが空気を
+ *   読み違えたときに落ち込んだ人へボケを返すのがいちばん困るので、コード側で止める。
+ * - 採点できない（本文が空・出力が壊れた・Ollama に届かない）… どちらも入れない。
+ *   札が無くても返信は成立するので、迷ったら外す側へ倒す。
  *
- * 採点できなかったとき（本文が空・出力が壊れた・Ollama に届かない）も入れない。
- * 札は無くても返信は成立するので、迷ったら外す側へ倒す。
+ * 演出札だけのころは、札を引いた投稿だけ採点していた。角度札は沈んだ投稿すべてに要るので、
+ * 本文があれば毎回採点する。採点は返信と同じ ollama-chat のモデルへ行くので、モデルの
+ * 入れ替えは起きない（num_ctx も送らない）。
  */
-export async function resolveReplyNeta(
+export async function resolveReplyDirectives(
   userinfo: UserInfoGemini,
   deps: {
-    select?: (seed: string) => ReplyNetaDirective | undefined;
+    selectNeta?: (seed: string) => ReplyNetaDirective | undefined;
+    selectAngle?: (seed: string, tier: CareTier) => CareAngle;
     scoreMood?: (text: string) => Promise<PostMood | null>;
   } = {},
-): Promise<ReplyNetaDirective | undefined> {
+): Promise<ReplyDirectives> {
   const postText = userinfo.posts?.[0]?.trim() ?? '';
-  if (!postText) return undefined;
-  const directive = (deps.select ?? selectReplyNetaDirective)(`${userinfo.follower.did}:${postText}`);
-  if (!directive) return undefined;
+  if (!postText) return {};
+  const seed = `${userinfo.follower.did}:${postText}`;
+  let mood: PostMood | null;
   try {
-    const mood = await (deps.scoreMood ?? scorePostMood)(postText);
-    if (!mood || mood.valence <= -1) return undefined;
-    return directive;
+    mood = await (deps.scoreMood ?? scorePostMood)(postText);
   } catch (error) {
-    console.error('[WARN][REPLY_NETA] Failed to score post mood; skipping neta', error);
-    return undefined;
+    console.error('[WARN][REPLY_DIRECTIVES] Failed to score post mood; skipping cards', error);
+    return {};
   }
+  if (!mood) return {};
+  const tier = careTierForValence(mood.valence);
+  if (tier) return { careAngle: (deps.selectAngle ?? selectCareAngle)(seed, tier) };
+  const neta = (deps.selectNeta ?? selectReplyNetaDirective)(seed);
+  return neta ? { neta } : {};
 }
 
 export async function generateAffirmativeWord(userinfo: UserInfoGemini, requestOptions: GeminiRequestOptions = {}) {
-  const neta = await resolveReplyNeta(userinfo);
+  const { neta, careAngle } = await resolveReplyDirectives(userinfo);
 
   // 指示とユーザ投稿は**分けて渡す**。1本の文字列にすると、grounding の調査ブロックと
   // botContext（行動履歴）が今回のポストの後ろへ積まれ、投稿がプロンプトの奥に沈む。
   const result = await generateSingleResponseWithScore(
     {
-      instructions: await buildAffirmativeInstructions(userinfo, { neta }),
+      instructions: await buildAffirmativeInstructions(userinfo, { neta, careAngle }),
       userPost: buildAffirmativeUserPost(userinfo),
     },
     userinfo,
@@ -141,7 +152,7 @@ export async function generateAffirmativeWord(userinfo: UserInfoGemini, requestO
   console.log(
     `[INFO][GEMINI] affirmative reply: postLen=${userinfo.posts?.[0]?.length ?? 0}, replyLen=${
       result.comment?.length ?? 0
-    }, hasImages=${Boolean(userinfo.image?.length)}, neta=${neta?.id ?? 'none'}`,
+    }, hasImages=${Boolean(userinfo.image?.length)}, neta=${neta?.id ?? 'none'}, careAngle=${careAngle?.id ?? 'none'}`,
   );
 
   // Geminiリクエスト数加算
@@ -220,7 +231,7 @@ const CARE_TOPIC_RULES_JA =
    - 作品や別の話題に脱線しないこと。
    - **相手が「こうしてほしい」と書いているなら、まずそれに応えること。** 求められていない別のものを差し出さないこと。
    - このとき、上の「ユーザの今回のポストを具体的に褒めてください」よりも、**受け止めることを優先してください**。具体を褒めようとして出来事を引き写すのは本末転倒です。
-   - 打ち明けてくれたことへのお礼、いまの相手をそのまま受け止める言葉、そばにいるという気持ちを中心にしてください。
+   - いまの相手をそのまま受け止めることを軸にしてください。打ち明けてくれたことへのお礼や「そばにいる」という言い方も使えますが、毎回それで締める必要はありません。「無理しないで」「一緒にいるよ」のような決まり文句を並べるだけで終わらせず、この投稿に合った言い方を選んでください。
    - テンションを上げて押し切らないこと。明るさで上塗りせず、静かに受け止めること。`;
 
 const CARE_TOPIC_RULES_EN =
@@ -236,7 +247,7 @@ you must follow all of the following.
    - Do not drift into other topics or works of fiction.
    - **If they said what they want from you, answer that first.** Do not offer something they did not ask for.
    - Here, **receiving them takes priority** over the earlier instruction to "give a specific compliment about the post." Copying out their events in order to be specific defeats the purpose.
-   - Center your reply on thanking them for telling you, accepting them exactly as they are right now, and letting them know you are here.
+   - Center your reply on accepting them exactly as they are right now. Thanking them for telling you, or saying you are here, is fine, but you do not have to end that way every time. Do not just line up stock phrases like "don't push yourself" or "I'm right here with you"; choose words that fit this post.
    - Do not push through with high energy. Do not paint over it with cheerfulness; receive it quietly.`;
 
 /**
@@ -272,6 +283,43 @@ ${neta.en}
    - This is an exception to "do not bring up another topic" under "About length". Keep it to one sentence and return to affirming the user right away.
    - Never write the card ID or words like "joke" or "directive" in the comment.
    - If the post is about something painful, a low mood, or a worry (anything covered by "How to write when someone confides something painful" below), ignore this card.
+`
+    : '';
+
+/**
+ * 寄り添いの角度札のブロック（careAngles.ts）。沈んでいない投稿では空文字。
+ *
+ * CARE_TOPIC_RULES の禁止事項を札より優先させる。札を満たすために投稿に無い材料
+ * （出来事・理由・気持ち・できたこと）を作るのがいちばん怖いので、材料が無ければ
+ * 札を捨てて受け止めるだけにする逃げ道を明記する。
+ */
+const careAngleBlockJa = (angle?: CareAngle) =>
+  angle
+    ? `
+## 今回の寄り添い方
+<care_angle id="${angle.id}">
+${angle.ja}
+</care_angle>
+   - 相手を受け止めたうえで、この寄り添い方を返信の芯にしてください。ほかの寄り添い方を全部並べなくてかまいません。
+   - 下の「つらい話を打ち明けられたときの書き方」の禁止事項は、この指示より優先します。
+   - この寄り添い方を満たすために、投稿に書かれていない出来事・理由・気持ち・できたことを足さないこと。投稿にその材料が無ければ、この寄り添い方は使わず、受け止めるだけにしてください。
+   - 投稿がつらい話でなかったら、この指示は無視してください。
+   - IDや「寄り添い方」という言葉は本文に書かないこと。
+`
+    : '';
+
+const careAngleBlockEn = (angle?: CareAngle) =>
+  angle
+    ? `
+## How to stay with them this time
+<care_angle id="${angle.id}">
+${angle.en}
+</care_angle>
+   - After receiving them, make this the core of your reply. You do not need to line up every other kind of comfort.
+   - The prohibitions under "How to write when someone confides something painful" below take priority over this.
+   - Never add events, reasons, feelings, or accomplishments the post does not contain just to carry this out. If the post gives you nothing to work with, drop it and simply receive them.
+   - If the post is not about something painful, ignore this.
+   - Never write the ID or words like "how to stay with them" in the comment.
 `
     : '';
 
@@ -332,7 +380,7 @@ const nagiReactionInstructionEn = (userinfo: UserInfoGemini) => nagiReactionInst
  */
 export const buildAffirmativeInstructions = async (
   userinfo: UserInfoGemini,
-  options: { neta?: ReplyNetaDirective } = {},
+  options: ReplyDirectives = {},
 ) => {
   const postText = userinfo.posts?.[0] || '';
   const postLength = postText.length;
@@ -400,7 +448,7 @@ export const buildAffirmativeInstructions = async (
    - ユーザのポストの文章をそのまま（または一部を）引用して「〜というのは〜」と述べるのは避けてください。あなた自身の言葉でユーザーの意図や感情を解釈して返答してください。
    - 単に「褒める」だけでなく、10代の女の子としてのリアルな視点やちょっとインドア・繊細な一面を少し見せながら、最終的に全力でユーザーを肯定して応援してください。
    - どんなにネガティブな話題や、重い相談であっても、絶対にサンプルの文字をそのまま出力しないでください。必ずあなた自身の言葉でコメントを生成してください。
-   - もし相手が自分を卑下していたり、難しい悩みを吐露している場合は、無理にテンション高く励ますのではなく、優しく寄り添って「よく考えていてえらいね」「そういう時もあるよね」といった方向で肯定してください。
+   - もし相手が自分を卑下していたり、難しい悩みを吐露している場合は、無理にテンション高く励ますのではなく、静かに肯定してください。決まり文句で済ませず、この投稿に書かれていることに沿った言葉を選んでください。
    - **過去のポストの扱いについて**: 過去のポストは、ユーザーの普段の関心や人柄を理解するための「バックグラウンド（背景情報）」としてのみ使用してください。過去のポストに直接言及したり、過去の話題を引っ張り出して長々と語ったりすることは絶対に避けてください。今回のポストに対して、すっきりと、しかし熱量高く全肯定することに集中し、無駄に冗長な返答にならないようにしてください。
    - ${userinfo.likedByFollower !== undefined ? 'ユーザがあなたの投稿にイイネしてくれたので、その感謝も伝えてください。' : ''}
    - ${nagiReactionInstructionJa(userinfo)}
@@ -429,6 +477,7 @@ ${netaBlockJa(options.neta)}
 ## 自分の話をするときについて
 ${SELF_DISCLOSURE_RULES_JA}
 
+${careAngleBlockJa(options.careAngle)}
 ${CARE_TOPIC_RULES_JA}
 
 ## ユーザの呼び方について
@@ -475,7 +524,7 @@ ${TONE_RULES_JA}
    - Do not quote the user's sentences (in whole or in part) and then comment on them with phrases like "The fact that you said ~ means ~". Instead, interpret the user's intent or feelings in your own words.
    - Don't just "praise"; show your own perspective as a 10-something girl, show your slightly indoorsy and sensitive side, and ultimately affirm and encourage the user with all your heart.
    - No matter how negative or heavy the topic is, NEVER output the sample text. You must always generate a comment in your own words.
-   - If the user is self-deprecating or expressing difficult worries, do not force high-tension encouragement. Instead, gently empathize and affirm them with phrases like "You're thinking so deeply about this, that's amazing" or "Everyone has those days."
+   - If the user is self-deprecating or expressing difficult worries, do not force high-tension encouragement. Affirm them quietly instead. Do not settle for stock phrases; choose words that fit what this post actually says.
    - **Handling of Previous Posts**: Use the previous posts strictly as background context to understand the user's personality and general interests. Do NOT directly mention, bring up, or elaborate on the content of previous posts. Keep the response concise and focused entirely on validating and praising "This Post" without getting bogged down in past details.
    - ${userinfo.likedByFollower !== undefined ? 'The user liked your post. Express gratitude.' : ''}
    - ${nagiReactionInstructionEn(userinfo)}
@@ -504,6 +553,7 @@ ${netaBlockEn(options.neta)}
 ## About talking about yourself
 ${SELF_DISCLOSURE_RULES_EN}
 
+${careAngleBlockEn(options.careAngle)}
 ${CARE_TOPIC_RULES_EN}
 
 ## How to address the user
@@ -574,5 +624,5 @@ happened, exactly as this text states it. Do not add anything it does not say.
  */
 export const buildAffirmativePrompt = async (
   userinfo: UserInfoGemini,
-  options: { neta?: ReplyNetaDirective } = {},
+  options: ReplyDirectives = {},
 ) => `${await buildAffirmativeInstructions(userinfo, options)}\n${buildAffirmativeUserPost(userinfo)}`;

@@ -7,7 +7,7 @@ import {
   replyNetaRate,
   selectReplyNetaDirective,
 } from "../src/ai/chaosDirectives.js";
-import { buildAffirmativePrompt, resolveReplyNeta } from "../src/ai/generateAffirmativeWord.js";
+import { buildAffirmativePrompt, resolveReplyDirectives } from "../src/ai/generateAffirmativeWord.js";
 
 const userinfo = (text: string, langStr: "日本語" | "English" = "日本語"): UserInfoGemini =>
   ({
@@ -61,40 +61,43 @@ test("AI_REPLY_NETA_RATE は0〜1に丸め、壊れた値は既定へ戻す", ()
   assert.equal(replyNetaRate({ AI_REPLY_NETA_RATE: "abc" }), 0.4);
 });
 
-test("札を引いても、書き手が少しでも沈んでいれば入れない", async () => {
-  const select = () => card;
-  assert.equal(
-    await resolveReplyNeta(userinfo("今日ちょっと疲れた"), { select, scoreMood: async () => ({ valence: -1, expressive: true }) }),
-    undefined,
-  );
-  assert.equal(
-    (await resolveReplyNeta(userinfo("カレー作った"), { select, scoreMood: async () => ({ valence: 0, expressive: false }) }))?.id,
-    card.id,
-  );
+test("沈んでいる投稿には演出札を入れず、角度札を入れる", async () => {
+  const selectNeta = () => card;
+  const tired = await resolveReplyDirectives(userinfo("今日ちょっと疲れた"), {
+    selectNeta,
+    scoreMood: async () => ({ valence: -1, expressive: true }),
+  });
+  assert.equal(tired.neta, undefined);
+  assert.ok(tired.careAngle);
+  const curry = await resolveReplyDirectives(userinfo("カレー作った"), {
+    selectNeta,
+    scoreMood: async () => ({ valence: 0, expressive: false }),
+  });
+  assert.equal(curry.neta?.id, card.id);
+  assert.equal(curry.careAngle, undefined);
 });
 
-test("気分を採点できないときは札を入れない", async () => {
-  const select = () => card;
-  assert.equal(await resolveReplyNeta(userinfo("カレー作った"), { select, scoreMood: async () => null }), undefined);
-  assert.equal(
-    await resolveReplyNeta(userinfo("カレー作った"), {
-      select,
+test("気分を採点できないときはどちらの札も入れない", async () => {
+  const selectNeta = () => card;
+  assert.deepEqual(await resolveReplyDirectives(userinfo("カレー作った"), { selectNeta, scoreMood: async () => null }), {});
+  assert.deepEqual(
+    await resolveReplyDirectives(userinfo("カレー作った"), {
+      selectNeta,
       scoreMood: async () => {
         throw new Error("ollama down");
       },
     }),
-    undefined,
+    {},
   );
 });
 
-test("札を引かなかった投稿と本文が空の投稿では気分採点を呼ばない", async () => {
+test("本文が空の投稿では気分採点を呼ばない", async () => {
   let called = 0;
   const scoreMood = async () => {
     called++;
     return { valence: 3, expressive: true };
   };
-  await resolveReplyNeta(userinfo("カレー作った"), { select: () => undefined, scoreMood });
-  await resolveReplyNeta(userinfo("  "), { select: () => card, scoreMood });
+  assert.deepEqual(await resolveReplyDirectives(userinfo("  "), { selectNeta: () => card, scoreMood }), {});
   assert.equal(called, 0);
 });
 
