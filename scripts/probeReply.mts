@@ -27,6 +27,7 @@
  * 演出札（ネタ）を入れて振らせたいとき（--neta）:
  *   pnpm reply:probe -- --post="本文" --neta=sound-effect   # 札を指定（ID は chaosDirectives.ts）
  *   pnpm reply:probe -- --post="本文" --neta=auto           # 本番と同じく気分採点を通す（札は全件で引く）
+ *                                                          # 沈んだ投稿なら演出札の代わりに寄り添いの角度札が入る
  *
  * 【重要】1回の出力で良し悪しを決めないこと。temperature は 0 ではないので同じ入力でも
  * 振れる。--n で複数回振らせて、外し方に傾向があるかを見る。
@@ -50,7 +51,7 @@ async function loadPromptBuilders() {
     buildAffirmativePrompt: mod.buildAffirmativePrompt,
     buildAffirmativeInstructions: mod.buildAffirmativeInstructions,
     buildAffirmativeUserPost: mod.buildAffirmativeUserPost,
-    resolveReplyNeta: mod.resolveReplyNeta,
+    resolveReplyDirectives: mod.resolveReplyDirectives,
     /** 分割して渡せるツリーかどうか。 */
     canSplit:
       typeof mod.buildAffirmativeInstructions === "function" &&
@@ -149,10 +150,12 @@ async function main() {
 
   const netaArg = arg("neta");
   let neta;
+  let careAngle;
   if (netaArg === "auto") {
     // 札は必ず引かせ、気分の足切りだけ本番と同じにする。
-    neta = await builders.resolveReplyNeta(userinfo, { select: (seed: string) =>
-      REPLY_NETA_DIRECTIVES[[...seed].length % REPLY_NETA_DIRECTIVES.length] });
+    ({ neta, careAngle } = await builders.resolveReplyDirectives(userinfo, { selectNeta: (seed: string) =>
+      REPLY_NETA_DIRECTIVES[[...seed].length % REPLY_NETA_DIRECTIVES.length] }));
+    if (careAngle) console.log(`neta=auto → 沈んだ投稿なので角度札 ${careAngle.id}`);
     console.log(`neta=auto → ${neta?.id ?? "なし（気分で外れた）"}`);
   } else if (netaArg) {
     neta = REPLY_NETA_DIRECTIVES.find((directive) => directive.id === netaArg);
@@ -165,10 +168,10 @@ async function main() {
   const prompt =
     shape === "split"
       ? {
-          instructions: await builders.buildAffirmativeInstructions(userinfo, { neta }),
+          instructions: await builders.buildAffirmativeInstructions(userinfo, { neta, careAngle }),
           userPost: builders.buildAffirmativeUserPost(userinfo),
         }
-      : await builders.buildAffirmativePrompt(userinfo, { neta });
+      : await builders.buildAffirmativePrompt(userinfo, { neta, careAngle });
 
   console.log(`shape=${shape} model=${process.env.OLLAMA_MODEL ?? "(レジストリ既定)"}`);
   console.log(`今回のポスト: ${userinfo.posts?.[0]}`);
