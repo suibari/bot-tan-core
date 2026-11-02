@@ -20,7 +20,7 @@ const render = (...conditions: Parameters<typeof and>) => {
   return { text: rendered.sql.replace(/\s+/g, " "), params: rendered.params };
 };
 
-test("profile and channel feeds hide other people's kossori threads", () => {
+test("profile feeds hide other people's kossori threads", () => {
   const { text, params } = render(kossoriVisibility("did:plc:self"));
   // ルート投稿は自分のものだけ通す。
   assert.ok(
