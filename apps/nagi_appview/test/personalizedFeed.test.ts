@@ -34,16 +34,16 @@ const affirmationFilters = (opts: {
     },
   );
 
-test("the affirmation feed keeps other people's kossori threads hidden", () => {
+test("the affirmation feed excludes even the viewer own kossori threads", () => {
   const { text, params } = render(
     affirmationFilters({ viewerDid: "did:plc:self" }),
   );
-  // ルート投稿は自分のものだけ、返信はスレッドルートで判定。
-  assert.ok(text.includes('not "nagi"."posts"."kossori" or "nagi"."posts"."did" = $'), text);
+  // 本人分も含め、ルートと返信の両方からこっそりを除外。
+  assert.ok(text.includes('then not "nagi"."posts"."kossori"'), text);
   assert.ok(text.includes("from nagi.posts as thread_root"), text);
   // ルート未解決は fail closed（共有TLと同じ）。
   assert.ok(text.includes("coalesce("), text);
-  assert.ok(params.includes("did:plc:self"));
+  assert.equal(params.includes("did:plc:self"), false);
 });
 
 test("the affirmation feed applies actor and tag mutes", () => {
@@ -104,7 +104,7 @@ test("the daily-best pick only competes against posts the viewer can see", () =>
   assert.equal(text.includes("best_score.score >="), false);
   assert.ok(text.includes("best.deleted_at is null"), text);
   assert.ok(text.includes("best.reply_parent_uri is null"), text);
-  assert.ok(params.includes("did:plc:self"));
+  assert.equal(params.includes("did:plc:self"), false);
 });
 
 test("adults do not get the adult guard inside the daily-best subquery", () => {
@@ -122,6 +122,6 @@ test("the daily-best tie-break is total, so exactly one post survives per day", 
 
 test("a signed-out viewer never matches the kossori author", () => {
   const { text, params } = render([dailyBestPerAuthor(undefined, true)]);
-  assert.ok(text.includes("not best.kossori or false"), text);
+  assert.ok(text.includes("then not best.kossori"), text);
   assert.equal(params.some((p) => String(p).startsWith("did:plc:s")), false);
 });

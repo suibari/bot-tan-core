@@ -33,7 +33,7 @@ test("home visibility keeps replies as candidates and judges scope on the thread
   // 公開範囲はスレッドルート行で判定する。
   assert.ok(text.includes("exists ( select 1 from nagi.posts as thread_root"));
   assert.ok(
-    text.includes("not thread_root.kossori or thread_root.did = $"),
+    text.includes("and not thread_root.kossori"),
     text,
   );
   // 候補の著者はリストメンバーに限る。
@@ -56,7 +56,8 @@ test("home representative is the list member's latest post in the thread", () =>
 test("my Nagi list section stays root-only", () => {
   const { text, params } = render(homeRootVisibility("did:plc:self", ACTORS));
   assert.ok(text.includes('"reply_parent_uri" is null'));
-  assert.ok(text.includes('"did" = $') && text.includes('"kossori" = $'));
+  assert.ok(text.includes('"kossori" = $'));
+  assert.equal(text.includes('"did" = $'), false);
   for (const did of ACTORS)
     assert.ok(params.includes(did), `missing bound actor ${did}`);
 });

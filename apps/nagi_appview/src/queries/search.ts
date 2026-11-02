@@ -21,6 +21,7 @@ import {
   buildSearchFeedItems,
   getBotActor,
   postSelection,
+  searchPostVisibility,
 } from "./timeline.js";
 import {
   embedQuery,
@@ -112,13 +113,7 @@ export async function searchPostsByText(opts: {
       : embedQuery(q, { expand: mode === "semantic" }),
     loadMutes(opts.viewerDid),
   ]);
-  const viewerMatch = opts.viewerDid
-    ? sql`${nagiPosts.did} = ${opts.viewerDid}`
-    : sql`false`;
-  const threadRootViewerMatch = opts.viewerDid
-    ? sql`thread_root.did = ${opts.viewerDid}`
-    : sql`false`;
-  // 共有TLと同じ可視性フィルタ（getTimeline の !actorDid 経路を踏襲）。
+  // 自分で開く検索では、本人のこっそり投稿も対象にする。
   const visibility = [
     isNull(nagiPosts.deletedAt),
     // botたんの返信は元投稿にまとめるため単独では出さない。
@@ -126,18 +121,7 @@ export async function searchPostsByText(opts: {
     // ミュート。条件の組み立ては getTimeline と共通（規則がズレないよう mutes.ts に集約）。
     ...muteVisibility(mutes, { actors: true, tags: true }),
     // こっそりはスレッドルートが所有。未解決の返信は非共有側へ倒す。
-    sql`
-      case
-        when ${nagiPosts.replyRootUri} is null
-          then (not ${nagiPosts.kossori} or ${viewerMatch})
-        else coalesce((
-          select (not thread_root.kossori or ${threadRootViewerMatch})
-          from nagi.posts as thread_root
-          where thread_root.uri = ${nagiPosts.replyRootUri}
-            and thread_root.deleted_at is null
-        ), false)
-      end
-    `,
+    searchPostVisibility(opts.viewerDid),
   ];
 
   const conditions = buildConditions(mode, embedding, q);

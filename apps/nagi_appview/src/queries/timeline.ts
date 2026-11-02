@@ -73,10 +73,10 @@ const homeActorsParam = (actorDids: string[]) =>
  * ホーム候補の可視性条件。スレッド単位の最新活動順に並べるため、リストメンバーの返信も
  * 候補に含める。公開範囲(kossori)はスレッドルートが所有するので、ルート行を
  * 引いて判定する（ルート行では coalesce が自分自身を指すので、ルート・返信を1本で扱える）。
- * 本人の kossori だけを許す。
+ * こっそりは本人の投稿も含め、プロフィール以外には出さない。
  */
 export function homeTimelineVisibility(
-  homeDid: string,
+  _homeDid: string,
   actorDids: string[],
 ): SQL[] {
   return [
@@ -86,7 +86,7 @@ export function homeTimelineVisibility(
       where thread_root.uri = coalesce(${nagiPosts.replyRootUri}, ${nagiPosts.uri})
         and thread_root.deleted_at is null
         and thread_root.did = any(${homeActorsParam(actorDids)})
-        and (not thread_root.kossori or thread_root.did = ${homeDid})
+        and not thread_root.kossori
     )`,
   ];
 }
@@ -101,16 +101,8 @@ export const homeSiblingFilter = (actorDids: string[] | undefined) =>
   actorDids ? sql` and sib.did = any(${homeActorsParam(actorDids)})` : sql``;
 
 /**
- * プロフィールフィードと CH タイムライン用のこっそり除外。
- *
- * こっそりは「共有TLに出さない」だけの設定ではなく、本人以外には一切見せないものなので、
- * 共有TL・検索だけでなくこれらの経路でも落とす（ホームは homeTimelineVisibility が
- * 同じ判定を持っているため対象外）。公開範囲はスレッドルートが所有する。
- *
- * 共有TL版の `coalesce(..., false)` と違い「ルートが他人のこっそりだと確認できたときだけ
- * 隠す」形にしてある。fail closed にすると、ルートがまだ取り込まれていない返信まで
- * プロフィールの返信タブから消えてしまうため。削除済みのルートは tombstone として行が残り
- * kossori も保たれるので、この形でもこっそりスレッドは隠れ続ける。
+ * プロフィール用のこっそり可視性。本人のプロフィールでのみ viewerDid を渡す。
+ * ルート未取り込みの返信は残すが、削除済みルートのこっそり値も参照して秘匿する。
  */
 export function kossoriVisibility(viewerDid?: string): SQL {
 	const viewerMatch = viewerDid
@@ -130,6 +122,32 @@ export function kossoriVisibility(viewerDid?: string): SQL {
           and thread_root.kossori
           and not (${threadRootViewerMatch})
       )
+    end
+  `;
+}
+
+/** 共有フィードは本人分も除外する。検索では本人分を許可する。 */
+export function sharedFeedVisibility(): SQL {
+  return searchPostVisibility();
+}
+
+/** 検索用。本人のこっそりを含めるが、ルート未解決の返信は隠す。 */
+export function searchPostVisibility(viewerDid?: string): SQL {
+  const rootVisible = viewerDid
+    ? sql`(not ${nagiPosts.kossori} or ${nagiPosts.did} = ${viewerDid})`
+    : sql`not ${nagiPosts.kossori}`;
+  const threadVisible = viewerDid
+    ? sql`(not thread_root.kossori or thread_root.did = ${viewerDid})`
+    : sql`not thread_root.kossori`;
+  return sql`
+    case
+      when ${nagiPosts.replyRootUri} is null then ${rootVisible}
+      else coalesce((
+        select ${threadVisible}
+        from nagi.posts as thread_root
+        where thread_root.uri = ${nagiPosts.replyRootUri}
+          and thread_root.deleted_at is null
+      ), false)
     end
   `;
 }
@@ -169,13 +187,13 @@ export function isAdultOnlyRow(post: typeof nagiPosts.$inferSelect): boolean {
  * 入れない（スレッド単位の最新活動順で見せるホームTLとは意味が違う）。
  */
 export function homeRootVisibility(
-  homeDid: string,
+  _homeDid: string,
   actorDids: string[],
 ): SQL[] {
   return [
     isNull(nagiPosts.replyParentUri),
     inArray(nagiPosts.did, actorDids),
-    or(eq(nagiPosts.did, homeDid), eq(nagiPosts.kossori, false))!,
+    eq(nagiPosts.kossori, false),
   ];
 }
 export type PostRow = {
@@ -805,26 +823,13 @@ export function timelineVisibilityFilters(
   // ルート未解決時に非共有へ倒すのは、壊れた参照によって
   // 本来こっそりだった返信を共有TLへ露出させないため。
   if (!opts.actorDid && !opts.homeDid) {
-    const viewerMatch = opts.viewerDid
-      ? sql`${nagiPosts.did} = ${opts.viewerDid}`
-      : sql`false`;
-    const threadRootViewerMatch = opts.viewerDid
-      ? sql`thread_root.did = ${opts.viewerDid}`
-      : sql`false`;
-    filters.push(sql`
-      case
-        when ${nagiPosts.replyRootUri} is null
-          then (not ${nagiPosts.kossori} or ${viewerMatch})
-        else coalesce((
-          select (not thread_root.kossori or ${threadRootViewerMatch})
-          from nagi.posts as thread_root
-          where thread_root.uri = ${nagiPosts.replyRootUri}
-            and thread_root.deleted_at is null
-        ), false)
-      end
-    `);
+    filters.push(opts.tag ? searchPostVisibility(opts.viewerDid) : sharedFeedVisibility());
   } else if (!opts.homeDid) {
-    filters.push(kossoriVisibility(opts.viewerDid));
+    filters.push(
+      kossoriVisibility(
+        opts.actorDid === opts.viewerDid ? opts.viewerDid : undefined,
+      ),
+    );
   }
   // 会話グループ化: 同スレッドに自分より後の共有可視投稿(=非削除・非bot返信)が無い投稿=代表
   // だけを残す。これで1スレッド1回・最新活動順になる。cursor/orderBy はそのまま代表に効く。
@@ -869,8 +874,7 @@ export async function getTimeline(opts: {
   searchResults?: boolean;
   /**
    * 本人向けホーム。指定時は本人・botたん・本人の非公開リストの投稿（返信を含む）を候補にし、
-   * スレッド単位の最新活動順に並べる。公開範囲はスレッドルートで判定するので、本人の kossori
-   * だけは表示する。
+   * スレッド単位の最新活動順に並べる。こっそりは本人の投稿も除外する。
    */
   homeDid?: string;
   /** 呼び出し側が既に引いている場合に渡す。省略時は viewerDid から自分で引く。 */
@@ -969,11 +973,7 @@ export async function getTimeline(opts: {
  *
  * ミュートは考慮しない。著者ごと消えるので、その人の投稿は1件も出ず穴にならない。
  */
-export function dailyBestPerAuthor(viewerDid: string | undefined, isAdult: boolean): SQL {
-  const viewerMatch = viewerDid ? sql`best.did = ${viewerDid}` : sql`false`;
-  const rootViewerMatch = viewerDid
-    ? sql`best_root.did = ${viewerDid}`
-    : sql`false`;
+export function dailyBestPerAuthor(_viewerDid: string | undefined, isAdult: boolean): SQL {
   const adultFilter = isAdult
     ? sql``
     : sql`
@@ -992,9 +992,9 @@ export function dailyBestPerAuthor(viewerDid: string | undefined, isAdult: boole
              = (${nagiPosts.indexedAt} at time zone 'Asia/Tokyo')::date
            and case
                  when best.reply_root_uri is null
-                   then (not best.kossori or ${viewerMatch})
+                   then not best.kossori
                  else coalesce((
-                   select (not best_root.kossori or ${rootViewerMatch})
+                   select not best_root.kossori
                      from nagi.posts as best_root
                     where best_root.uri = best.reply_root_uri
                       and best_root.deleted_at is null
