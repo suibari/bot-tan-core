@@ -519,14 +519,14 @@ test("MOSS: 呼び出し側が決めた言葉は、その文で書かせる", ()
 });
 
 test("MOSS: 宛名以外の題名や言葉は、一重引用符やかぎ括弧でも落とす", () => {
-  const words = "しるきぃさんへ";
+  const words = "テストさんへ";
   const built = buildMossImagePrompt(
     plan({
       prose: {
         ...prose,
         props: [
-          "She holds a book with the cover of 'くたサラ' in her hands.",
-          "A poster of 『ゆるキャン』 hangs on the wall.",
+          "She holds a book with the cover of '架空の本' in her hands.",
+          "A poster of 『架空の映画』 hangs on the wall.",
           `She holds a card that clearly reads "${words}".`,
           "It's Bot-tan's favorite mug.",
         ],
@@ -538,8 +538,8 @@ test("MOSS: 宛名以外の題名や言葉は、一重引用符やかぎ括弧�
     { writing: { words, sentence: `The letter reads "${words}".` } },
   );
   assert.ok(built);
-  assert.doesNotMatch(built.prompt, /くたサラ|ゆるキャン|CAFE/);
-  assert.match(built.prompt, /She holds a card that clearly reads "しるきぃさんへ"\./);
+  assert.doesNotMatch(built.prompt, /架空の本|架空の映画|CAFE/);
+  assert.match(built.prompt, /She holds a card that clearly reads "テストさんへ"\./);
   // 所有格のアポストロフィは引用ではない。
   assert.match(built.prompt, /It's Bot-tan's favorite mug\./);
 });

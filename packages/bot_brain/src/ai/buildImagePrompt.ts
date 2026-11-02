@@ -934,7 +934,7 @@ export function buildMossImagePrompt(
   const writing = options.writing;
   const words = writing === "requested" ? (plan.prose?.text ?? "") : (writing?.words ?? "");
   // 書かせる言葉以外の引用は、gemma が勝手に書いた看板やメニューの文字。謎の文字の元になるので落とす。
-  // 一重引用符とかぎ括弧の題名も同じ（2026-10-28「a book with the cover of 'くたサラ'」が本の表紙に謎の文字を出した）。
+  // 一重引用符とかぎ括弧の題名も同じ（2026-10-28、本の題名を一重引用符で書いた文が表紙に謎の文字を出した）。
   const quoted = (text: string) => {
     const rest = words ? text.split(`"${words}"`).join("") : text;
     return /["“”‘’「」『』]|(^|[\s(])'[^']+'/.test(rest);
