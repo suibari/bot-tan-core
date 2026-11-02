@@ -347,11 +347,12 @@ ${SCENE_RULES}
 const PROSE_RULES = `
 Also write English prose for a second image generator that reads sentences:
 * sentence: ONE English sentence about what is happening in the picture and where. Use the same moment as the tags. Refer to our own girl as "Bot-tan", and mention Latte-chan, Kotomi-chan or Morpho by name only if they are listed in companions. Never describe hair, eyes or clothing. Same safety rules as the tags.
+* Show joy by her face and pose ("smiles brightly with both fists raised"), not by sound: never use cheers, shouts, yells or exclaims. Those words make the image generator draw manga-style shouting text.
 * props: each visible object from objects as its OWN short sentence that says where it is, e.g. "On the desk in front of her is an open bento box with a golden omelette." At most 3. Clothing is not a prop.
 * background: ONE short sentence about the background, e.g. "A sunny park with grass and trees in the background."
 * text: the exact words the description asks to be written in the picture (on a sign, a letter, a cake and so on), copied as written. An empty string unless the description explicitly asks for written words. Never invent words.
-* When text is not empty, write it in double quotes in the prop that carries it, e.g. "She holds up a sign that clearly reads \"おはよう\"." Otherwise never write quoted words, titles or labels anywhere.
-* Do not mention things that usually carry writing (menus, menu boards, posters, signs, book covers or spines, screens, newspapers, labels) unless the description asks for them. Choose other props and backgrounds instead: a cafe can show cups, plants and wooden shelves.`;
+* When text is not empty, write it in double quotes in the ONE prop that carries it, e.g. "She holds up a sign that clearly reads \"おはよう\"." That prop is the only place with writing. Never write any other quoted words, titles, names or labels anywhere, not even in single quotes.
+* Do not mention things that usually carry writing (menus, menu boards, posters, signs, books, notebooks, book covers or spines, screens, monitors, televisions, phones, game screens, trading cards, newspapers, labels, packages) unless the description itself is about that thing. The text above does NOT allow them: only its one carrier may have writing. Choose other props and backgrounds instead: a cafe can show cups, plants and wooden shelves; watching a show or playing a game can be shown by her reaction and a controller, without the screen.`;
 
 const PROSE_PROPERTIES = {
   sentence: { type: "string" },
@@ -856,6 +857,20 @@ const MOSS_NEGATIVE = "nsfw, worst quality, bad anatomy, watermark, jpeg artifac
 const MOSS_TEXT_NEGATIVE = "text, letters, writing, words, signature";
 
 /**
+ * 言葉を書かせる絵に足すネガティブと文。
+ *
+ * 書かせる絵では MOSS_TEXT_NEGATIVE を外すので、はしゃぐ場面に漫画の叫び文字や吹き出しが出る。
+ * 宛名は正しく書けても、宙に謎の文字が並ぶ（2026-11-02、bot-tan-imagegen で「ゲームの大勝利に歓声を
+ * 上げる」場面 4/4。`gibberish, illegible text` は効かなかった）。
+ *
+ * 同じ場面・4シードでの叫び文字: 対策なし 4/4 → このネガティブ 3/4 → ＋最後の文 2/4 →
+ * ＋場面の文から cheers をやめる（PROSE_RULES）0/4、宛名は 4/4 正確。いちばん効いたのは
+ * 場面の言い方で、ここの2つは補助。
+ */
+const MOSS_WRITTEN_NEGATIVE = "speech bubble, onomatopoeia, sound effects, floating text, caption, title";
+const MOSS_ONLY_WRITING = "There is no other writing anywhere in the picture.";
+
+/**
  * 絵の中に書かせる言葉。
  *  - "requested": 依頼文が頼んだ言葉（plan.prose.text）だけを書く。お絵描きの依頼で使う
  *  - words と sentence: 呼び出し側が決めた言葉を、その文で書かせる（贈り物の手紙の宛名）
@@ -919,7 +934,11 @@ export function buildMossImagePrompt(
   const writing = options.writing;
   const words = writing === "requested" ? (plan.prose?.text ?? "") : (writing?.words ?? "");
   // 書かせる言葉以外の引用は、gemma が勝手に書いた看板やメニューの文字。謎の文字の元になるので落とす。
-  const quoted = (text: string) => /["“”]/.test(text) && !(words && text.includes(`"${words}"`));
+  // 一重引用符とかぎ括弧の題名も同じ（2026-10-28「a book with the cover of 'くたサラ'」が本の表紙に謎の文字を出した）。
+  const quoted = (text: string) => {
+    const rest = words ? text.split(`"${words}"`).join("") : text;
+    return /["“”‘’「」『』]|(^|[\s(])'[^']+'/.test(rest);
+  };
 
   let sentence = plan.prose?.sentence ?? "";
   if (quoted(sentence)) sentence = "";
@@ -961,7 +980,8 @@ export function buildMossImagePrompt(
     sentence,
     ...props,
     writingSentence,
-    plan.prose?.background ?? "",
+    words ? MOSS_ONLY_WRITING : "",
+    quoted(plan.prose?.background ?? "") ? "" : (plan.prose?.background ?? ""),
     fullBody ? "Full-body view." : "Upper-body view.",
     ...people,
   ]
@@ -970,7 +990,7 @@ export function buildMossImagePrompt(
 
   return {
     prompt,
-    negativePrompt: words ? MOSS_NEGATIVE : `${MOSS_NEGATIVE}, ${MOSS_TEXT_NEGATIVE}`,
+    negativePrompt: `${MOSS_NEGATIVE}, ${words ? MOSS_WRITTEN_NEGATIVE : MOSS_TEXT_NEGATIVE}`,
     regions: [],
     width: solo ? 832 : 1216,
     height: solo ? 1216 : 832,
