@@ -507,8 +507,41 @@ test("MOSS: 呼び出し側が決めた言葉は、その文で書かせる", ()
   const sentence = 'Bot-tan holds out a handwritten letter with both hands, and the letter clearly reads "すいばりさんへ".';
   const built = buildMossImagePrompt(plan({ prose }), "suibari", [], { writing: { words: "すいばりさんへ", sentence } });
   assert.ok(built);
-  assert.ok(built.prompt.includes(`A mug of cocoa is in her hands. ${sentence} Her cozy room`), built.prompt);
+  assert.ok(
+    built.prompt.includes(
+      `A mug of cocoa is in her hands. ${sentence} There is no other writing anywhere in the picture. Her cozy room`,
+    ),
+    built.prompt,
+  );
   assert.doesNotMatch(built.negativePrompt, /writing/);
+  // 書かせる絵でも、はしゃぐ場面の叫び文字・吹き出しは抑える。
+  assert.match(built.negativePrompt, /speech bubble, onomatopoeia/);
+});
+
+test("MOSS: 宛名以外の題名や言葉は、一重引用符やかぎ括弧でも落とす", () => {
+  const words = "テストさんへ";
+  const built = buildMossImagePrompt(
+    plan({
+      prose: {
+        ...prose,
+        props: [
+          "She holds a book with the cover of '架空の本' in her hands.",
+          "A poster of 『架空の映画』 hangs on the wall.",
+          `She holds a card that clearly reads "${words}".`,
+          "It's Bot-tan's favorite mug.",
+        ],
+        background: 'A shop with a sign that reads "CAFE" in the background.',
+      },
+    }),
+    "suibari",
+    [],
+    { writing: { words, sentence: `The letter reads "${words}".` } },
+  );
+  assert.ok(built);
+  assert.doesNotMatch(built.prompt, /架空の本|架空の映画|CAFE/);
+  assert.match(built.prompt, /She holds a card that clearly reads "テストさんへ"\./);
+  // 所有格のアポストロフィは引用ではない。
+  assert.match(built.prompt, /It's Bot-tan's favorite mug\./);
 });
 
 test("MOSS: 靴は全身の構図のときだけ書く（上半身で書くと靴が宙に浮く）", () => {
