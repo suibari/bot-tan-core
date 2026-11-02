@@ -3,6 +3,11 @@ import test from "node:test";
 import type { UserInfoGemini } from "@bsky-affirmative-bot/shared-configs";
 import { buildConversationPrompt } from "../src/ai/conversation.js";
 import { buildAffirmativePrompt } from "../src/ai/generateAffirmativeWord.js";
+import {
+  NAGI_REACTION_REPEAT_MENTION_EVERY,
+  shouldMentionNagiReaction,
+} from "../src/ai/nagiReactionPrompt.js";
+import { CARE_ANGLES } from "../src/ai/careAngles.js";
 
 const userinfo = (
   langStr: "日本語" | "English",
@@ -42,7 +47,7 @@ test("Nagiのカスタム絵文字名を日英の肯定返信へ渡す", async (
   assert.match(ja, /カスタム絵文字「:nagi_wave:」/);
   assert.doesNotMatch(ja, /カスタム絵文字「:fallback_name:」/);
   assert.match(en, /custom emoji named :nagi_wave:/);
-  assert.match(en, /do not call it a like/);
+  assert.match(en, /do not call it a like/i);
 });
 
 test("Nagiリアクションは会話モードにも同じ意味で渡す", () => {
@@ -60,8 +65,9 @@ test("Nagiリアクションは会話モードにも同じ意味で渡す", () =
 
   assert.match(unicode, /「🎉」の絵文字でリアクション/);
   assert.match(unicode, /「いいね」と言い換えず/);
+  assert.match(unicode, /今回の返信では、この絵文字にひとこと触れて/);
   assert.match(custom, /custom emoji named :party_blob:/);
-  assert.match(custom, /do not call it a like/);
+  assert.match(custom, /do not call it a like/i);
 });
 
 test("Blueskyの既存いいね指示はNagiリアクションと分離して維持する", async () => {
@@ -86,8 +92,50 @@ test("絵文字の意味の資料と感謝に偏らない指示を肯定・会�
     for (const prompt of [await buildAffirmativePrompt(info), buildConversationPrompt(info)]) {
       assert.match(prompt, /お茶を差し出すねこ/);
       assert.match(prompt, /おつかれさま ねぎらい お茶/);
-      assert.match(prompt, lang === "日本語" ? /感謝は必須ではありません/ : /Thanks are optional/);
+      assert.match(prompt, lang === "日本語" ? /今回の返信では、この絵文字にひとこと触れて/ : /include a brief remark about this emoji/);
+      // 触れること自体を任意にする一般論は置かない（#138 で言及が 21/47 → 3/56 に落ちた）。
+      assert.doesNotMatch(prompt, /名前を本文にそのまま出す必要もありません|自然につながるひとことに留めて|need not repeat the shortcode/);
       assert.match(prompt, lang === "日本語" ? /見た目や由来を捏造せず/ : /without inventing an appearance or origin/);
     }
   }
+});
+
+test("触れる回だけ指示を渡し、沈んだ投稿では肯定返信に渡さない", async () => {
+  const info = userinfo("日本語", {
+    receivedNagiReaction: { emoji: ":thx:", customEmojiName: ":thx:" },
+  });
+  assert.match(await buildAffirmativePrompt(info), /カスタム絵文字「:thx:」/);
+  const sinking = await buildAffirmativePrompt(info, { careAngle: CARE_ANGLES[0] });
+  assert.doesNotMatch(sinking, /Nagiであなたの投稿に/);
+});
+
+test("気分採点のある肯定返信では重い話の省略をプロンプトに委ねず、会話では委ねる", async () => {
+  const info = userinfo("日本語", { receivedNagiReaction: { emoji: "🎉" } });
+  assert.doesNotMatch(await buildAffirmativePrompt(info), /重い話のときは、絵文字には触れず/);
+  assert.match(buildConversationPrompt(info), /重い話のときは、絵文字には触れず/);
+});
+
+test("同じ絵文字の繰り返しは投稿ごとに決まった一部の回だけ触れる", () => {
+  const decisions = Array.from({ length: 400 }, (_, index) =>
+    shouldMentionNagiReaction({
+      ...userinfo("日本語", {
+        receivedNagiReaction: { emoji: ":thx:", customEmojiName: ":thx:", repeated: true },
+      }),
+      posts: [`今日もいい日だったよ ${index}`],
+    }),
+  );
+  const mentioned = decisions.filter(Boolean).length;
+  const expected = 400 / NAGI_REACTION_REPEAT_MENTION_EVERY;
+  assert.ok(mentioned > expected * 0.6 && mentioned < expected * 1.4, `mentioned=${mentioned}`);
+
+  // 再試行しても同じ判断になる。
+  const again = userinfo("日本語", {
+    receivedNagiReaction: { emoji: ":thx:", customEmojiName: ":thx:", repeated: true },
+  });
+  assert.equal(shouldMentionNagiReaction(again), shouldMentionNagiReaction(again));
+  // 繰り返しでなければ必ず触れる。
+  assert.equal(
+    shouldMentionNagiReaction(userinfo("日本語", { receivedNagiReaction: { emoji: ":thx:", customEmojiName: ":thx:" } })),
+    true,
+  );
 });

@@ -212,6 +212,8 @@ export type UserInfoGemini = {
     customEmojiAlt?: string;
     /** 画像から抽出した文字・連想語。解釈の手掛かりであり意図の断定には使わない。 */
     customEmojiSearchText?: string;
+    /** 前回の返信までにもらった最後のリアクションと同じ絵文字。毎回触れると定型になる。 */
+    repeated?: boolean;
   };
   history?: Content[];
   image?: ImageRef[];
