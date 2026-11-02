@@ -1,4 +1,4 @@
-import { nagiReactionInstruction, shouldMentionNagiReaction } from './nagiReactionPrompt.js';
+import { nagiReactionInstruction, nagiReactionMode } from './nagiReactionPrompt.js';
 import { UserInfoGemini, GeminiScore } from '@bsky-affirmative-bot/shared-configs';
 import { generateSingleResponseWithScore, memoryAgeLabel } from './util.js';
 import { assertSourcedUrls, createUrlAllowance } from './urlGuard.js';
@@ -155,9 +155,7 @@ export async function generateAffirmativeWord(userinfo: UserInfoGemini, requestO
     }, hasImages=${Boolean(userinfo.image?.length)}, neta=${neta?.id ?? 'none'}, careAngle=${careAngle?.id ?? 'none'}, nagiReaction=${
       !userinfo.receivedNagiReaction
         ? 'none'
-        : shouldMentionNagiReaction(userinfo, nagiReactionContext({ neta, careAngle }))
-          ? 'mention'
-          : 'skip'
+        : nagiReactionMode(userinfo, nagiReactionContext({ neta, careAngle })).replace('none', 'skip')
     }`,
   );
 
@@ -374,9 +372,13 @@ const formatPreviousPosts = (userinfo: UserInfoGemini, empty: string) => {
 const urlContextEnabled = (userinfo: UserInfoGemini) =>
   userinfo.urlContextEnabled ?? Boolean(userinfo.embed?.uri_embed && userinfo.isSubscriber);
 
-/** 触れるかは nagiReactionPrompt がコードで決める。沈んだ投稿（角度札あり）では渡さない。 */
+/**
+ * 触れるか・ネタにするかは nagiReactionPrompt がコードで決める。沈んだ投稿（角度札あり）では
+ * 渡さず、演出札を引いた回は絵文字ネタにしない（ボケを2つ重ねない）。
+ */
 const nagiReactionContext = (options: ReplyDirectives) => ({
   sinking: Boolean(options.careAngle),
+  netaDrawn: Boolean(options.neta),
   moodScored: true,
 });
 const nagiReactionInstructionJa = (userinfo: UserInfoGemini, options: ReplyDirectives) =>

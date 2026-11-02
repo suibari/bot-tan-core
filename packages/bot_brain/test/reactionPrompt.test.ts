@@ -4,7 +4,11 @@ import type { UserInfoGemini } from "@bsky-affirmative-bot/shared-configs";
 import { buildConversationPrompt } from "../src/ai/conversation.js";
 import { buildAffirmativePrompt } from "../src/ai/generateAffirmativeWord.js";
 import {
+  NAGI_REACTION_NETA_EVERY,
   NAGI_REACTION_REPEAT_MENTION_EVERY,
+  nagiReactionNetaEvery,
+  nagiReactionInstruction,
+  nagiReactionMode,
   shouldMentionNagiReaction,
 } from "../src/ai/nagiReactionPrompt.js";
 import { CARE_ANGLES } from "../src/ai/careAngles.js";
@@ -138,4 +142,40 @@ test("同じ絵文字の繰り返しは投稿ごとに決まった一部の回�
     shouldMentionNagiReaction(userinfo("日本語", { receivedNagiReaction: { emoji: ":thx:", customEmojiName: ":thx:" } })),
     true,
   );
+});
+
+test("触れる回の一部だけ絵文字ネタにし、演出札を引いた回と会話モードではネタにしない", () => {
+  const infoFor = (index: number) => ({
+    ...userinfo("日本語", {
+      receivedNagiReaction: { emoji: ":bot-tan_duel:", customEmojiName: ":bot-tan_duel:" },
+    }),
+    posts: [`今日のラーメンうまかった ${index}`],
+  });
+  const modes = Array.from({ length: 300 }, (_, index) =>
+    nagiReactionMode(infoFor(index), { moodScored: true }),
+  );
+  const neta = modes.filter((mode) => mode === "neta").length;
+  const expected = 300 / NAGI_REACTION_NETA_EVERY;
+  assert.ok(neta > expected * 0.6 && neta < expected * 1.4, `neta=${neta}`);
+  assert.ok(modes.every((mode) => mode !== "none"));
+
+  const netaIndex = modes.indexOf("neta");
+  assert.equal(nagiReactionMode(infoFor(netaIndex), { moodScored: true, netaDrawn: true }), "mention");
+  assert.equal(nagiReactionMode(infoFor(netaIndex), {}), "mention");
+  assert.equal(nagiReactionMode(infoFor(netaIndex), { moodScored: true, sinking: true }), "none");
+
+  const ja = nagiReactionInstruction(infoFor(netaIndex), true, { moodScored: true });
+  assert.match(ja, /この絵文字をネタにして1文だけ/);
+  assert.match(ja, /デュエルを挑む/);
+  assert.match(ja, /茶化したり皮肉ったりせず/);
+  const en = nagiReactionInstruction(infoFor(netaIndex), false, { moodScored: true });
+  assert.match(en, /one-sentence playful bit/);
+});
+
+test("絵文字ネタの間隔は環境変数で上書きでき、不正値は既定に戻す", () => {
+  assert.equal(nagiReactionNetaEvery({}), NAGI_REACTION_NETA_EVERY);
+  assert.equal(nagiReactionNetaEvery({ AI_NAGI_REACTION_NETA_EVERY: "0" }), 0);
+  assert.equal(nagiReactionNetaEvery({ AI_NAGI_REACTION_NETA_EVERY: "1" }), 1);
+  assert.equal(nagiReactionNetaEvery({ AI_NAGI_REACTION_NETA_EVERY: "-2" }), NAGI_REACTION_NETA_EVERY);
+  assert.equal(nagiReactionNetaEvery({ AI_NAGI_REACTION_NETA_EVERY: "abc" }), NAGI_REACTION_NETA_EVERY);
 });
