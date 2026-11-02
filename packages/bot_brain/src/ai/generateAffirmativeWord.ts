@@ -1,4 +1,4 @@
-import { nagiReactionInstruction } from './nagiReactionPrompt.js';
+import { nagiReactionInstruction, nagiReactionMode } from './nagiReactionPrompt.js';
 import { UserInfoGemini, GeminiScore } from '@bsky-affirmative-bot/shared-configs';
 import { generateSingleResponseWithScore, memoryAgeLabel } from './util.js';
 import { assertSourcedUrls, createUrlAllowance } from './urlGuard.js';
@@ -152,7 +152,11 @@ export async function generateAffirmativeWord(userinfo: UserInfoGemini, requestO
   console.log(
     `[INFO][GEMINI] affirmative reply: postLen=${userinfo.posts?.[0]?.length ?? 0}, replyLen=${
       result.comment?.length ?? 0
-    }, hasImages=${Boolean(userinfo.image?.length)}, neta=${neta?.id ?? 'none'}, careAngle=${careAngle?.id ?? 'none'}`,
+    }, hasImages=${Boolean(userinfo.image?.length)}, neta=${neta?.id ?? 'none'}, careAngle=${careAngle?.id ?? 'none'}, nagiReaction=${
+      !userinfo.receivedNagiReaction
+        ? 'none'
+        : nagiReactionMode(userinfo, nagiReactionContext({ neta, careAngle })).replace('none', 'skip')
+    }`,
   );
 
   // Geminiリクエスト数加算
@@ -368,8 +372,19 @@ const formatPreviousPosts = (userinfo: UserInfoGemini, empty: string) => {
 const urlContextEnabled = (userinfo: UserInfoGemini) =>
   userinfo.urlContextEnabled ?? Boolean(userinfo.embed?.uri_embed && userinfo.isSubscriber);
 
-const nagiReactionInstructionJa = (userinfo: UserInfoGemini) => nagiReactionInstruction(userinfo, true);
-const nagiReactionInstructionEn = (userinfo: UserInfoGemini) => nagiReactionInstruction(userinfo, false);
+/**
+ * 触れるか・ネタにするかは nagiReactionPrompt がコードで決める。沈んだ投稿（角度札あり）では
+ * 渡さず、演出札を引いた回は絵文字ネタにしない（ボケを2つ重ねない）。
+ */
+const nagiReactionContext = (options: ReplyDirectives) => ({
+  sinking: Boolean(options.careAngle),
+  netaDrawn: Boolean(options.neta),
+  moodScored: true,
+});
+const nagiReactionInstructionJa = (userinfo: UserInfoGemini, options: ReplyDirectives) =>
+  nagiReactionInstruction(userinfo, true, nagiReactionContext(options));
+const nagiReactionInstructionEn = (userinfo: UserInfoGemini, options: ReplyDirectives) =>
+  nagiReactionInstruction(userinfo, false, nagiReactionContext(options));
 
 /**
  * プロンプトの「指示」部分。ユーザ投稿は含めない。
@@ -451,7 +466,7 @@ export const buildAffirmativeInstructions = async (
    - もし相手が自分を卑下していたり、難しい悩みを吐露している場合は、無理にテンション高く励ますのではなく、静かに肯定してください。決まり文句で済ませず、この投稿に書かれていることに沿った言葉を選んでください。
    - **過去のポストの扱いについて**: 過去のポストは、ユーザーの普段の関心や人柄を理解するための「バックグラウンド（背景情報）」としてのみ使用してください。過去のポストに直接言及したり、過去の話題を引っ張り出して長々と語ったりすることは絶対に避けてください。今回のポストに対して、すっきりと、しかし熱量高く全肯定することに集中し、無駄に冗長な返答にならないようにしてください。
    - ${userinfo.likedByFollower !== undefined ? 'ユーザがあなたの投稿にイイネしてくれたので、その感謝も伝えてください。' : ''}
-   - ${nagiReactionInstructionJa(userinfo)}
+   - ${nagiReactionInstructionJa(userinfo, options)}
    - ${
      userinfo.followersFriend
        ? `以下は別のbotたんフォロワーのポストです。ユーザを褒める際、このポストとの共通点を踏まえて褒めてください。ポスト内容はそのまま記載しないでください。`
@@ -527,7 +542,7 @@ ${TONE_RULES_JA}
    - If the user is self-deprecating or expressing difficult worries, do not force high-tension encouragement. Affirm them quietly instead. Do not settle for stock phrases; choose words that fit what this post actually says.
    - **Handling of Previous Posts**: Use the previous posts strictly as background context to understand the user's personality and general interests. Do NOT directly mention, bring up, or elaborate on the content of previous posts. Keep the response concise and focused entirely on validating and praising "This Post" without getting bogged down in past details.
    - ${userinfo.likedByFollower !== undefined ? 'The user liked your post. Express gratitude.' : ''}
-   - ${nagiReactionInstructionEn(userinfo)}
+   - ${nagiReactionInstructionEn(userinfo, options)}
    - ${
      userinfo.followersFriend
        ? `Below is a post from another Bottan follower. When praising a user, consider the similarities between this post and the user's. Do not copy the exact content of the post.`

@@ -3,6 +3,7 @@ import test from "node:test";
 import { db, nagiReactions } from "@bsky-affirmative-bot/database";
 import { and } from "drizzle-orm";
 import {
+  isRepeatedNagiReaction,
   nagiReactionWindowConditions,
   receivedNagiReaction,
 } from "../src/nagiReplyContext.js";
@@ -79,4 +80,21 @@ test("カスタム絵文字の説明と画像由来の意味を返信へ渡す",
     emoji: ":tea:", customEmojiName: ":tea:",
     customEmojiAlt: "お茶のねこ", customEmojiSearchText: "おつかれさま ねぎらい",
   });
+});
+
+test("前回の返信までにもらった最後のリアクションと同じ絵文字なら繰り返し扱いにする", () => {
+  const thx = { emojiKey: "at://did:plc:emoji/blue.moji.collection.item/thx" };
+  const good = { emojiKey: "at://did:plc:emoji/blue.moji.collection.item/good" };
+  assert.equal(isRepeatedNagiReaction(thx, thx), true);
+  assert.equal(isRepeatedNagiReaction(thx, good), false);
+  assert.equal(isRepeatedNagiReaction(thx, undefined), false);
+  assert.equal(isRepeatedNagiReaction(undefined, thx), false);
+});
+
+test("繰り返しのときだけ repeated を付けて返信へ渡す", () => {
+  const row = { emoji: ":thx:", emojiUri: "at://emoji/thx", emojiName: ":thx:" };
+  assert.deepEqual(receivedNagiReaction(row, { repeated: true }), {
+    emoji: ":thx:", repeated: true, customEmojiName: ":thx:",
+  });
+  assert.equal("repeated" in receivedNagiReaction(row, { repeated: false })!, false);
 });

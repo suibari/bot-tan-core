@@ -38,11 +38,32 @@ type NagiReactionPromptRow = {
   emojiSearchText?: string | null;
 };
 
+/**
+ * 同じ人が同じ絵文字を続けてくれたとみなす期間。
+ *
+ * 毎回 :thx: をくれる人に毎回触れると、どう書いても定型文に見える。前回の返信より前に
+ * もらった最後のリアクションが同じ絵文字で、この期間内なら「繰り返し」として
+ * プロンプト側で触れなくてよいと伝える。
+ */
+export const NAGI_REACTION_REPEAT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** 今回のリアクションが、前回の返信までにもらった最後のリアクションと同じ絵文字か。 */
+export function isRepeatedNagiReaction(
+  current?: { emojiKey: string },
+  previous?: { emojiKey: string },
+) {
+  return Boolean(current && previous && current.emojiKey === previous.emojiKey);
+}
+
 /** DBのリアクション行を、生成プロンプトへ渡す最小限の情報へ変換する。 */
-export function receivedNagiReaction(row?: NagiReactionPromptRow) {
+export function receivedNagiReaction(
+  row?: NagiReactionPromptRow,
+  options: { repeated?: boolean } = {},
+) {
   if (!row) return undefined;
   return {
     emoji: row.emoji,
+    ...(options.repeated ? { repeated: true } : {}),
     ...(row.emojiUri
       ? {
           customEmojiName: row.emojiName ?? row.emoji,
@@ -193,6 +214,7 @@ export async function buildNagiReplyContext(job: any) {
     memory,
     followUp,
     reactionRows,
+    previousReactionRows,
     quoteRows,
   ] = await Promise.all([
       loadNagiReplyAuthor(job.authorDid),
@@ -228,6 +250,7 @@ export async function buildNagiReplyContext(job: any) {
         .select({
           emoji: nagiReactions.emoji,
           emojiUri: nagiReactions.emojiUri,
+          emojiKey: nagiReactions.emojiKey,
           emojiName: nagiEmojis.name,
           emojiAlt: nagiEmojis.alt,
           emojiSearchText: sql<string | null>`case when ${nagiEmojis.searchTextCid} = ${nagiEmojis.cid} then ${nagiEmojis.searchText} else null end`,
@@ -248,6 +271,28 @@ export async function buildNagiReplyContext(job: any) {
         )
         .orderBy(desc(nagiReactions.indexedAt))
         .limit(1),
+      // 前回の返信までにもらった最後のリアクション。今回と同じ絵文字なら繰り返し扱い。
+      previousReply
+        ? db
+            .select({ emojiKey: nagiReactions.emojiKey })
+            .from(nagiReactions)
+            .innerJoin(nagiPosts, eq(nagiPosts.uri, nagiReactions.subjectUri))
+            .where(
+              and(
+                eq(nagiReactions.did, job.authorDid),
+                eq(nagiPosts.did, botDid),
+                lte(nagiReactions.indexedAt, previousReply.createdAt),
+                gt(
+                  nagiReactions.indexedAt,
+                  new Date(
+                    new Date(job.createdAt).getTime() - NAGI_REACTION_REPEAT_WINDOW_MS,
+                  ),
+                ),
+              ),
+            )
+            .orderBy(desc(nagiReactions.indexedAt))
+            .limit(1)
+        : Promise.resolve([]),
       record.embed?.record?.uri
         ? db
             .select({
@@ -359,7 +404,9 @@ export async function buildNagiReplyContext(job: any) {
     posts: [text, ...relatedPosts],
     image: image.length ? image : undefined,
     embed: Object.keys(embed).length ? embed : undefined,
-    receivedNagiReaction: receivedNagiReaction(reactionRows[0]),
+    receivedNagiReaction: receivedNagiReaction(reactionRows[0], {
+      repeated: isRepeatedNagiReaction(reactionRows[0], previousReactionRows[0]),
+    }),
     followersFriend: followersFriend ? [followersFriend] : undefined,
     isSubscriber: false,
     urlContextEnabled: links.length > 0,
