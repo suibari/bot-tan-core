@@ -50,6 +50,17 @@ test("空いている行だけを埋める", () => {
   assert.deepEqual(fillTrilines(["", "", ""], ["一つだけ"]), ["一つだけ", "", ""]);
 });
 
+test("箇条書き記号と行末の句点だけを外し、行頭の数字は残す", () => {
+  assert.equal(normalizeTrilinesLine("30分ドローイングをした。"), "30分ドローイングをした");
+  assert.equal(normalizeTrilinesLine("1. note記事を書いた。"), "note記事を書いた");
+  assert.equal(normalizeTrilinesLine("2) 技術書を読んだ"), "技術書を読んだ");
+  assert.equal(normalizeTrilinesLine("- 散歩した"), "散歩した");
+  assert.equal(normalizeTrilinesLine("・早く寝た。。"), "早く寝た");
+  assert.equal(normalizeTrilinesLine("3.5時間寝た"), "3.5時間寝た");
+  assert.equal(normalizeTrilinesLine("Finished the book."), "Finished the book");
+  assert.equal(normalizeTrilinesLine("「猫をなでた。」"), "猫をなでた");
+});
+
 test("長すぎる行は50字で切る", () => {
   assert.equal(normalizeTrilinesLine("あ".repeat(60))?.length, 50);
   assert.equal(normalizeTrilinesLine("  "), undefined);
