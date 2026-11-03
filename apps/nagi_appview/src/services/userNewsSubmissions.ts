@@ -3,6 +3,7 @@ import {
   db,
   nagiNews,
   nagiNewsApprovals,
+  nagiModerationDecisions,
   nagiNewsReviewJobs,
 } from "@bsky-affirmative-bot/database";
 import { type MyNewsSubmissions, type NewsSubmissionPreview } from "@bsky-affirmative-bot/nagi-lexicon";
@@ -161,6 +162,17 @@ export async function requestNewsReview(
       // 判定待ちへ戻し、OGP画像込みでモデレーションし直す（札が付けば CW で伏せる）。
       .set({ normalizedUrl: canonicalUrl, embedding: null, moderationVersion: null })
       .where(and(eq(nagiNews.uri, subject.uri), eq(nagiNews.cid, subject.cid)));
+    // 取り込み時の判定（見出しだけ・画像なし）は同じ cid のキャッシュとして再利用されて
+    // しまうので消しておく。運用者が解除した判定（override）は残す。
+    await tx
+      .delete(nagiModerationDecisions)
+      .where(
+        and(
+          eq(nagiModerationDecisions.uri, subject.uri),
+          eq(nagiModerationDecisions.cid, subject.cid),
+          isNull(nagiModerationDecisions.override),
+        ),
+      );
     const snapshot = {
       snapshotArticleId: articleIdFor(canonicalUrl),
       snapshotUrl: canonicalUrl,
