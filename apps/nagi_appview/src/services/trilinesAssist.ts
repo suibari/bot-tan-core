@@ -124,6 +124,7 @@ ${TONE_RULES_JA}
 # いまの役目
 ユーザーは「3行日記」（その日のよかったことを3つ書く日記）を書こうとしています。下の「今日のユーザーの投稿」から、よかったこと・うれしかったこと・できたことを${need}個選び、ユーザー本人が書く日記の1行として下書きしてください。
 - 1行は${TRILINES_LINE_MAX_GRAPHEMES}文字以内。本人の一人称の短い文にする（「〜した」「〜だった」など）。botたんの口調やセリフにしない。
+- 行の終わりに「。」を付けない（日記の1行なので、句点があると冷たい印象になる）。
 - 投稿に書かれた出来事だけを使う。書かれていない出来事・固有名・感情・成果を作らない。行為者や時制を変えない。未完了のことを完了にしない。
 - つらい出来事しかないときは、その中で小さくできたこと（休んだ、書けた、など）を選ぶ。つらさを否定したり前向きに言い換えたりしない。
 - 1行に1つの出来事。行どうしで同じ出来事を繰り返さない。「すでに書いた行」と同じ出来事も選ばない。
@@ -137,6 +138,7 @@ ${postList}`;
 # Your job right now
 The user is writing a "3 Lines" diary (three good things from their day). From "The user's posts today" below, pick ${need} good, happy, or accomplished moments and draft each as one line of the user's own diary.
 - Each line is at most ${TRILINES_LINE_MAX_GRAPHEMES} characters, a short first-person sentence in the user's voice ("Had...", "Finished..."). Not Bot-tan's voice or a reply.
+- Do not end a line with a period; these are short diary lines, not formal sentences.
 - Use only events written in the posts. Never invent events, names, feelings, or achievements. Preserve who did what and whether it has happened.
 - If the day was hard, pick small things they managed (rested, wrote it down). Do not deny the difficulty or reframe it positively.
 - One event per line. Do not repeat an event across lines or from "Lines already written".
@@ -147,14 +149,21 @@ ${written.length ? `# Lines already written\n${written.map((line) => `- ${line}`
 ${postList}`;
 }
 
-/** 1行を表示できる形に整える。上限を超えたら切る（日記の行は省略記号を付けない）。 */
+/**
+ * 生成した1行を表示できる形に整える。上限を超えたら切る（日記の行は省略記号を付けない）。
+ *
+ * - 行頭の箇条書き記号（「- 」「・」「1. 」「2)」）だけを外す。数字そのものは本文なので残す
+ *   （以前は行頭の数字をまとめて消していて、「30分ドローイング」が「分ドローイング」になった）。
+ * - 行末の句点は外す。日記の1行に「。」があると冷たい印象になる（プロンプトでも禁じている）。
+ */
 export function normalizeTrilinesLine(raw: unknown): string | undefined {
   if (typeof raw !== "string") return undefined;
   const line = raw
     .replace(/\s*\n+\s*/g, " ")
     .trim()
-    .replace(/^[-・*\d.)\s]+/, "")
+    .replace(/^(?:[-・*•]+\s*|\d{1,2}[.)．）](?!\d)\s*)/, "")
     .replace(/^[「『"“](.*)[」』"”]$/, "$1")
+    .replace(/[。．.]+$/, "")
     .trim();
   if (!line) return undefined;
   const parts = graphemes(line);
