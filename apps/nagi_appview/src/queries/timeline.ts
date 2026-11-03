@@ -1,3 +1,4 @@
+import { orderThreadReplies } from "./threadOrder.js";
 import {
   db,
   nagiActors,
@@ -621,7 +622,7 @@ async function fetchThreadRows(
 }
 /**
  * 代表投稿(各スレッドの最新の共有可視投稿)群を、会話グループ FeedItem に組み立てる。
- * ルート + 最新3バブル(bot返信含む・createdAt昇順)に畳み、hiddenCount/totalCount を付ける。
+ * ルート + 末尾3バブル(bot返信含む・枝ごとの並び。orderThreadReplies)に畳み、hiddenCount/totalCount を付ける。
  * botたん返信がまだ indexed されていない代表には awaitingBotReply を載せる。
  */
 export async function buildConversationItems(
@@ -673,7 +674,17 @@ export async function buildConversationItems(
     // ルート削除済み/ルート著者ミュートのスレッドはここで落ちる（＝会話ごと非表示）。
     // どちらも getTimeline の filters で SQL 段階から除外済みなので、ここは安全網。
     if (!root) continue;
-    const nonRoot = list.filter((r) => r.post.uri !== key);
+    // スレッド画面と同じ枝ごとの並びで末尾3件を取る。時系列のままだと、
+    // 別の枝への返信が直前のバブルへの返信に見える。
+    const nonRoot = orderThreadReplies(
+      key,
+      list.filter((r) => r.post.uri !== key),
+      (r) => ({
+        uri: r.post.uri,
+        parentUri: r.post.replyParentUri,
+        time: r.post.recordCreatedAt.getTime(),
+      }),
+    );
     const bubbles = nonRoot.slice(-3);
     plan.set(key, {
       rootUri: key,
