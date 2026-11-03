@@ -129,7 +129,10 @@ export type NewsView = {
   /** OGP画像のURL。画像データはNagiに保存せず、表示時に配信元から直接取得する。 */
   image?: string;
   publishedAt?: string;
+  /** botたんのひとこと。ユーザーが追加した直後はまだ無く、空文字になる。 */
   botComment: string;
+  /** 自動モデレーションの札。クライアントはこれがあればカード全体を CW で伏せる。 */
+  moderationLabels?: string[];
   lang: "ja" | "en";
   createdAt: string;
   indexedAt: string;

@@ -102,7 +102,8 @@ export function moderationSubject(
         imageUrls: blobUrl(did, record.banner?.ref?.$link),
       };
     case NAGI.news:
-      // ニュースに画像はない（lexicon に持たせていない）。見出しと出典名だけを見る。
+      // レコードに画像はない（lexicon に持たせていない）。OGP画像は掲載時のスナップショットに
+      // あり、モデレーションワーカーが承認行から足す。
       return {
         texts: [...text(record.titleJa), ...text(record.sourceName)],
         imageUrls: [],

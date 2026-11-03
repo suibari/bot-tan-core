@@ -159,7 +159,7 @@ ${TONE_RULES_JA}
 
 記事データ:`;
 
-interface NewsComment {
+export interface NewsComment {
   botCommentJa: string;
   titleEn: string;
   botCommentEn: string;
@@ -281,7 +281,7 @@ async function gateNewsBatch(input: PositiveNewsCandidate[]): Promise<GateDecisi
 
 // 承認記事について botたんのコメントを生成する。grounding→検索のみ→ツール無しの順に
 // フォールバックし、どれかで妥当なJSONが得られればそれを返す。全滅なら undefined。
-async function generateNewsComment(candidate: PositiveNewsCandidate): Promise<NewsComment | undefined> {
+export async function generateNewsComment(candidate: PositiveNewsCandidate): Promise<NewsComment | undefined> {
   const userText = `${COMMENT_TASK}\n${JSON.stringify({
     titleJa: candidate.title, descriptionJa: candidate.description, sourceName: candidate.sourceName, url: candidate.link,
   })}`;

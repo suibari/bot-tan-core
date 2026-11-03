@@ -211,7 +211,9 @@ export async function notifyDecision(notice: ModerationNotice): Promise<void> {
   const link =
     notice.collection === "com.suibari.nagi.post"
       ? `https://nagi.suibari.com/thread/${notice.did}/${rkey}`
-      : "";
+      : notice.collection === "com.suibari.nagi.news"
+        ? `https://nagi.suibari.com/news/${rkey}`
+        : "";
   const lines = [
     HEADLINE[notice.decision],
     `collection: \`${notice.collection}\` (${notice.update ? "update" : "create"})`,
