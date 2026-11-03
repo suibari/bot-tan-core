@@ -25,3 +25,26 @@ export function validateNewsReviewSubject(viewerDid: string, subject: { uri: str
   if (!subject.cid.trim()) throw new ApiError(400, "invalid_request", "News record CID is required");
   return parsed;
 }
+
+export type NewsReviewState =
+  | "pending"
+  | "processing"
+  | "approved"
+  | "rejected"
+  | "failed"
+  | "cancelled";
+
+/**
+ * 利用者に見せる状態。ジョブはコメント生成の進み具合なので、掲載されているかは
+ * 承認行で決める（コメント待ちでも、コメント生成に失敗しても「掲載中」）。
+ */
+export function submissionStatus(
+  jobStatus: NewsReviewState,
+  approvalStatus: string | null,
+  hiddenAt: Date | null,
+): NewsReviewState {
+  if (jobStatus === "cancelled") return "cancelled";
+  if (hiddenAt) return "rejected";
+  if (approvalStatus === "approved") return "approved";
+  return jobStatus;
+}

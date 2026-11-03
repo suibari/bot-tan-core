@@ -4,7 +4,7 @@
   "defs": {
     "main": {
       "type": "procedure",
-      "description": "本人のPDSに作成したニュースレコードを非同期審査へ送る。",
+      "description": "本人のPDSに作成したニュースレコードを受け付け、その場で掲載する。botたんのコメントは後から付く。",
       "input": {
         "encoding": "application/json",
         "schema": {

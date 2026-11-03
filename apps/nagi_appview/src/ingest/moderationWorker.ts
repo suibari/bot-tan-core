@@ -5,6 +5,7 @@ import {
   nagiEmojis,
   nagiModerationDecisions,
   nagiNews,
+  nagiNewsApprovals,
   nagiNotifications,
   nagiPosts,
   nagiProfiles,
@@ -261,8 +262,18 @@ const sources: Source[] = [
           did: nagiNews.did,
           titleJa: nagiNews.titleJa,
           sourceName: nagiNews.sourceName,
+          imageUrl: nagiNewsApprovals.snapshotImageUrl,
         })
         .from(nagiNews)
+        // OGP画像はレコードに無く、掲載時のスナップショットにだけある。
+        // 即時掲載では承認行を作ったあとに判定し直す（userNewsSubmissions）。
+        .leftJoin(
+          nagiNewsApprovals,
+          and(
+            eq(nagiNewsApprovals.newsUri, nagiNews.uri),
+            eq(nagiNewsApprovals.newsCid, nagiNews.cid),
+          ),
+        )
         .where(
           and(isNull(nagiNews.moderationVersion), isNull(nagiNews.deletedAt)),
         )
@@ -273,11 +284,14 @@ const sources: Source[] = [
         cid: r.cid,
         did: r.did,
         collection: NAGI.news,
-        input: moderationSubject(
-          NAGI.news,
-          { titleJa: r.titleJa, sourceName: r.sourceName },
-          r.did,
-        )!,
+        input: {
+          ...moderationSubject(
+            NAGI.news,
+            { titleJa: r.titleJa, sourceName: r.sourceName },
+            r.did,
+          )!,
+          imageUrls: r.imageUrl?.startsWith("https://") ? [r.imageUrl] : [],
+        },
       }));
     },
   },

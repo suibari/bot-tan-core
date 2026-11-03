@@ -145,7 +145,11 @@ export function newsView(
     sourceUrl: sourceUrl ?? undefined,
     ...(image ? { image } : {}),
     publishedAt: publishedAt?.toISOString(),
-    botComment: useEn ? row.approval.botCommentEn! : row.approval.botCommentJa!,
+    // ユーザー追加のニュースは即時掲載で、コメントはワーカーが後から付ける。
+    botComment: (useEn ? row.approval.botCommentEn : row.approval.botCommentJa) ?? "",
+    ...(row.news.moderationLabels.length
+      ? { moderationLabels: row.news.moderationLabels }
+      : {}),
     lang: useEn ? "en" : "ja",
     createdAt: createdAt.toISOString(),
     indexedAt: row.news.indexedAt.toISOString(),
@@ -587,8 +591,7 @@ export async function getNewsQuoteViews(
       out.set(key, newsView({ news: row.news, approval: row.approval }, "ja"));
     else if (
       row.approval.snapshotUrl &&
-      row.approval.snapshotTitleJa &&
-      row.approval.botCommentJa
+      row.approval.snapshotTitleJa
     )
       out.set(key, {
         uri: ref.uri,
@@ -599,7 +602,7 @@ export async function getNewsQuoteViews(
         sourceName: row.approval.snapshotSourceName ?? undefined,
         sourceUrl: row.approval.snapshotSourceUrl ?? undefined,
         publishedAt: row.approval.snapshotPublishedAt?.toISOString(),
-        botComment: row.approval.botCommentJa,
+        botComment: row.approval.botCommentJa ?? "",
         lang: "ja",
         createdAt: row.approval.snapshotCreatedAt?.toISOString() ?? "",
         indexedAt: row.approval.reviewedAt.toISOString(),

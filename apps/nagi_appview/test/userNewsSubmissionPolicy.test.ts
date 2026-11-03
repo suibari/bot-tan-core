@@ -4,6 +4,7 @@ import { ApiError } from "../src/middleware/errors.js";
 import {
   jstDayStart,
   normalizeNewsUrl,
+  submissionStatus,
   validateNewsReviewSubject,
 } from "../src/services/userNewsSubmissionPolicy.js";
 
@@ -40,4 +41,20 @@ test("accepts only the authenticated owner's news StrongRef", () => {
       (error: unknown) => error instanceof ApiError && error.status === 403,
     );
   }
+});
+
+test("reports published news as approved while the bot comment is pending or failed", () => {
+  assert.equal(submissionStatus("pending", "approved", null), "approved");
+  assert.equal(submissionStatus("processing", "approved", null), "approved");
+  assert.equal(submissionStatus("failed", "approved", null), "approved");
+});
+
+test("reports hidden news as rejected and deleted news as cancelled", () => {
+  assert.equal(submissionStatus("approved", "hidden", new Date()), "rejected");
+  assert.equal(submissionStatus("cancelled", "approved", null), "cancelled");
+});
+
+test("falls back to the job state for legacy jobs without an approval", () => {
+  assert.equal(submissionStatus("pending", null, null), "pending");
+  assert.equal(submissionStatus("rejected", null, null), "rejected");
 });
