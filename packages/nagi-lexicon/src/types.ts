@@ -394,6 +394,8 @@ export type ReactionView = {
 export type PostView = {
   /** 記事表示。新規記事の正本は site.standard.document。 */
   article?: boolean;
+  /** 3行日記表示。正本は com.suibari.trilinesat.diary。画像は images の添字で指す。 */
+  trilines?: { lines: { text: string; imageIndex?: number }[] };
   uri: string;
   cid: string;
   author: ActorView;

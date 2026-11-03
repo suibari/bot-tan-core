@@ -1,0 +1,58 @@
+{
+  "lexicon": 1,
+  "id": "com.suibari.trilinesat.diary",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "A 3-line diary entry (Three Good Things). Written by TriLinesAt and Nagi.",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": ["lines", "createdAt"],
+        "properties": {
+          "lines": {
+            "type": "array",
+            "minLength": 1,
+            "maxLength": 3,
+            "items": { "type": "ref", "ref": "#line" }
+          },
+          "langs": {
+            "type": "array",
+            "maxLength": 3,
+            "items": { "type": "string", "format": "language" },
+            "description": "Indicates human language of the diary text."
+          },
+          "createdAt": { "type": "string", "format": "datetime" },
+          "hubRef": {
+            "type": "string",
+            "format": "at-uri",
+            "description": "Fixed backlink target used to aggregate the global feed via Constellation."
+          },
+          "sharedPost": {
+            "type": "ref",
+            "ref": "com.atproto.repo.strongRef",
+            "description": "The app.bsky.feed.post crossposted from this entry."
+          }
+        }
+      }
+    },
+    "line": {
+      "type": "object",
+      "required": ["text"],
+      "properties": {
+        "text": { "type": "string", "maxGraphemes": 50, "maxLength": 500 },
+        "image": {
+          "type": "blob",
+          "accept": ["image/*"],
+          "maxSize": 1000000
+        },
+        "alt": {
+          "type": "string",
+          "maxGraphemes": 1000,
+          "maxLength": 10000,
+          "description": "Alt text for the image."
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "lexicon": 1,
+  "id": "com.suibari.nagi.generateTrilinesAssist",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "3行日記の「botたんに相談」。本人の指定期間（日記の日付の0時から今まで）の Nagi 投稿から、空いている行に入れる候補を生成する。入力済みの行は生成の手がかりにだけ使い、保存しない。",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["from", "to", "lines", "lang"],
+          "properties": {
+            "from": { "type": "string", "format": "datetime", "description": "材料にする期間の始まり。日記の日付（正午区切り）の0時。" },
+            "to": { "type": "string", "format": "datetime", "description": "材料にする期間の終わり。通常は相談した時点。" },
+            "lines": {
+              "type": "array",
+              "minLength": 3,
+              "maxLength": 3,
+              "items": { "type": "string", "maxLength": 500, "maxGraphemes": 50 },
+              "description": "いまの3行。空文字の行だけを埋める。"
+            },
+            "lang": { "type": "string", "knownValues": ["ja", "en"] }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["lines"],
+          "properties": {
+            "lines": {
+              "type": "array",
+              "minLength": 3,
+              "maxLength": 3,
+              "items": { "type": "string", "maxLength": 500, "maxGraphemes": 50 },
+              "description": "埋めた3行。入力済みの行はそのまま返す。"
+            },
+            "reason": {
+              "type": "string",
+              "knownValues": ["noPosts"],
+              "description": "候補を作れなかった理由。noPosts はその日の投稿がないとき。"
+            }
+          }
+        }
+      },
+      "errors": [
+        { "name": "AuthRequired" },
+        { "name": "InvalidRequest" },
+        { "name": "RateLimited" },
+        { "name": "UpstreamUnavailable" }
+      ]
+    }
+  }
+}

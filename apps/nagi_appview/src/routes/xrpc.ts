@@ -42,6 +42,7 @@ import {
 } from "../queries/pushSubscriptions.js";
 import { translatePost, translatePosts } from "../services/translation.js";
 import { generatePostAssist } from "../services/postAssist.js";
+import { generateTrilinesAssist } from "../services/trilinesAssist.js";
 import { ApiError } from "../middleware/errors.js";
 import { deleteAccountData } from "../services/deleteAccountData.js";
 import {
@@ -1641,6 +1642,19 @@ xrpc.post(
       res
         .set("Cache-Control", "private, no-store")
         .json(await generatePostAssist(req.viewerDid!, req.body));
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+xrpc.post(
+  `/${NAGI.generateTrilinesAssist}`,
+  requiredServiceAuth(NAGI.generateTrilinesAssist),
+  async (req, res, next) => {
+    try {
+      res
+        .set("Cache-Control", "private, no-store")
+        .json(await generateTrilinesAssist(req.viewerDid!, req.body));
     } catch (e) {
       next(e);
     }

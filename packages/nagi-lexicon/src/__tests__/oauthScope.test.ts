@@ -29,3 +29,9 @@ test("最大スコープは必須権限に任意の Bluesky 連携（クロス�
     assert.equal(full.filter((item) => item === scope).length, 1);
   }
 });
+
+test("3行日記の書き込み権限は通常ログインで必須になる", async () => {
+  const { NAGI_TRILINES_SCOPE } = await import("../constants.js");
+  assert.equal(NAGI_TRILINES_SCOPE, "repo:com.suibari.trilinesat.diary");
+  assert.equal(scopes(NAGI_OAUTH_SCOPE).filter((item) => item === NAGI_TRILINES_SCOPE).length, 1);
+});

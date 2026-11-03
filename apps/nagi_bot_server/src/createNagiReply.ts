@@ -20,6 +20,7 @@ import {
 import {
   NAGI,
   NAGI_LANGUAGES,
+  TRILINES,
   isAppviewOwnedUri,
 } from "@bsky-affirmative-bot/nagi-lexicon";
 import {
@@ -218,6 +219,20 @@ async function generateConversationReply(
   return { comment, score: undefined };
 }
 
+/**
+ * 3行日記（AppView / Jetstream が投稿形へ射影したもの）の各行。日記でなければ undefined。
+ * 通常の投稿レコードに trilines を書き込まれても日記扱いしないよう、URI のコレクションで確かめる。
+ */
+export function trilinesDiaryLines(sourceUri: string, record: any): string[] | undefined {
+  if (sourceUri.split("/")[3] !== TRILINES.diary) return undefined;
+  const lines = record?.trilines?.lines;
+  if (!Array.isArray(lines)) return undefined;
+  const texts = lines.flatMap((line: any) =>
+    typeof line?.text === "string" && line.text.trim() ? [line.text] : [],
+  );
+  return texts.length ? texts : undefined;
+}
+
 export async function createNagiReply(
   job: any,
   options: {
@@ -291,6 +306,8 @@ export async function createNagiReply(
             // 触れてよいかは検索側が判断済み。無ければプロンプトに節ごと出ない。
             notableMemory: context.notableMemory,
             followUp: context.followUp,
+            // 3行日記なら、日記を書いたこと自体と各行の両方を肯定させる。
+            trilinesDiary: trilinesDiaryLines(job.sourceUri, record),
             botContext: await getBotContext(),
             langStr: language.name,
           } as any,

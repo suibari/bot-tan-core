@@ -213,6 +213,34 @@ const POST_READING_RULES_EN =
    - When you cannot tell who did what, or when it happened, do not assert it. Staying with how they feel right now is safer than praising a fact you guessed.`;
 
 /**
+ * 3行日記（TriLinesAt / Nagi の「3行日記」）への返信。
+ *
+ * 日記は「その日のよかったことを3つ書く」習慣なので、内容より先に「書いたこと」そのものが
+ * 全肯定の対象になる。さらに各行に1つずつ触れないと、3行のうち1つだけを拾った普通の返信に
+ * なってしまう。行番号を並べた箇条書きにすると機械的になるので、文章としてつなげさせる。
+ * 投稿の読み取り（行為者・時制）とつらい話の扱いは、通常のポストと同じくこちらより優先する。
+ */
+const trilinesDiaryBlockJa = (lines: string[]) => `
+## 今回のポストは「3行日記」です
+ユーザは今日の「よかったこと」を${lines.length}つ書く日記を書きました。返信は次の2つを必ず満たしてください。
+   - **まず、日記を書いたこと自体を全力で全肯定してください。** 一日をふり返って、よかったことを見つけて言葉にできたこと、それを続けていること自体がすばらしい、と伝えてください。毎回同じ決まり文句にせず、この日記に合った言い方を選ぶこと。
+   - **そのうえで、${lines.length}つの行それぞれに、ひとことずつ具体的に触れて褒めてください。** 1つだけ拾って残りを飛ばさないこと。
+   - 「1行目は〜」「1つめ」のような番号の箇条書きにはせず、botたんらしい自然な文章としてつなげてください。
+   - 各行の出来事を要約して並べ直すのではなく、その行のどこがいいのかを自分の言葉で伝えてください。
+   - 下の「投稿の読み取りについて」と「つらい話を打ち明けられたときの書き方」は、この指示より優先します。つらいことが書かれた行には、はしゃがず静かに寄り添ってください。
+`;
+
+const trilinesDiaryBlockEn = (lines: string[]) => `
+## This post is a "3 Lines" diary
+The user wrote a diary of ${lines.length} good things from today. Your reply must do both of these:
+   - **First, wholeheartedly affirm that they wrote the diary at all.** Looking back on the day, finding good things and putting them into words — and keeping that habit — is wonderful in itself. Say so in words that fit this diary, not a stock phrase.
+   - **Then touch on each of the ${lines.length} lines with a specific compliment.** Do not pick one and skip the rest.
+   - Do not write a numbered list such as "line 1" or "first"; connect it as natural, Bot-tan-like prose.
+   - Do not summarize each line back to them; say what is good about it in your own words.
+   - "How to read the post" and "How to write when someone confides something painful" below take priority over this. For a line about something painful, stay with them quietly instead of cheering.
+`;
+
+/**
  * センシティブな話題での書き方。**長さは縛らない**（受容であっても長くてよい）。
  *
  * 実例で起きたこと: 病気と過去の自傷未遂の告白に対し、botたんが
@@ -400,10 +428,18 @@ export const buildAffirmativeInstructions = async (
   const postText = userinfo.posts?.[0] || '';
   const postLength = postText.length;
   const hasImages = Boolean(userinfo.image?.length);
+  const diaryLines = userinfo.trilinesDiary?.filter((line) => line.trim()) ?? [];
 
   let styleJa = '';
   let styleEn = '';
-  if (hasImages) {
+  if (diaryLines.length) {
+    // 日記の各行は短い（50字以内）ので、短文扱いにすると「書いたこと」と各行の両方に
+    // 触れる余地が無くなる。長さはモデルに委ね、水増しは下の「長さについて」で止める。
+    styleJa =
+      '日記を書いたことと各行の両方に触れるため、短文向けの一言では足りません。長さはあなたが決めてかまいませんが、下の「長さについて」を必ず守ること。';
+    styleEn =
+      'A one-liner is not enough to cover both the diary itself and each line. You decide the length, but you must follow the rules under "About length" below.';
+  } else if (hasImages) {
     // 以前はここが「画像1枚につき1文〜2文」だった。ローカルモデルは実効896px相当でしか
     // 画像を見ておらず（imagePreprocess.ts の実測）、そこへ文量上限まで重なると
     // 「どれも素敵」で終わる。長さの判断はモデルに委ね、代わりに下の画像指示で
@@ -483,7 +519,7 @@ export const buildAffirmativeInstructions = async (
 
    **注意: commentにはscoreに関する情報を絶対に含めないこと**
 
-${notableMemoryBlockJa(userinfo)}${followUpBlockJa(userinfo)}
+${diaryLines.length ? trilinesDiaryBlockJa(diaryLines) : ''}${notableMemoryBlockJa(userinfo)}${followUpBlockJa(userinfo)}
 ${POST_READING_RULES_JA}
 
 ## 長さについて
@@ -559,7 +595,7 @@ ${TONE_RULES_JA}
 
    **Important: Do not reveal score in the comment.**
 
-${notableMemoryBlockEn(userinfo)}${followUpBlockEn(userinfo)}
+${diaryLines.length ? trilinesDiaryBlockEn(diaryLines) : ''}${notableMemoryBlockEn(userinfo)}${followUpBlockEn(userinfo)}
 ${POST_READING_RULES_EN}
 
 ## About length
@@ -595,7 +631,11 @@ ${NAME_RULES_EN(addressName(userinfo))}
  * 入れること（画像パートだけは投稿の一部なので後ろでよい）。
  */
 export const buildAffirmativeUserPost = (userinfo: UserInfoGemini) => {
-  const postText = userinfo.posts?.[0] || '';
+  const diaryLines = userinfo.trilinesDiary?.filter((line) => line.trim()) ?? [];
+  // 3行日記は行の境目が大事なので、本文（行を改行でつないだもの）ではなく行ごとに並べる。
+  const postText = diaryLines.length
+    ? diaryLines.map((line) => `- ${line.replace(/\s+/g, ' ').trim()}`).join('\n')
+    : userinfo.posts?.[0] || '';
   return userinfo.langStr === '日本語'
     ? `---
 ## ユーザ投稿
@@ -606,7 +646,7 @@ ${formatPreviousPosts(userinfo, 'なし')}
 - ユーザが共有したリンク:
 ${formatSharedLinks(userinfo, 'なし')}
 
-### 今回のポスト（返信するのはこれ1件だけ）
+### 今回のポスト（返信するのはこれ1件だけ）${diaryLines.length ? '\n（3行日記。今日のよかったことを1行ずつ書いたもの）' : ''}
 ${postText}
 
 返信するのは上の「今回のポスト」だけです。誰がやったことなのか、それがもう終わって
@@ -622,7 +662,7 @@ ${formatPreviousPosts(userinfo, 'None')}
 - Links shared by this user:
 ${formatSharedLinks(userinfo, 'None')}
 
-### This post (reply to this one only)
+### This post (reply to this one only)${diaryLines.length ? '\n(A "3 Lines" diary: one good thing from today per line)' : ''}
 ${postText}
 
 Reply only to "This post" above. Read who did the thing, and whether it has already

@@ -7,6 +7,8 @@ import {
 import {
   NAGI,
   nagiPostFromStandardDocument,
+  nagiPostFromTrilinesDiary,
+  TRILINES,
   STANDARD_SITE_DOCUMENT,
 } from "@bsky-affirmative-bot/nagi-lexicon";
 import {
@@ -85,7 +87,9 @@ export async function onNagiPost(evt: any) {
   const record =
     collection === STANDARD_SITE_DOCUMENT
       ? nagiPostFromStandardDocument(sourceRecord)
-      : sourceRecord;
+      : collection === TRILINES.diary
+        ? nagiPostFromTrilinesDiary(sourceRecord)
+        : sourceRecord;
   const botDid = process.env.NAGI_BOT_DID;
 
   if (!botDid || record?.$type !== NAGI.post) {
