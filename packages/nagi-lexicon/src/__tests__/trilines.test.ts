@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { NAGI, TRILINES, nagiPostFromTrilinesDiary } from "../index.js";
+import {
+  NAGI,
+  TRILINES,
+  isTrilinesDiarySharedToNagi,
+  nagiPostFromTrilinesDiary,
+} from "../index.js";
 
 const blob = (cid: string) => ({
   $type: "blob",
@@ -18,7 +23,17 @@ const diary = (overrides: Record<string, unknown> = {}) => ({
   ],
   langs: ["ja"],
   createdAt: "2026-11-03T12:00:00.000Z",
+  shareToNagi: true,
   ...overrides,
+});
+
+test("Nagi への公開に同意していない日記は射影しない", () => {
+  assert.equal(nagiPostFromTrilinesDiary(diary({ shareToNagi: undefined })), undefined);
+  assert.equal(nagiPostFromTrilinesDiary(diary({ shareToNagi: false })), undefined);
+  assert.equal(nagiPostFromTrilinesDiary(diary({ shareToNagi: "true" })), undefined);
+  assert.equal(isTrilinesDiarySharedToNagi(diary()), true);
+  assert.equal(isTrilinesDiarySharedToNagi(diary({ shareToNagi: undefined })), false);
+  assert.equal(isTrilinesDiarySharedToNagi(undefined), false);
 });
 
 test("3行日記を投稿へ射影する", () => {

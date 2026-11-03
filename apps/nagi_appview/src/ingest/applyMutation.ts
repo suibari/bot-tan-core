@@ -29,7 +29,6 @@ import {
   BLUEMOJI_ITEM,
   NAGI,
   TRILINES,
-  nagiPostFromTrilinesDiary,
   appviewRecordUri,
   nagiPostMedia,
 } from "@bsky-affirmative-bot/nagi-lexicon";
@@ -58,6 +57,7 @@ import {
 import { requestArticleClientRebuild } from "../services/clientRebuildScheduler.js";
 import { reconciledIndexedAt } from "./reconcileOrder.js";
 import { shouldEnqueueBotReply } from "./botReplyJob.js";
+import { trilinesCommit } from "./trilinesCommit.js";
 import { shouldAcceptSemanticRecord } from "./semanticRecord.js";
 import { validateRecord } from "./validateRecord.js";
 import {
@@ -192,11 +192,12 @@ export async function applyMutation(
     commit = { ...commit, record: standardDocumentPost(commit.record) };
   }
   // 3行日記は Nagi 投稿形へ射影して posts に載せる。URI は日記のまま保つ。
+  // Nagi への公開に同意していない日記は delete として扱う（trilinesCommit）。
   const isTrilines = sourceCollection === TRILINES.diary;
-  if (isTrilines && commit.operation !== "delete") {
-    if (!validateRecord(TRILINES.diary, commit.record))
-      return { cursorAdvanced: false };
-    commit = { ...commit, record: nagiPostFromTrilinesDiary(commit.record) };
+  if (isTrilines) {
+    const projected = trilinesCommit(commit);
+    if (!projected) return { cursorAdvanced: false };
+    commit = projected;
   }
   const collection = isArticle || isTrilines ? NAGI.post : sourceCollection;
   if (
@@ -369,6 +370,16 @@ export async function applyMutation(
             updated_at: new Date(),
           })
           .where(eq(bot_memory_documents.source_uri, uri));
+        // 公開をやめた（または消えた）日記へ、まだ返していない返信を出さない。
+        if (isTrilines)
+          await tx
+            .delete(nagiBotReplyJobs)
+            .where(
+              and(
+                eq(nagiBotReplyJobs.sourceUri, uri),
+                inArray(nagiBotReplyJobs.state, ["pending", "processing"]),
+              ),
+            );
       }
       if (collection === NAGI.reaction) {
         await tx.delete(nagiReactions).where(eq(nagiReactions.uri, uri));
