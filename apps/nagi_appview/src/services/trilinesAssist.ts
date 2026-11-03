@@ -19,8 +19,9 @@ import { excerpt } from "./postAssist.js";
 import { TranslationMissQuota } from "./translation.js";
 
 /**
- * 3行日記の「botたんに相談」。本人のその日（正午区切り、範囲はクライアントが計算）の
- * Nagi 投稿を材料に、空いている行に入れる「よかったこと」の候補を作る。
+ * 3行日記の「botたんに相談」。本人の Nagi 投稿を材料に、空いている行に入れる「よかったこと」の
+ * 候補を作る。範囲はクライアントが計算し、日記の日付の0時から今まで（夜に書いても、その日の
+ * 朝の出来事が入る）。
  *
  * 材料は本人だけのデータなので、こっそり投稿も含めてよい（requiredServiceAuth で本人に限る）。
  * 入力済みの行は重複を避ける手がかりにだけ使い、保存もログ出力もしない。
@@ -28,8 +29,11 @@ import { TranslationMissQuota } from "./translation.js";
  */
 
 export const TRILINES_LINE_COUNT = 3;
-/** 「その日」の幅の上限。正午区切りの1日に、端末の時計ずれのぶんだけ余裕を持たせる。 */
-const MAX_RANGE_MS = 36 * 60 * 60 * 1000;
+/**
+ * 範囲の幅の上限。日記の日付は正午区切りなので、深夜に書くと前日の0時から最長で約36時間になる。
+ * 夏時間の切り替わりと端末の時計ずれのぶんだけ余裕を持たせる。
+ */
+const MAX_RANGE_MS = 48 * 60 * 60 * 1000;
 const POST_LIMIT = 30;
 const POST_EXCERPT_GRAPHEMES = 200;
 /** 3行×50字の JSON。日本語は1字1トークン強なので余裕を持たせる。 */

@@ -32,6 +32,12 @@ test("入力を検証する", () => {
   assert.throws(() => parseTrilinesAssistInput(body({ lang: "fr" })));
   assert.throws(() => parseTrilinesAssistInput(body({ to: "2026-11-02T00:00:00.000Z" })));
   assert.throws(() => parseTrilinesAssistInput(body({ to: "2026-11-05T03:00:00.000Z" })));
+  // 深夜に書いたとき（前日の0時から翌日の正午前まで）は通す。
+  assert.doesNotThrow(() =>
+    parseTrilinesAssistInput(
+      body({ from: "2026-11-02T15:00:00.000Z", to: "2026-11-04T02:59:00.000Z" }),
+    ),
+  );
 });
 
 test("空いている行だけを埋める", () => {
