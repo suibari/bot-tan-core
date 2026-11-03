@@ -67,10 +67,14 @@ const video = (value: any) =>
   (value.contentWarning === undefined ||
     typeof value.contentWarning === "boolean") &&
   aspectRatio(value.aspectRatio);
-const images = (value: unknown) =>
+/**
+ * 画像の配列。通常の投稿は4枚まで。記事（standard.site の document）は本文に画像を
+ * 置けて、lexicon にも上限が無いので枚数を絞らない（レコードサイズの上限が実質の制約）。
+ */
+const images = (value: unknown, unlimited = false) =>
   Array.isArray(value) &&
   value.length >= 1 &&
-  value.length <= 4 &&
+  (unlimited || value.length <= 4) &&
   value.every(image);
 /** #gallery の items。種類ごとの上限は #images（4枚）と #video（1本）に揃える。 */
 const galleryItems = (value: unknown) => {
@@ -350,7 +354,7 @@ export function validateRecord(
       return false;
     if (value.embed) {
       if (value.embed.$type === `${NAGI.post}#images`) {
-        if (!images(value.embed.images)) return false;
+        if (!images(value.embed.images, longArticle)) return false;
       } else if (value.embed.$type === `${NAGI.post}#video`) {
         if (!video(value.embed)) return false;
       } else if (value.embed.$type === `${NAGI.post}#gallery`) {

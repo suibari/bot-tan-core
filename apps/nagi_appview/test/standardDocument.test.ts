@@ -49,3 +49,55 @@ test("参照先 publication の canonical URL で Nagi 記事を識別する", a
     false,
   );
 });
+
+test("ユーザーごとの publication.url と相対 path の記事も Nagi 記事として識別する", async () => {
+  const publication = (url: string) => async () => ({
+    $type: "site.standard.publication",
+    url,
+  });
+  assert.equal(
+    await isNagiStandardDocument(
+      "did:plc:alice",
+      "3doc",
+      document({ path: "/3doc" }),
+      publication("https://nagi.suibari.com/blog/did:plc:alice"),
+    ),
+    true,
+  );
+  // 他人の DID 用の url を指す publication は Nagi の記事として扱わない。
+  assert.equal(
+    await isNagiStandardDocument(
+      "did:plc:alice",
+      "3doc",
+      document({ path: "/3doc" }),
+      publication("https://nagi.suibari.com/blog/did:plc:bob"),
+    ),
+    false,
+  );
+});
+
+test("記事は本文に画像を置けるので、画像の枚数を4枚に絞らない", () => {
+  const image = {
+    image: {
+      $type: "blob",
+      ref: { $link: "bafkreihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenxquvyku" },
+      mimeType: "image/webp",
+      size: 100,
+    },
+    alt: "",
+  };
+  const embed = { $type: "com.suibari.nagi.post#images", images: Array(6).fill(image) };
+  assert.equal(
+    validateRecord(STANDARD_SITE_DOCUMENT, document({ nagi: { embed } })),
+    true,
+  );
+  assert.equal(
+    validateRecord("com.suibari.nagi.post", {
+      $type: "com.suibari.nagi.post",
+      text: "通常投稿",
+      createdAt: "2026-09-22T00:00:00.000Z",
+      embed,
+    }),
+    false,
+  );
+});

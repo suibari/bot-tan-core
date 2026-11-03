@@ -7,6 +7,7 @@ import {
   isNagiStandardSitePublication,
   nagiPostFromStandardDocument,
   nagiStandardSitePublicationUri,
+  nagiStandardSitePublicationUrl,
 } from "../index.js";
 
 const document = (overrides: Record<string, unknown> = {}) => ({
@@ -62,4 +63,41 @@ test("Nagi publication は canonical URL で識別する", () => {
     }),
     false,
   );
+});
+
+test("nagi.text があれば原文として読み、content は書き出し用として扱う", () => {
+  const post = nagiPostFromStandardDocument(
+    document({
+      content: {
+        $type: "at.markpub.markdown",
+        flavor: "gfm",
+        text: { $type: "at.markpub.text", markdown: "本文\\\n二行目\n" },
+      },
+      nagi: { text: "本文\n二行目" },
+    }),
+  );
+  assert.equal(post?.text, "本文\n二行目");
+  assert.equal(
+    nagiPostFromStandardDocument(document({ nagi: { text: 1 } })),
+    undefined,
+  );
+});
+
+test("ユーザーごとの publication.url と相対 path を認める", () => {
+  const relative = document({ path: "/3doc" });
+  assert.equal(
+    nagiStandardSitePublicationUri(relative, "did:plc:alice", "3doc"),
+    "at://did:plc:alice/site.standard.publication/3pub",
+  );
+  assert.equal(
+    nagiStandardSitePublicationUri(relative, "did:plc:alice", "other"),
+    undefined,
+  );
+  const perUser = {
+    $type: "site.standard.publication",
+    url: nagiStandardSitePublicationUrl("did:plc:alice"),
+  };
+  assert.equal(isNagiStandardSitePublication(perUser, "did:plc:alice"), true);
+  assert.equal(isNagiStandardSitePublication(perUser, "did:plc:bob"), false);
+  assert.equal(isNagiStandardSitePublication(perUser), false);
 });

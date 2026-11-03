@@ -12,6 +12,7 @@ import { internal } from "./routes/internal.js";
 import { wellKnownDid } from "./routes/wellKnownDid.js";
 import { passportJwks } from "./routes/passportJwks.js";
 import { getBlob } from "./routes/blob.js";
+import { getStandardSitePublication } from "./routes/standardSitePublication.js";
 import { getVideo } from "./routes/video.js";
 import { getEmojiAsset } from "./routes/emojiAsset.js";
 import { emojiAssetNoStoreHeaders } from "./util/emojiAssetHeaders.js";
@@ -88,6 +89,16 @@ app.use(
     },
   }),
   xrpc,
+);
+app.get(
+  "/api/standard-site/publication/:did",
+  rateLimit({
+    windowMs: 60_000,
+    limit: 60,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+  }),
+  getStandardSitePublication,
 );
 app.get(
   "/api/blob/:did/:cid",
