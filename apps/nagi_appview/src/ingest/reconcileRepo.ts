@@ -8,7 +8,12 @@ import {
   nagiProfiles,
   nagiReactions,
 } from "@bsky-affirmative-bot/database";
-import { BLUEMOJI_ITEM, NAGI, TRILINES } from "@bsky-affirmative-bot/nagi-lexicon";
+import {
+  BLUEMOJI_ITEM,
+  NAGI,
+  TRILINES,
+  isTrilinesDiarySharedToNagi,
+} from "@bsky-affirmative-bot/nagi-lexicon";
 import { and, eq, like } from "drizzle-orm";
 import { STANDARD_DOCUMENT } from "./standardDocument.js";
 import { config } from "../config.js";
@@ -380,6 +385,17 @@ export async function ensurePdsRecord(
         }),
         { emitPush: true },
       );
+      return { status: "absent" };
+    }
+    // Nagi への公開に同意していない3行日記は、PDS にあっても Nagi では「無い」扱い。
+    // applyMutation（trilinesCommit）が delete として流す。
+    if (
+      collection === TRILINES.diary &&
+      !isTrilinesDiarySharedToNagi(current.value)
+    ) {
+      await applyMutation(eventFor(did, collection, "update", current), {
+        emitPush: true,
+      });
       return { status: "absent" };
     }
     if (!validateRecord(collection, current.value)) {

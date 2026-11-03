@@ -12,7 +12,8 @@
     "seed:dev": "tsx --env-file=../../.env scripts/seedDev.ts",
     "backfill": "tsx --env-file=../../.env scripts/backfill-from-repos.ts",
     "moderation:reprocess-invalid": "tsx --env-file=../../.env scripts/reprocessRejectedInput.ts",
-    "test:push": "tsx --env-file=../../.env scripts/testPush.ts"
+    "test:push": "tsx --env-file=../../.env scripts/testPush.ts",
+    "trilines:purge-unshared": "tsx --env-file=../../.env scripts/purgeUnsharedTrilines.ts"
   },
   "dependencies": {
     "@atproto/common": "^0.7.2",

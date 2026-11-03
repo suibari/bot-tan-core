@@ -244,6 +244,8 @@ export const NAGI_COLLECTIONS = [
 export const STANDARD_SITE_DOCUMENT = "site.standard.document";
 /**
  * TriLinesAt の3行日記。TriLinesAt と Nagi の両方が書き、Nagi は投稿として取り込んで表示する。
+ * Nagi に出すのは shareToNagi: true の日記だけ（TriLinesAt 側はオプトイン、Nagi から書けば常に付く）。
+ * 逆向きの TriLinesAt「みんなの日記」は hubRef で決まり、Nagi から書いた日記には常に付ける。
  * 旧 NSID の blue.trilinesat.* は TriLinesAt だけが Read Only で読む（Nagi では扱わない）。
  */
 export const TRILINES = {

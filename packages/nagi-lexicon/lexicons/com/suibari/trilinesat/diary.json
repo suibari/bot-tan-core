@@ -28,6 +28,10 @@
             "format": "at-uri",
             "description": "Fixed backlink target used to aggregate the global feed via Constellation."
           },
+          "shareToNagi": {
+            "type": "boolean",
+            "description": "Show this entry on Nagi as a post. Nagi indexes the entry (and the bot replies to it) only when true. Entries written from Nagi always set it."
+          },
           "sharedPost": {
             "type": "ref",
             "ref": "com.atproto.repo.strongRef",

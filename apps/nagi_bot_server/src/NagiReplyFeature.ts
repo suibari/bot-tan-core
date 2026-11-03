@@ -63,6 +63,17 @@ export function isThirdPartyThread(record: any, authorDid: string, botDid: strin
   return kind === "third-party-thread" || kind === "bot-thread-third-party";
 }
 
+/**
+ * 返信判定に使う投稿形のレコード。ブログ記事と3行日記は投稿形へ射影する。
+ * Nagi への公開に同意していない日記は undefined になり、返信しない。
+ */
+export function replySourceRecord(collection: string, sourceRecord: any): any {
+  if (collection === STANDARD_SITE_DOCUMENT)
+    return nagiPostFromStandardDocument(sourceRecord);
+  if (collection === TRILINES.diary) return nagiPostFromTrilinesDiary(sourceRecord);
+  return sourceRecord;
+}
+
 export async function onNagiPost(evt: any) {
   if (!evt.commit?.record) {
     return;
@@ -84,12 +95,7 @@ export async function onNagiPost(evt: any) {
     )
       return;
   }
-  const record =
-    collection === STANDARD_SITE_DOCUMENT
-      ? nagiPostFromStandardDocument(sourceRecord)
-      : collection === TRILINES.diary
-        ? nagiPostFromTrilinesDiary(sourceRecord)
-        : sourceRecord;
+  const record = replySourceRecord(collection, sourceRecord);
   const botDid = process.env.NAGI_BOT_DID;
 
   if (!botDid || record?.$type !== NAGI.post) {

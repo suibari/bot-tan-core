@@ -3,6 +3,14 @@ import { NAGI, TRILINES } from "./constants.js";
 /** 投稿形へ射影した日記の行。画像は embed.images の添字で指す。 */
 export type TrilinesLineView = { text: string; imageIndex?: number };
 
+/**
+ * Nagi への公開に同意した日記か。TriLinesAt から書いた日記は投稿画面の「Nagi」を ON にしたときだけ、
+ * Nagi から書いた日記は常に shareToNagi: true が付く。印の無い日記は Nagi に出さず、botたんも返信しない。
+ */
+export function isTrilinesDiarySharedToNagi(value: any): boolean {
+  return value?.shareToNagi === true;
+}
+
 const isBlob = (value: any): boolean =>
   !!value && typeof value === "object" && value.$type === "blob";
 
@@ -13,11 +21,13 @@ const isBlob = (value: any): boolean =>
  * - text は行を改行でつないだもの（検索・翻訳・モデレーションがそのまま読める）
  * - 行ごとの画像は embed.images にまとめ、行からは imageIndex で指す
  * - botSilent は付けない。botたんは通常の投稿と同じく日記にも全肯定で返信する
+ * - shareToNagi: true の無い日記は undefined（Nagi に公開しない）
  */
 export function nagiPostFromTrilinesDiary(value: any): any | undefined {
   if (
     !value ||
     value.$type !== TRILINES.diary ||
+    !isTrilinesDiarySharedToNagi(value) ||
     typeof value.createdAt !== "string" ||
     !Number.isFinite(Date.parse(value.createdAt)) ||
     !Array.isArray(value.lines) ||
