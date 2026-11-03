@@ -226,6 +226,11 @@ export type UserInfoGemini = {
   urlContextEnabled?: boolean;
   topWords?: string[];
   postOnMonth?: string[][];
+  /**
+   * 今回のポストが TriLinesAt の3行日記（その日のよかったことを3つ書く日記）なら、その各行。
+   * 返信は日記を書いたこと自体を全肯定し、各行にも触れる（generateAffirmativeWord）。
+   */
+  trilinesDiary?: string[];
   isSubscriber?: boolean;
   botContext?: BotContext;
   /**

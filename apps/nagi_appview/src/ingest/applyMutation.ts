@@ -28,6 +28,8 @@ import { decideNagiReplyJob } from "@bsky-affirmative-bot/bot-runtime";
 import {
   BLUEMOJI_ITEM,
   NAGI,
+  TRILINES,
+  nagiPostFromTrilinesDiary,
   appviewRecordUri,
   nagiPostMedia,
 } from "@bsky-affirmative-bot/nagi-lexicon";
@@ -189,7 +191,14 @@ export async function applyMutation(
       return { cursorAdvanced: false };
     commit = { ...commit, record: standardDocumentPost(commit.record) };
   }
-  const collection = isArticle ? NAGI.post : sourceCollection;
+  // 3行日記は Nagi 投稿形へ射影して posts に載せる。URI は日記のまま保つ。
+  const isTrilines = sourceCollection === TRILINES.diary;
+  if (isTrilines && commit.operation !== "delete") {
+    if (!validateRecord(TRILINES.diary, commit.record))
+      return { cursorAdvanced: false };
+    commit = { ...commit, record: nagiPostFromTrilinesDiary(commit.record) };
+  }
+  const collection = isArticle || isTrilines ? NAGI.post : sourceCollection;
   if (
     ![
       NAGI.post,

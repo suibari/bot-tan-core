@@ -8,7 +8,7 @@ import {
   nagiProfiles,
   nagiReactions,
 } from "@bsky-affirmative-bot/database";
-import { BLUEMOJI_ITEM, NAGI } from "@bsky-affirmative-bot/nagi-lexicon";
+import { BLUEMOJI_ITEM, NAGI, TRILINES } from "@bsky-affirmative-bot/nagi-lexicon";
 import { and, eq, like } from "drizzle-orm";
 import { STANDARD_DOCUMENT } from "./standardDocument.js";
 import { config } from "../config.js";
@@ -82,6 +82,8 @@ const USER_COLLECTIONS = [
   // 旧世代の「Nagi post + standard.site コピー」を先に post として確定し、
   // 同じ rkey の document を二重索引しない。
   STANDARD_DOCUMENT,
+  // TriLinesAt の3行日記。投稿形へ射影して posts に載せる。
+  TRILINES.diary,
   NAGI.reaction,
   NAGI.news,
   NAGI.cardGet,
@@ -189,7 +191,11 @@ async function localRecords(
       ),
     );
   }
-  if (collection === NAGI.post || collection === STANDARD_DOCUMENT) {
+  if (
+    collection === NAGI.post ||
+    collection === STANDARD_DOCUMENT ||
+    collection === TRILINES.diary
+  ) {
     const rows = await db
       .select({
         uri: nagiPosts.uri,

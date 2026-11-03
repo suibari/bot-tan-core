@@ -4,7 +4,7 @@ import {
   reportHealthFailure,
   reportHeartbeat,
 } from "@bsky-affirmative-bot/clients";
-import { NAGI, STANDARD_SITE_DOCUMENT } from "@bsky-affirmative-bot/nagi-lexicon";
+import { NAGI, STANDARD_SITE_DOCUMENT, TRILINES } from "@bsky-affirmative-bot/nagi-lexicon";
 import { initAgent } from "./agent.js";
 import {
   assertNagiBotIdentity,
@@ -61,10 +61,12 @@ async function start() {
 
   startBotJetstream({
     endpoint: process.env.URL_JETSTREAM,
-    wantedCollections: [NAGI.post, STANDARD_SITE_DOCUMENT],
+    // 3行日記も AppView の取り込みと同じく返信ジョブの対象（判定は decideNagiReplyJob）。
+    wantedCollections: [NAGI.post, STANDARD_SITE_DOCUMENT, TRILINES.diary],
     onCreate: {
       [NAGI.post]: onNagiPost,
       [STANDARD_SITE_DOCUMENT]: onNagiPost,
+      [TRILINES.diary]: onNagiPost,
     },
     onHealth: (event) => {
       const report = event.ok

@@ -83,6 +83,7 @@
             "com.suibari.nagi.createKossoriPost",
             "com.suibari.nagi.deleteKossoriPost",
             "com.suibari.nagi.generatePostAssist",
+            "com.suibari.nagi.generateTrilinesAssist",
             "com.suibari.nagi.getZenkatsu",
             "com.suibari.nagi.getCardNews",
             "com.suibari.nagi.getZenkatsuDeck",

@@ -1,5 +1,6 @@
 import {
   NAGI,
+  TRILINES,
   STANDARD_SITE_DOCUMENT,
   type NagiReaction,
 } from "@bsky-affirmative-bot/nagi-lexicon";
@@ -36,6 +37,7 @@ export function isEligibleReactionCardTrigger(
     subjectDid !== viewerDid &&
     (subjectCollection === NAGI.post ||
       subjectCollection === STANDARD_SITE_DOCUMENT ||
+      subjectCollection === TRILINES.diary ||
       subjectCollection === NAGI.news) &&
     cardDrawDate(new Date(reaction.createdAt)) === cardDrawDate(now)
   );

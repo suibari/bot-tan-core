@@ -45,6 +45,7 @@ import { ADULT_LABELS } from "../services/moderation/index.js";
 import { viewerIsAdult } from "../services/ageAssurance.js";
 import { loadPrivateListMemberDids } from "./privateList.js";
 import { postHasAnyTag } from "./tags.js";
+import { isQuotablePostUri, trilinesView } from "./trilines.js";
 export const encodeCursor = (date: Date, uri: string) =>
   Buffer.from(JSON.stringify([date.toISOString(), uri])).toString("base64url");
 export const decodeCursor = (cursor?: string): [Date, string] | undefined => {
@@ -401,6 +402,7 @@ export async function hydratePostViews(
       isAffirmation: (score ?? -1) >= config.affirmationThreshold,
       ...(record?.cwRestricted === true ? { cwRestricted: true } : {}),
       ...(record?.article === true ? { article: true } : {}),
+      ...(!deleted ? trilinesView(post.uri, record) : {}),
       kossori: post.kossori || undefined,
       threadKossori: threadKossori || undefined,
       deleted: deleted || undefined,
@@ -413,8 +415,8 @@ export async function hydratePostViews(
   const quoteUris = [
     ...new Set(
       rows.flatMap(({ post }) =>
-        !post.deletedAt && post.quoteUri?.split("/")[3] === NAGI.post
-          ? [post.quoteUri]
+        !post.deletedAt && isQuotablePostUri(post.quoteUri)
+          ? [post.quoteUri!]
           : [],
       ),
     ),

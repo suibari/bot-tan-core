@@ -2,6 +2,9 @@ import {
   BLUEMOJI_ITEM,
   BLUEMOJI_NAME_RE,
   NAGI,
+  TRILINES,
+  TRILINES_LINE_MAX_GRAPHEMES,
+  nagiPostFromTrilinesDiary,
   type BluemojiItem,
   type BluemojiFormats,
   type BluemojiMediaType,
@@ -311,6 +314,18 @@ export function validateRecord(
   if (collection === STANDARD_DOCUMENT) {
     const post = standardDocumentPost(value);
     return !!post && validateRecord(NAGI.post, post, true);
+  }
+  if (collection === TRILINES.diary) {
+    const post = nagiPostFromTrilinesDiary(value);
+    return (
+      !!post &&
+      value.lines.every(
+        (line: any) =>
+          graphemes(line.text) <= TRILINES_LINE_MAX_GRAPHEMES &&
+          Buffer.byteLength(line.text) <= 500,
+      ) &&
+      validateRecord(NAGI.post, post)
+    );
   }
   if (!value || value.$type !== collection || !date(value.createdAt))
     return false;

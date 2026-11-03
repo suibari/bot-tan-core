@@ -45,6 +45,11 @@ export const NAGI = {
    * ひとことを LLM で生成する。本文は保存しないので GET の URL に載せず procedure にする。
    */
   generatePostAssist: "com.suibari.nagi.generatePostAssist",
+  /**
+   * 3行日記の「botたんに相談」。本人のその日の Nagi 投稿から、空いている行の候補を
+   * LLM で作る。入力済みの行は生成の手がかりにだけ使い、保存しない。
+   */
+  generateTrilinesAssist: "com.suibari.nagi.generateTrilinesAssist",
   /** PDS書き込み直後に本人の正本をAppViewへ即時反映する。 */
   ensureRecord: "com.suibari.nagi.ensureRecord",
   getLinkMetadata: "com.suibari.nagi.getLinkMetadata",
@@ -238,6 +243,20 @@ export const NAGI_COLLECTIONS = [
 ] as const;
 export const STANDARD_SITE_DOCUMENT = "site.standard.document";
 /**
+ * TriLinesAt の3行日記。TriLinesAt と Nagi の両方が書き、Nagi は投稿として取り込んで表示する。
+ * 旧 NSID の blue.trilinesat.* は TriLinesAt だけが Read Only で読む（Nagi では扱わない）。
+ */
+export const TRILINES = {
+  diary: "com.suibari.trilinesat.diary",
+  like: "com.suibari.trilinesat.like",
+} as const;
+/** TriLinesAt のグローバルフィードを Constellation で集めるための固定バックリンク先。 */
+export const TRILINES_HUB_URI =
+  "at://did:plc:uixgxpiqf4i63p6rgpu7ytmx/app.bsky.actor.profile/self";
+export const TRILINES_ORIGIN = "https://trilinesat.suibari.com";
+/** 3行日記の1行の上限（書記素数）。 */
+export const TRILINES_LINE_MAX_GRAPHEMES = 50;
+/**
  * jetstream で購読するコレクション。
  * 日記は本人だけが読むもので PDS には置かず、AppView の internal ルーターでだけ作るので含めない。
  * 逆に appLinks と bluemoji サイドカーはユーザー書き込み可能（NAGI_COLLECTIONS に含む）だが、
@@ -245,6 +264,7 @@ export const STANDARD_SITE_DOCUMENT = "site.standard.document";
  */
 export const NAGI_INGEST_COLLECTIONS = [
   STANDARD_SITE_DOCUMENT,
+  TRILINES.diary,
   NAGI.post,
   NAGI.reaction,
   NAGI.profile,
@@ -289,6 +309,10 @@ export const NAGI_STANDARD_SITE_SCOPES = [
   "repo:site.standard.document",
 ];
 /**
+ * Nagi から TriLinesAt の3行日記を作成・編集・削除する。別 namespace なので permission set に入れられない。
+ */
+export const NAGI_TRILINES_SCOPE = `repo:${TRILINES.diary}`;
+/**
  * 動画は video.bsky.app に変換を任せる。クライアントは PDS から service auth を取り、
  * uploadBlob（aud はユーザーの PDS）と getUploadLimits（aud は video.bsky.app）を呼ぶ。
  * どちらも Nagi namespace ではないので permission set に入れられない。
@@ -320,6 +344,7 @@ export const NAGI_OAUTH_SCOPE = [
   `repo:${BLUEMOJI_ITEM}`,
   NAGI_BLUESKY_PROFILE_SCOPE,
   ...NAGI_STANDARD_SITE_SCOPES,
+  NAGI_TRILINES_SCOPE,
   ...NAGI_VIDEO_SCOPES,
 ].join(" ");
 
