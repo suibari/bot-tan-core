@@ -45,7 +45,7 @@ export async function isNagiStandardDocument(
     if (cached && cached.expiresAt > Date.now()) return cached.value;
   }
   const publication = await loader(did, publicationUri);
-  const matches = isNagiStandardSitePublication(publication);
+  const matches = isNagiStandardSitePublication(publication, did);
   // publication 作成直後の一時的な404はキャッシュせず、次のイベントで再確認する。
   if (loader === loadPublication && publication !== undefined) {
     if (cache.size >= CACHE_MAX) {
