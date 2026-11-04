@@ -86,12 +86,14 @@ test("入力済みの行があるときは、その流れと書き方を踏ま�
   assert.match(written, /本人が今日なにを大事にしていたか/);
   assert.match(written, /書き方（長さ・語尾・くだけ具合）を「すでに書いた行」にそろえ/);
   assert.match(written, /# すでに書いた行\n- 朝に散歩した\n- 猫をなでた/);
+  assert.match(written, /1行に複数の出来事があれば/);
   const en = trilinesAssistPrompt(
     parseTrilinesAssistInput(body({ lines: ["Walked in the morning", "Petted a cat", ""], lang: "en" })),
     ["Made curry"],
   );
   assert.match(en, /Infer what mattered to them today/);
   assert.match(en, /Match the length, phrasing, and tone/);
+  assert.match(en, /exclude every one of them/);
 
   // 何も書いていないときは、存在しない行への言及を入れない。
   const blank = trilinesAssistPrompt(parseTrilinesAssistInput(body({ lines: ["", "", ""] })), ["カレーを作った"]);
