@@ -101,3 +101,23 @@ test("記事は本文に画像を置けるので、画像の枚数を4枚に絞�
     false,
   );
 });
+
+test("記事は本文の行ごとにリンクカードを置けるので、カードの枚数を4枚に絞らない", () => {
+  const linkCards = Array.from({ length: 6 }, (_, index) => ({
+    uri: `https://example.com/${index}`,
+    title: `リンク${index}`,
+  }));
+  assert.equal(
+    validateRecord(STANDARD_SITE_DOCUMENT, document({ nagi: { linkCards } })),
+    true,
+  );
+  assert.equal(
+    validateRecord("com.suibari.nagi.post", {
+      $type: "com.suibari.nagi.post",
+      text: "通常投稿",
+      createdAt: "2026-09-22T00:00:00.000Z",
+      linkCards,
+    }),
+    false,
+  );
+});

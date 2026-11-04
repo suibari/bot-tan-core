@@ -363,7 +363,8 @@ export function validateRecord(
     if (
       value.linkCards &&
       (!Array.isArray(value.linkCards) ||
-        value.linkCards.length > 4 ||
+        // 記事は本文の行ごとにカードを置けるので、画像と同じく枚数を絞らない。
+        (!longArticle && value.linkCards.length > 4) ||
         !value.linkCards.every(linkCard))
     )
       return false;
