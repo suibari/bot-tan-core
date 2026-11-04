@@ -77,6 +77,33 @@ test("プロンプトは必要な行数と既存の行を伝え、投稿を末�
   assert.ok(en.trimEnd().endsWith("- Made curry"));
 });
 
+test("入力済みの行があるときは、その流れと書き方を踏まえるよう指示する", () => {
+  const written = trilinesAssistPrompt(
+    parseTrilinesAssistInput(body({ lines: ["朝に散歩した", "猫をなでた", ""] })),
+    ["カレーを作った"],
+  );
+  assert.match(written, /1個選び/);
+  assert.match(written, /本人が今日なにを大事にしていたか/);
+  assert.match(written, /書き方（長さ・語尾・くだけ具合）を「すでに書いた行」にそろえ/);
+  assert.match(written, /# すでに書いた行\n- 朝に散歩した\n- 猫をなでた/);
+  const en = trilinesAssistPrompt(
+    parseTrilinesAssistInput(body({ lines: ["Walked in the morning", "Petted a cat", ""], lang: "en" })),
+    ["Made curry"],
+  );
+  assert.match(en, /Infer what mattered to them today/);
+  assert.match(en, /Match the length, phrasing, and tone/);
+
+  // 何も書いていないときは、存在しない行への言及を入れない。
+  const blank = trilinesAssistPrompt(parseTrilinesAssistInput(body({ lines: ["", "", ""] })), ["カレーを作った"]);
+  assert.match(blank, /3個選び/);
+  assert.doesNotMatch(blank, /すでに書いた行/);
+  const blankEn = trilinesAssistPrompt(
+    parseTrilinesAssistInput(body({ lines: ["", "", ""], lang: "en" })),
+    ["Made curry"],
+  );
+  assert.doesNotMatch(blankEn, /Lines already written/);
+});
+
 test("Ollama へ num_ctx を送らず、num_predict と temperature を送る", async () => {
   let sent: any;
   const lines = await requestTrilinesAssist("prompt", {
