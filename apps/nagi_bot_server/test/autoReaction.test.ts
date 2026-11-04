@@ -7,6 +7,7 @@ process.env.NAGI_BOT_DID ??= "did:plc:bot";
 const {
   buildAutoReactionRecord,
   autoReactionCandidates,
+  emojiDescription,
   isAutoReactionEnabled,
   postSubjectText,
   skipReasonForPost,
@@ -21,6 +22,7 @@ const emoji = (name: string, uri = `at://did:example:a/blue.moji.collection.item
   cid: "bafy",
   name: `:${name}:`,
   alt: null,
+  searchText: null,
 });
 
 test("候補はカスタム絵文字だけで、同名と不正な名前は落とす", () => {
@@ -32,6 +34,29 @@ test("候補はカスタム絵文字だけで、同名と不正な名前は落�
       { ...emoji("x"), name: "no-colons" },
     ]),
     [{ key: ":yatta:", description: "やったー" }],
+  );
+});
+
+test("説明には画像から読んだ文字・絵柄・連想語を載せる", () => {
+  // 名前は heart でも、画像は×印付きのハート。名前だけ見せると祝福に使ってしまう。
+  assert.deepEqual(
+    autoReactionCandidates([
+      {
+        ...emoji("heart"),
+        searchText: "\n黄色い×印がついた赤いハート\n拒否\nお断り\nダメ\nNG\n禁止\n反対",
+      },
+    ]),
+    [{ key: ":heart:", description: "黄色い×印がついた赤いハート / 拒否、お断り、ダメ、NG、禁止" }],
+  );
+  assert.equal(
+    emojiDescription({ alt: " やったー ", searchText: "やった\n跳ねる猫\n喜び" }),
+    "やったー / 「やった」 / 跳ねる猫 / 喜び",
+  );
+  // 未処理（null）や読めなかった画像（空文字）は alt だけ、alt も無ければ説明なし。
+  assert.equal(emojiDescription({ alt: null, searchText: "" }), undefined);
+  assert.equal(emojiDescription({ alt: null, searchText: null }), undefined);
+  assert.ok(
+    (emojiDescription({ alt: null, searchText: "あ".repeat(300) }) ?? "").length <= 100,
   );
 });
 

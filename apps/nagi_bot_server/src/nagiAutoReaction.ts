@@ -134,7 +134,32 @@ export type CustomEmojiOption = {
   cid: string;
   name: string;
   alt: string | null;
+  /** EmojiCaptionWorker が画像から読んだ「文字\n絵柄\n連想語…」。未処理なら null。 */
+  searchText: string | null;
 };
+
+const MAX_DESCRIPTION_CHARS = 100;
+const MAX_DESCRIPTION_KEYWORDS = 5;
+
+/**
+ * モデルへ見せる絵文字の説明。本番の絵文字は alt がほぼ空で名前もローマ字なので、
+ * 名前だけだと `:heart:`（実は×印付きの「拒否」）を祝福に使ってしまう。
+ * search_text の行の役割は AppView の formatEmojiSearchText と同じ（1行目が文字、2行目が絵柄）。
+ */
+export function emojiDescription(
+  emoji: Pick<CustomEmojiOption, "alt" | "searchText">,
+): string | undefined {
+  const [text = "", picture = "", ...keywords] = (emoji.searchText ?? "")
+    .split("\n")
+    .map((line) => line.trim());
+  const parts = [
+    emoji.alt?.trim(),
+    text ? `「${text}」` : "",
+    picture,
+    keywords.filter(Boolean).slice(0, MAX_DESCRIPTION_KEYWORDS).join("、"),
+  ].filter(Boolean);
+  return parts.length ? parts.join(" / ").slice(0, MAX_DESCRIPTION_CHARS) : undefined;
+}
 
 /**
  * モデルへ見せる候補。botたんのリアクションはカスタム絵文字だけを使う（Unicode より面白いので）。
@@ -153,10 +178,10 @@ export function autoReactionCandidates(
         !recent.includes(emoji.name) &&
         custom.findIndex((other) => other.name === emoji.name) === index,
     )
-    .map(({ name, alt }) => ({
-      key: name,
-      ...(alt?.trim() ? { description: alt.trim().slice(0, 60) } : {}),
-    }));
+    .map((emoji) => {
+      const description = emojiDescription(emoji);
+      return { key: emoji.name, ...(description ? { description } : {}) };
+    });
 }
 
 /** 選んだ値から PDS へ書くリアクションの中身を作る。emoji は bluemoji.name と一致させる。 */
@@ -210,6 +235,7 @@ async function loadCustomEmojiOptions(): Promise<CustomEmojiOption[]> {
     cid: nagiEmojis.cid,
     name: nagiEmojis.name,
     alt: nagiEmojis.alt,
+    searchText: nagiEmojis.searchText,
   };
   const top = await db
     .select({ ...columns, uses: count(nagiReactions.uri) })
