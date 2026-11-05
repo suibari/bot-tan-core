@@ -116,3 +116,43 @@ test("an operator release is honored before any cached or exhausted decision", (
   assert.ok(overrideAt < judgeBody.indexOf("const reusedDecision"));
   assert.ok(overrideAt < judgeBody.indexOf("evaluateModerationInput"));
 });
+
+/**
+ * botたん自身の書き込みは判定しない。ニュースは配信元の OGP 画像が消えるだけで
+ * reject-invalid になり、問題のない記事が落ちていた。取り込み時に対象外にし、
+ * それ以前に積まれた判定待ちも OpenAI へ送らず片付けること。
+ */
+test("bot-authored records are never sent to moderation", () => {
+  assert.match(applyMutation, /did !== config\.botDid &&/);
+  const judgeBody = worker.slice(worker.indexOf("async function judge("));
+  const botAt = judgeBody.indexOf("item.did === config.botDid");
+  assert.ok(botAt > 0);
+  assert.ok(botAt < judgeBody.indexOf("evaluateModerationInput"));
+  assert.ok(botAt < judgeBody.indexOf("exhaustedInputEvaluation"));
+});
+
+/**
+ * ニュースの OGP 画像が取れないときは記事ごと落とさず、画像を表示から外して
+ * 見出しだけで判定し直す。「取れない」は「安全」ではないので、外さずに通すのは不可。
+ * 外すのは判定し直しより先（429 で投げても次周回は画像なしで拾われる）。
+ */
+test("an unjudgeable news image is dropped before the headline is judged alone", () => {
+  const judgeBody = worker.slice(worker.indexOf("async function judge("));
+  const fallbackAt = judgeBody.indexOf(
+    'evaluation.decision === "reject-invalid" && hasExternalNewsImage(item)',
+  );
+  assert.ok(fallbackAt > 0);
+  const fallback = judgeBody.slice(fallbackAt);
+  const dropAt = fallback.indexOf("await dropUnjudgedNewsImage(");
+  const clearAt = fallback.indexOf("imageUrls: []");
+  const reevaluateAt = fallback.indexOf("await evaluateModerationInput(item.input)");
+  assert.ok(dropAt > 0 && dropAt < clearAt && clearAt < reevaluateAt);
+  // 判定結果を記録・通知するより前に入れ替えておくこと。
+  assert.ok(fallbackAt < judgeBody.indexOf("insert(nagiModerationDecisions)"));
+  // 対象はニュースだけ。投稿の blob は従来どおり reject-invalid。
+  assert.match(
+    worker,
+    /return item\.collection === NAGI\.news && item\.input\.imageUrls\.length > 0;/,
+  );
+  assert.match(worker, /\.set\(\{ snapshotImageUrl: null \}\)/);
+});

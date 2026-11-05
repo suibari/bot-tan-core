@@ -502,11 +502,53 @@ function logDecision(
  * exhausted が渡された場合は OpenAI を呼ばず、再試行を使い切った理由付きの
  * reject-invalid を通常の経路（decisions への記録 → Discord 通知 → 投影の削除）へ流す。
  */
+/** 判定できなかったら外して済ませられる画像か。ニュースの OGP 画像だけが該当する。 */
+function hasExternalNewsImage(item: Pending): boolean {
+  return item.collection === NAGI.news && item.input.imageUrls.length > 0;
+}
+
+/**
+ * 判定できなかったニュースの OGP 画像を承認行から外す。
+ *
+ * 「取れない」は「安全」ではない（配信元が OpenAI にだけ 404 を返す出し分けもありうる）
+ * ので、見出しだけで通すなら画像は表示しない。外した URL と一致する行だけを更新し、
+ * その間に掲載し直されて別の画像が入った行には触らない（そちらは判定待ちへ戻っている）。
+ *
+ * 投稿の添付画像（blob）はここに来ない。AppView 自身が配信するので、取れないのは
+ * 壊れた blob か自前の障害で、後から表示されうる。従来どおり reject-invalid にする。
+ */
+async function dropUnjudgedNewsImage(
+  item: Pending,
+  reasons: string[],
+): Promise<void> {
+  const [imageUrl] = item.input.imageUrls;
+  await db
+    .update(nagiNewsApprovals)
+    .set({ snapshotImageUrl: null })
+    .where(
+      and(
+        eq(nagiNewsApprovals.newsUri, item.uri),
+        eq(nagiNewsApprovals.newsCid, item.cid),
+        eq(nagiNewsApprovals.snapshotImageUrl, imageUrl),
+      ),
+    );
+  console.warn(
+    `[moderationWorker] news ${item.uri}: image could not be judged, dropped it and judging the headline only: ${reasons.join(" / ").slice(0, 300)}`,
+  );
+}
+
 async function judge(
   item: Pending,
   exhausted?: { error: Error; failures: number },
 ): Promise<void> {
   const startedAt = Date.now();
+  // botたんの書き込みは判定しない（applyMutation が対象外にする）。ここは対象外にする前に
+  // 判定待ちへ積まれた行の回収で、OpenAI へ送らず allow として片付ける。
+  if (item.did === config.botDid) {
+    await applyDecision(item, "allow", []);
+    logDecision(item, "allow", [], "bot", 0, true, Date.now() - startedAt);
+    return;
+  }
   // 同じ内容を評価済みなら OpenAI を呼ばない。reconcile・再取り込み・
   // ワーカー再起動で同じ行を何度も課金対象にしないため。
   const [cached] = await db
@@ -545,9 +587,18 @@ async function judge(
     decision = cached!.decision as ModerationDecision;
     labels = cached!.labels;
   } else {
-    const evaluation: ModerationEvaluation = exhausted
+    let evaluation: ModerationEvaluation = exhausted
       ? exhaustedInputEvaluation(exhausted.error, exhausted.failures)
       : await evaluateModerationInput(item.input);
+    if (evaluation.decision === "reject-invalid" && hasExternalNewsImage(item)) {
+      // ニュースの OGP 画像は配信元のもので、取れないのは配信元で消えたか壊れたか。
+      // 記事ごと落とさず、判定できなかった画像を表示から外して見出しだけで判定し直す。
+      // 外すのを先にコミットするので、判定し直しが 429 などで投げても、次周回は
+      // 画像なしの入力で拾われる。
+      await dropUnjudgedNewsImage(item, evaluation.reasons);
+      item = { ...item, input: { ...item.input, imageUrls: [] } };
+      evaluation = await evaluateModerationInput(item.input);
+    }
     decision = evaluation.decision;
     labels = evaluation.labels;
     category = evaluation.highestCategory;
@@ -644,8 +695,9 @@ async function processItem(
       );
       return "deferred";
     }
-    // 予算切れ。ここで初めて reject-invalid を確定させる。judge は OpenAI を
-    // 呼ばないので、ここから投げ返るのは DB 側の異常だけ。
+    // 予算切れ。ここで初めて reject-invalid を確定させる。judge が OpenAI を呼ぶのは
+    // ニュースの画像を外して見出しだけで判定し直すときだけで、そこで投げたサービス障害は
+    // 通常どおり全体バックオフへ乗る（画像は外し済みなので次周回は見出しだけで判定される）。
     console.warn(
       `[moderationWorker] ${sourceName} ${item.uri}: giving up after ${state.failures} input failures`,
     );
