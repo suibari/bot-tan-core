@@ -397,6 +397,11 @@ export type ReactionView = {
 export type PostView = {
   /** 記事表示。新規記事の正本は site.standard.document。 */
   article?: boolean;
+  /**
+   * Bluesky に同時投稿したコピーへの参照。**作者本人にだけ返す。**
+   * root はコピーの先頭、tail は分割したときの末尾、threadRoot は Bluesky 上のスレッドの先頭。
+   */
+  crosspost?: { root: StrongRef; tail: StrongRef; threadRoot: StrongRef };
   /** 3行日記表示。正本は com.suibari.trilinesat.diary。画像は images の添字で指す。 */
   trilines?: { lines: { text: string; imageIndex?: number }[] };
   uri: string;

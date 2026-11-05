@@ -35,8 +35,22 @@
             "maxLength": 4,
             "items": { "type": "ref", "ref": "#linkCard" }
           },
-          "embed": { "type": "union", "refs": ["#images", "#video", "#gallery", "#quote"] }
+          "embed": { "type": "union", "refs": ["#images", "#video", "#gallery", "#quote"] },
+          "crosspost": {
+            "type": "ref",
+            "ref": "#crosspost",
+            "description": "Bluesky に同時投稿したコピー。Nagi 上で返信・引用したとき、Bluesky 側でも同じコピーへ続けるのに使う。"
+          }
         }
+      }
+    },
+    "crosspost": {
+      "type": "object",
+      "required": ["root", "tail"],
+      "properties": {
+        "root": { "type": "ref", "ref": "com.atproto.repo.strongRef", "description": "コピーの先頭の app.bsky.feed.post。" },
+        "tail": { "type": "ref", "ref": "com.atproto.repo.strongRef", "description": "長い投稿を分割したときの末尾。分割していなければ root と同じ。" },
+        "threadRoot": { "type": "ref", "ref": "com.atproto.repo.strongRef", "description": "このコピー自体が返信のとき、Bluesky 上のスレッドの先頭。" }
       }
     },
     "linkCard": {
