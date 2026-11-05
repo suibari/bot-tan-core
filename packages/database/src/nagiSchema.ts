@@ -53,6 +53,9 @@ export const notificationType = nagiSchema.enum("notification_type", [
   "emoji",
   // 年表に週のトピックが載った。nagi_bot_server → AppView の内部エンドポイント経由。
   "chronicle",
+  // 新しく始めた人の最初の気持ちが感情グラフに載った。nagi_bot_server（採点ワーカー）→
+  // AppView の内部エンドポイント経由。1人1回だけ。
+  "mood",
 ]);
 /** Ƶ（全肯定ポイント）の台帳の理由。docs/zenkatsu.md 13.3。 */
 export const zennyLedgerReason = nagiSchema.enum("zenny_ledger_reason", [

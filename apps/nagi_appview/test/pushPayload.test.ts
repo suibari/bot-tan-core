@@ -46,6 +46,11 @@ test("buildPushPayload applies the notification presentation policy", () => {
       body: "",
     },
     {
+      type: "mood",
+      title: "あなたの気持ちが感情グラフに載りました",
+      body: "ポストから読み取った気持ちを、アクティビティで振り返れます",
+    },
+    {
       type: "chronicle",
       title: "botたんがあなたの年表を更新しました",
       body: "",

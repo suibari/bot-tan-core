@@ -158,6 +158,50 @@ internal.post("/notifications/analysis", async (req, res, next) => {
 });
 
 /**
+ * 新しく始めた人の最初の気持ちが感情グラフに載ったことの通知を作る（analysis と同じ形）。
+ *
+ * 採点は nagi_bot_server の採点ワーカーが非同期に行うので、そちらが最初の採点を書いた後に叩く。
+ * reasonUri を1人1つに固定するので、採点のやり直しやワーカーの再送で二通目は届かない。
+ */
+internal.post("/notifications/mood", async (req, res, next) => {
+  try {
+    const did = String(req.body?.did ?? "");
+    if (!did.startsWith("did:")) {
+      res.status(400).json({ error: "did is required" });
+      return;
+    }
+
+    const inserted = await db
+      .insert(nagiNotifications)
+      .values({
+        recipientDid: did,
+        type: "mood",
+        actorDid: config.botDid,
+        subjectUri: `at://${did}`,
+        reasonUri: `at://${did}/mood/first`,
+      })
+      .onConflictDoNothing()
+      .returning({ id: nagiNotifications.id });
+
+    if (!inserted.length) {
+      res.status(200).json({ created: false });
+      return;
+    }
+
+    void dispatchPush({
+      recipientDid: did,
+      type: "mood",
+      actorDid: config.botDid,
+      notificationId: inserted[0].id,
+    });
+
+    res.status(200).json({ created: true, notificationId: inserted[0].id });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
  * 年表に週のトピックが載ったことの通知を作る（analysis と同じ形）。
  *
  * 年表は AppView の Postgres にしか無いので、生成側（nagi_bot_server）が週の確定後に叩く。

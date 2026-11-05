@@ -4,6 +4,7 @@ import {
   ensureNagiBotRecordIndexed,
   getNagiAppviewInternalUrl,
   notifyChronicleUpdated,
+  notifyFirstMood,
 } from "../src/appviewInternal.js";
 
 const originalPort = process.env.NAGI_APPVIEW_INTERNAL_PORT;
@@ -69,6 +70,27 @@ test("年表の更新は did と週の月曜を通知口へ渡す", async () => 
       {
         url: "http://127.0.0.1:3205/internal/notifications/chronicle",
         body: { did: "did:plc:alice", weekStart: "2026-11-02" },
+      },
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("最初の気持ちの通知は did だけを通知口へ渡す", async () => {
+  process.env.NAGI_APPVIEW_INTERNAL_PORT = "3205";
+  const originalFetch = globalThis.fetch;
+  const calls: Array<{ url: string; body: unknown }> = [];
+  globalThis.fetch = (async (url: string, init: RequestInit) => {
+    calls.push({ url, body: JSON.parse(String(init.body)) });
+    return new Response("{}", { status: 200 });
+  }) as typeof fetch;
+  try {
+    assert.equal(await notifyFirstMood("did:plc:alice"), true);
+    assert.deepEqual(calls, [
+      {
+        url: "http://127.0.0.1:3205/internal/notifications/mood",
+        body: { did: "did:plc:alice" },
       },
     ]);
   } finally {

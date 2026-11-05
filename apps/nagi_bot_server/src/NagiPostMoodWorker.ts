@@ -15,7 +15,8 @@ import {
   isPostMoodRouteLocal,
   scorePostMood,
 } from "@bsky-affirmative-bot/bot-brain";
-import { and, desc, eq, isNull, ne, or } from "drizzle-orm";
+import { and, count, desc, eq, isNotNull, isNull, min, ne, or } from "drizzle-orm";
+import { notifyFirstMood } from "./appviewInternal.js";
 import { startWorkerLoop } from "./workerLoop.js";
 
 /**
@@ -59,6 +60,40 @@ export async function pendingMoodPosts(limit: number): Promise<PendingMoodPost[]
     .limit(limit);
 }
 
+/** 「最初の気持ちが載った」通知を出すのは、Nagi を始めてこの日数以内の人だけ。 */
+export const FIRST_MOOD_WINDOW_MS = 7 * 24 * 60 * 60_000;
+
+/**
+ * 最初の気持ちが感情グラフに載ったことを知らせるか。
+ * このワーカーは過去分のバックフィルや採点基準の版上げでも動くので、「初めて採点された」だけだと
+ * 既存の利用者にも届いてしまう。**始めたばかりの人（最初の投稿が直近）に限る。**
+ * 採点不能（valence=null）はグラフに載らないので数えない。
+ */
+export function shouldNotifyFirstMood(input: {
+  scoredCount: number;
+  firstPostAt: Date | null;
+  now: Date;
+}): boolean {
+  if (input.scoredCount !== 1 || !input.firstPostAt) return false;
+  return input.now.getTime() - input.firstPostAt.getTime() <= FIRST_MOOD_WINDOW_MS;
+}
+
+async function maybeNotifyFirstMood(did: string): Promise<void> {
+  const [[moods], [posts]] = await Promise.all([
+    db
+      .select({ value: count() })
+      .from(nagiPostMoods)
+      .where(and(eq(nagiPostMoods.did, did), isNotNull(nagiPostMoods.valence))),
+    db
+      .select({ value: min(nagiPosts.recordCreatedAt) })
+      .from(nagiPosts)
+      .where(eq(nagiPosts.did, did)),
+  ]);
+  const firstPostAt = posts?.value ? new Date(posts.value) : null;
+  if (shouldNotifyFirstMood({ scoredCount: Number(moods?.value ?? 0), firstPostAt, now: new Date() }))
+    await notifyFirstMood(did);
+}
+
 /**
  * 1件を採点して保存する。採点不能（本文が空・出力が壊れている）も valence=null で保存し、
  * 同じ投稿で Ollama を叩き続けない。**Ollama の接続失敗は保存せずに投げる**
@@ -84,6 +119,11 @@ export async function scoreAndStore(post: PendingMoodPost): Promise<void> {
     .insert(nagiPostMoods)
     .values({ postUri: post.uri, ...values })
     .onConflictDoUpdate({ target: nagiPostMoods.postUri, set: values });
+  // 通知は採点の付け足し。失敗しても採点結果はもう保存してあるので、ここで投げない。
+  if (values.valence !== null)
+    await maybeNotifyFirstMood(post.did).catch((error) =>
+      console.warn(`${LOG_PREFIX} failed to check the first mood of ${post.did}:`, error),
+    );
 }
 
 /**
