@@ -130,3 +130,29 @@ test("bot-authored records are never sent to moderation", () => {
   assert.ok(botAt < judgeBody.indexOf("evaluateModerationInput"));
   assert.ok(botAt < judgeBody.indexOf("exhaustedInputEvaluation"));
 });
+
+/**
+ * ニュースの OGP 画像が取れないときは記事ごと落とさず、画像を表示から外して
+ * 見出しだけで判定し直す。「取れない」は「安全」ではないので、外さずに通すのは不可。
+ * 外すのは判定し直しより先（429 で投げても次周回は画像なしで拾われる）。
+ */
+test("an unjudgeable news image is dropped before the headline is judged alone", () => {
+  const judgeBody = worker.slice(worker.indexOf("async function judge("));
+  const fallbackAt = judgeBody.indexOf(
+    'evaluation.decision === "reject-invalid" && hasExternalNewsImage(item)',
+  );
+  assert.ok(fallbackAt > 0);
+  const fallback = judgeBody.slice(fallbackAt);
+  const dropAt = fallback.indexOf("await dropUnjudgedNewsImage(");
+  const clearAt = fallback.indexOf("imageUrls: []");
+  const reevaluateAt = fallback.indexOf("await evaluateModerationInput(item.input)");
+  assert.ok(dropAt > 0 && dropAt < clearAt && clearAt < reevaluateAt);
+  // 判定結果を記録・通知するより前に入れ替えておくこと。
+  assert.ok(fallbackAt < judgeBody.indexOf("insert(nagiModerationDecisions)"));
+  // 対象はニュースだけ。投稿の blob は従来どおり reject-invalid。
+  assert.match(
+    worker,
+    /return item\.collection === NAGI\.news && item\.input\.imageUrls\.length > 0;/,
+  );
+  assert.match(worker, /\.set\(\{ snapshotImageUrl: null \}\)/);
+});
