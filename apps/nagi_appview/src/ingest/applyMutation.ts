@@ -241,10 +241,15 @@ export async function applyMutation(
    * モデレーション判定は取り込みと同期させない。ここでは「判定待ち」か「対象外」かだけを
    * 決めて即コミットし、OpenAI 呼び出しは moderationWorker が後から行う。投稿API・
    * botたんの返信・Jetstream 取り込みのどれも判定を待たせないための設計。
+   *
+   * botたん自身の書き込み（ニュース・返信・プロフィールなど）は判定しない。
+   * 守る対象は他ユーザーの生成物で、botたんのニュースは配信元の OGP 画像が
+   * 消えただけで reject-invalid になり、問題のない記事が落ちていた。
    */
   const moderated =
     MODERATED_COLLECTIONS.includes(collection) &&
     commit.operation !== "delete" &&
+    did !== config.botDid &&
     !isKossoriSubject(uri, commit.record, appviewOnly);
   const moderationVersion = moderated ? null : MODERATION_SKIPPED;
   const id = trackJetstream

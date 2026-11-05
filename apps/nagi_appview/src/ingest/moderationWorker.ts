@@ -507,6 +507,13 @@ async function judge(
   exhausted?: { error: Error; failures: number },
 ): Promise<void> {
   const startedAt = Date.now();
+  // botたんの書き込みは判定しない（applyMutation が対象外にする）。ここは対象外にする前に
+  // 判定待ちへ積まれた行の回収で、OpenAI へ送らず allow として片付ける。
+  if (item.did === config.botDid) {
+    await applyDecision(item, "allow", []);
+    logDecision(item, "allow", [], "bot", 0, true, Date.now() - startedAt);
+    return;
+  }
   // 同じ内容を評価済みなら OpenAI を呼ばない。reconcile・再取り込み・
   // ワーカー再起動で同じ行を何度も課金対象にしないため。
   const [cached] = await db

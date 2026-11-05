@@ -116,3 +116,17 @@ test("an operator release is honored before any cached or exhausted decision", (
   assert.ok(overrideAt < judgeBody.indexOf("const reusedDecision"));
   assert.ok(overrideAt < judgeBody.indexOf("evaluateModerationInput"));
 });
+
+/**
+ * botたん自身の書き込みは判定しない。ニュースは配信元の OGP 画像が消えるだけで
+ * reject-invalid になり、問題のない記事が落ちていた。取り込み時に対象外にし、
+ * それ以前に積まれた判定待ちも OpenAI へ送らず片付けること。
+ */
+test("bot-authored records are never sent to moderation", () => {
+  assert.match(applyMutation, /did !== config\.botDid &&/);
+  const judgeBody = worker.slice(worker.indexOf("async function judge("));
+  const botAt = judgeBody.indexOf("item.did === config.botDid");
+  assert.ok(botAt > 0);
+  assert.ok(botAt < judgeBody.indexOf("evaluateModerationInput"));
+  assert.ok(botAt < judgeBody.indexOf("exhaustedInputEvaluation"));
+});
