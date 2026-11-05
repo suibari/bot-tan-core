@@ -397,6 +397,11 @@ export type ReactionView = {
 export type PostView = {
   /** 記事表示。新規記事の正本は site.standard.document。 */
   article?: boolean;
+  /**
+   * Bluesky に同時投稿したコピーへの参照。**作者本人にだけ返す。**
+   * root はコピーの先頭、tail は分割したときの末尾、threadRoot は Bluesky 上のスレッドの先頭。
+   */
+  crosspost?: { root: StrongRef; tail: StrongRef; threadRoot: StrongRef };
   /** 3行日記表示。正本は com.suibari.trilinesat.diary。画像は images の添字で指す。 */
   trilines?: { lines: { text: string; imageIndex?: number }[] };
   uri: string;
@@ -530,7 +535,17 @@ export type NotificationView = {
   /** "analysis" は名刺（自動分析）の更新。actor は常に botたん、post も diary も付かない。 */
   /** "gift" はおすそわけボードに置いたカードが届いた。actor は受け取った人、cardSubject にカードが入る。 */
   /** "chronicle" は年表に週のトピックが載った。actor は常に botたん、post も diary も付かない。 */
-  type: "reply" | "reaction" | "mention" | "diary" | "analysis" | "gift" | "emoji" | "chronicle";
+  /** "mood" は新しく始めた人の最初の気持ちが感情グラフに載った。actor は常に botたん、post も diary も付かない。 */
+  type:
+    | "reply"
+    | "reaction"
+    | "mention"
+    | "diary"
+    | "analysis"
+    | "gift"
+    | "emoji"
+    | "chronicle"
+    | "mood";
   actor: ActorView;
   post?: PostView;
   /** type が "diary" のときの日記本体。post は付かない。 */

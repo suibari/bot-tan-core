@@ -126,6 +126,14 @@ export function notifyAnalysisUpdated(
 }
 
 /**
+ * 新しく始めた人の最初の気持ちが感情グラフに載ったことを伝えて通知を作らせる。
+ * AppView 側は1人1通にまとめるので、重ねて呼んでも二重に届かない。
+ */
+export function notifyFirstMood(did: string): Promise<boolean> {
+  return postInternal("/internal/notifications/mood", { did }, "MOOD");
+}
+
+/**
  * 年表に週のトピックが載ったことを伝えて通知を作らせる。
  * AppView 側は (did, weekStart) で1通にまとめるので、作り直しても二重に届かない。
  */

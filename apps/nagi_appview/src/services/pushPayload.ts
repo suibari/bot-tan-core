@@ -28,7 +28,8 @@ export type PushNotificationType =
   | "analysis"
   | "gift"
   | "emoji"
-  | "chronicle";
+  | "chronicle"
+  | "mood";
 
 export interface PushPayload {
   title: string;
@@ -124,6 +125,12 @@ function compose(
     case "analysis":
       // 分析＝名刺の更新。actorName は常に botたんなので使わない。
       return { title: "botたんがあなたの名刺を更新しました", body: "" };
+    case "mood":
+      // 新しく始めた人の最初の気持ちが感情グラフに載った。actorName は常に botたんなので使わない。
+      return {
+        title: "あなたの気持ちが感情グラフに載りました",
+        body: "ポストから読み取った気持ちを、アクティビティで振り返れます",
+      };
     case "chronicle":
       // 年表に週のトピックが載った。actorName は常に botたんなので使わない。
       return { title: "botたんがあなたの年表を更新しました", body: "" };

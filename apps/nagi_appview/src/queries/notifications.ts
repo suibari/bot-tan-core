@@ -56,7 +56,8 @@ const validReactionNotification = sql`
 `;
 
 /**
- * その通知がポストを指しているか。日記(diary)・名刺更新(analysis)・年表更新(chronicle)の subjectUri は
+ * その通知がポストを指しているか。日記(diary)・名刺更新(analysis)・年表更新(chronicle)・
+ * 感情グラフ(mood)の subjectUri は
  * ポストの URI ではないので、引き当ての対象からも返り値からも外す。
  */
 const hasPost = (type: (typeof nagiNotifications.$inferSelect)["type"]) =>
@@ -64,7 +65,8 @@ const hasPost = (type: (typeof nagiNotifications.$inferSelect)["type"]) =>
   type !== "analysis" &&
   type !== "gift" &&
   type !== "emoji" &&
-  type !== "chronicle";
+  type !== "chronicle" &&
+  type !== "mood";
 
 export async function getNotifications(did: string, limit: number) {
   const mutes = await loadMutes(did);

@@ -1,0 +1,78 @@
+{
+  "lexicon": 1,
+  "id": "com.suibari.nagi.createReport",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Nagi の投稿（botたんの投稿を含む）や、投稿に付いたリアクションを運営に通報する、またはフィードバックを送る。内容は運営の Discord にだけ届き、通報された側には知らされない。",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "subject",
+            "reason"
+          ],
+          "properties": {
+            "subject": {
+              "type": "object",
+              "required": [
+                "uri"
+              ],
+              "properties": {
+                "uri": {
+                  "type": "string",
+                  "format": "at-uri",
+                  "description": "通報する com.suibari.nagi.post。reactor を付けたときは、リアクションが付いた投稿。"
+                },
+                "reactor": {
+                  "type": "string",
+                  "format": "did",
+                  "description": "付けると、この投稿にこの人が付けたリアクションを通報する。"
+                }
+              }
+            },
+            "reason": {
+              "type": "string",
+              "knownValues": [
+                "spam",
+                "harassment",
+                "sensitive",
+                "botResponse",
+                "other"
+              ]
+            },
+            "comment": {
+              "type": "string",
+              "maxGraphemes": 1000,
+              "maxLength": 10000
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired"
+        },
+        {
+          "name": "InvalidRequest"
+        },
+        {
+          "name": "NotFound",
+          "description": "対象が無い、または通報者から見えない。"
+        },
+        {
+          "name": "RateLimited",
+          "description": "短時間に送りすぎた。"
+        }
+      ]
+    }
+  }
+}

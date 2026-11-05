@@ -178,6 +178,7 @@ export const NAGI = {
    * なくこの手続きを通す。URI は著者 DID を含まない AppView 発行の不透明なものになる。
    */
   createKossoriPost: "com.suibari.nagi.createKossoriPost",
+  createReport: "com.suibari.nagi.createReport",
   deleteKossoriPost: "com.suibari.nagi.deleteKossoriPost",
   /** DIDを持たない端末ローカル投稿へ、期限付きで全肯定を返す。公開投稿にはしない。 */
   createGuestAffirmation: "com.suibari.nagi.createGuestAffirmation",

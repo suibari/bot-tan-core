@@ -207,6 +207,15 @@ export const config = {
   videoCacheDir:
     process.env.NAGI_VIDEO_CACHE_DIR || join(tmpdir(), "nagi-appview-video"),
   moderation: moderationConfig(),
+  // ユーザーからの通報・フィードバックの送り先。専用の Webhook が無ければモデレーション通知と同じ
+  // チャンネルへ送る。開発用 AppView からは（明示しない限り）送らない。
+  reports: {
+    discordWebhookUrl: appviewExternalNotificationsAllowed()
+      ? process.env.NAGI_REPORT_DISCORD_WEBHOOK_URL ||
+        process.env.NAGI_MODERATION_DISCORD_WEBHOOK_URL ||
+        ""
+      : "",
+  },
   clientOrigins: parseClientOrigins(
     required("NAGI_CLIENT_ORIGIN", "http://localhost:5173"),
   ),

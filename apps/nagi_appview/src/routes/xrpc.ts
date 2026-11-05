@@ -75,6 +75,7 @@ import {
   putBookmark,
   putBookmarkFolder,
 } from "../queries/bookmarks.js";
+import { createReport } from "../queries/reports.js";
 import { getMyNagi } from "../queries/myNagi.js";
 import {
   claimAnniversaryCards,
@@ -321,6 +322,21 @@ xrpc.post(
       res
         .set("Cache-Control", "private, no-store")
         .json(await deleteKossoriPost(req.viewerDid!, uri));
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+// 投稿・リアクションの通報とフィードバック。運営の Discord にだけ届く。
+xrpc.post(
+  `/${NAGI.createReport}`,
+  requiredServiceAuth(NAGI.createReport),
+  async (req, res, next) => {
+    try {
+      res
+        .set("Cache-Control", "private, no-store")
+        .json(await createReport(req.viewerDid!, req.body));
     } catch (e) {
       next(e);
     }
