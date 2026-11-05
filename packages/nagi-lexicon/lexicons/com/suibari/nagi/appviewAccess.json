@@ -82,6 +82,7 @@
             "com.suibari.nagi.getChronicle",
             "com.suibari.nagi.createKossoriPost",
             "com.suibari.nagi.deleteKossoriPost",
+            "com.suibari.nagi.createReport",
             "com.suibari.nagi.generatePostAssist",
             "com.suibari.nagi.generateTrilinesAssist",
             "com.suibari.nagi.getZenkatsu",
