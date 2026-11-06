@@ -15,12 +15,7 @@ export * from './seasonalWorksState.js';
 export * from './userDiaryMediaReference.js';
 export { TID } from '@atproto/common-web';
 export {
-  getTimezoneFromLang,
   getLangStr,
-  calculateDelayUntilLocal22,
-  isPastLocal22,
-  localDateStr,
-  localHourToUtc,
   sampleDiaryTimeline,
   selectDiaryInteractionTexts,
 } from './diaryUtils.js';

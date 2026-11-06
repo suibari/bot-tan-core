@@ -4,6 +4,7 @@ import {
   initializeDatabases,
   bot_state,
   followers,
+  diaryJobs,
   posts,
   likes,
   replies,
@@ -41,7 +42,7 @@ import { generateEmbedding } from './ollamaEmbed.js';
 import { tryUpsertBotMemoryDocument } from './botMemory.js';
 import { LanguageName, LIMIT_REQUEST_PER_DAY_GEMINI, DailyReport, Stats } from '@bsky-affirmative-bot/shared-configs';
 
-export { initializeDatabases, db, client, subscribers, followers };
+export { initializeDatabases, db, client, subscribers, followers, diaryJobs };
 // affirmative_bot スキーマの生テーブル。名前が汎用的すぎて nagi 側と紛らわしいので bot* に
 // 揃えて出す。Nagi の退会処理が「Nagi 由来の行だけ」を消すために必要。
 export {
@@ -68,6 +69,8 @@ export * from './researchJobs.js';
 export * from './drawingClaims.js';
 export * from './songSelections.js';
 export * from './polaritySamples.js';
+export * from './diaryDay.js';
+export * from './diaryJobs.js';
 export { embedSearchQuery, filterRelatedHistory, generateEmbedding, generateEmbeddings, isEmbeddingAvailable, searchQueryPrefix, splitEmbeddingBatches, type EmbeddingRequestOptions } from './ollamaEmbed.js';
 export { createEmbeddingRetryBackoff, type EmbeddingRetryBackoff } from './embeddingRetryBackoff.js';
 export { expandSearchQuery, filterAliases, queryExpansionEnabled, resetQueryExpansionState } from './queryExpansion.js';
@@ -480,25 +483,6 @@ export class MemoryService {
         ),
       )
       .orderBy(nagiPosts.recordCreatedAt);
-  }
-
-  /**
-   * since 以降に Nagi へ投稿したか。
-   * Bluesky 側の日記を止めるかの判定に使うので、存在確認だけの軽いクエリにしている。
-   */
-  static async hasNagiPostsSince(did: string, since: Date): Promise<boolean> {
-    const rows = await db
-      .select({ uri: nagiPosts.uri })
-      .from(nagiPosts)
-      .where(
-        and(
-          eq(nagiPosts.did, did),
-          isNull(nagiPosts.deletedAt),
-          gte(nagiPosts.recordCreatedAt, since),
-        ),
-      )
-      .limit(1);
-    return rows.length > 0;
   }
 
   /** since 以降に Nagi へ投稿したユーザーの DID 一覧（日記のスケジュール対象）。 */

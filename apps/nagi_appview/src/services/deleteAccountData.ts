@@ -38,6 +38,9 @@ import {
   nagiFeedTabs,
   nagiDrafts,
   nagiLanguagePreferences,
+  diaryJobs,
+  nagiDiaryDayPreferences,
+  nagiDiaryDaySchedules,
   nagiModerationPreferences,
   nagiPreferredNames,
   nagiMutes,
@@ -123,6 +126,7 @@ async function deleteBotSchemaData(tx: Tx, did: string) {
   await tx.delete(botPosts).where(eq(botPosts.did, did));
   await tx.delete(botLikes).where(eq(botLikes.did, did));
   await tx.delete(followers).where(eq(followers.did, did));
+  await tx.delete(diaryJobs).where(eq(diaryJobs.did, did));
 }
 
 export async function deleteAccountData(did: string) {
@@ -366,6 +370,12 @@ export async function deleteAccountData(did: string) {
     await tx
       .delete(nagiLanguagePreferences)
       .where(eq(nagiLanguagePreferences.did, did));
+    await tx
+      .delete(nagiDiaryDayPreferences)
+      .where(eq(nagiDiaryDayPreferences.did, did));
+    await tx
+      .delete(nagiDiaryDaySchedules)
+      .where(eq(nagiDiaryDaySchedules.did, did));
     await tx
       .delete(nagiModerationPreferences)
       .where(eq(nagiModerationPreferences.did, did));

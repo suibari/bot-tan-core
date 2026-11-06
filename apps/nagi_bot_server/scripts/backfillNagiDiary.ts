@@ -1,8 +1,9 @@
 /**
  * 指定した過去日のNagi日記を、書けていないユーザーぶんだけ後から生成する。
  *
- * 定時実行（ローカル22時）が Gemini の 503 やプロセス再起動で落ちた日を回収するためのもの。
- * 材料はその日のローカル22時までの24時間ぶんの投稿で、定時実行と同じ窓になる。
+ * 定時実行が Gemini の 503 やプロセス再起動で落ちた日を回収するためのもの。
+ * 材料はその日の窓（本人のタイムゾーンと区切りの時刻。shared-configs の diaryDayWindow）の
+ * 投稿で、定時実行と AppView の日付の割り当てと同じ窓になる。
  * 日記が既にある (subject, date) は processNagiDiary 側の存在チェックで飛ばすので、
  * 何度流しても二重生成しない。
  *
@@ -12,18 +13,23 @@
  *   pnpm --filter nagi-bot-server diary:backfill --date=2026-08-05 --apply
  * ユーザーを絞る:
  *   pnpm --filter nagi-bot-server diary:backfill --date=2026-08-05 did:plc:xxx did:plc:yyy --apply
- * タイムゾーンを固定する（投稿の言語から推定させたくないとき）:
+ * タイムゾーンを固定する（本人の設定・言語からの推定を使わず、22時区切りで切りたいとき）:
  *   pnpm --filter nagi-bot-server diary:backfill --date=2026-08-05 --tz=Asia/Tokyo --apply
  */
 import { and, eq } from "drizzle-orm";
-import { db, MemoryService, nagiDiaries } from "@bsky-affirmative-bot/database";
-import { getTimezoneFromLang, localDateStr, localHourToUtc } from "@bsky-affirmative-bot/clients";
+import { db, loadDiaryDayHistory, MemoryService, nagiDiaries } from "@bsky-affirmative-bot/database";
+import {
+  diaryDayWindow,
+  DIARY_DAY_BASELINE_DATE,
+  DIARY_DAY_DEFAULT_START_HOUR,
+  isEmptyDiaryDay,
+  isInDiaryDayWindow,
+  type DiaryDayWindow,
+} from "@bsky-affirmative-bot/shared-configs";
 import { processNagiDiary } from "../src/NagiDiaryFeature.js";
 import { initAgent } from "../src/agent.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-/** 定時実行と同じ「ローカル22時まで」を材料の窓にする。 */
-const DIARY_HOUR = 22;
 
 // pnpm 6 までの区切り記号。今は不要だが、付けて呼ばれても落ちないよう捨てる。
 const args = process.argv.slice(2).filter((arg) => arg !== "--");
@@ -68,19 +74,18 @@ if (date >= todayUtc) {
   );
 }
 
-/** そのユーザーのタイムゾーン。投稿の言語から推定する（定時実行と同じ決め方）。 */
-async function resolveTimezone(did: string, until: Date): Promise<string> {
-  if (tzOverride) return tzOverride;
-  // 言語を拾うためだけの読み取り。窓の外の投稿は使わない。
-  const posts = (
-    await MemoryService.getNagiPostsSince(did, new Date(until.getTime() - DAY_MS))
-  ).filter((post) => !post.recordCreatedAt || post.recordCreatedAt <= until);
-  const langs = [...posts]
-    .reverse()
-    .find((post) => Array.isArray(post.langs) && post.langs.length)?.langs as
-    | string[]
-    | undefined;
-  return getTimezoneFromLang(langs?.[0]);
+/** その日の窓。--tz があればそのタイムゾーンの22時区切り、無ければ本人の設定（定時実行と同じ）。 */
+async function resolveWindow(did: string): Promise<DiaryDayWindow> {
+  const history = tzOverride
+    ? [
+        {
+          effectiveFrom: DIARY_DAY_BASELINE_DATE,
+          timezone: tzOverride,
+          startHour: DIARY_DAY_DEFAULT_START_HOUR,
+        },
+      ]
+    : await loadDiaryDayHistory(did);
+  return diaryDayWindow(date!, history);
 }
 
 async function hasDiary(did: string, diaryDate: string): Promise<boolean> {
@@ -97,52 +102,45 @@ async function hasDiary(did: string, diaryDate: string): Promise<boolean> {
 let candidates = dids;
 if (candidates.length === 0) {
   const botDid = process.env.NAGI_BOT_DID;
-  const widest = new Date(Date.parse(`${date}T00:00:00Z`) - DAY_MS);
+  const widest = new Date(Date.parse(`${date}T00:00:00Z`) - 2 * DAY_MS);
   candidates = (await MemoryService.getNagiActiveAuthorsSince(widest)).filter(
     (did) => did !== botDid,
   );
   console.log(`[INFO] ${date} 前後に投稿していたユーザー: ${candidates.length}`);
 }
 
-type Target = { did: string; timezone: string; until: Date; postCount: number };
+type Target = { did: string; window: DiaryDayWindow; postCount: number };
 const targets: Target[] = [];
 let skipped = 0;
 
 for (const did of candidates) {
-  const provisionalTz = tzOverride ?? "UTC";
-  // タイムゾーンを決めるには窓が要り、窓を決めるにはタイムゾーンが要る。
-  // UTC の窓で言語を拾ってから、確定したタイムゾーンで窓を引き直す。
-  const timezone = await resolveTimezone(did, localHourToUtc(date, DIARY_HOUR, provisionalTz));
-  const until = localHourToUtc(date, DIARY_HOUR, timezone);
-
-  if (await hasDiary(did, date)) {
+  const window = await resolveWindow(did);
+  if (isEmptyDiaryDay(window) || (await hasDiary(did, date))) {
     skipped += 1;
     continue;
   }
 
-  const posts = (
-    await MemoryService.getNagiPostsSince(did, new Date(until.getTime() - DAY_MS))
-  ).filter((post) => !post.recordCreatedAt || post.recordCreatedAt <= until);
+  const posts = (await MemoryService.getNagiPostsSince(did, window.start)).filter(
+    (post) => post.recordCreatedAt && isInDiaryDayWindow(post.recordCreatedAt, window),
+  );
   if (posts.length === 0) {
     skipped += 1;
     continue;
   }
 
-  targets.push({ did, timezone, until, postCount: posts.length });
+  targets.push({ did, window, postCount: posts.length });
 }
 
 console.log(
   `${apply ? "APPLY" : "PREVIEW"}: date=${date}, 生成対象 ${targets.length} 人 / 対象外 ${skipped} 人（日記あり or 投稿なし）`,
 );
 for (const target of targets) {
+  const { window } = target;
   console.log(
-    `  ${target.did}  tz=${target.timezone}  posts=${target.postCount}  window=${new Date(target.until.getTime() - DAY_MS).toISOString()}..${target.until.toISOString()}`,
+    `  ${target.did}  tz=${window.timezone}  cutoff=${window.startHour}:00  posts=${target.postCount}  window=${window.start.toISOString()}..${window.end.toISOString()}`,
   );
-  // 窓の位置が意図どおりか（= その日のローカル22時か）を目視できるようにする。
-  if (localDateStr(target.timezone, target.until) !== date) {
-    console.warn(
-      `  [WARN] ${target.did}: 窓の終端がローカル ${date} に載っていない。--tz で固定するか確認すること。`,
-    );
+  if (window.end.getTime() > Date.now()) {
+    console.warn(`  [WARN] ${target.did}: 窓がまだ閉じていない。今までの投稿だけで書くことになる。`);
   }
 }
 
@@ -163,11 +161,7 @@ for (const [index, target] of targets.entries()) {
   const progress = `[${index + 1}/${targets.length}]`;
   try {
     // 生成の再試行ラダー（最大3時間）は processNagiDiary の中。ここでは包まない。
-    await processNagiDiary(target.did, {
-      date,
-      until: target.until,
-      timezone: target.timezone,
-    });
+    await processNagiDiary(target.did, target.window);
     // processNagiDiary は失敗しても throw せずログして戻るので、書けたかは実データで確認する。
     if (await hasDiary(target.did, date)) {
       done += 1;

@@ -19,7 +19,13 @@ const quote = (id: string) => '"' + id.replaceAll('"', '""') + '"';
 before(async () => {
   if (!testUrl) return;
   await client`create extension if not exists vector`;
-  for (const table of [database.nagiPosts, database.nagiPostMoods, database.nagiDiaries]) {
+  for (const table of [
+    database.nagiPosts,
+    database.nagiPostMoods,
+    database.nagiDiaries,
+    database.nagiDiaryDaySchedules,
+    database.followers,
+  ]) {
     const { schema = "public", name, columns } = getTableConfig(table);
     await client.unsafe(`create schema if not exists ${quote(schema)}`);
     await client.unsafe(`drop table if exists ${quote(schema)}.${quote(name)}`);
@@ -35,7 +41,8 @@ before(async () => {
 });
 beforeEach(async () => {
   if (!testUrl) return;
-  await client`truncate nagi.posts, nagi.post_moods, nagi.diaries`;
+  await client`truncate nagi.posts, nagi.post_moods, nagi.diaries, nagi.diary_day_schedules,
+    affirmative_bot.followers`;
 });
 after(() => client.end());
 
@@ -58,7 +65,8 @@ async function mood(
     values (${uri(did, key)}, ${did}, ${values.cid ?? "cid1"}, ${values.valence}, ${values.expressive},
       ${values.version ?? POST_MOOD_VERSION}, now())`;
 }
-const range = () => loadDiaryMoods(alice, "2026-08-01", "2026-08-01");
+const range = async () =>
+  loadDiaryMoods(alice, "2026-08-01", "2026-08-01", await database.loadDiaryDayHistory(alice));
 
 test("直した値がグラフに出て、edited が付き、戻すと LLM の値に戻る", { skip: !testUrl }, async () => {
   await post(alice, "a");

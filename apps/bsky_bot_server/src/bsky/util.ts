@@ -18,7 +18,6 @@ import { blueskyVideoUrls } from "@bsky-affirmative-bot/shared-configs/blueskyVi
  * 言語コードからタイムゾーンを取得するヘルパー関数
  * Nagi 側の日記スケジューラでも使うので実体は clients に置いてある。
  */
-export { getTimezoneFromLang } from "@bsky-affirmative-bot/clients";
 
 /**
  * メンション判定しメンション先のDIDを返す

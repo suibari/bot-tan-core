@@ -74,11 +74,57 @@
             "lastBookmarkFolderUpdatedAt": {
               "type": "string",
               "format": "datetime"
-            }
+            },
+            "diaryDay": { "type": "ref", "ref": "#diaryDay" }
           }
         }
       },
       "errors": [{ "name": "AuthRequired" }]
+    },
+    "diaryDay": {
+      "type": "object",
+      "description": "日記の「1日」を決める設定。本人にだけ返す。PDS レコードには書かない。",
+      "required": ["startHour", "current"],
+      "properties": {
+        "detectedTimezone": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Nagi を開いたときにブラウザから届いたタイムゾーン。"
+        },
+        "manualTimezone": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "本人が選んだタイムゾーン。あれば自動検出より優先する。"
+        },
+        "startHour": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 23,
+          "description": "本人が選んだ区切りの時刻（18〜23, 0〜6）。既定は22。"
+        },
+        "current": { "type": "ref", "ref": "#diaryDayCurrent" },
+        "pending": { "type": "ref", "ref": "#diaryDayPending" }
+      }
+    },
+    "diaryDayCurrent": {
+      "type": "object",
+      "description": "今開いている日に使っている設定。effectiveFrom はその設定が有効になった日（言語からの推定のままなら省略）。",
+      "required": ["timezone", "startHour"],
+      "properties": {
+        "timezone": { "type": "string", "maxLength": 64 },
+        "startHour": { "type": "integer", "minimum": 0, "maximum": 23 },
+        "effectiveFrom": { "type": "string", "maxLength": 10 }
+      }
+    },
+    "diaryDayPending": {
+      "type": "object",
+      "description": "まだ有効になっていない変更。effectiveFrom の日の日記から反映される。",
+      "required": ["timezone", "startHour", "effectiveFrom"],
+      "properties": {
+        "timezone": { "type": "string", "maxLength": 64 },
+        "startHour": { "type": "integer", "minimum": 0, "maximum": 23 },
+        "effectiveFrom": { "type": "string", "maxLength": 10 }
+      }
     },
     "feedTab": {
       "type": "object",

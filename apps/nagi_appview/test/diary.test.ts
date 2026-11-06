@@ -3,9 +3,12 @@ import test from "node:test";
 import { NAGI } from "@bsky-affirmative-bot/nagi-lexicon";
 import { validateRecord } from "../src/ingest/validateRecord.js";
 import {
-  diaryInteractionWindow,
+  diaryDateOf,
+  diaryDayWindow,
+  DIARY_DAY_BASELINE_DATE,
+} from "@bsky-affirmative-bot/shared-configs";
+import {
   diaryView,
-  moodDiaryDate,
   rankDiaryInteractionActors,
   validateDiaryRange,
 } from "../src/queries/diaries.js";
@@ -155,24 +158,13 @@ test("accepts at most 371 inclusive days for the annual diary graph", () => {
   );
 });
 
+const zone = (timezone: string, startHour = 22) => [
+  { effectiveFrom: DIARY_DAY_BASELINE_DATE, timezone, startHour },
+];
+const moodDiaryDate = (instant: Date, timezone: string) => diaryDateOf(instant, zone(timezone));
+
 test("uses the same local 22:00 cutoff as Japanese diary generation", () => {
-  const row = {
-    uri: "at://did:plc:bot/com.suibari.nagi.diary/alice-2026-08-02",
-    cid: "bafyreidiary",
-    did: "did:plc:bot",
-    subjectDid: "did:plc:alice",
-    diaryDate: "2026-08-02",
-    text: "今日の日記",
-    titleJa: null,
-    titleEn: null,
-    emoji: null,
-    postCount: 1,
-    isPrivate: false,
-    langs: ["ja"],
-    recordCreatedAt: new Date("2026-08-02T13:00:00.000Z"),
-    indexedAt: new Date("2026-08-02T13:00:01.000Z"),
-  };
-  const window = diaryInteractionWindow(row);
+  const window = diaryDayWindow("2026-08-02", zone("Asia/Tokyo"));
   assert.equal(window.start.toISOString(), "2026-08-01T13:00:00.000Z");
   assert.equal(window.end.toISOString(), "2026-08-02T13:00:00.000Z");
 });

@@ -6,6 +6,9 @@ import {
 import {
   db,
   followers,
+  getDiaryDayPreferences,
+  putDiaryDayPreferences,
+  type DiaryDayPreferencesInput,
   nagiEmojiFavorites,
   nagiFeedTabs,
   nagiBookmarkFolders,
@@ -32,6 +35,11 @@ import {
   type SyncedModerationPreferences,
   type SyncedLanguagePreferences,
 } from "@bsky-affirmative-bot/nagi-lexicon";
+import {
+  isDiaryDayStartHour,
+  isUsableDetectedTimezone,
+  isValidTimezone,
+} from "@bsky-affirmative-bot/shared-configs";
 import { eq, inArray, sql } from "drizzle-orm";
 import { ApiError } from "../middleware/errors.js";
 import { declareBirthDate, getAgeAssurance } from "../services/ageAssurance.js";
@@ -54,6 +62,32 @@ const isSection = (value: unknown): value is ReadPositionSection =>
 const invalid = (field: string): never => {
   throw new ApiError(400, "invalid_request", `Invalid ${field}`);
 };
+
+/**
+ * 日記の1日の区切り。detectedTimezone は自動で毎回届くので、使えない値（UTC など、
+ * 本当の場所を隠す設定のブラウザが返すもの）は 400 にせず黙って捨てる。
+ * 手動の値は本人が選んだものなので、不正なら 400。
+ */
+export function parseDiaryDayInput(
+  detected: unknown,
+  diaryDay: unknown,
+): DiaryDayPreferencesInput | undefined {
+  const input: DiaryDayPreferencesInput = {};
+  if (isUsableDetectedTimezone(detected)) input.detectedTimezone = detected;
+  if (diaryDay !== undefined) {
+    if (!diaryDay || typeof diaryDay !== "object" || Array.isArray(diaryDay)) invalid("diaryDay");
+    const { timezone, startHour } = diaryDay as { timezone?: unknown; startHour?: unknown };
+    if (timezone !== undefined) {
+      if (timezone !== null && !isValidTimezone(timezone)) invalid("diaryDay.timezone");
+      input.manualTimezone = timezone as string | null;
+    }
+    if (startHour !== undefined) {
+      if (!isDiaryDayStartHour(startHour)) invalid("diaryDay.startHour");
+      input.startHour = startHour as number;
+    }
+  }
+  return Object.keys(input).length ? input : undefined;
+}
 
 /** 入力は他人が書いた JSON として扱う。publish した lexicon は AppView を検証してくれない。 */
 function parseReadPositions(input: unknown): ReadPosition[] {
@@ -462,12 +496,14 @@ async function selectPreferences(did: string): Promise<PreferencesView> {
 export async function getPreferences(did: string): Promise<PreferencesView> {
   // 年齢確認は専用の lexicon を足さず設定へ相乗りさせる。新しい XRPC を公開すると
   // permission-set の再公開が要り、認可サーバのキャッシュが最大24時間残るため。
-  const [preferences, age] = await Promise.all([
+  const [preferences, age, diaryDay] = await Promise.all([
     selectPreferences(did),
     getAgeAssurance(did),
+    getDiaryDayPreferences(did),
   ]);
   return {
     ...preferences,
+    diaryDay,
     ageAssurance: {
       isAdult: age.isAdult,
       declared: age.declared,
@@ -534,6 +570,8 @@ export async function putPreferences(
         input.lastBookmarkFolderUpdatedAt,
       )
     : undefined;
+
+  const diaryDay = parseDiaryDayInput(input.detectedTimezone, input.diaryDay);
 
   // 生年月日は他の設定と違って上書きできない。2度目以降は declareBirthDate が 409。
   if (input.birthDate !== undefined)
@@ -710,6 +748,8 @@ export async function putPreferences(
         setWhere: sql`excluded.updated_at > bookmark_preferences.updated_at`,
       });
   }
+
+  if (diaryDay) await putDiaryDayPreferences(did, diaryDay);
 
   // 送った値ではなくマージ後の確定値を返す。負けた端末はこれで自分側を直せる。
   return getPreferences(did);
