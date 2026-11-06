@@ -550,8 +550,16 @@ export type NotificationView = {
   post?: PostView;
   /** type が "diary" のときの日記本体。post は付かない。 */
   diary?: DiaryView;
-  /** type が "reaction" のときの、押された絵文字。 */
+  /**
+   * type が "reaction" のときの、押された絵文字。まとめた通知では最後に押された1つ。
+   * 全部を出すには reactions を使う（これは reactions 導入前のクライアント向け）。
+   */
   reaction?: { emoji: string; bluemoji?: EmojiView };
+  /**
+   * type が "reaction" のときの、まとめた絵文字すべて（押された順）。
+   * 同じ相手・同じ対象への反応は、最初の反応から5分間を1件の通知にまとめる。
+   */
+  reactions?: { emoji: string; bluemoji?: EmojiView }[];
   /**
    * subject がゼンカツの提出・ドローの控えのときの中身。post には入らないので、
    * これが無いと「リアクションされた」とだけ出て何にされたのか分からなくなる。

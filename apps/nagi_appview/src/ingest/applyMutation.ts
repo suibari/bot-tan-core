@@ -15,6 +15,7 @@ import {
   nagiNews,
   nagiNewsReviewJobs,
   nagiNotifications,
+  nagiReactionNoticeLedger,
   nagiPosts,
   nagiProcessedEvents,
   nagiProfiles,
@@ -50,6 +51,7 @@ import {
   mentionNotificationRecipients,
   shouldNotifyReply,
 } from "../util/notificationPolicy.js";
+import { insertReactionNotification } from "./reactionNotice.js";
 import {
   shouldStartEnglishPrewarm,
   startEnglishPrewarm,
@@ -366,6 +368,9 @@ export async function applyMutation(
         await tx
           .delete(nagiNotifications)
           .where(eq(nagiNotifications.subjectUri, uri));
+        await tx
+          .delete(nagiReactionNoticeLedger)
+          .where(eq(nagiReactionNoticeLedger.subjectUri, uri));
         await tx
           .update(bot_memory_documents)
           .set({
@@ -1119,23 +1124,22 @@ export async function applyMutation(
         // subject が見つからず**黙って捨てられていた**（例外も出ないので気付けない）。
         const target = await resolveReactionSubject(tx, value.subject.uri);
         if (target && target.did !== did) {
-          const inserted = await tx
-            .insert(nagiNotifications)
-            .values({
-              recipientDid: target.did,
-              type: "reaction",
-              actorDid: did,
-              subjectUri: target.uri,
-              reasonUri: uri,
-            })
-            .onConflictDoNothing()
-            .returning({ id: nagiNotifications.id });
-          if (inserted.length)
+          // 同じ相手・同じ対象は5分単位で1件にまとめ、Push はその最初だけ。
+          // 一度通知した絵文字の付け直しは Push せず、外す前の既読状態で戻す（付け外しのいたずら対策）。
+          const { pushNotificationId } = await insertReactionNotification(tx, {
+            recipientDid: target.did,
+            actorDid: did,
+            subjectUri: target.uri,
+            reasonUri: uri,
+            emojiKey: bluemoji?.uri ?? value.emoji.normalize("NFC"),
+            now: new Date(),
+          });
+          if (pushNotificationId)
             pushJobs.push({
               recipientDid: target.did,
               type: "reaction",
               actorDid: did,
-              notificationId: inserted[0].id,
+              notificationId: pushNotificationId,
               actionText: bluemoji
                 ? `:${bluemoji.name}:`
                 : preview(value.emoji, 8),
