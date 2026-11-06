@@ -53,8 +53,11 @@ export const followers = affirmativeBotSchema.table("followers", {
   last_recap_at: timestamp("last_recap_at"),
   is_diary: integer("is_diary").default(0),
   // 日記を書き終えたユーザーのローカル日付 "YYYY-MM-DD"。
-  // 二重投稿の防止と、22時を過ぎた取りこぼしの回収判定に使う。
+  // 旧スケジューラの記録。今は diary_jobs が担うので書かない（列はあとで消す）。
   last_diary_date: text("last_diary_date"),
+  // Bluesky の最新の投稿（返信以外）の言語。Nagi を使っていない人の日記のタイムゾーンを
+  // 推定するのに使う（Nagi の設定・投稿があればそちらが優先）。
+  diary_bsky_lang: text("diary_bsky_lang"),
   is_anniv: integer("is_anniv").default(1),
   last_whimsical_responded_uri: text("last_whimsical_responded_uri"),
   positivity_level: integer("positivity_level").default(0),
@@ -592,6 +595,47 @@ export const polarity_samples = affirmativeBotSchema.table(
     check(
       "polarity_samples_label_check",
       sql`${table.label} in ('positive', 'neutral', 'negative')`,
+    ),
+  ],
+);
+
+/**
+ * 日記を「どの面（Nagi / Bluesky）が書くか」の決定と、その実行状態。1人・1日に1行。
+ * 決めるのは両方の bot サーバーの見回り（同じ関数で決めるので、先に行を作ったほうが勝つ
+ * だけで結果は同じ）。書くのは surface のサーバーだけ。主キーがあるので二重に書かない。
+ *
+ * status:
+ *  - pending: 書き待ち（失敗した日も、ここへ戻して1時間おきに試し直す）
+ *  - running: 実行中。lease_until を過ぎたら落ちたとみなして拾い直す
+ *  - done / skipped（材料が無いなど）/ expired（次の日の窓が閉じるまでに書けなかった）
+ * surface が none の行は「どちらも書かない」と決めた記録（毎回決め直さないため）。
+ */
+export const diaryJobs = affirmativeBotSchema.table(
+  "diary_jobs",
+  {
+    did: text("did").notNull(),
+    diaryDate: text("diary_date").notNull(),
+    surface: text("surface").notNull(),
+    status: text("status").notNull(),
+    windowStart: timestamp("window_start", { withTimezone: true }).notNull(),
+    windowEnd: timestamp("window_end", { withTimezone: true }).notNull(),
+    timezone: text("timezone").notNull(),
+    startHour: smallint("start_hour").notNull(),
+    attempts: integer("attempts").default(0).notNull(),
+    lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
+    leaseUntil: timestamp("lease_until", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.did, table.diaryDate] }),
+    index("diary_jobs_surface_status_idx").on(table.surface, table.status),
+    check("diary_jobs_surface_check", sql`${table.surface} in ('nagi', 'bsky', 'none')`),
+    check(
+      "diary_jobs_status_check",
+      sql`${table.status} in ('pending', 'running', 'done', 'skipped', 'expired')`,
     ),
   ],
 );

@@ -24,6 +24,8 @@ before(async () => {
     database.nagiDiaries,
     database.nagiDiaryDayPreferences,
     database.nagiDiaryDaySchedules,
+    database.followers,
+    database.diaryJobs,
   ]) {
     const { schema = "public", name, columns, primaryKeys } = getTableConfig(table);
     await client.unsafe(`create schema if not exists ${quote(schema)}`);
@@ -42,7 +44,8 @@ before(async () => {
 });
 beforeEach(async () => {
   if (!testUrl) return;
-  await client`truncate nagi.posts, nagi.diaries, nagi.diary_day_preferences, nagi.diary_day_schedules`;
+  await client`truncate nagi.posts, nagi.diaries, nagi.diary_day_preferences, nagi.diary_day_schedules,
+    affirmative_bot.followers, affirmative_bot.diary_jobs`;
 });
 after(() => client.end());
 
@@ -65,6 +68,23 @@ const schedules = async () =>
     await client`select effective_from, timezone, start_hour, source
       from nagi.diary_day_schedules where did = ${alice} order by effective_from`
   ).map((row) => [row.effective_from, row.timezone, row.start_hour, row.source]);
+
+test("Bluesky に決まった日の窓は固定し、翌日の変更で再試行期限を延ばす", { skip: !testUrl }, async () => {
+  await post("ja");
+  await client`insert into affirmative_bot.diary_jobs
+    (did, diary_date, surface, status, window_start, window_end, timezone, start_hour, attempts, expires_at)
+    values (${alice}, '2026-11-06', 'bsky', 'pending', '2026-11-05T13:00:00Z',
+      '2026-11-06T13:00:00Z', 'Asia/Tokyo', 22, 0, '2026-11-07T13:00:00Z')`;
+  const state = await database.putDiaryDayPreferences(
+    alice, { startHour: 2 }, new Date("2026-11-06T23:00:00+09:00"),
+  );
+  assert.equal(state.current.effectiveFrom, "2026-11-07");
+  const history = await database.loadDiaryDayHistory(alice);
+  assert.equal(diaryDayWindow("2026-11-06", history).startHour, 22);
+  const [job] = await client`select window_end, expires_at from affirmative_bot.diary_jobs`;
+  assert.equal(new Date(job.window_end).toISOString(), "2026-11-06T13:00:00.000Z");
+  assert.equal(new Date(job.expires_at).toISOString(), "2026-11-07T17:00:00.000Z");
+});
 
 test("初めての自動検出で、それまでの推定を baseline として凍結する", { skip: !testUrl }, async () => {
   await post("en");

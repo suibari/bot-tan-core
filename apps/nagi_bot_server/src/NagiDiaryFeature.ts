@@ -1,8 +1,12 @@
-import { and, eq, gte, inArray } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import {
+  claimDiaryJobs,
   db,
-  loadDiaryDayHistories,
+  decideDiaryJobs,
+  finishDiaryJob,
   loadDiaryDayHistory,
+  type DiaryJob,
+  type DiaryJobOutcome,
   MemoryService,
   nagiActors,
   nagiDiaries,
@@ -19,10 +23,8 @@ import {
 import {
   diaryDateOf,
   diaryDayWindow,
-  dueDiaryDay,
   isEmptyDiaryDay,
   isInDiaryDayWindow,
-  shiftDate,
   type DiaryDayWindow,
 } from "@bsky-affirmative-bot/shared-configs";
 import {
@@ -39,22 +41,13 @@ import { createDiary } from "./appviewInternal.js";
 import { clipNagiPostText } from "./nagiPostText.js";
 import { startWorkerLoop } from "./workerLoop.js";
 
-const DAY_MS = 24 * 60 * 60 * 1000;
 /**
  * 見回りの間隔。区切りの時刻は人ごとに違い、30分・45分ずれのタイムゾーンもあるので、
- * 人ごとの setTimeout ではなく短い間隔で「窓が閉じたのに日記が無い日」を探す。
+ * 人ごとの setTimeout ではなく短い間隔で見回る。どの面（Nagi / Bluesky）が書くかは
+ * database の decideDiaryJobs が決め、ここでは Nagi の行だけを取って書く。
  * 窓の終わりは計算で決まるので、見回りが遅れても日記の材料は変わらない。
  */
 const SCAN_INTERVAL_MS = 5 * 60 * 1000;
-/** 生成に失敗した日を、次に試すまでの間隔（以前の毎時の再スキャンと同じ）。 */
-const RETRY_INTERVAL_MS = 60 * 60 * 1000;
-/** 候補を拾う範囲。窓は最長で2日弱（タイムゾーンを大きく西へ動かした日）。 */
-const ACTIVE_LOOKBACK_MS = 3 * DAY_MS;
-
-/** 実行中の人。生成は最大3時間粘るので、その間の見回りで二重に起動しない。 */
-const running = new Set<string>();
-/** 失敗した (did, date) と最後に試した時刻。 */
-const lastAttempts = new Map<string, number>();
 
 /**
  * 日記レコードの rkey。
@@ -112,7 +105,7 @@ async function getDisplayName(did: string): Promise<string> {
 export async function processNagiDiary(
   userDid: string,
   window?: DiaryDayWindow,
-): Promise<void> {
+): Promise<DiaryJobOutcome> {
   try {
     console.log(`[INFO][NAGI][${userDid}] Processing diary...`);
 
@@ -125,7 +118,7 @@ export async function processNagiDiary(
     }
     if (isEmptyDiaryDay(day)) {
       console.log(`[INFO][NAGI][${userDid}] ${day.date} is an empty day, skipping`);
-      return;
+      return "skipped";
     }
     const { date, timezone } = day;
     const since = day.start;
@@ -136,7 +129,7 @@ export async function processNagiDiary(
     );
     if (recentPosts.length === 0) {
       console.log(`[INFO][NAGI][${userDid}] today's post not found`);
-      return;
+      return "skipped";
     }
 
     // こっそりを1つでも含む日かどうか。日記はどれも本人限定なので出し分けには使わず、記録として残す。
@@ -161,7 +154,7 @@ export async function processNagiDiary(
       .limit(1);
     if (existing[0]) {
       console.log(`[INFO][NAGI][${userDid}] diary for ${date} already exists`);
-      return;
+      return "done";
     }
 
     const dayContext = await loadDiaryDayContext(
@@ -186,7 +179,7 @@ export async function processNagiDiary(
     let diaryResult: DiaryResult;
     try {
       // 失敗するたびにモデル/tier を上げながら最大3時間粘る。
-      // 使い切っても、次の日の窓が閉じるまでは見回りが1時間おきに拾い直す。
+      // 使い切っても、次の日の窓が閉じるまでは diary_jobs を1時間おきに拾い直す。
       const userinfo = await withPreferredName({
         follower,
         posts: recentPosts.map((post) => post.text),
@@ -206,7 +199,7 @@ export async function processNagiDiary(
         `[ERROR][NAGI][${userDid}][DIARY] Failed to generate diary after up to ${DIARY_MAX_ATTEMPTS} attempts:`,
         error.message,
       );
-      return;
+      return "failed";
     }
 
     const record: NagiDiary = {
@@ -252,63 +245,32 @@ export async function processNagiDiary(
     }
 
     console.log(`[INFO][NAGI][${userDid}] finish to process diary (${date})`);
+    return "done";
   } catch (error) {
     console.error(`[ERROR][NAGI][${userDid}] an error occured in diary process:`, error);
+    return "failed";
   }
 }
 
-function runNagiDiary(userDid: string, window: DiaryDayWindow) {
-  running.add(userDid);
-  lastAttempts.set(`${userDid}:${window.date}`, Date.now());
-  processNagiDiary(userDid, window)
-    .catch((error) => console.error(`[ERROR][NAGI][${userDid}]`, error))
-    .finally(() => running.delete(userDid));
+function runNagiDiary(job: DiaryJob) {
+  processNagiDiary(job.did, job.window)
+    .catch((error) => {
+      console.error(`[ERROR][NAGI][${job.did}]`, error);
+      return "failed" as const;
+    })
+    .then((outcome) => finishDiaryJob(job, outcome))
+    .catch((error) => console.error(`[ERROR][NAGI][${job.did}] failed to finish diary job`, error));
 }
 
-/**
- * 最近 Nagi へ投稿した人ごとに、窓が閉じたのに日記の無い日を探して書く。
- * Bluesky と違い日記モードのオプトインは無く、その日に投稿があれば書く。
- */
+/** 書く面を決め（Bluesky 側と同じ関数）、Nagi に決まった行を取って書く。 */
 async function scanNagiDiaries() {
-  const now = new Date();
-  const botDid = process.env.NAGI_BOT_DID;
-  const authors = (
-    await MemoryService.getNagiActiveAuthorsSince(new Date(now.getTime() - ACTIVE_LOOKBACK_MS))
-  ).filter((did) => did !== botDid && !running.has(did));
-  if (!authors.length) return;
-
-  const histories = await loadDiaryDayHistories(authors);
-  const due = new Map<string, DiaryDayWindow>();
-  for (const did of authors) {
-    const window = dueDiaryDay(histories.get(did)!, now);
-    if (!window) continue;
-    const attempted = lastAttempts.get(`${did}:${window.date}`);
-    if (attempted && now.getTime() - attempted < RETRY_INTERVAL_MS) continue;
-    due.set(did, window);
-  }
-  if (!due.size) return;
-
-  const written = await db
-    .select({ did: nagiDiaries.subjectDid, date: nagiDiaries.diaryDate })
-    .from(nagiDiaries)
-    .where(
-      and(
-        inArray(nagiDiaries.subjectDid, [...due.keys()]),
-        gte(nagiDiaries.diaryDate, shiftDate(now.toISOString().slice(0, 10), -5)),
-      ),
-    );
-  const done = new Set(written.map((row) => `${row.did}:${row.date}`));
-  for (const [did, window] of due) {
-    if (done.has(`${did}:${window.date}`)) continue;
+  await decideDiaryJobs();
+  for (const job of await claimDiaryJobs("nagi")) {
     console.log(
-      `[INFO][NAGI][${did}] diary due for ${window.date} (tz: ${window.timezone}, cutoff: ${window.startHour}:00)`,
+      `[INFO][NAGI][${job.did}] writing diary for ${job.window.date} (attempt ${job.attempts})`,
     );
-    runNagiDiary(did, window);
+    runNagiDiary(job);
   }
-
-  // 古い失敗の記録を捨てる。
-  for (const [key, at] of lastAttempts)
-    if (now.getTime() - at > 2 * DAY_MS) lastAttempts.delete(key);
 }
 
 /** 起動時に呼ぶ。以降は SCAN_INTERVAL_MS ごとに見回る。 */

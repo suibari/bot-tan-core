@@ -3,6 +3,7 @@ import {
   committedDiaryDayHistory,
   diaryDateOf,
   diaryDaySettingFor,
+  diaryDayWindow,
   DIARY_DAY_BASELINE_DATE,
   DIARY_DAY_DEFAULT_START_HOUR,
   localeToTimezone,
@@ -12,7 +13,7 @@ import {
   type DiaryDayScheduleEntry,
   type DiaryDaySetting,
 } from "@bsky-affirmative-bot/shared-configs";
-import { db } from "./db.js";
+import { db, diaryJobs, followers } from "./db.js";
 import {
   nagiDiaries,
   nagiDiaryDayPreferences,
@@ -25,28 +26,51 @@ import {
  * AppView（日付の割り当て）と nagi_bot_server（日記の生成）は、どちらもここで履歴を読む。
  */
 
+const firstLang = (langs: unknown) => (Array.isArray(langs) ? (langs[0] as unknown) : undefined);
+const zoneOfLang = (lang: unknown) =>
+  typeof lang === "string" && lang ? localeToTimezone[lang] : undefined;
+
 /**
- * 設定が無い人の推定。最新の日記の言語、無ければ最新の投稿の言語から決める
- * （以前の AppView の loadMoodTimezone と同じ）。
+ * 設定が無い人のタイムゾーンの推定。上から順に、最初に決まったものを使う。
+ *  1. 最新の Nagi の日記の言語（以前の AppView の loadMoodTimezone と同じ）
+ *  2. 最新の Nagi への投稿の言語
+ *  3. Bluesky の最新の投稿の言語（Nagi を使っていない人。bsky_bot_server が記録する）
+ *  4. UTC
  */
-export async function guessDiaryTimezone(did: string): Promise<string> {
-  const [diary] = await db
-    .select({ langs: nagiDiaries.langs })
-    .from(nagiDiaries)
-    .where(eq(nagiDiaries.subjectDid, did))
-    .orderBy(desc(nagiDiaries.diaryDate))
-    .limit(1);
-  let lang = ((diary?.langs as string[] | null) ?? [])[0];
-  if (!lang) {
-    const [post] = await db
-      .select({ langs: nagiPosts.langs })
+export async function guessDiaryTimezones(dids: string[]): Promise<Map<string, string>> {
+  const result = new Map<string, string>();
+  if (!dids.length) return result;
+  const [diaries, posts, bsky] = await Promise.all([
+    db
+      .selectDistinctOn([nagiDiaries.subjectDid], {
+        did: nagiDiaries.subjectDid,
+        langs: nagiDiaries.langs,
+      })
+      .from(nagiDiaries)
+      .where(inArray(nagiDiaries.subjectDid, dids))
+      .orderBy(nagiDiaries.subjectDid, desc(nagiDiaries.diaryDate)),
+    db
+      .selectDistinctOn([nagiPosts.did], { did: nagiPosts.did, langs: nagiPosts.langs })
       .from(nagiPosts)
-      .where(and(eq(nagiPosts.did, did), isNull(nagiPosts.deletedAt)))
-      .orderBy(desc(nagiPosts.recordCreatedAt))
-      .limit(1);
-    lang = ((post?.langs as string[] | null) ?? [])[0];
-  }
-  return (lang && localeToTimezone[lang]) || "UTC";
+      .where(and(inArray(nagiPosts.did, dids), isNull(nagiPosts.deletedAt)))
+      .orderBy(nagiPosts.did, desc(nagiPosts.recordCreatedAt)),
+    db
+      .select({ did: followers.did, lang: followers.diary_bsky_lang })
+      .from(followers)
+      .where(inArray(followers.did, dids)),
+  ]);
+  const byDid = (rows: { did: string; zone: string | undefined }[]) =>
+    new Map(rows.flatMap((row) => (row.zone ? [[row.did, row.zone] as const] : [])));
+  const fromDiary = byDid(diaries.map((row) => ({ did: row.did, zone: zoneOfLang(firstLang(row.langs)) })));
+  const fromPost = byDid(posts.map((row) => ({ did: row.did, zone: zoneOfLang(firstLang(row.langs)) })));
+  const fromBsky = byDid(bsky.map((row) => ({ did: row.did, zone: zoneOfLang(row.lang) })));
+  for (const did of dids)
+    result.set(did, fromDiary.get(did) ?? fromPost.get(did) ?? fromBsky.get(did) ?? "UTC");
+  return result;
+}
+
+export async function guessDiaryTimezone(did: string): Promise<string> {
+  return (await guessDiaryTimezones([did])).get(did) ?? "UTC";
 }
 
 const toEntry = (row: typeof nagiDiaryDaySchedules.$inferSelect): DiaryDayScheduleEntry => ({
@@ -80,7 +104,7 @@ const fallbackHistory = (timezone: string): DiaryDayHistory => [
   },
 ];
 
-/** 区切りに使う履歴。行が無ければ言語からの推定と22時の1行だけ。 */
+/** 区切りに使う履歴。行が無ければ推定（guessDiaryTimezones）と22時の1行だけ。 */
 export async function loadDiaryDayHistory(did: string): Promise<DiaryDayHistory> {
   const rows = (await selectHistories([did])).get(did);
   return rows?.length ? rows : fallbackHistory(await guessDiaryTimezone(did));
@@ -89,10 +113,11 @@ export async function loadDiaryDayHistory(did: string): Promise<DiaryDayHistory>
 /** 複数人の履歴をまとめて読む（日記のスケジューラ用）。 */
 export async function loadDiaryDayHistories(dids: string[]): Promise<Map<string, DiaryDayHistory>> {
   const rows = await selectHistories(dids);
+  const guesses = await guessDiaryTimezones(dids.filter((did) => !rows.get(did)?.length));
   const result = new Map<string, DiaryDayHistory>();
   for (const did of dids) {
     const list = rows.get(did);
-    result.set(did, list?.length ? list : fallbackHistory(await guessDiaryTimezone(did)));
+    result.set(did, list?.length ? list : fallbackHistory(guesses.get(did) ?? "UTC"));
   }
   return result;
 }
@@ -120,14 +145,17 @@ export type DiaryDayPreferencesState = {
   pending?: DiaryDaySetting & { effectiveFrom: string };
 };
 
-async function lastDiaryDate(did: string): Promise<string | undefined> {
-  const [row] = await db
-    .select({ date: nagiDiaries.diaryDate })
-    .from(nagiDiaries)
-    .where(eq(nagiDiaries.subjectDid, did))
-    .orderBy(desc(nagiDiaries.diaryDate))
-    .limit(1);
-  return row?.date;
+async function lastDiaryDate(did: string, reader: Pick<typeof db, "select"> = db): Promise<string | undefined> {
+  // 書き先を決めた日は窓を凍結する。Bluesky へ書いた日や実行待ちの日も動かさない。
+  const [diaries, jobs, legacy] = await Promise.all([
+    reader.select({ date: nagiDiaries.diaryDate }).from(nagiDiaries)
+      .where(eq(nagiDiaries.subjectDid, did)).orderBy(desc(nagiDiaries.diaryDate)).limit(1),
+    reader.select({ date: diaryJobs.diaryDate }).from(diaryJobs)
+      .where(eq(diaryJobs.did, did)).orderBy(desc(diaryJobs.diaryDate)).limit(1),
+    reader.select({ date: followers.last_diary_date }).from(followers)
+      .where(eq(followers.did, did)).limit(1),
+  ]);
+  return [...diaries, ...jobs, ...legacy].flatMap((row) => row.date ? [row.date] : []).sort().at(-1);
 }
 
 function stateOf(
@@ -176,10 +204,10 @@ export async function putDiaryDayPreferences(
   now: Date = new Date(),
 ): Promise<DiaryDayPreferencesState> {
   const guessed = await guessDiaryTimezone(did);
-  const lastDate = await lastDiaryDate(did);
   return db.transaction(async (tx) => {
     // 同じ人の同時保存（複数端末から同時に開いたなど）を直列にする。
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`diary_day:${did}`}))`);
+    const lastDate = await lastDiaryDate(did, tx);
 
     const [before] = await tx
       .select()
@@ -258,6 +286,15 @@ export async function putDiaryDayPreferences(
           a.effectiveFrom.localeCompare(b.effectiveFrom),
         );
       }
+    }
+    // 翌日の区切りが動けば、すでに決めた日の再試行期限も同じ終わりに合わせる。
+    const retrying = await tx.select().from(diaryJobs).where(
+      and(eq(diaryJobs.did, did), inArray(diaryJobs.status, ["pending", "running"])),
+    );
+    for (const job of retrying) {
+      const nextDate = diaryDateOf(new Date(job.windowEnd.getTime() + 1), result);
+      await tx.update(diaryJobs).set({ expiresAt: diaryDayWindow(nextDate, result).end })
+        .where(and(eq(diaryJobs.did, did), eq(diaryJobs.diaryDate, job.diaryDate)));
     }
     return stateOf(prefs, result, now);
   });

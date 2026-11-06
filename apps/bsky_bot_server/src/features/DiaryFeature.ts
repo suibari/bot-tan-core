@@ -4,10 +4,11 @@ import { BotFeature, FeatureContext } from "./types.js";
 
 import { AppBskyFeedPost } from "@atproto/api"; type Record = AppBskyFeedPost.Record;
 import { handleMode } from "./utils.js";
-import { getLangStr, getTimezoneFromLang } from "../bsky/util.js";
-import { diaryDateOf, diaryDayWindow } from "@bsky-affirmative-bot/shared-configs";
-import { loadDiaryDayHistory } from "@bsky-affirmative-bot/database";
-import { MemoryService, applyDiaryTitle, buildUserDiaryContext, calculateDelayUntilLocal22, isPastLocal22, localDateStr, selectUserDiaryMediaReference, withPreferredName } from "@bsky-affirmative-bot/clients";
+import { getLangStr } from "../bsky/util.js";
+import { isInDiaryDayWindow } from "@bsky-affirmative-bot/shared-configs";
+import { claimDiaryJobs, decideDiaryJobs, finishDiaryJob, type DiaryJob, type DiaryJobOutcome } from "@bsky-affirmative-bot/database";
+import { startWorkerLoop } from "@bsky-affirmative-bot/bot-runtime";
+import { MemoryService, applyDiaryTitle, buildUserDiaryContext, selectUserDiaryMediaReference, withPreferredName } from "@bsky-affirmative-bot/clients";
 import { LanguageName } from "@bsky-affirmative-bot/shared-configs";
 import { getConcatProfiles } from "../bsky/getConcatProfiles.js";
 import { getDaysAuthorFeed } from "../bsky/getDaysAuthorFeed.js";
@@ -17,15 +18,18 @@ import { agent } from "../bsky/agent.js";
 import { postContinuous } from "../bsky/postContinuous.js";
 
 const TEXT_REGISTER_DIARY = (langStr: LanguageName) => (langStr === "日本語") ?
-    "日記モードを設定しました! これから毎日、PM10時にあなたの今日のできごとを日記にしてまとめるね!" :
-    "Diary mode has been enabled! From now on, every day at 10 PM, I'll write a diary of your day's events!";
+    "日記モードを設定しました! これから毎日、1日の終わり（ふだんは夜10時）に、あなたのその日のできごとを日記にしてまとめるね!" :
+    "Diary mode has been enabled! From now on, at the end of each day (usually 10 PM), I'll write a diary of your day's events!";
 
 const TEXT_RELEASE_DIARY = (langStr: LanguageName) => (langStr === "日本語") ?
     "日記モードを解除しました! また使ってね!" :
     "Diary mode has been disabled! Please use it again!"
 
-// 多重スケジュール抑止用。値が null なのは「タイマー待ちではなく今まさに実行中」。
-const scheduledTimers = new Map<string, NodeJS.Timeout | null>();
+const DAY_MS = 24 * 60 * 60 * 1000;
+/** 日記の見回りの間隔。どの面が書くかの決定と、Bluesky に決まった日の実行。 */
+const SCAN_INTERVAL_MS = 5 * 60 * 1000;
+/** Bluesky の最新の投稿の言語を記録し直す間隔。 */
+const LANG_REFRESH_INTERVAL_MS = 60 * 60 * 1000;
 
 export class DiaryFeature implements BotFeature {
     name = "Diary";
@@ -72,59 +76,36 @@ export class DiaryFeature implements BotFeature {
     }
 }
 
-/** ローカル22時までの遅延。Nagi 側の日記スケジューラと共用するため実体は clients にある。 */
-export { calculateDelayUntilLocal22 };
-
 /**
- * Processes the diary for a single user.
- * @param userDid The user's DID.
- * @param timezone The user's timezone. その日ぶんを書き終えたかの判定に使う。
+ * 1人・1日ぶんの Bluesky の日記を書く。どの日に誰が書くか（Nagi か Bluesky か）は
+ * database の decideDiaryJobs が決め、ここへは Bluesky に決まった日だけが来る。
+ * 窓（区切り）は Nagi と同じ関数で決まったもので、Nagi で本人が教えた設定も効く。
  */
-async function processUserDiary(userDid: string, timezone: string) {
+async function processUserDiary(job: DiaryJob): Promise<DiaryJobOutcome> {
+    const userDid = job.did;
+    const { date: diaryDate, timezone } = job.window;
+    const since = job.window.start;
+    const until = job.window.end;
     try {
-        console.log(`[INFO][${userDid}] Processing diary...`);
-
-        const until = new Date();
-        const diaryDate = localDateStr(timezone, until);
-
-        // 取りこぼし回収で毎時呼ばれるので、書き終えた日はここで抜ける。
-        const follower = await MemoryService.getFollower(userDid);
-        if (follower?.last_diary_date === diaryDate) {
-            console.log(`[INFO][${userDid}] diary for ${diaryDate} already posted`);
-            return;
-        }
-
-        // Nagi にその日のポストがあれば、日記は Nagi 側が書く。
-        // クロスポスト（isNagiCrosspost）と同じく、片方が担当したらもう片方は黙る。
-        // ここでは last_diary_date を書かない。書くと Nagi 側が失敗したときに
-        // 両方欠測で確定してしまう。
-        // 判定の範囲は「直近24時間」と「Nagi で今開いている日の窓」の広いほう。Nagi の区切りは
-        // 本人が変えられる（2時区切りなど）ので、24時間より前から続く Nagi の日もある。
-        const nagiHistory = await loadDiaryDayHistory(userDid);
-        const nagiOpen = diaryDayWindow(diaryDateOf(until, nagiHistory), nagiHistory);
-        const since = new Date(
-            Math.min(until.getTime() - 24 * 60 * 60 * 1000, nagiOpen.start.getTime()),
-        );
-        if (await MemoryService.hasNagiPostsSince(userDid, since)) {
-            console.log(`[INFO][${userDid}] Nagi diary takes precedence, skipping Bluesky diary`);
-            return;
-        }
+        console.log(`[INFO][${userDid}] Processing diary for ${diaryDate}...`);
 
         // ユーザープロフィールを取得
         const profiles = await getConcatProfiles({ actors: [userDid] });
         if (!profiles || profiles.length === 0) {
             console.log(`[INFO][${userDid}] not found profile`);
-            return;
+            return "skipped";
         }
         const profile = profiles[0];
 
-        // 本関数実行時から24h前までのポストを収集
-        const allRecentPosts = await getDaysAuthorFeed(userDid);
+        // 窓の始まりまでさかのぼって取り、窓の中の投稿だけを材料にする。
+        const daysAgo = Math.max(1, (Date.now() - since.getTime()) / DAY_MS);
+        const allRecentPosts = (await getDaysAuthorFeed(userDid, daysAgo)).filter((item) =>
+            isInDiaryDayWindow(new Date(item.post.indexedAt), job.window),
+        );
 
         if (allRecentPosts.length === 0) {
             console.log(`[INFO][${userDid}] today's post not found`);
-            // Removed self-scheduling from here. The higher-level scheduler will handle re-scheduling.
-            return;
+            return "skipped";
         }
 
         const posts = allRecentPosts.map(item => (item.post.record as Record).text);
@@ -132,8 +113,7 @@ async function processUserDiary(userDid: string, timezone: string) {
 
         if (!latestPost) {
             console.log(`[INFO][${userDid}] all posts are reply`);
-            // Removed self-scheduling from here.
-            return;
+            return "skipped";
         }
         const langStr = getLangStr((latestPost.record as Record).langs);
         const dayContext = await buildUserDiaryContext({
@@ -151,7 +131,7 @@ async function processUserDiary(userDid: string, timezone: string) {
         let diaryResult: DiaryResult;
         try {
             // 失敗するたびにモデル/tier を上げながら最大3時間粘る。
-            // 使い切っても、22時を過ぎている人は毎時の再スキャンが拾い直す。
+            // 使い切っても、次の日の窓が閉じるまでは diary_jobs を1時間おきに拾い直す。
             const userinfo = await withPreferredName({
                 follower: profile as ProfileView,
                 posts: posts.reverse(),
@@ -163,20 +143,28 @@ async function processUserDiary(userDid: string, timezone: string) {
             );
         } catch (e: any) {
             console.error(`[ERROR][${userDid}][DIARY] Failed to generate diary after up to ${DIARY_MAX_ATTEMPTS} attempts:`, e.message);
-            return;
+            return "failed";
         }
 
         const text_bot = diaryResult.diary;
 
         console.log(`[INFO][${userDid}] generating image...`);
-        const imageGenerationDate = new Date(); // Use a new Date object for image generation context
-        const formattedDate = `${imageGenerationDate.getFullYear()}/${imageGenerationDate.getMonth() + 1}/${imageGenerationDate.getDate()}`;
+        // 画像の日付は日記の日付（サーバーの時計ではなく、その人の区切りで決まった日）。
+        const [year, month, day] = diaryDate.split("-").map(Number);
+        const formattedDate = `${year}/${month}/${day}`;
         const buffer = await textToImageBufferWithBackground(text_bot + `\n\n${formattedDate}`);
         const { blob } = (await agent.uploadBlob(buffer, { encoding: "image/png" })).data;
 
+        // 区切りの時刻は人ごとに違う（18時〜翌6時）ので、「今日」「おやすみ」のような
+        // 時刻に縛られる言葉は使わず、日付で言う。
+        const englishDate = new Date(Date.UTC(year, month - 1, day)).toLocaleDateString("en-US", {
+            month: "long",
+            day: "numeric",
+            timeZone: "UTC",
+        });
         let replyText = (langStr === "日本語") ?
-            `${profile.displayName}さんへ、今日の日記をまとめたよ! 画像を貼るので見てみてね。おやすみ～!` :
-            `${profile.displayName}, I summarized your diary for today! Check the image. Good night!`;
+            `${profile.displayName}さんへ、${month}月${day}日の日記をまとめたよ! 画像を貼るので見てみてね。` :
+            `${profile.displayName}, I wrote your diary for ${englishDate}! Check the image.`;
 
         // 称号バッジ (日記) 適用処理。Nagi 側の日記からも同じ関数を呼ぶ。
         try {
@@ -199,130 +187,83 @@ async function processUserDiary(userDid: string, timezone: string) {
             record: latestPost.record as Record
         }, { blob, alt: `Dear ${profile.displayName}, From 全肯定botたん` });
 
-        // 投稿できたときだけ記録する。ここより手前で落ちた日は取りこぼし扱いで再試行される。
-        await MemoryService.updateFollower(userDid, 'last_diary_date', diaryDate);
         console.info(`[INFO][DIARY] diary_published surface=bsky subject=${userDid} date=${diaryDate}`);
-
         console.log(`[INFO][${userDid}] finish to process diary (${diaryDate})`);
-
+        return "done";
     } catch (e: any) {
+        if (e?.error === "BlockedByActor" || e?.error === "AccountDeactivated" || e?.error === "AccountTakedown") {
+            console.log(`[INFO][${userDid}] ${e.error}, skipping diary`);
+            return "skipped";
+        }
         console.error(`[ERROR][${userDid}] an error occured in diary process:`, e);
+        return "failed";
     }
 }
 
-/** 実行中も scheduledTimers に居座らせて、毎時の再スキャンによる二重起動を防ぐ。 */
-function runUserDiary(userDid: string, timezone: string) {
-    processUserDiary(userDid, timezone)
-        .catch(err => console.error(`[ERROR][${userDid}]`, err))
-        .finally(() => {
-            scheduledTimers.delete(userDid); // 終了後に削除
-        });
+function runUserDiary(job: DiaryJob) {
+    processUserDiary(job)
+        .catch((e) => {
+            console.error(`[ERROR][${job.did}]`, e);
+            return "failed" as const;
+        })
+        .then((outcome) => finishDiaryJob(job, outcome))
+        .catch((e) => console.error(`[ERROR][${job.did}] failed to finish diary job`, e));
 }
 
 /**
- * Schedules the diary processing for a single user for their local 22:00.
- * すでに22時を回っているなら即実行する。setTimeout に任せると次は約24時間後になり、
- * 生成失敗やプロセス再起動でその日の日記が丸ごと欠測してしまうため。
- * 二重投稿は processUserDiary 冒頭の last_diary_date チェックが防ぐ。
- * @param userDid The user's DID.
- * @param timezone The user's timezone.
+ * 日記モードの人の、Bluesky の最新の投稿（返信以外）の言語を記録する。Nagi を使っていない人の
+ * 日記のタイムゾーンは、これから推定する（database の guessDiaryTimezones）。
+ * Bluesky の API を1人ずつ呼ぶので、日記の見回りより間隔を空ける。
  */
-function scheduleUserDiary(userDid: string, timezone: string) {
-    if (scheduledTimers.has(userDid)) return; // すでにスケジュール済み
-
-    if (isPastLocal22(timezone)) {
-        console.log(`[INFO][${userDid}] past local 22:00, running diary now (tz: ${timezone})`);
-        // タイマーは無いが、実行中の印として同じ Map を使う。
-        scheduledTimers.set(userDid, null);
-        runUserDiary(userDid, timezone);
-        return;
-    }
-
-    const delay = calculateDelayUntilLocal22(timezone);
-    console.log(`[INFO][${userDid}] scheduling diary, tz: ${timezone}, next: ${delay}ms`);
-    const timer = setTimeout(() => runUserDiary(userDid, timezone), delay);
-
-    scheduledTimers.set(userDid, timer);
-}
-
-/**
- * Manages all user diary schedules. Fetches users, determines their timezone,
- * calculates delays, and schedules their diary processing.
- * This function is intended to be called periodically to ensure all users are scheduled.
- */
-async function manageUserDiarySchedules() {
+async function refreshBlueskyDiaryLangs() {
     const usersWithDiaryMode = await MemoryService.getFollowersByColumn("is_diary", 1);
-
-    if (!usersWithDiaryMode || usersWithDiaryMode.length === 0) {
-        console.log("[INFO][DIARY] no user for diary mode");
-        return;
-    }
-    console.log(`[INFO][DIARY] is_diary: ${usersWithDiaryMode.length}`);
-
-    // Fetch community members (active + discord_only) from the database
-    const communityMembers = await MemoryService.getCommunityMembersOrDeveloper();
-    const communityMemberSet = new Set(communityMembers);
-
-    // Filter users to include only those who are community members
-    const eligibleUsers = usersWithDiaryMode.filter(user => communityMemberSet.has(user.did));
+    if (!usersWithDiaryMode?.length) return;
+    const communityMemberSet = new Set(await MemoryService.getCommunityMembersOrDeveloper());
+    const eligibleUsers = usersWithDiaryMode.filter((user) => communityMemberSet.has(user.did));
     console.log(`[INFO][DIARY] subbed-follower && is_diary: ${eligibleUsers.length}`);
 
-    for (const user of eligibleUsers) { // Iterate over eligibleUsers instead of usersWithDiaryMode
-        const userDid = user.did; // Extract did from the user object
+    for (const user of eligibleUsers) {
+        const userDid = user.did as string;
         try {
-            // 削除されたユーザなどがいるので、まずgetProfileして確認
-            await agent.getProfile({ actor: userDid });
-
-            // Fetch latest post to get language
-            // Note: getTodaysAuthorFeed is called here just to get the latest post for language detection.
-            // The actual "today's posts" fetching happens in processUserDiary with a specific date.
-            const feedForLang = await getDaysAuthorFeed(userDid);
-            const latestPost = feedForLang.find(item => !item.reply)?.post;
-            if (!latestPost) {
-                console.log(`[INFO][${userDid}] latest post not found`);
-                continue;
-            }
-            const lang = (latestPost.record as Record).langs?.[0];
-            // console.log(`[DEBUG][${userDid}] lang: ${lang}`);
-            const timezone = getTimezoneFromLang(lang);
-
-            // Schedule the user's diary processing if not already scheduled.
-            // For simplicity, we'll just schedule it. A more robust system would track scheduled timers.
-            scheduleUserDiary(userDid, timezone);
-
+            const feed = await getDaysAuthorFeed(userDid);
+            const latestPost = feed.find((item) => !item.reply)?.post;
+            const lang = (latestPost?.record as Record | undefined)?.langs?.[0];
+            if (lang && lang !== user.diary_bsky_lang)
+                await MemoryService.updateFollower(userDid, "diary_bsky_lang", lang);
         } catch (e: any) {
-            if (e.error === 'AccountDeactivated') {
-                console.log(`[INFO][${userDid}] account deactivated, skipping...`);
-                continue;
-            }
-            if (e.error === 'AccountTakedown') {
-                console.log(`[INFO][${userDid}] account was takedown, skipping...`);
-                continue;
-            }
-            if (e.error === 'BlockedByActor') {
-                console.log(`[INFO][${userDid}] account blocked bot, skipping...`);
-                continue;
-            }
-            console.error(`[ERROR][${userDid}] error occur in diary scheduling:`, e);
+            if (["AccountDeactivated", "AccountTakedown", "BlockedByActor"].includes(e?.error)) continue;
+            console.error(`[ERROR][${userDid}] failed to refresh diary language:`, e);
         }
     }
 }
 
+/** 書く面を決め（Nagi 側と同じ関数）、Bluesky に決まった行を取って書く。 */
+async function scanBlueskyDiaries() {
+    await decideDiaryJobs();
+    for (const job of await claimDiaryJobs("bsky")) {
+        console.log(`[INFO][${job.did}] writing Bluesky diary for ${job.window.date} (attempt ${job.attempts})`);
+        runUserDiary(job);
+    }
+}
+
 /**
- * Main scheduler function. Called on application startup.
- * Sets up periodic checks for user schedules and initial scheduling.
+ * 起動時に呼ぶ。日記の見回りは5分ごと、言語の記録は1時間ごと。
+ * 区切りの時刻は人ごとに違う（Nagi で本人が教えたもの。無ければ言語から推定した22時）。
  */
 export async function scheduleAllUserDiaries() {
-    console.log("[INFO][DIARY] scheduling all user diary");
+    console.log("[INFO][DIARY] start diary scan");
 
-    // await createOrRefreshSession();
+    startWorkerLoop({
+        name: "BSKY_DIARY",
+        intervalMs: SCAN_INTERVAL_MS,
+        tick: scanBlueskyDiaries,
+    });
+    startWorkerLoop({
+        name: "BSKY_DIARY_LANG",
+        intervalMs: LANG_REFRESH_INTERVAL_MS,
+        tick: refreshBlueskyDiaryLangs,
+    });
 
-    // Periodically check and update user schedules (e.g., every hour)
-    setInterval(async () => {
-        console.log("[INFO][DIARY] priodically sheduling set");
-        await manageUserDiarySchedules();
-    }, 60 * 60 * 1000); // Check every hour
-
-    // Initial scheduling
-    await manageUserDiarySchedules();
+    await refreshBlueskyDiaryLangs().catch((e) => console.error("[ERROR][DIARY] language refresh failed", e));
+    await scanBlueskyDiaries();
 }

@@ -24,6 +24,7 @@ before(async () => {
     database.nagiPostMoods,
     database.nagiDiaries,
     database.nagiDiaryDaySchedules,
+    database.followers,
   ]) {
     const { schema = "public", name, columns } = getTableConfig(table);
     await client.unsafe(`create schema if not exists ${quote(schema)}`);
@@ -40,7 +41,8 @@ before(async () => {
 });
 beforeEach(async () => {
   if (!testUrl) return;
-  await client`truncate nagi.posts, nagi.post_moods, nagi.diaries, nagi.diary_day_schedules`;
+  await client`truncate nagi.posts, nagi.post_moods, nagi.diaries, nagi.diary_day_schedules,
+    affirmative_bot.followers`;
 });
 after(() => client.end());
 
