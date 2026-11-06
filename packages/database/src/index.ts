@@ -68,6 +68,7 @@ export * from './researchJobs.js';
 export * from './drawingClaims.js';
 export * from './songSelections.js';
 export * from './polaritySamples.js';
+export * from './diaryDay.js';
 export { embedSearchQuery, filterRelatedHistory, generateEmbedding, generateEmbeddings, isEmbeddingAvailable, searchQueryPrefix, splitEmbeddingBatches, type EmbeddingRequestOptions } from './ollamaEmbed.js';
 export { createEmbeddingRetryBackoff, type EmbeddingRetryBackoff } from './embeddingRetryBackoff.js';
 export { expandSearchQuery, filterAliases, queryExpansionEnabled, resetQueryExpansionState } from './queryExpansion.js';

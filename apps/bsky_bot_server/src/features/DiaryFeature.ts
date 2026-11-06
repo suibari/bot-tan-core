@@ -5,6 +5,8 @@ import { BotFeature, FeatureContext } from "./types.js";
 import { AppBskyFeedPost } from "@atproto/api"; type Record = AppBskyFeedPost.Record;
 import { handleMode } from "./utils.js";
 import { getLangStr, getTimezoneFromLang } from "../bsky/util.js";
+import { diaryDateOf, diaryDayWindow } from "@bsky-affirmative-bot/shared-configs";
+import { loadDiaryDayHistory } from "@bsky-affirmative-bot/database";
 import { MemoryService, applyDiaryTitle, buildUserDiaryContext, calculateDelayUntilLocal22, isPastLocal22, localDateStr, selectUserDiaryMediaReference, withPreferredName } from "@bsky-affirmative-bot/clients";
 import { LanguageName } from "@bsky-affirmative-bot/shared-configs";
 import { getConcatProfiles } from "../bsky/getConcatProfiles.js";
@@ -96,7 +98,13 @@ async function processUserDiary(userDid: string, timezone: string) {
         // クロスポスト（isNagiCrosspost）と同じく、片方が担当したらもう片方は黙る。
         // ここでは last_diary_date を書かない。書くと Nagi 側が失敗したときに
         // 両方欠測で確定してしまう。
-        const since = new Date(until.getTime() - 24 * 60 * 60 * 1000);
+        // 判定の範囲は「直近24時間」と「Nagi で今開いている日の窓」の広いほう。Nagi の区切りは
+        // 本人が変えられる（2時区切りなど）ので、24時間より前から続く Nagi の日もある。
+        const nagiHistory = await loadDiaryDayHistory(userDid);
+        const nagiOpen = diaryDayWindow(diaryDateOf(until, nagiHistory), nagiHistory);
+        const since = new Date(
+            Math.min(until.getTime() - 24 * 60 * 60 * 1000, nagiOpen.start.getTime()),
+        );
         if (await MemoryService.hasNagiPostsSince(userDid, since)) {
             console.log(`[INFO][${userDid}] Nagi diary takes precedence, skipping Bluesky diary`);
             return;

@@ -1,6 +1,8 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, gte, inArray } from "drizzle-orm";
 import {
   db,
+  loadDiaryDayHistories,
+  loadDiaryDayHistory,
   MemoryService,
   nagiActors,
   nagiDiaries,
@@ -9,15 +11,20 @@ import {
 import {
   applyDiaryTitle,
   buildUserDiaryContext,
-  calculateDelayUntilLocal22,
   getLangStr,
-  getTimezoneFromLang,
-  isPastLocal22,
-  localDateStr,
   trackedDeleteRecord,
   withPreferredName,
   selectUserDiaryMediaReference,
 } from "@bsky-affirmative-bot/clients";
+import {
+  diaryDateOf,
+  diaryDayWindow,
+  dueDiaryDay,
+  isEmptyDiaryDay,
+  isInDiaryDayWindow,
+  shiftDate,
+  type DiaryDayWindow,
+} from "@bsky-affirmative-bot/shared-configs";
 import {
   DIARY_MAX_ATTEMPTS,
   generateUserDiaryResilient,
@@ -33,10 +40,21 @@ import { clipNagiPostText } from "./nagiPostText.js";
 import { startWorkerLoop } from "./workerLoop.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const RESCAN_INTERVAL_MS = 60 * 60 * 1000;
+/**
+ * 見回りの間隔。区切りの時刻は人ごとに違い、30分・45分ずれのタイムゾーンもあるので、
+ * 人ごとの setTimeout ではなく短い間隔で「窓が閉じたのに日記が無い日」を探す。
+ * 窓の終わりは計算で決まるので、見回りが遅れても日記の材料は変わらない。
+ */
+const SCAN_INTERVAL_MS = 5 * 60 * 1000;
+/** 生成に失敗した日を、次に試すまでの間隔（以前の毎時の再スキャンと同じ）。 */
+const RETRY_INTERVAL_MS = 60 * 60 * 1000;
+/** 候補を拾う範囲。窓は最長で2日弱（タイムゾーンを大きく西へ動かした日）。 */
+const ACTIVE_LOOKBACK_MS = 3 * DAY_MS;
 
-// 多重スケジュール抑止用。値が null なのは「タイマー待ちではなく今まさに実行中」。
-const scheduledTimers = new Map<string, NodeJS.Timeout | null>();
+/** 実行中の人。生成は最大3時間粘るので、その間の見回りで二重に起動しない。 */
+const running = new Set<string>();
+/** 失敗した (did, date) と最後に試した時刻。 */
+const lastAttempts = new Map<string, number>();
 
 /**
  * 日記レコードの rkey。
@@ -81,42 +99,41 @@ async function getDisplayName(did: string): Promise<string> {
   return profile?.displayName || actor?.handle || did;
 }
 
-export type NagiDiaryRunOptions = {
-  /**
-   * 収集窓の終端。既定は現在時刻で、材料は [until-24h, until] のポスト。
-   * 過去日をバックフィルするときはその日のローカル22時を渡す。
-   */
-  until?: Date;
-  /** 生成する日記の日付 "YYYY-MM-DD"。既定は until のユーザーローカル日付。 */
-  date?: string;
-  /** ポストの言語から決まるタイムゾーンの上書き。 */
-  timezone?: string;
-};
-
 /**
  * 1ユーザー分の日記を書く。
  * ポストではなく com.suibari.nagi.diary レコードを AppView にだけ作るので、
  * グローバルタイムラインには出ない。日記は本人だけが読むもので、PDS には書かない。
  * 通知は AppView が取り込み時に作る。
  *
- * 引数なしで呼べば「今この瞬間から24時間ぶん」を今日の日記として書く（定時実行の経路）。
- * options を渡すと過去日のバックフィルになる（scripts/backfillNagiDiary.ts）。
- * どちらでも (subject, date) の存在チェックが二重生成を防ぐ。
+ * window は shared-configs の diaryDayWindow で求めた、その日の窓（AppView の日付の
+ * 割り当てと同じ決め方）。省略すると今開いている日を、今この瞬間までの材料で書く
+ * （手動の /diaries/run 用）。どちらでも (subject, date) の存在チェックが二重生成を防ぐ。
  */
 export async function processNagiDiary(
   userDid: string,
-  options: NagiDiaryRunOptions = {},
+  window?: DiaryDayWindow,
 ): Promise<void> {
   try {
     console.log(`[INFO][NAGI][${userDid}] Processing diary...`);
 
-    const until = options.until ?? new Date();
-    const since = new Date(until.getTime() - DAY_MS);
-    // getNagiPostsSince は下限しか持たないので、窓の終端はここで切る。
-    // 定時実行では until = 現在時刻なので、この絞り込みは何も落とさない。
-    const recentPosts = (
-      await MemoryService.getNagiPostsSince(userDid, since)
-    ).filter((post) => !post.recordCreatedAt || post.recordCreatedAt <= until);
+    let day = window;
+    if (!day) {
+      const now = new Date();
+      const history = await loadDiaryDayHistory(userDid);
+      const open = diaryDayWindow(diaryDateOf(now, history), history);
+      day = { ...open, end: now };
+    }
+    if (isEmptyDiaryDay(day)) {
+      console.log(`[INFO][NAGI][${userDid}] ${day.date} is an empty day, skipping`);
+      return;
+    }
+    const { date, timezone } = day;
+    const since = day.start;
+    const until = day.end;
+    // getNagiPostsSince は下限しか持たないので、窓の両端はここで切る。
+    const recentPosts = (await MemoryService.getNagiPostsSince(userDid, since)).filter(
+      (post) => post.recordCreatedAt && isInDiaryDayWindow(post.recordCreatedAt, day),
+    );
     if (recentPosts.length === 0) {
       console.log(`[INFO][NAGI][${userDid}] today's post not found`);
       return;
@@ -131,8 +148,6 @@ export async function processNagiDiary(
       | string[]
       | undefined;
     const langStr = getLangStr(latestLangs);
-    const timezone = options.timezone ?? getTimezoneFromLang(latestLangs?.[0]);
-    const date = options.date ?? localDateStr(timezone, until);
 
     const existing = await db
       .select({ uri: nagiDiaries.uri })
@@ -171,7 +186,7 @@ export async function processNagiDiary(
     let diaryResult: DiaryResult;
     try {
       // 失敗するたびにモデル/tier を上げながら最大3時間粘る。
-      // 使い切っても、22時を過ぎている人は毎時の再スキャンが拾い直す。
+      // 使い切っても、次の日の窓が閉じるまでは見回りが1時間おきに拾い直す。
       const userinfo = await withPreferredName({
         follower,
         posts: recentPosts.map((post) => post.text),
@@ -242,83 +257,71 @@ export async function processNagiDiary(
   }
 }
 
-/** 実行中も scheduledTimers に居座らせて、毎時の再スキャンによる二重起動を防ぐ。 */
-function runNagiDiary(userDid: string) {
-  processNagiDiary(userDid)
+function runNagiDiary(userDid: string, window: DiaryDayWindow) {
+  running.add(userDid);
+  lastAttempts.set(`${userDid}:${window.date}`, Date.now());
+  processNagiDiary(userDid, window)
     .catch((error) => console.error(`[ERROR][NAGI][${userDid}]`, error))
-    .finally(() => {
-      scheduledTimers.delete(userDid); // 終了後に削除
-    });
+    .finally(() => running.delete(userDid));
 }
 
 /**
- * ユーザーのローカル22時に日記処理を1回だけ予約する。
- * すでに22時を回っているなら即実行する。setTimeout に任せると次は約24時間後になり、
- * 生成失敗やプロセス再起動でその日の日記が丸ごと欠測してしまうため。
- * 二重に書かないことは processNagiDiary の (subject, date) 存在チェックが担保する。
+ * 最近 Nagi へ投稿した人ごとに、窓が閉じたのに日記の無い日を探して書く。
+ * Bluesky と違い日記モードのオプトインは無く、その日に投稿があれば書く。
  */
-function scheduleUserDiary(userDid: string, timezone: string) {
-  if (scheduledTimers.has(userDid)) return; // すでにスケジュール済み
-
-  if (isPastLocal22(timezone)) {
-    console.log(`[INFO][NAGI][${userDid}] past local 22:00, running diary now (tz: ${timezone})`);
-    // タイマーは無いが、実行中の印として同じ Map を使う。
-    scheduledTimers.set(userDid, null);
-    runNagiDiary(userDid);
-    return;
-  }
-
-  const delay = calculateDelayUntilLocal22(timezone);
-  console.log(`[INFO][NAGI][${userDid}] scheduling diary, tz: ${timezone}, next: ${delay}ms`);
-  const timer = setTimeout(() => runNagiDiary(userDid), delay);
-
-  scheduledTimers.set(userDid, timer);
-}
-
-/**
- * 直近24hに Nagi へ投稿したユーザー全員をスケジュールする。
- * Bluesky と違い日記モードのオプトインは無く、投稿があれば書く。
- */
-async function manageNagiDiarySchedules() {
-  const since = new Date(Date.now() - DAY_MS);
+async function scanNagiDiaries() {
+  const now = new Date();
   const botDid = process.env.NAGI_BOT_DID;
-  const authors = (await MemoryService.getNagiActiveAuthorsSince(since)).filter(
-    (did) => did !== botDid,
-  );
+  const authors = (
+    await MemoryService.getNagiActiveAuthorsSince(new Date(now.getTime() - ACTIVE_LOOKBACK_MS))
+  ).filter((did) => did !== botDid && !running.has(did));
+  if (!authors.length) return;
 
-  if (authors.length === 0) {
-    console.log("[INFO][NAGI][DIARY] no active author for diary");
-    return;
-  }
-  console.log(`[INFO][NAGI][DIARY] active authors: ${authors.length}`);
-
+  const histories = await loadDiaryDayHistories(authors);
+  const due = new Map<string, DiaryDayWindow>();
   for (const did of authors) {
-    if (scheduledTimers.has(did)) continue;
-    try {
-      const posts = await MemoryService.getNagiPostsSince(did, since);
-      const langs = [...posts]
-        .reverse()
-        .find((post) => Array.isArray(post.langs) && post.langs.length)?.langs as
-        | string[]
-        | undefined;
-      scheduleUserDiary(did, getTimezoneFromLang(langs?.[0]));
-    } catch (error) {
-      console.error(`[ERROR][NAGI][${did}] error occur in diary scheduling:`, error);
-    }
+    const window = dueDiaryDay(histories.get(did)!, now);
+    if (!window) continue;
+    const attempted = lastAttempts.get(`${did}:${window.date}`);
+    if (attempted && now.getTime() - attempted < RETRY_INTERVAL_MS) continue;
+    due.set(did, window);
   }
+  if (!due.size) return;
+
+  const written = await db
+    .select({ did: nagiDiaries.subjectDid, date: nagiDiaries.diaryDate })
+    .from(nagiDiaries)
+    .where(
+      and(
+        inArray(nagiDiaries.subjectDid, [...due.keys()]),
+        gte(nagiDiaries.diaryDate, shiftDate(now.toISOString().slice(0, 10), -5)),
+      ),
+    );
+  const done = new Set(written.map((row) => `${row.did}:${row.date}`));
+  for (const [did, window] of due) {
+    if (done.has(`${did}:${window.date}`)) continue;
+    console.log(
+      `[INFO][NAGI][${did}] diary due for ${window.date} (tz: ${window.timezone}, cutoff: ${window.startHour}:00)`,
+    );
+    runNagiDiary(did, window);
+  }
+
+  // 古い失敗の記録を捨てる。
+  for (const [key, at] of lastAttempts)
+    if (now.getTime() - at > 2 * DAY_MS) lastAttempts.delete(key);
 }
 
-/** 起動時に呼ぶ。以降1時間ごとに対象を組み直す。 */
+/** 起動時に呼ぶ。以降は SCAN_INTERVAL_MS ごとに見回る。 */
 export async function scheduleAllNagiDiaries() {
-  console.log("[INFO][NAGI][DIARY] scheduling all user diary");
+  console.log("[INFO][NAGI][DIARY] start diary scan");
 
   startWorkerLoop({
     name: "NAGI_DIARY",
-    intervalMs: RESCAN_INTERVAL_MS,
-    tick: manageNagiDiarySchedules,
+    intervalMs: SCAN_INTERVAL_MS,
+    tick: scanNagiDiaries,
   });
 
-  await manageNagiDiarySchedules();
+  await scanNagiDiaries();
 }
 
 /**

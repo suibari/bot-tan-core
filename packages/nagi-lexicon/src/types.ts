@@ -268,7 +268,7 @@ export type NagiDiary = {
  */
 export type DiaryMoodView = {
   uri: string;
-  /** その投稿が入る日記の日付（前日22時の直後〜当日22時。日記と同じ区切り）。 */
+  /** その投稿が入る日記の日付（本人の区切りの時刻で切る。日記と同じ区切り）。 */
   date: string;
   createdAt: string;
   /** -5（深く落ち込んでいる）〜 +5（最高に嬉しい）。0 は含まない。本人が直していればその値。 */
@@ -785,6 +785,19 @@ export type SyncedModerationPreferences = {
   selfAi: ModerationPreference;
   selfNsfw: ModerationPreference;
 };
+/** 日記の「1日」を決める設定。本人にだけ返す。 */
+export type DiaryDayPreferences = {
+  /** Nagi を開いたときにブラウザから届いたタイムゾーン（IANA 名）。 */
+  detectedTimezone?: string;
+  /** 本人が選んだタイムゾーン。あれば自動検出より優先する。 */
+  manualTimezone?: string;
+  /** 区切りの時刻（18〜23, 0〜6）。既定は22。 */
+  startHour: number;
+  /** 今開いている日に使っている設定。effectiveFrom はその設定が有効になった日（推定のままなら省略）。 */
+  current: { timezone: string; startHour: number; effectiveFrom?: string };
+  /** まだ有効になっていない変更。effectiveFrom の日の日記から反映される。 */
+  pending?: { timezone: string; startHour: number; effectiveFrom: string };
+};
 export type PreferencesView = {
   /** 年ごとに最後に読んだ内容ハッシュ。1アカウント・1年につき1件。 */
   chronicleReadYears?: ChronicleReadYear[];
@@ -815,8 +828,20 @@ export type PreferencesView = {
     /** 申告済みなら本人が確認できるよう返す。legacy 扱いの既存ユーザーは未申告なので省略。 */
     birthDate?: string;
   };
+  /** 日記の1日の区切り。旧 AppView は返さない。 */
+  diaryDay?: DiaryDayPreferences;
 };
 export type PutPreferencesInput = {
+  /**
+   * Nagi を開いたときにブラウザが検出したタイムゾーン（IANA 名）。手動で選んでいる間は送らない。
+   * UTC や Etc/* は本当の場所を隠す設定で返ることがあるので、受け取っても使わない。
+   */
+  detectedTimezone?: string;
+  /**
+   * 日記の1日の区切り。timezone に null を送ると自動検出に戻す。startHour は 18〜23, 0〜6。
+   * 送った項目だけを変える。
+   */
+  diaryDay?: { timezone?: string | null; startHour?: number };
   /** 表示した年のハッシュ。現在の内容と一致する版だけを既読にする。 */
   chronicleReadYears?: ChronicleReadYear[];
   readPositions?: ReadPosition[];

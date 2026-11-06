@@ -2182,3 +2182,45 @@ export const nagiEmojiGenerations = nagiSchema.table(
       .where(sql`${t.state} in ('queued', 'running')`),
   ],
 );
+
+/**
+ * 日記の「1日」を決めるための本人の入力。タイムゾーンは本人の居場所に近い情報なので
+ * PDS レコードにはせず、AppView の本人用の設定（getPreferences / putPreferences）だけが触る。
+ * 実際に区切りに使う値は diary_day_schedules（履歴）が持つ。
+ */
+export const nagiDiaryDayPreferences = nagiSchema.table("diary_day_preferences", {
+  did: text("did").primaryKey(),
+  /** Nagi を開いたときにブラウザから届いたタイムゾーン。 */
+  detectedTimezone: text("detected_timezone"),
+  detectedAt: timestamp("detected_at", { withTimezone: true }),
+  /** 本人が選んだタイムゾーン。自動検出より優先する。 */
+  manualTimezone: text("manual_timezone"),
+  /** 区切りの時刻（18〜23, 0〜6）。null は既定の22時。 */
+  startHour: smallint("start_hour"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+/**
+ * 日記の区切りの履歴。effective_from の日からこの設定で区切る。過去の日は当時の設定のまま
+ * なので、書いた日記と感情グラフの点が食い違わない。最初の行は "1970-01-01"（source=baseline）で、
+ * 初めて設定が届いたときの言語からの推定を凍結したもの。行が無い人は言語から推定する。
+ */
+export const nagiDiaryDaySchedules = nagiSchema.table(
+  "diary_day_schedules",
+  {
+    did: text("did").notNull(),
+    effectiveFrom: text("effective_from").notNull(),
+    timezone: text("timezone").notNull(),
+    startHour: smallint("start_hour").notNull(),
+    /** タイムゾーンの出どころ。baseline | auto | manual | guess。記録用。 */
+    source: text("source").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.did, t.effectiveFrom] }),
+    check(
+      "nagi_diary_day_schedules_start_hour",
+      sql`${t.startHour} BETWEEN 0 AND 6 OR ${t.startHour} BETWEEN 18 AND 23`,
+    ),
+  ],
+);

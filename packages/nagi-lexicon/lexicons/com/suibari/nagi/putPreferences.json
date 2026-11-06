@@ -10,6 +10,28 @@
         "schema": {
           "type": "object",
           "properties": {
+            "detectedTimezone": {
+              "type": "string",
+              "maxLength": 64,
+              "description": "Nagi を開いたときにブラウザが検出したタイムゾーン（IANA 名）。手動で選んでいる間は送らない。UTC や Etc/* は受け取っても使わない。"
+            },
+            "diaryDay": {
+              "type": "object",
+              "description": "日記の1日の区切り。送った項目だけを変える。",
+              "properties": {
+                "timezone": {
+                  "type": "string",
+                  "maxLength": 64,
+                  "description": "手動のタイムゾーン。null を送ると自動検出に戻す。"
+                },
+                "startHour": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 23,
+                  "description": "区切りの時刻（18〜23, 0〜6）。"
+                }
+              }
+            },
             "replyFreq": {
               "type": "integer",
               "minimum": 0,

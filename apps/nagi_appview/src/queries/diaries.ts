@@ -1,5 +1,6 @@
 import {
   db,
+  loadDiaryDayHistory,
   nagiActors,
   nagiDiaries,
   nagiPostMoods,
@@ -13,14 +14,17 @@ import type {
   DiaryView,
 } from "@bsky-affirmative-bot/nagi-lexicon";
 import {
-  localeToTimezone,
+  diaryDateOf,
+  diaryDayWindow,
   POST_MOOD_VERSION,
+  type DiaryDayHistory,
 } from "@bsky-affirmative-bot/shared-configs";
 import {
   and,
   asc,
   desc,
   eq,
+  gt,
   gte,
   inArray,
   isNotNull,
@@ -62,46 +66,6 @@ export function validateDiaryRange(from: string, to: string): void {
     1;
   if (days > MAX_RANGE_DAYS)
     throw new ApiError(400, "invalid_request", "Diary date range is too large");
-}
-
-/** ある瞬間のIANAタイムゾーンにおけるUTCオフセット。DSTも含めて求める。 */
-function timezoneOffsetMs(instant: Date, timezone: string): number {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: timezone,
-    hour12: false,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  }).formatToParts(instant);
-  const at = (type: string) =>
-    Number(parts.find((part) => part.type === type)?.value ?? 0);
-  return (
-    Date.UTC(
-      at("year"),
-      at("month") - 1,
-      at("day"),
-      at("hour") % 24,
-      at("minute"),
-      at("second"),
-    ) - instant.getTime()
-  );
-}
-
-/** 日記とpostCountが使う、対象日ローカル22時までの24時間。 */
-export function diaryInteractionWindow(row: DiaryRow): {
-  start: Date;
-  end: Date;
-} {
-  const lang = ((row.langs as string[] | null) ?? [])[0];
-  const timezone = (lang && localeToTimezone[lang]) || "UTC";
-  const naive = Date.parse(`${row.diaryDate}T22:00:00.000Z`);
-  let endMs = naive;
-  for (let index = 0; index < 2; index++)
-    endMs = naive - timezoneOffsetMs(new Date(endMs), timezone);
-  return { start: new Date(endMs - DAY_MS), end: new Date(endMs) };
 }
 
 export function rankDiaryInteractionActors(
@@ -221,49 +185,6 @@ async function loadActorViews(dids: string[]): Promise<Map<string, ActorView>> {
 const MOOD_TEXT_MAX = 200;
 
 /**
- * 投稿がどの日の日記に入るか。日記の1日は「前日22時の直後〜当日22時」（diaryInteractionWindow）
- * なので、ローカル時刻が22時を過ぎた投稿は翌日の日記に入る。グラフで日付を押したときに開く
- * 日記と、その日に並ぶ点を一致させるため、暦日ではなくこの区切りで振り分ける。
- */
-export function moodDiaryDate(instant: Date, timezone: string): string {
-  // timezoneOffsetMs は秒単位で測るのでミリ秒の端数が混ざる。オフセットは分単位に丸める。
-  const offset = Math.round(timezoneOffsetMs(instant, timezone) / 60_000) * 60_000;
-  const local = new Date(instant.getTime() + offset);
-  const afterCutoff =
-    local.getUTCHours() > 22 ||
-    (local.getUTCHours() === 22 &&
-      (local.getUTCMinutes() > 0 ||
-        local.getUTCSeconds() > 0 ||
-        local.getUTCMilliseconds() > 0));
-  if (afterCutoff) local.setUTCDate(local.getUTCDate() + 1);
-  return local.toISOString().slice(0, 10);
-}
-
-/**
- * 感情グラフの日付を切るタイムゾーン。日記と同じく言語から決める。
- * 最新の日記の言語を優先し、日記がまだ無ければ最新の投稿の言語を使う。
- */
-async function loadMoodTimezone(actor: string): Promise<string> {
-  const [diary] = await db
-    .select({ langs: nagiDiaries.langs })
-    .from(nagiDiaries)
-    .where(eq(nagiDiaries.subjectDid, actor))
-    .orderBy(desc(nagiDiaries.diaryDate))
-    .limit(1);
-  let lang = ((diary?.langs as string[] | null) ?? [])[0];
-  if (!lang) {
-    const [post] = await db
-      .select({ langs: nagiPosts.langs })
-      .from(nagiPosts)
-      .where(and(eq(nagiPosts.did, actor), isNull(nagiPosts.deletedAt)))
-      .orderBy(desc(nagiPosts.recordCreatedAt))
-      .limit(1);
-    lang = ((post?.langs as string[] | null) ?? [])[0];
-  }
-  return (lang && localeToTimezone[lang]) || "UTC";
-}
-
-/**
  * 期間内の、気分が読み取れた投稿の点。中立（告知・事実共有など）と採点不能は載せない。
  * pending は期間内でまだ採点されていない投稿数（導入直後のバックフィル中の表示に使う）。
  *
@@ -274,15 +195,17 @@ export async function loadDiaryMoods(
   actor: string,
   from: string,
   to: string,
+  history: DiaryDayHistory,
 ): Promise<{
   moods: DiaryMoodView[];
   moodPending: number;
   moodTimezone: string;
+  moodDayStartHour: number;
+  moodDayWindows: DiaryDayWindowView[];
 }> {
-  const timezone = await loadMoodTimezone(actor);
-  // 日付の境界はタイムゾーンと22時区切りで前後するので、UTCで2日ずつ広めに引いてから絞る。
-  const start = new Date(Date.parse(`${from}T00:00:00.000Z`) - 2 * DAY_MS);
-  const end = new Date(Date.parse(`${to}T00:00:00.000Z`) + 3 * DAY_MS);
+  // 日記の日付は shared-configs の diaryDateOf だけで決める（日記の生成と同じ決め方）。
+  const start = diaryDayWindow(from, history).start;
+  const end = diaryDayWindow(to, history).end;
   const rows = await db
     .select({
       uri: nagiPosts.uri,
@@ -309,8 +232,8 @@ export async function loadDiaryMoods(
       and(
         eq(nagiPosts.did, actor),
         isNull(nagiPosts.deletedAt),
-        gte(nagiPosts.recordCreatedAt, start),
-        lt(nagiPosts.recordCreatedAt, end),
+        gt(nagiPosts.recordCreatedAt, start),
+        lte(nagiPosts.recordCreatedAt, end),
         or(
           isNull(nagiPostMoods.postUri),
           isNotNull(nagiPostMoods.userValence),
@@ -327,7 +250,7 @@ export async function loadDiaryMoods(
   const moods: DiaryMoodView[] = [];
   let moodPending = 0;
   for (const row of rows) {
-    const date = moodDiaryDate(row.createdAt, timezone);
+    const date = diaryDateOf(row.createdAt, history);
     if (date < from || date > to) continue;
     const point = moodPoint(row);
     if (point === "pending") {
@@ -349,10 +272,38 @@ export async function loadDiaryMoods(
         : undefined,
     });
   }
-  // 日付を切ったタイムゾーンも返す。クライアントが1日の中の位置（22時〜22時の横バー）を
-  // 同じ区切りで描けるようにするため（ブラウザのタイムゾーンとは一致しないことがある）。
-  return { moods, moodPending, moodTimezone: timezone };
+  // 点のある日ごとの窓も返す。クライアントが1日の中の位置（区切り〜区切りの横バー）を
+  // 同じ区切りで描けるようにするため。期間の途中で設定が変わることがあるので日ごとに持つ。
+  const dates = [...new Set(moods.map((mood) => mood.date))];
+  const moodDayWindows = dates.map((date) => {
+    const window = diaryDayWindow(date, history);
+    return {
+      date,
+      start: window.start.toISOString(),
+      end: window.end.toISOString(),
+      timezone: window.timezone,
+      startHour: window.startHour,
+    };
+  });
+  // 旧クライアントは moodTimezone（と22時固定）で描く。期間の最後の日の設定を渡す。
+  const latest = diaryDayWindow(to, history);
+  return {
+    moods,
+    moodPending,
+    moodTimezone: latest.timezone,
+    moodDayStartHour: latest.startHour,
+    moodDayWindows,
+  };
 }
+
+/** 感情グラフの1日の窓。start は含まず、end を含む。 */
+export type DiaryDayWindowView = {
+  date: string;
+  start: string;
+  end: string;
+  timezone: string;
+  startHour: number;
+};
 
 /**
  * 1投稿の採点から、グラフに出す値を決める。本人の修正があればそれ、無ければ
@@ -433,11 +384,11 @@ export async function setPostMood(
 
   const next = moodPoint({ ...row, userValence: valence });
   if (!next || next === "pending") return {};
-  const timezone = await loadMoodTimezone(viewerDid);
+  const history = await loadDiaryDayHistory(viewerDid);
   return {
     mood: {
       uri: row.uri,
-      date: moodDiaryDate(row.createdAt, timezone),
+      date: diaryDateOf(row.createdAt, history),
       createdAt: row.createdAt.toISOString(),
       valence: next.valence,
       ...(next.edited ? { edited: true } : {}),
@@ -489,6 +440,7 @@ async function getDiaryRange(
   from: string,
   to: string,
   viewerDid: string,
+  history: DiaryDayHistory,
 ): Promise<{ items: DiaryView[]; hasMore: boolean }> {
   const rows = await db
     .select()
@@ -503,7 +455,7 @@ async function getDiaryRange(
     .orderBy(asc(nagiDiaries.diaryDate));
   if (!rows.length) return { items: [], hasMore: false };
 
-  const windows = rows.map((row) => diaryInteractionWindow(row));
+  const windows = rows.map((row) => diaryDayWindow(row.diaryDate, history));
   const start = new Date(
     Math.min(...windows.map((window) => window.start.getTime())),
   );
@@ -563,8 +515,12 @@ export async function getDiaries(opts: {
   hasMore: boolean;
   moods?: DiaryMoodView[];
   moodPending?: number;
-  /** moods の date を切ったタイムゾーン（IANA 名）。moods を要求したときだけ。 */
+  /** moods の date を切ったタイムゾーン（IANA 名）。期間の最後の日の値。moods を要求したときだけ。 */
   moodTimezone?: string;
+  /** 区切りの時刻。期間の最後の日の値。moods を要求したときだけ。 */
+  moodDayStartHour?: number;
+  /** 点のある日ごとの窓。moods を要求したときだけ。 */
+  moodDayWindows?: DiaryDayWindowView[];
 }> {
   if (!opts.actor)
     throw new ApiError(400, "invalid_request", "actor is required");
@@ -591,9 +547,10 @@ export async function getDiaries(opts: {
 
   if (opts.from && opts.to) {
     validateDiaryRange(opts.from, opts.to);
+    const history = await loadDiaryDayHistory(opts.actor);
     const [page, moods] = await Promise.all([
-      getDiaryRange(opts.actor, opts.from, opts.to, opts.viewerDid),
-      opts.moods ? loadDiaryMoods(opts.actor, opts.from, opts.to) : undefined,
+      getDiaryRange(opts.actor, opts.from, opts.to, opts.viewerDid, history),
+      opts.moods ? loadDiaryMoods(opts.actor, opts.from, opts.to, history) : undefined,
     ]);
     return { ...page, ...moods };
   }
