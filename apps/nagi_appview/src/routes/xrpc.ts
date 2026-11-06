@@ -23,7 +23,7 @@ import {
   getUnreadCount,
   updateSeen,
 } from "../queries/notifications.js";
-import { getDiaries } from "../queries/diaries.js";
+import { getDiaries, setPostMood } from "../queries/diaries.js";
 import { getRadioHistory, getRadioTrack, markRadioSeen } from "../queries/radio.js";
 import { getChronicle } from "../queries/chronicle.js";
 import {
@@ -637,6 +637,20 @@ xrpc.get(
             viewerDid: req.viewerDid!,
           }),
         );
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+// 感情グラフの点を本人が直す。自分の投稿以外は setPostMood が 404 を返す。
+xrpc.post(
+  `/${NAGI.setPostMood}`,
+  requiredServiceAuth(NAGI.setPostMood),
+  async (req, res, next) => {
+    try {
+      res
+        .set("Cache-Control", "private, no-store")
+        .json(await setPostMood(req.viewerDid!, req.body ?? {}));
     } catch (e) {
       next(e);
     }

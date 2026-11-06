@@ -55,6 +55,24 @@ OAuth の permission set の再公開と全員の再認可が要るため。日�
 点には投稿の `selfLabels` / `moderationLabels` を付け、クライアントは本文の抜粋を
 タイムラインと同じ表示設定（非表示・警告）で隠す。
 
+## 4.1 本人による修正
+
+LLM の点は本人の解釈と違うことがあるので、日付を押したときの一覧で点を直せる
+（`com.suibari.nagi.setPostMood`、自分の投稿だけ）。
+
+- **LLM の値とは別の列（`user_valence`）に持つ。** `valence` を書き換えると、
+  `POST_MOOD_VERSION` を上げた採点し直しで本人の修正が消える。
+- **本人の修正は採点基準の版に左右されない。** 版が古いままの採点し直し待ちでも、
+  直した点はグラフに出し続ける。
+- **投稿が編集された（cid が変わった）ときだけ消す。** 直したのは前の本文に対してなので。
+  ワーカーの upsert が cid の一致を見て `user_valence` を残すか消すかを決める。
+- **直せるのはグラフに出ている点だけ。** 中立と判定された投稿はグラフに出ていないので対象外
+  （本人確認済み、2026-11-06）。値は -5〜+5 で 0 は不可（0 は中立の意味になる）。
+- 直した点には印を付け、「AIの値に戻す」で `user_valence` を消せる。
+- bot の返信は返信時にその場で採点していて `post_moods` を読まないので、修正は返信に影響しない。
+- 新しいメソッドなので permission set に足し、クライアントのスコープにも明示した。
+  古いセッションは権限不足になるので、クライアントは再認可を案内する。
+
 ## 5. PoC（2026-09-25、suibari.com の投稿 426件）
 
 | 版 | 方針 | 分布（-5〜+5） |
@@ -68,6 +86,10 @@ OAuth の permission set の再公開と全員の再認可が要るため。日�
   27件中7件が ±1〜2 ずれた。ずれの向きに偏りは無かった。
 
 ## 6. デプロイ
+
+（本人による修正の追加時は `drizzle:push` で `user_valence` / `user_edited_at` を足し
+（手動なら `0100_post_mood_user_valence.sql`）、`pnpm --filter @bsky-affirmative-bot/nagi-lexicon lex:publish`
+で permission set を再公開してからクライアントを出す。）
 
 1. `pnpm --filter @bsky-affirmative-bot/database drizzle:push`（`nagi.post_moods` の作成。
    手動なら `packages/database/drizzle/0081_nagi_post_moods.sql`）

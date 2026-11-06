@@ -506,12 +506,23 @@ export const nagiPostMoods = nagiSchema.table(
     scoredAt: timestamp("scored_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
+    /**
+     * 本人が感情グラフで直した値（-5〜+5、0 なし）。null なら LLM の valence を使う。
+     * valence と分けておくのは、版上げの採点し直しで本人の修正を消さないため。
+     * 投稿が編集された（cid が変わった）ときだけ、ワーカーが null に戻す。
+     */
+    userValence: smallint("user_valence"),
+    userEditedAt: timestamp("user_edited_at", { withTimezone: true }),
   },
   (t) => [
     index("nagi_post_moods_did_idx").on(t.did),
     check(
       "nagi_post_moods_valence_range",
       sql`${t.valence} IS NULL OR ${t.valence} BETWEEN -5 AND 5`,
+    ),
+    check(
+      "nagi_post_moods_user_valence_range",
+      sql`${t.userValence} IS NULL OR (${t.userValence} BETWEEN -5 AND 5 AND ${t.userValence} <> 0)`,
     ),
   ],
 );

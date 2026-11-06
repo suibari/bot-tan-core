@@ -266,6 +266,9 @@ async function loadMoodTimezone(actor: string): Promise<string> {
 /**
  * 期間内の、気分が読み取れた投稿の点。中立（告知・事実共有など）と採点不能は載せない。
  * pending は期間内でまだ採点されていない投稿数（導入直後のバックフィル中の表示に使う）。
+ *
+ * 本人が直した点（user_valence）は LLM の値より優先し、版上げの採点し直し待ちでも出す。
+ * 本人の判断は採点基準の版に左右されないので、古い版のままでも消さない。
  */
 export async function loadDiaryMoods(
   actor: string,
@@ -284,17 +287,18 @@ export async function loadDiaryMoods(
       selfLabels: nagiPosts.selfLabels,
       moderationLabels: nagiPosts.moderationLabels,
       scored: nagiPostMoods.postUri,
+      version: nagiPostMoods.version,
       valence: nagiPostMoods.valence,
       expressive: nagiPostMoods.expressive,
+      userValence: nagiPostMoods.userValence,
     })
     .from(nagiPosts)
     .leftJoin(
       nagiPostMoods,
       and(
         eq(nagiPostMoods.postUri, nagiPosts.uri),
-        // 編集後・採点基準の版上げ後の採点し直し待ちは、古い点を出さずに未採点として数える。
+        // 編集後の採点し直し待ちは、古い点を出さずに未採点として数える。
         eq(nagiPostMoods.cid, nagiPosts.cid),
-        eq(nagiPostMoods.version, POST_MOOD_VERSION),
       ),
     )
     .where(
@@ -305,6 +309,8 @@ export async function loadDiaryMoods(
         lt(nagiPosts.recordCreatedAt, end),
         or(
           isNull(nagiPostMoods.postUri),
+          isNotNull(nagiPostMoods.userValence),
+          ne(nagiPostMoods.version, POST_MOOD_VERSION),
           and(
             isNotNull(nagiPostMoods.valence),
             eq(nagiPostMoods.expressive, true),
@@ -319,15 +325,18 @@ export async function loadDiaryMoods(
   for (const row of rows) {
     const date = moodDiaryDate(row.createdAt, timezone);
     if (date < from || date > to) continue;
-    if (row.scored === null) {
+    const point = moodPoint(row);
+    if (point === "pending") {
       if (row.text.trim()) moodPending += 1;
       continue;
     }
+    if (!point) continue;
     moods.push({
       uri: row.uri,
       date,
       createdAt: row.createdAt.toISOString(),
-      valence: row.valence!,
+      valence: point.valence,
+      ...(point.edited ? { edited: true } : {}),
       text: row.text.slice(0, MOOD_TEXT_MAX),
       // 抜粋もタイムラインと同じ表示設定（非表示・警告）で隠せるよう、ラベルを添える。
       selfLabels: row.selfLabels.length ? row.selfLabels : undefined,
@@ -337,6 +346,100 @@ export async function loadDiaryMoods(
     });
   }
   return { moods, moodPending };
+}
+
+/**
+ * 1投稿の採点から、グラフに出す値を決める。本人の修正があればそれ、無ければ
+ * 現行版の LLM の値（気分が読み取れたものだけ）。採点が無い・版が古いものは "pending"。
+ */
+export function moodPoint(row: {
+  scored: string | null;
+  version: string | null;
+  valence: number | null;
+  expressive: boolean | null;
+  userValence: number | null;
+}): { valence: number; edited: boolean } | "pending" | undefined {
+  if (row.scored === null) return "pending";
+  if (row.userValence !== null) return { valence: row.userValence, edited: true };
+  if (row.version !== POST_MOOD_VERSION) return "pending";
+  if (row.valence === null || !row.expressive || row.valence === 0) return undefined;
+  return { valence: row.valence, edited: false };
+}
+
+/**
+ * 感情グラフの点を本人が直す。valence を省くと LLM の値に戻す。
+ *
+ * 直せるのは自分の投稿で、いまグラフに出ている点（現行の採点がある、または直したことがある）
+ * だけ。中立と判定された投稿はグラフに出ていないので対象外。返り値の mood が無ければ、
+ * 戻した結果グラフから外れた（または採点し直し待ち）ということ。
+ */
+export async function setPostMood(
+  viewerDid: string,
+  input: { uri?: unknown; valence?: unknown },
+): Promise<{ mood?: DiaryMoodView }> {
+  const uri = typeof input.uri === "string" ? input.uri : "";
+  if (!uri) throw new ApiError(400, "invalid_request", "uri is required");
+  const valence = input.valence ?? null;
+  if (
+    valence !== null &&
+    (typeof valence !== "number" ||
+      !Number.isInteger(valence) ||
+      valence < -5 ||
+      valence > 5 ||
+      valence === 0)
+  )
+    throw new ApiError(400, "invalid_request", "valence must be an integer in -5..-1 or 1..5");
+
+  const [row] = await db
+    .select({
+      uri: nagiPosts.uri,
+      text: nagiPosts.text,
+      createdAt: nagiPosts.recordCreatedAt,
+      selfLabels: nagiPosts.selfLabels,
+      moderationLabels: nagiPosts.moderationLabels,
+      scored: nagiPostMoods.postUri,
+      version: nagiPostMoods.version,
+      valence: nagiPostMoods.valence,
+      expressive: nagiPostMoods.expressive,
+      userValence: nagiPostMoods.userValence,
+    })
+    .from(nagiPosts)
+    .innerJoin(
+      nagiPostMoods,
+      and(eq(nagiPostMoods.postUri, nagiPosts.uri), eq(nagiPostMoods.cid, nagiPosts.cid)),
+    )
+    .where(
+      and(
+        eq(nagiPosts.uri, uri),
+        eq(nagiPosts.did, viewerDid),
+        isNull(nagiPosts.deletedAt),
+      ),
+    );
+  // 他人の投稿も、採点の無い投稿も、同じ 404 にする（他人の投稿の採点有無を漏らさない）。
+  const current = row ? moodPoint(row) : undefined;
+  if (!row || !current || current === "pending")
+    throw new ApiError(404, "not_found", "Mood point not found");
+
+  await db
+    .update(nagiPostMoods)
+    .set({ userValence: valence, userEditedAt: valence === null ? null : new Date() })
+    .where(eq(nagiPostMoods.postUri, uri));
+
+  const next = moodPoint({ ...row, userValence: valence });
+  if (!next || next === "pending") return {};
+  const timezone = await loadMoodTimezone(viewerDid);
+  return {
+    mood: {
+      uri: row.uri,
+      date: moodDiaryDate(row.createdAt, timezone),
+      createdAt: row.createdAt.toISOString(),
+      valence: next.valence,
+      ...(next.edited ? { edited: true } : {}),
+      text: row.text.slice(0, MOOD_TEXT_MAX),
+      selfLabels: row.selfLabels.length ? row.selfLabels : undefined,
+      moderationLabels: row.moderationLabels.length ? row.moderationLabels : undefined,
+    },
+  };
 }
 
 /**
