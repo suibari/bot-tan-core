@@ -715,10 +715,50 @@ export const nagiNotifications = nagiSchema.table(
       .defaultNow()
       .notNull(),
     readAt: timestamp("read_at", { withTimezone: true }),
+    /**
+     * 一覧で1件にまとめる単位。リアクションだけが持ち、同じ相手・同じ対象への
+     * 最初の反応から5分間を同じ値にする（reactionNoticeLedger.groupId）。
+     * null の行はそれ単独で1件。
+     */
+    groupKey: uuid("group_key"),
   },
   (t) => [
     uniqueIndex("nagi_notification_reason_idx").on(t.recipientDid, t.reasonUri),
     index("nagi_notification_inbox_idx").on(t.recipientDid, t.createdAt),
+    index("nagi_notification_group_idx").on(t.recipientDid, t.groupKey),
+  ],
+);
+/**
+ * リアクション通知を一度出したことの記録。リアクションを外しても**消さない**。
+ * 通知行はリアクションと一緒に消えるので、これが無いと付け外しのたびに
+ * 新しい通知と Push が飛び、いたずらに使えてしまう。
+ *
+ * 同じ (受け手, 相手, 対象) の行は groupId でまとまり、グループの開始時刻は
+ * min(notifiedAt)。行を消さないので、開始時刻は後から動かない。
+ */
+export const nagiReactionNoticeLedger = nagiSchema.table(
+  "reaction_notice_ledger",
+  {
+    recipientDid: text("recipient_did").notNull(),
+    actorDid: text("actor_did").notNull(),
+    subjectUri: text("subject_uri").notNull(),
+    /** nagiReactions.emojiKey と同じ（Unicode は NFC の文字、Bluemoji は URI）。 */
+    emojiKey: text("emoji_key").notNull(),
+    groupId: uuid("group_id").notNull(),
+    notifiedAt: timestamp("notified_at", { withTimezone: true }).notNull(),
+    /**
+     * 受け手が既読にした時刻。updateSeen が通知行と同じ条件で付ける。
+     * 付け直しの通知行はこれを引き継ぐので、未読は未読のまま、既読は既読のまま戻る。
+     */
+    readAt: timestamp("read_at", { withTimezone: true }),
+  },
+  (t) => [
+    primaryKey({
+      name: "reaction_notice_ledger_pk",
+      columns: [t.recipientDid, t.actorDid, t.subjectUri, t.emojiKey],
+    }),
+    index("nagi_reaction_notice_actor_idx").on(t.actorDid),
+    index("nagi_reaction_notice_subject_idx").on(t.subjectUri),
   ],
 );
 export const nagiTranslations = nagiSchema.table(

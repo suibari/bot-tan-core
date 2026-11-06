@@ -5,6 +5,7 @@ import {
   nagiEmojis,
   nagiNotifications,
   nagiProfiles,
+  nagiReactionNoticeLedger,
   nagiReactions,
   nagiZenkatsuCards,
   nagiZenkatsuSubmissions,
@@ -21,11 +22,13 @@ import {
 import {
   and,
   asc,
-  count,
+  countDistinct,
   desc,
   eq,
   inArray,
   isNull,
+  lte,
+  max,
   notInArray,
   sql,
 } from "drizzle-orm";
@@ -68,27 +71,49 @@ const hasPost = (type: (typeof nagiNotifications.$inferSelect)["type"]) =>
   type !== "chronicle" &&
   type !== "mood";
 
+/**
+ * 一覧で1件にまとめる単位。リアクションは取り込み時に group_key を持ち、
+ * それ以外（と group_key 導入前の行）は自分の id だけで1件になる。
+ */
+const groupKeyOf = sql<string>`coalesce(${nagiNotifications.groupKey}::text, ${nagiNotifications.id}::text)`;
+
 export async function getNotifications(did: string, limit: number) {
   const mutes = await loadMutes(did);
-  const rows = await db
-    .select({
-      notification: nagiNotifications,
-      actor: nagiActors,
-      profile: nagiProfiles,
-    })
+  // JS 側で後から filter すると1ページの件数が減るので、必ず SQL で落とす。
+  const visible = and(
+    eq(nagiNotifications.recipientDid, did),
+    validReactionNotification,
+    ...muteFilter(mutes.actors),
+  );
+  // limit は「まとめた後の件数」で数える。行で数えると、まとめた分だけ1ページが短くなる。
+  const latestAt = max(nagiNotifications.createdAt);
+  const heads = await db
+    .select({ key: groupKeyOf })
     .from(nagiNotifications)
-    .leftJoin(nagiActors, eq(nagiActors.did, nagiNotifications.actorDid))
-    .leftJoin(nagiProfiles, eq(nagiProfiles.did, nagiNotifications.actorDid))
-    // JS 側で後から filter すると1ページの件数が減るので、必ず SQL で落とす。
-    .where(
-      and(
-        eq(nagiNotifications.recipientDid, did),
-        validReactionNotification,
-        ...muteFilter(mutes.actors),
-      ),
-    )
-    .orderBy(desc(nagiNotifications.createdAt))
+    .where(visible)
+    .groupBy(groupKeyOf)
+    .orderBy(desc(latestAt))
     .limit(limit);
+  const keys = heads.map((head) => head.key);
+  const allRows = keys.length
+    ? await db
+        .select({
+          notification: nagiNotifications,
+          actor: nagiActors,
+          profile: nagiProfiles,
+        })
+        .from(nagiNotifications)
+        .leftJoin(nagiActors, eq(nagiActors.did, nagiNotifications.actorDid))
+        .leftJoin(
+          nagiProfiles,
+          eq(nagiProfiles.did, nagiNotifications.actorDid),
+        )
+        .where(and(visible, inArray(groupKeyOf, keys)))
+        .orderBy(asc(nagiNotifications.createdAt))
+    : [];
+  const groups = groupNotificationRows(keys, allRows);
+  // 投稿や日記の引き当ては代表行（グループで最新の行）だけで足りる。
+  const rows = groups.map((group) => group.at(-1)!);
   const postRows = await fetchPostRows([
     ...new Set(
       rows.flatMap(({ notification }) =>
@@ -158,7 +183,7 @@ export async function getNotifications(did: string, limit: number) {
   // そこにしか無いので引き直す。
   const reactionUris = [
     ...new Set(
-      rows.flatMap(({ notification }) =>
+      allRows.flatMap(({ notification }) =>
         notification.type === "reaction" ? [notification.reasonUri] : [],
       ),
     ),
@@ -185,8 +210,24 @@ export async function getNotifications(did: string, limit: number) {
     }),
   );
   return {
-    items: rows.map(({ notification: n, actor, profile }) => ({
-      ...n,
+    items: groups.map((group) => {
+      const { notification: n, actor, profile } = group.at(-1)!;
+      const reactions =
+        n.type === "reaction"
+          ? group.flatMap(({ notification }) => {
+              const reaction = reactionByUri.get(notification.reasonUri);
+              return reaction ? [reaction] : [];
+            })
+          : [];
+      // 1行でも未読ならグループごと未読。既読の時刻は最後に読んだ行のもの。
+      const readAt = group.some(({ notification }) => !notification.readAt)
+        ? null
+        : group
+            .map(({ notification }) => notification.readAt!)
+            .reduce((a, b) => (a > b ? a : b));
+      return {
+        ...n,
+        readAt,
       actor: {
         did: n.actorDid,
         handle: actor?.handle ?? n.actorDid,
@@ -199,17 +240,37 @@ export async function getNotifications(did: string, limit: number) {
         ? postByUri.get(n.type === "reply" ? n.reasonUri : n.subjectUri)
         : undefined,
       diary: n.type === "diary" ? diaryByUri.get(n.subjectUri) : undefined,
-      reaction:
-        n.type === "reaction" ? reactionByUri.get(n.reasonUri) : undefined,
+      // 古いクライアント向けに、単数形には最後に押された1つを入れる。
+      reaction: reactions.at(-1),
+      reactions: n.type === "reaction" ? reactions : undefined,
       cardSubject: cardSubjectByUri.get(n.subjectUri),
-    })),
-    hasMore: rows.length === limit,
+      };
+    }),
+    hasMore: heads.length === limit,
   };
+}
+
+/**
+ * まとめる単位ごとに行を集める。並びは heads の順（最新の行が新しい順）、
+ * グループ内は古い順。groupKeyOf と同じ規則でキーを作ること。
+ */
+export function groupNotificationRows<
+  T extends {
+    notification: { id: string; groupKey: string | null };
+  },
+>(keys: string[], rows: T[]): T[][] {
+  const byKey = new Map<string, T[]>(keys.map((key) => [key, []]));
+  for (const row of rows) {
+    const key = row.notification.groupKey ?? row.notification.id;
+    byKey.get(key)?.push(row);
+  }
+  return [...byKey.values()].filter((group) => group.length > 0);
 }
 export async function getUnreadCount(did: string) {
   const mutes = await loadMutes(did);
+  // 一覧と同じく、まとめた単位で数える。行で数えるとバッジだけ多くなる。
   const [row] = await db
-    .select({ value: count() })
+    .select({ value: countDistinct(groupKeyOf) })
     .from(nagiNotifications)
     .where(
       and(
@@ -235,6 +296,19 @@ export async function updateSeen(did: string, seenAt: Date) {
       ),
     )
     .returning({ id: nagiNotifications.id });
+  // 台帳にも同じ条件で既読を残す。リアクションを外すと通知行は消えるので、
+  // 付け直したときに「外す前は既読だったか」を知る手段がここしかない。
+  // 台帳の notified_at は JS Date から入れるのでミリ秒精度。丸めは要らない。
+  await db
+    .update(nagiReactionNoticeLedger)
+    .set({ readAt: seenAt })
+    .where(
+      and(
+        eq(nagiReactionNoticeLedger.recipientDid, did),
+        isNull(nagiReactionNoticeLedger.readAt),
+        lte(nagiReactionNoticeLedger.notifiedAt, seenAt),
+      ),
+    );
   return { updated: result.length };
 }
 

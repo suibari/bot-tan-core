@@ -258,6 +258,22 @@ bot の返信が52分表示されなかった。イベントの `time_us` は配
 両方が積む。積むかどうかの判定は `decideNagiReplyJob`（bot-runtime）の1か所に置き、
 片方だけ条件を変えないこと。
 
+## Nagi のリアクション通知
+
+**リアクションの通知行は `insertReactionNotification`（`apps/nagi_appview/src/ingest/reactionNotice.ts`）
+で入れること。** `nagi.notifications` へ直に insert しない。
+
+- 同じ相手・同じ対象への反応は、最初の反応から5分間を1件にまとめる（`group_key`）。Push はその最初だけ。
+- 一度通知した絵文字は、外して付け直しても通知しない。元の時刻・外す前の既読状態で戻す
+  （既読状態は台帳の `read_at` に `updateSeen` が残す。未読を勝手に既読にしないこと）。
+
+通知行はリアクションを外すと一緒に消えるので、「通知済み」は `nagi.reaction_notice_ledger` に
+残している。台帳はリアクションの削除では消さないこと。消すと付け外しのたびに Push が飛ぶ
+（2026-11-06 まで実際にいたずらに使えた）。
+
+一覧（`getNotifications`）と未読数（`getUnreadCount`）は `coalesce(group_key, id)` 単位で数える。
+片方だけ行単位に戻すと、バッジと一覧が食い違う。
+
 ## Nagi の動画配信
 
 **Nagi の投稿の動画は、AppView の `/api/video/:did/:cid/*`（`routes/video.ts`）経由で配信する。**

@@ -42,6 +42,7 @@ import {
   nagiPreferredNames,
   nagiMutes,
   nagiNotifications,
+  nagiReactionNoticeLedger,
   nagiEmojiGenerations,
   nagiNews,
   nagiNewsApprovals,
@@ -215,6 +216,14 @@ export async function deleteAccountData(did: string) {
           like(nagiNotifications.subjectUri, postUri),
           like(nagiNotifications.reasonUri, postUri),
           like(nagiNotifications.reasonUri, reactionUri),
+        ),
+      );
+    await tx
+      .delete(nagiReactionNoticeLedger)
+      .where(
+        or(
+          eq(nagiReactionNoticeLedger.recipientDid, did),
+          eq(nagiReactionNoticeLedger.actorDid, did),
         ),
       );
     await tx.delete(nagiReactions).where(eq(nagiReactions.did, did));
