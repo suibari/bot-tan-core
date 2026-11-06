@@ -58,6 +58,8 @@ export const NAGI = {
   searchEmojis: "com.suibari.nagi.searchEmojis",
   getEmoji: "com.suibari.nagi.getEmoji",
   getDiaries: "com.suibari.nagi.getDiaries",
+  /** 感情グラフの点（自分の投稿の気分）を本人が直す。valence を省くと LLM の値に戻す。 */
+  setPostMood: "com.suibari.nagi.setPostMood",
   /** 本人だけが読める現在のbotたんラジオ。 */
   getRadioTrack: "com.suibari.nagi.getRadioTrack",
   getRadioHistory: "com.suibari.nagi.getRadioHistory",

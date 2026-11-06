@@ -232,3 +232,27 @@ test("ranks interaction targets by count, recency, then DID", () => {
     10,
   );
 });
+
+test("本人が直した点は LLM の値より優先し、版が古くても出す", async () => {
+  const { moodPoint } = await import("../src/queries/diaries.js");
+  const { POST_MOOD_VERSION } = await import("@bsky-affirmative-bot/shared-configs");
+  const scored = {
+    scored: "at://x",
+    version: POST_MOOD_VERSION,
+    valence: 3,
+    expressive: true,
+    userValence: null,
+  };
+  assert.deepEqual(moodPoint(scored), { valence: 3, edited: false });
+  assert.deepEqual(moodPoint({ ...scored, userValence: -2 }), { valence: -2, edited: true });
+  // 版上げの採点し直し待ちでも、本人の修正は消さない。
+  assert.deepEqual(moodPoint({ ...scored, version: "old", userValence: -2 }), {
+    valence: -2,
+    edited: true,
+  });
+  assert.equal(moodPoint({ ...scored, version: "old" }), "pending");
+  assert.equal(moodPoint({ ...scored, scored: null }), "pending");
+  // 中立・採点不能はグラフに出さない。
+  assert.equal(moodPoint({ ...scored, expressive: false }), undefined);
+  assert.equal(moodPoint({ ...scored, valence: null }), undefined);
+});

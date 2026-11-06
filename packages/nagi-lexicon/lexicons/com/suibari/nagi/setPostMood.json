@@ -1,0 +1,58 @@
+{
+  "lexicon": 1,
+  "id": "com.suibari.nagi.setPostMood",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "感情グラフの点（自分の投稿の気分）を本人が直す。valence を省くと LLM の採点に戻す。直せるのはいまグラフに出ている点だけで、中立と判定された投稿は対象外。",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["uri"],
+          "properties": {
+            "uri": { "type": "string", "format": "at-uri", "maxLength": 2048 },
+            "valence": {
+              "type": "integer",
+              "minimum": -5,
+              "maximum": 5,
+              "description": "-5〜+5。0 は不可（中立はグラフに載らない）。省くと LLM の値に戻す。"
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "mood": {
+              "type": "ref",
+              "ref": "#moodView",
+              "description": "直したあとの点。LLM の値に戻した結果グラフから外れたときは省く。"
+            }
+          }
+        }
+      },
+      "errors": [
+        { "name": "AuthRequired" },
+        { "name": "InvalidRequest" },
+        { "name": "NotFound" }
+      ]
+    },
+    "moodView": {
+      "type": "object",
+      "required": ["uri", "date", "createdAt", "valence", "text"],
+      "properties": {
+        "uri": { "type": "string", "format": "at-uri" },
+        "date": { "type": "string" },
+        "createdAt": { "type": "string", "format": "datetime" },
+        "valence": { "type": "integer", "minimum": -5, "maximum": 5 },
+        "edited": { "type": "boolean" },
+        "text": { "type": "string" },
+        "selfLabels": { "type": "array", "items": { "type": "string" } },
+        "moderationLabels": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

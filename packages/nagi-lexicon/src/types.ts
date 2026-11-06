@@ -271,8 +271,10 @@ export type DiaryMoodView = {
   /** その投稿が入る日記の日付（前日22時の直後〜当日22時。日記と同じ区切り）。 */
   date: string;
   createdAt: string;
-  /** -5（深く落ち込んでいる）〜 +5（最高に嬉しい）。0 は含まない。 */
+  /** -5（深く落ち込んでいる）〜 +5（最高に嬉しい）。0 は含まない。本人が直していればその値。 */
   valence: number;
+  /** 本人が setPostMood で直した値なら true（LLM の値のときは付けない）。 */
+  edited?: boolean;
   /** 本文の冒頭（最大200字）。 */
   text: string;
   selfLabels?: string[];

@@ -14,8 +14,9 @@ import {
   isOllamaConfigured,
   isPostMoodRouteLocal,
   scorePostMood,
+  type PostMood,
 } from "@bsky-affirmative-bot/bot-brain";
-import { and, count, desc, eq, isNotNull, isNull, min, ne, or } from "drizzle-orm";
+import { and, count, desc, eq, isNotNull, isNull, min, ne, or, sql } from "drizzle-orm";
 import { notifyFirstMood } from "./appviewInternal.js";
 import { startWorkerLoop } from "./workerLoop.js";
 
@@ -95,18 +96,41 @@ async function maybeNotifyFirstMood(did: string): Promise<void> {
 }
 
 /**
+ * 本人の修正（user_valence）は、採点基準の版上げで採点し直しても残す。投稿が編集されて
+ * cid が変わったときだけ消す（直したのは前の本文に対してなので）。
+ * ON CONFLICT の中では "post_moods" が既存行、excluded が今回の値を指す。
+ */
+export const keepUserMoodWhileSameCid = {
+  userValence: sql`CASE WHEN "post_moods"."cid" = excluded."cid" THEN "post_moods"."user_valence" END`,
+  userEditedAt: sql`CASE WHEN "post_moods"."cid" = excluded."cid" THEN "post_moods"."user_edited_at" END`,
+};
+
+/**
  * 1件を採点して保存する。採点不能（本文が空・出力が壊れている）も valence=null で保存し、
  * 同じ投稿で Ollama を叩き続けない。**Ollama の接続失敗は保存せずに投げる**
  * （全件を採点不能で埋めてしまわないため。次の tick で拾い直す）。
  */
 export async function scoreAndStore(post: PendingMoodPost): Promise<void> {
   const mood = await scorePostMood(post.text);
+  const stored = await storePostMood(post, mood);
+  // 通知は採点の付け足し。失敗しても採点結果はもう保存してあるので、ここで投げない。
+  if (stored && mood?.valence != null)
+    await maybeNotifyFirstMood(post.did).catch((error) =>
+      console.warn(`${LOG_PREFIX} failed to check the first mood of ${post.did}:`, error),
+    );
+}
+
+/** 採点結果を保存する。投稿が採点中に削除・編集されていたら保存せず false。 */
+export async function storePostMood(
+  post: PendingMoodPost,
+  mood: PostMood | null,
+): Promise<boolean> {
   // 採点の数秒のあいだに削除・編集・退会された投稿へ、古い本文の点を書き戻さない。
   const [current] = await db
     .select({ cid: nagiPosts.cid })
     .from(nagiPosts)
     .where(and(eq(nagiPosts.uri, post.uri), isNull(nagiPosts.deletedAt)));
-  if (current?.cid !== post.cid) return;
+  if (current?.cid !== post.cid) return false;
   const values = {
     did: post.did,
     cid: post.cid,
@@ -118,12 +142,11 @@ export async function scoreAndStore(post: PendingMoodPost): Promise<void> {
   await db
     .insert(nagiPostMoods)
     .values({ postUri: post.uri, ...values })
-    .onConflictDoUpdate({ target: nagiPostMoods.postUri, set: values });
-  // 通知は採点の付け足し。失敗しても採点結果はもう保存してあるので、ここで投げない。
-  if (values.valence !== null)
-    await maybeNotifyFirstMood(post.did).catch((error) =>
-      console.warn(`${LOG_PREFIX} failed to check the first mood of ${post.did}:`, error),
-    );
+    .onConflictDoUpdate({
+      target: nagiPostMoods.postUri,
+      set: { ...values, ...keepUserMoodWhileSameCid },
+    });
+  return true;
 }
 
 /**
