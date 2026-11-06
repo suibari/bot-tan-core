@@ -274,7 +274,11 @@ export async function loadDiaryMoods(
   actor: string,
   from: string,
   to: string,
-): Promise<{ moods: DiaryMoodView[]; moodPending: number }> {
+): Promise<{
+  moods: DiaryMoodView[];
+  moodPending: number;
+  moodTimezone: string;
+}> {
   const timezone = await loadMoodTimezone(actor);
   // 日付の境界はタイムゾーンと22時区切りで前後するので、UTCで2日ずつ広めに引いてから絞る。
   const start = new Date(Date.parse(`${from}T00:00:00.000Z`) - 2 * DAY_MS);
@@ -345,7 +349,9 @@ export async function loadDiaryMoods(
         : undefined,
     });
   }
-  return { moods, moodPending };
+  // 日付を切ったタイムゾーンも返す。クライアントが1日の中の位置（22時〜22時の横バー）を
+  // 同じ区切りで描けるようにするため（ブラウザのタイムゾーンとは一致しないことがある）。
+  return { moods, moodPending, moodTimezone: timezone };
 }
 
 /**
@@ -557,6 +563,8 @@ export async function getDiaries(opts: {
   hasMore: boolean;
   moods?: DiaryMoodView[];
   moodPending?: number;
+  /** moods の date を切ったタイムゾーン（IANA 名）。moods を要求したときだけ。 */
+  moodTimezone?: string;
 }> {
   if (!opts.actor)
     throw new ApiError(400, "invalid_request", "actor is required");
