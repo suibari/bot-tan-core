@@ -303,6 +303,8 @@ export async function createNagiReply(
             isSubscriber: context.isSubscriber,
             urlContextEnabled: context.urlContextEnabled,
             researchMemory: context.researchMemory,
+            researchCards: context.researchCards,
+            persistLiveResearch: context.persistLiveResearch,
             // 触れてよいかは検索側が判断済み。無ければプロンプトに節ごと出ない。
             notableMemory: context.notableMemory,
             followUp: context.followUp,

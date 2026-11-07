@@ -368,9 +368,16 @@ export async function generateOllamaContent(params: any): Promise<any> {
       ...(schema ? { format: schema } : {}),
       options,
     }),
-    signal: AbortSignal.timeout(
-      Number(process.env.OLLAMA_TEXT_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS,
-    ),
+    // 呼び出し側が締め切りを持っているとき（その場調べの申告など）は config.abortSignal で渡す。
+    // 既定のタイムアウトは長い本生成向けなので、そのままだと締め切りを守れない。
+    signal: config.abortSignal instanceof AbortSignal
+      ? AbortSignal.any([
+        config.abortSignal,
+        AbortSignal.timeout(Number(process.env.OLLAMA_TEXT_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS),
+      ])
+      : AbortSignal.timeout(
+        Number(process.env.OLLAMA_TEXT_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS,
+      ),
   });
   if (!response.ok) {
     const detail = (await response.text()).slice(0, 1_000);

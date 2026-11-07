@@ -1394,10 +1394,51 @@ function normalizeForTermMatch(text: string): string {
 }
 
 /** カードが何についての知識か。metadata.term が無い古い行は本文の1行目（保存時に語を先頭へ置いている）。 */
-function researchTerm(row: BotMemorySearchResult): string {
+export function researchTerm(row: Pick<BotMemorySearchResult, "metadata" | "content">): string {
   const term = row.metadata?.term;
   if (typeof term === "string" && term.trim()) return term;
   return row.content.split("\n", 1)[0] ?? "";
+}
+
+/** 語で引いた知識カード。その場調べ（liveResearch）が再検索を省くのに使う。 */
+export interface WebResearchCard {
+  term: string;
+  /** 調べたときのジャンル（「遊戯王」など）。裏で調べた古いカードには無い。 */
+  context: string | null;
+  content: string;
+  format: string | null;
+}
+
+/**
+ * 見出し語が一致する知識カードを引く。公開の記憶（public）だけ。
+ *
+ * 意味検索ではなく語の一致で引く。その場調べでは「この語のカードがもうあるか」だけを
+ * 知りたいので、近い語のカードまで拾うと別の語の説明が混ざる。
+ * 照合は小文字にそろえる（全角半角の揺れは呼び出し側で語を正規化してから渡す）。
+ */
+export async function findWebResearchByTerms(terms: string[]): Promise<WebResearchCard[]> {
+  const lowered = [...new Set(terms.map((term) => term.trim().toLowerCase()).filter(Boolean))];
+  if (!lowered.length) return [];
+  const termExpression = sql<string>`lower(${bot_memory_documents.metadata}->>'term')`;
+  const rows = await db
+    .select({ content: bot_memory_documents.content, metadata: bot_memory_documents.metadata })
+    .from(bot_memory_documents)
+    .where(and(
+      eq(bot_memory_documents.source_type, "web_research"),
+      eq(bot_memory_documents.visibility, "public"),
+      inArray(termExpression, lowered),
+    ))
+    .orderBy(desc(bot_memory_documents.occurred_at))
+    .limit(lowered.length * 4);
+  return rows.map((row) => {
+    const metadata = (row.metadata ?? {}) as Record<string, unknown>;
+    return {
+      term: typeof metadata.term === "string" ? metadata.term : "",
+      context: typeof metadata.context === "string" ? metadata.context : null,
+      content: row.content,
+      format: typeof metadata.format === "string" ? metadata.format : null,
+    };
+  });
 }
 
 /**

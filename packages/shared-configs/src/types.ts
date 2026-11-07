@@ -247,6 +247,21 @@ export type UserInfoGemini = {
    */
   researchMemory?: string | null;
   /**
+   * researchMemory の元になった知識カード（見出し語つき）。
+   *
+   * その場調べ（liveResearch）が、申告された語のジャンルに合わないカード
+   * （遊戯王の話なのに「トリシューラ＝シヴァ神の槍」など）を外すのに使う。
+   * 渡さなければ researchMemory をそのまま使う。
+   */
+  researchCards?: { term: string; content: string }[] | null;
+  /**
+   * その場で調べた結果を公開の記憶（web_research）へ保存してよいか。
+   *
+   * 既定は保存しない。こっそりの文脈で調べた語を公開の記憶へ流さないよう、
+   * 公開の文脈だと分かっている呼び出し側だけが true を渡す。
+   */
+  persistLiveResearch?: boolean;
+  /**
    * 「この前の話」として触れてよい、その人自身の思い出。最大1件。
    *
    * 触れるかどうかは**検索側が決めている**（buildMemoryContext の selectNotableMemory）。

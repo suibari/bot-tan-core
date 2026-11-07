@@ -1,5 +1,6 @@
 import { nagiReactionInstruction, nagiReactionMode } from './nagiReactionPrompt.js';
-import { UserInfoGemini, GeminiScore } from '@bsky-affirmative-bot/shared-configs';
+import { UserInfoGemini, GeminiScore, resolveAiRoute } from '@bsky-affirmative-bot/shared-configs';
+import { isLiveResearchEnabled, runLiveResearch } from './liveResearch.js';
 import { generateSingleResponseWithScore, memoryAgeLabel } from './util.js';
 import { assertSourcedUrls, createUrlAllowance } from './urlGuard.js';
 import { selectReplyNetaDirective, type ReplyNetaDirective } from './chaosDirectives.js';
@@ -124,7 +125,28 @@ export async function resolveReplyDirectives(
   return neta ? { neta } : {};
 }
 
+/**
+ * 返信の前に、投稿の中の知らない固有名詞をその場で調べて材料に足す（liveResearch.ts）。
+ *
+ * ローカル（Ollama）で生成するときだけ。申告に使う短い呼び出しも Ollama なので、
+ * Gemini へ切り戻しているときは従来どおり（検索なし）にする。失敗しても返信は止めない。
+ */
+async function withLiveResearch(userinfo: UserInfoGemini): Promise<UserInfoGemini> {
+  if (!isLiveResearchEnabled() || resolveAiRoute('BSKY_AFFIRMATIVE_REPLY').provider !== 'ollama') {
+    return userinfo;
+  }
+  const research = await runLiveResearch(userinfo);
+  console.log(
+    `[INFO][LIVE_RESEARCH] terms=${JSON.stringify(research.terms.map((item) => `${item.term}/${item.context}`))}` +
+      ` memory=${research.cards.filter((card) => card.source === 'memory').length}` +
+      ` wikipedia=${research.cards.filter((card) => card.source === 'wikipedia').length}` +
+      ` dropped=${JSON.stringify(research.droppedTerms)} ms=${research.elapsedMs}${research.timedOut ? ' timedOut' : ''}`,
+  );
+  return { ...userinfo, researchMemory: research.researchMemory };
+}
+
 export async function generateAffirmativeWord(userinfo: UserInfoGemini, requestOptions: GeminiRequestOptions = {}) {
+  userinfo = await withLiveResearch(userinfo);
   const { neta, careAngle } = await resolveReplyDirectives(userinfo);
 
   // 指示とユーザ投稿は**分けて渡す**。1本の文字列にすると、grounding の調査ブロックと
@@ -202,14 +224,14 @@ const POST_READING_RULES_JA =
   `## 投稿の読み取りについて（「具体的に褒める」より優先）
    - **行為をした人を、勝手に相手本人にしないこと。** 子供・家族・友人・同僚・他人がやったことは、その人がやったこととして書いてください。相手がやったのは「それを見つけたこと」「面白がったこと」「話してくれたこと」の側です。そこを褒めてください。
    - **まだ起きていないことを、起きたことにしないこと。** 「〜したら」「〜する予定」「〜したい」「〜しないとな」「〜するつもり」は、まだ終わっていません。「おめでとう」「お疲れさま」「やりきったね」など、達成を祝う言葉を使ってはいけません。これからやることには、応援の側で応えてください。
-   - 投稿に書かれていない結果・成果・経緯を足さないこと。書いていないことは、あなたが知らないことです。ただし、ユーザ自身が共有したリンク先の内容（<grounding_research>）と画像に写っているものは、この「知らないこと」には当たりません。
+   - 投稿に書かれていない結果・成果・経緯を足さないこと。書いていないことは、あなたが知らないことです。ただし、ユーザ自身が共有したリンク先の内容と画像に写っているもの、そして<grounding_research>にある作品・ゲーム・カードについての情報は、この「知らないこと」には当たりません（ユーザ本人の行動や結果を足すことは、引き続き禁止です）。
    - 主体や時系列がはっきり読み取れないときは、断定しないこと。事実を決めつけて褒めるより、いまの気持ちに寄り添うほうが外しません。`;
 
 const POST_READING_RULES_EN =
   `## How to read the post (this takes priority over giving a specific compliment)
    - **Never reassign an action to the user.** If a child, family member, friend, coworker, or anyone else did the thing, write it as that person's doing. What the user did was notice it, enjoy it, or share it — praise that instead.
    - **Never treat something that has not happened as done.** "once I finish", "I plan to", "I want to", "I need to", "I'm going to" all mean it is not finished. Do not use congratulation words such as "congrats", "well done", or "you pulled it off". Respond to upcoming things with encouragement instead.
-   - Do not add results, outcomes, or backstory that the post does not state. If it is not written, you do not know it. What a link the user shared says (<grounding_research>) and what is visible in the attached images do not count as things you do not know.
+   - Do not add results, outcomes, or backstory that the post does not state. If it is not written, you do not know it. What a link the user shared says, what is visible in the attached images, and what <grounding_research> says about the work, game, or card do not count as things you do not know (adding the user's own actions or results is still forbidden).
    - When you cannot tell who did what, or when it happened, do not assert it. Staying with how they feel right now is safer than praising a fact you guessed.`;
 
 /**

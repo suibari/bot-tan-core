@@ -47,6 +47,7 @@ export * from './replyGuard.js';
 export * from './urlGuard.js';
 export * from './generationClient.js';
 export * from './grounding.js';
+export * from './liveResearch.js';
 export * from './routedGeneration.js';
 export * from './actorThemes.js';
 export * from './newsInterestTopics.js';

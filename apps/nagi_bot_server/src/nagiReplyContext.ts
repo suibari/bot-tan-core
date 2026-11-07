@@ -7,6 +7,7 @@ import {
   nagiProfiles,
   nagiReactions,
   buildMemoryContext,
+  researchTerm,
   takeDueFollowUp,
   type MemoryContext,
 } from "@bsky-affirmative-bot/database";
@@ -413,6 +414,11 @@ export async function buildNagiReplyContext(job: any) {
     // 事前に調べてある分だけが鮮度の要る話題の根拠になる。無ければ
     // prepareOllamaGrounding が「知らないなら知らないと言う」ノートを渡す。
     researchMemory: memory.research.map((row) => row.content).join("\n\n") || null,
+    // その場調べ（liveResearch）が、申告された語のジャンルに合わないカードを外すのに使う。
+    researchCards: memory.research.map((row) => ({ term: researchTerm(row), content: row.content })),
+    // その場で調べた結果を公開の記憶へ保存してよいか。こっそりの文脈では保存しない
+    // （調べた語は web_research として公開記憶に入り、定期ポストの根拠にもなるため）。
+    persistLiveResearch: !kossori,
     // 触れてよいかは検索側（selectNotableMemory）が既に判断済み。無ければ
     // プロンプトに節ごと出ないので、生成側に条件分岐は増えない。
     notableMemory: memory.notable
