@@ -1,6 +1,7 @@
 import {
   aiModel,
   isAiGroundingEnabled,
+  languageData,
   type UserInfoGemini,
 } from "@bsky-affirmative-bot/shared-configs";
 import { generateContentForProvider, normalizeJsonSchema } from "./generationClient.js";
@@ -64,8 +65,9 @@ export type LiveResearchDeps = {
     term: string,
     context: string,
     signal: AbortSignal,
+    language: string,
   ) => Promise<{ content: string; titles: string[] } | null>;
-  saveCard?: (card: LiveResearchCard, titles: string[]) => Promise<void>;
+  saveCard?: (card: LiveResearchCard, titles: string[], language: string) => Promise<void>;
   now?: () => number;
 };
 
@@ -254,8 +256,20 @@ function gatewayBase(): string {
   return base.replace(/\/+$/, "");
 }
 
-async function wikipediaQuery(params: Record<string, string>, signal: AbortSignal): Promise<any> {
-  const url = new URL(`${gatewayBase()}/wikipedia/ja`);
+/**
+ * 投稿の言語に対応する Wikipedia の言語版。分からなければ日本語版。
+ *
+ * 英語の投稿の「energy drink」を日本語版で引いていた（デプロイ直後の本番ログ、2026-11-07）。
+ * 言語コードは languageData（ISO 639-1）で、Wikipedia のサブドメインと一致する。
+ */
+export function wikipediaLanguage(langStr: UserInfoGemini["langStr"]): string {
+  if (!langStr) return "ja";
+  return languageData.find((item) => item.name === langStr)?.code ?? "ja";
+}
+
+async function wikipediaQuery(params: Record<string, string>, signal: AbortSignal, language = "ja"): Promise<any> {
+  if (!/^[a-z]{2,3}$/.test(language)) throw new Error(`Unsupported Wikipedia language: ${language}`);
+  const url = new URL(`${gatewayBase()}/wikipedia/${language}`);
   for (const [key, value] of Object.entries({ action: "query", format: "json", ...params })) {
     url.searchParams.set(key, value);
   }
@@ -314,10 +328,11 @@ export async function searchWikipediaExcerpt(
   term: string,
   context: string,
   signal: AbortSignal,
+  language = "ja",
 ): Promise<{ content: string; titles: string[] } | null> {
   const keyword = contextKeyword(context);
   const query = keyword ? `${term} ${keyword}` : term;
-  const search = await wikipediaQuery({ list: "search", srsearch: query, srlimit: "3" }, signal);
+  const search = await wikipediaQuery({ list: "search", srsearch: query, srlimit: "3" }, signal, language);
   const hits: { title: string; snippet: string }[] = (search?.query?.search ?? [])
     .map((item: any) => ({
       title: typeof item?.title === "string" ? item.title : "",
@@ -342,7 +357,7 @@ export async function searchWikipediaExcerpt(
   const used: string[] = [];
   for (const { title } of hits.slice(0, MAX_ARTICLES)) {
     if (signal.aborted) break;
-    const page = await wikipediaQuery({ prop: "extracts", explaintext: "1", titles: title }, signal);
+    const page = await wikipediaQuery({ prop: "extracts", explaintext: "1", titles: title }, signal, language);
     const text = Object.values<any>(page?.query?.pages ?? {})
       .map((item) => (typeof item?.extract === "string" ? item.extract : ""))
       .join("\n");
@@ -385,16 +400,18 @@ async function defaultFindCards(terms: string[]): Promise<WebResearchCardLike[]>
   return findWebResearchByTerms(terms);
 }
 
-async function defaultSaveCard(card: LiveResearchCard, titles: string[]): Promise<void> {
+async function defaultSaveCard(card: LiveResearchCard, titles: string[], language: string): Promise<void> {
   const { researchSubjectHash, tryUpsertBotMemoryDocument } = await import("@bsky-affirmative-bot/database");
+  // 日本語版以外は言語もキーに入れる（同じ語でも言語版で中身が違う）。日本語版は従来のキーのまま。
+  const languageKey = language === "ja" ? "" : `\u0000${language}`;
   await tryUpsertBotMemoryDocument({
     sourceType: "web_research",
     // 語とジャンルの組で1枚。裏で語だけを調べた一般的な意味のカード（トリシューラ＝槍）を
     // 上書きしない。別のジャンルで話す人にはそちらが正しいこともある。
-    sourceId: researchSubjectHash(`${card.term}\u0000${normalizeForMatch(contextKeyword(card.context))}`),
+    sourceId: researchSubjectHash(`${card.term}\u0000${normalizeForMatch(contextKeyword(card.context))}${languageKey}`),
     content: cardText(card),
     occurredAt: new Date(),
-    metadata: { term: card.term, context: card.context, format: "wikipedia_excerpt_v1", titles },
+    metadata: { term: card.term, context: card.context, format: "wikipedia_excerpt_v1", titles, language },
   });
 }
 
@@ -433,6 +450,7 @@ export async function runLiveResearch(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(new Error("live research deadline")), deadlineMs());
   const existing = userinfo.researchCards ?? [];
+  const language = wikipediaLanguage(userinfo.langStr);
   const cards: LiveResearchCard[] = [];
   let terms: LiveResearchTerm[] = [];
   let timedOut = false;
@@ -469,7 +487,7 @@ export async function runLiveResearch(
         }
         if (searched >= MAX_SEARCH_TERMS) continue;
         searched++;
-        const found = await (deps.searchWikipedia ?? searchWikipediaExcerpt)(item.term, item.context, controller.signal)
+        const found = await (deps.searchWikipedia ?? searchWikipediaExcerpt)(item.term, item.context, controller.signal, language)
           .catch((error) => {
             if (!controller.signal.aborted) {
               console.warn("[WARN][LIVE_RESEARCH] Wikipedia を引けなかった", error instanceof Error ? error.message : error);
@@ -481,7 +499,7 @@ export async function runLiveResearch(
         cards.push(liveCard);
         // こっそりの文脈では保存しない。保存先は公開の記憶で、定期ポストの根拠にもなる。
         if (userinfo.persistLiveResearch) {
-          void (deps.saveCard ?? defaultSaveCard)(liveCard, found.titles).catch((error) => {
+          void (deps.saveCard ?? defaultSaveCard)(liveCard, found.titles, language).catch((error) => {
             console.warn("[WARN][LIVE_RESEARCH] 知識カードを保存できなかった", error instanceof Error ? error.message : error);
           });
         }

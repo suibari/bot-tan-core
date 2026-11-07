@@ -8,6 +8,7 @@ import {
   sanitizePlannedTerms,
   searchWikipediaExcerpt,
   clipWorkCard,
+  wikipediaLanguage,
   type LiveResearchCard,
 } from "../src/ai/liveResearch.js";
 
@@ -348,4 +349,44 @@ test("作品のカードは冒頭の概要に絞り、文の途中で切らな�
   assert.ok(clipped.length <= 600);
   assert.ok(clipped.endsWith("。"));
   assert.equal(clipWorkCard("短いカード。"), "短いカード。");
+});
+
+test("投稿の言語に合わせて Wikipedia の言語版を選ぶ（分からなければ日本語版）", () => {
+  // デプロイ直後、英語の投稿の「energy drink」を日本語版で引いていた。
+  assert.equal(wikipediaLanguage("English"), "en");
+  assert.equal(wikipediaLanguage("日本語"), "ja");
+  assert.equal(wikipediaLanguage("Korean"), "ko");
+  assert.equal(wikipediaLanguage(undefined), "ja");
+});
+
+test("英語の投稿は英語版の Wikipedia を引き、保存にも言語を渡す", async () => {
+  const languages: string[] = [];
+  const saved: string[] = [];
+  await runLiveResearch(
+    userinfo({ posts: ["I chugged an energy drink before the raid"], langStr: "English", persistLiveResearch: true }),
+    {
+      plan: async () => [{ term: "energy drink", context: "" }],
+      findCards: async () => [],
+      searchWikipedia: async (_term, _context, _signal, language) => {
+        languages.push(language);
+        return { content: "An energy drink is a type of drink containing stimulant compounds.", titles: ["Energy drink"] };
+      },
+      saveCard: async (_card, _titles, language) => {
+        saved.push(language);
+      },
+    },
+  );
+  assert.deepEqual(languages, ["en"]);
+  assert.deepEqual(saved, ["en"]);
+});
+
+test("英語版のゲートウェイへは /wikipedia/en で問い合わせる", async () => {
+  await withWikipedia(
+    { search: [{ title: "Energy drink", snippet: "An <span>energy drink</span> is a type of drink." }] },
+    async (requests) => {
+      const found = await searchWikipediaExcerpt("energy drink", "", new AbortController().signal, "en");
+      assert.equal(requests[0].pathname, "/wikipedia/en");
+      assert.match(found?.content ?? "", /energy drink is a type of drink/);
+    },
+  );
 });
