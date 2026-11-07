@@ -118,7 +118,12 @@ const text = (value: unknown): string => (typeof value === "string" ? value.trim
  */
 export async function searxngSearch(
   query: string,
-  options: { language?: "ja" | "en"; source?: "grounding" | "knowledge-card" | "radio" | "topic-song" | "character" | "probe" } = {},
+  options: {
+    language?: "ja" | "en";
+    source?: "grounding" | "knowledge-card" | "radio" | "topic-song" | "character" | "probe";
+    /** 送信先のエンジンを1つに絞るとき（関連性の監視でエンジンごとに確かめる）。既定は SEARXNG_ENGINES。 */
+    engines?: string;
+  } = {},
 ): Promise<SearxngResponse> {
   const trimmed = query.trim();
   if (!trimmed) return { hits: [], infoboxes: [], unresponsiveEngines: [] };
@@ -129,7 +134,7 @@ export async function searxngSearch(
   url.searchParams.set("language", options.language ?? "ja");
   url.searchParams.set("categories", "general");
   url.searchParams.set("safesearch", "1");
-  url.searchParams.set("engines", searxngEngines());
+  url.searchParams.set("engines", options.engines?.trim() || searxngEngines());
 
   let response: Response;
   try {
