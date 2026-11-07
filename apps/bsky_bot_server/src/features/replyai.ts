@@ -20,6 +20,7 @@ import { followerMap } from "../bsky/followerManagement.js";
 import { replyRandom } from "./replyrandom.js";
 import {
     buildMemoryContext,
+    researchTerm,
     takeDueFollowUp,
     type BotMemorySearchResult,
 } from "@bsky-affirmative-bot/database";
@@ -38,7 +39,7 @@ export async function replyAI(
     let result: GeminiScore | undefined;
     const text_user = record.text;
 
-    const [{ relatedPosts, friendMemory, researchMemory, notableMemory }, followUp] =
+    const [{ relatedPosts, friendMemory, researchMemory, researchCards, notableMemory }, followUp] =
         await Promise.all([
             loadReplyMemories(text_user, follower.did),
             loadDueFollowUp(follower.did),
@@ -130,6 +131,9 @@ export async function replyAI(
             isSubscriber,
             botContext: await getBotContext(),
             researchMemory,
+            researchCards,
+            // Bluesky の投稿は公開なので、その場で調べた結果を公開の記憶へ保存してよい。
+            persistLiveResearch: true,
             notableMemory,
             followUp,
         });
@@ -205,7 +209,7 @@ export async function replyAI(
 export async function loadReplyMemories(text: string, authorDid: string) {
     if (!text.trim())
         return {
-            relatedPosts: [], friendMemory: undefined, researchMemory: null,
+            relatedPosts: [], friendMemory: undefined, researchMemory: null, researchCards: [],
             notableMemory: null,
         };
     // 本人の記憶は「フィルタ」ではなく「係数」で効かせる。その人との記憶が無くても
@@ -227,7 +231,7 @@ export async function loadReplyMemories(text: string, authorDid: string) {
     });
     if (!context)
         return {
-            relatedPosts: [], friendMemory: undefined, researchMemory: null,
+            relatedPosts: [], friendMemory: undefined, researchMemory: null, researchCards: [],
             notableMemory: null,
         };
     return {
@@ -236,6 +240,8 @@ export async function loadReplyMemories(text: string, authorDid: string) {
         relatedPosts: context.own.map((row) => row.content),
         friendMemory: context.friend,
         researchMemory: context.research.map((row) => row.content).join("\n\n") || null,
+        // その場調べ（liveResearch）が、申告された語のジャンルに合わないカードを外すのに使う。
+        researchCards: context.research.map((row) => ({ term: researchTerm(row), content: row.content })),
         // 触れてよいかは検索側（selectNotableMemory）が既に判断済み。
         notableMemory: context.notable
             ? { content: context.notable.content, occurredAt: context.notable.occurredAt }

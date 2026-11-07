@@ -38,9 +38,12 @@ export type GroundingContext = {
  * を直列で回していた。検索を自前化すると要約段が増えてローカル推論が 3 回になり、
  * 投稿からリプライまでの体感が確実に悪化する。
  *
- * そこで同期パスからは検索を外し、その場では「分からない」と言わせる。調べる方は
- * botMemoryResearchWorker が非同期で回し、結果を bot memory に貯めて次回以降に効かせる。
- * これで同期パスのローカル推論は本生成の 1 回だけになる。
+ * そこで同期パスからは検索を外し、調べる方は botMemoryResearchWorker が非同期で回して
+ * 結果を bot memory に貯め、次回以降に効かせる形にした。
+ *
+ * 2026-11-07 から、肯定リプライは生成の前に liveResearch.ts がその場で調べる
+ * （短い申告1回＋Wikipedia。要約段は挟まない）。ユーザーが10秒程度の遅れを許容したため。
+ * この関数自体は引き続き検索せず、渡された researchMemory を差し込むだけ。
  */
 const DEFERRED_FEATURES = new Set<AiFeatureKey>([
   "BSKY_AFFIRMATIVE_REPLY",
@@ -124,13 +127,15 @@ function appendNote(params: any, note: string, anchor: GroundingAnchor = "last")
 }
 
 /**
- * 同期パスで検索しない機能へ渡す注意書き。
+ * 返信系（deferred）で、材料が何も無いときの注意書き。
  *
  * 黙って素通りさせると、ローカルモデルは学習データの古い作品名を平気で並べる。
- * 「知らないなら知らないと言う」まで明示しないと埋め合わせに走る。
+ * 以前は「知らないなら知らないと言う」まで指示していたが、その場で調べる
+ * （liveResearch.ts）ようになったので、「知らない」と口に出させるのはやめた
+ * （ユーザーの要望、2026-11-07）。知ったかぶりの禁止は残す。
  */
-const DEFERRED_RESEARCH_NOTE = `External research is not available in this turn. Do not invent current facts, titles, numbers, or dates. If you do not know something, say so plainly in your own voice instead of guessing.
-知らない言葉や作品が出てきたら、知ったかぶりをせず「それは知らない」と正直に言うこと。相手の気持ちに寄り添うことと、知らない事実をでっち上げることは別。`;
+const DEFERRED_RESEARCH_NOTE = `No outside facts are available for this reply. Do not invent facts, titles, numbers, or dates. If the user mentions something you cannot describe accurately, do not explain it or add facts about it — respond to what the user actually wrote and how they feel. Do not say that you do not know it, and do not say you will look it up.
+投稿に出てくる語について確かなことが分からなくても、知ったかぶりで説明したり事実を足したりしないこと。「知らない」「調べておく」とも言わず、投稿に書かれていることと相手の気持ちに寄り添って返すこと。`;
 
 export function groundingPolicyForFeature(feature?: AiFeatureKey): GroundingPolicy {
   if (!feature) return "off";
@@ -857,13 +862,43 @@ must appear verbatim in the research above. Your own knowledge is out of date an
 used to name anything. If the research does not support enough items, return fewer items rather
 than filling the gap from memory.`;
 
+/**
+ * 返信系（deferred）向けの拘束と使い方。
+ *
+ * 【出所の拘束】RESEARCH_ONLY_NOTE を緩めたもの。返信ではユーザー自身が投稿に書いた語
+ * （カード名・作品名）を使えないと会話にならないので、出所を「投稿か調査ブロック」に限る。
+ *
+ * 【ファンとしての一言】相手の話を理解するだけでは「わかってるな！」にならない
+ * （ユーザーの評価、2026-11-07）。材料に同じ作品の情報があれば、投稿に出ていない要素を
+ * 1つだけ、解説ではなく相づちとして出させる。モデル自身の知識は使わせない
+ * （ローカル 12B は細かい作品ほど存在しないセリフやカードを作る）。
+ *
+ * 【結び付けの禁止】材料の語だけを使わせても、語と語の関係を取り違える。評価で
+ * 「海馬瀬人がラーの翼神竜でバトルシティを戦った」と言った（実際はマリク）。3語とも材料に
+ * あるので語単位の検査では捕まらない。結び付けは材料の同じ一文にあるものだけに限る。
+ * ただし禁止を長く書くと、同じ作品の要素に触れること自体をやめる（評価でわかってる度が
+ * 15% → 4%）。禁止は1行に留め、「1つ触れる」を最後に置く（後に読んだ指示ほど効く）。
+ *
+ * 【言い換えの禁止】「このカードは特殊召喚できない。」と投稿した人に、材料にあった
+ * 「このカードは通常召喚できない。」へ言い換えて引用した（評価で2回）。材料で相手の言葉を
+ * 訂正させない。
+ */
+const REPLY_RESEARCH_NOTE = `
+Every proper noun in your reply — titles, card names, characters, people, products, dates, numbers —
+must appear verbatim either in the user's own post or in the research above. Do not name anything
+from your own knowledge.
+人物とカード、人物と出来事などの結び付きは、材料の一文に書いてあるとおりにだけ言うこと。迷ったら名前だけを出し、誰のものか・何に出たかは言わない。
+ユーザーが書いた言葉や引用は、材料に合わせて言い換えたり訂正したりしないこと（「特殊召喚できない」と書いた人に「通常召喚できない」と返さない）。
+材料にその作品の情報があれば、投稿に出ていない同じ作品の要素（別のキャラ・カード・設定・名場面）を1つ選び、ファン同士の会話のように軽く触れること。解説口調にはしない。合うものが無ければ無理に入れない。`;
+
 function appendResearch(
   params: any,
   research: string,
-  strict = false,
+  note: "strict" | "reply" | "none" = "none",
   anchor: GroundingAnchor = "last",
 ): any {
-  const block = `\n\n<grounding_research>\n${research}\n</grounding_research>\nUse this research only as factual reference. The final answer must follow the original system instruction and persona. Refer to what the research says as concretely as you like, but never mention the research block, the fact that it was looked up, or the source URLs.${strict ? RESEARCH_ONLY_NOTE : ""}`;
+  const extra = note === "strict" ? RESEARCH_ONLY_NOTE : note === "reply" ? REPLY_RESEARCH_NOTE : "";
+  const block = `\n\n<grounding_research>\n${research}\n</grounding_research>\nUse this research only as factual reference. The final answer must follow the original system instruction and persona. Refer to what the research says as concretely as you like, but never mention the research block, the fact that it was looked up, or the source URLs.${extra}`;
   return appendBlock(params, block, anchor);
 }
 
@@ -894,9 +929,9 @@ export async function prepareOllamaGrounding(
 
     // 貼られたリンクだけは**その場で読む**。
     //
-    // 語（新語）は非同期でよい。「それは知らない」と正直に答えて、次に同じ話題が
-    // 来たときに答えられれば会話として成立する。URL は違う。「このリンク見て」に
-    // 対して「あとで読んでおくね」では役に立たない。読んでから返す。
+    // 語（新語）はここでは調べない。生成の前に liveResearch.ts がその場で調べ、
+    // 結果を researchMemory として渡してくる。URL はここで本文まで読む。
+    // 「このリンク見て」に対して「あとで読んでおくね」では役に立たない。
     const urls = (context.urls ?? []).slice(0, MAX_URLS);
     if (urls.length && isAiGroundingEnabled()) {
       try {
@@ -928,7 +963,7 @@ export async function prepareOllamaGrounding(
 
     // 何も根拠が無ければ「知らないことは知らないと言う」だけを渡す。
     return blocks.length
-      ? appendResearch(stripped, blocks.join("\n\n"), true, anchor)
+      ? appendResearch(stripped, blocks.join("\n\n"), "reply", anchor)
       : appendNote(stripped, DEFERRED_RESEARCH_NOTE, anchor);
   }
 
@@ -956,7 +991,7 @@ export async function prepareOllamaGrounding(
       `[INFO][AI_GROUNDING] feature=${feature ?? "unknown"} queries=${queries.length} urls=${plan.urls.length}`,
     );
     // required / preferred は実在確認が目的なので、固有名詞の出所を調査結果に限定する。
-    return appendResearch(stripped, research, true, anchor);
+    return appendResearch(stripped, research, "strict", anchor);
   } catch (error) {
     if (policy === "required") throw error;
     console.warn(

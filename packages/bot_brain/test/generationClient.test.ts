@@ -185,8 +185,8 @@ test("リプライ系は同期パスでplannerも検索も呼ばない", async (
   );
   assert.equal(planCalls, 0, "同期パスで planner を呼んではいけない");
   assert.equal(researchCalls, 0, "同期パスで検索してはいけない");
-  // 黙って素通りさせず、「知らないなら知らないと言う」ことは伝える。
-  assert.match(JSON.stringify(result.contents), /do not know something, say so/);
+  // 黙って素通りさせず、知ったかぶりをしないことは伝える。
+  assert.match(JSON.stringify(result.contents), /Do not invent facts/);
   assert.doesNotMatch(JSON.stringify(result.config), /googleSearch|urlContext/);
 });
 
@@ -529,7 +529,7 @@ test("anchor未指定なら従来どおり末尾へ積む", async () => {
   assert.match(prepared.contents[1], /<grounding_research>/);
 });
 
-/** 根拠が何も無いときの「知らないと言え」も同じ側へ行くこと。 */
+/** 根拠が何も無いときの注意書き（知ったかぶりの禁止）も同じ側へ行くこと。 */
 test("調査結果が無いときの注意書きもanchorに従う", async () => {
   const prepared = await prepareOllamaGrounding(
     "BSKY_AFFIRMATIVE_REPLY",
@@ -544,4 +544,39 @@ test("調査結果が無いときの注意書きもanchorに従う", async () =>
 
   assert.match(prepared.contents[0], /知ったかぶり/);
   assert.equal(prepared.contents[1], "## ユーザ投稿\n今回のポスト");
+});
+
+/**
+ * 呼び出し側の締め切り（config.abortSignal）を Ollama へのリクエストに効かせる。
+ *
+ * その場調べの申告（liveResearch.ts）は返信の前に走るので、既定の長いタイムアウト
+ * （本生成向け）のままだと締め切りを守れない。abortSignal はリクエスト本体に混ぜない。
+ */
+test("config.abortSignal で Ollama へのリクエストを中断できる", async () => {
+  const saved = process.env.OLLAMA_BASE_URL;
+  process.env.OLLAMA_BASE_URL = "http://ollama.test/v1";
+  let body: any;
+  const fetchMock = mock.method(globalThis, "fetch", (_url: any, init: any) => {
+    body = JSON.parse(init.body);
+    return new Promise((_resolve, reject) => {
+      init.signal.addEventListener("abort", () => reject(init.signal.reason));
+    });
+  });
+  try {
+    const controller = new AbortController();
+    const pending = generateOllamaContent({
+      model: "local-test",
+      contents: "投稿",
+      config: { temperature: 0, abortSignal: controller.signal },
+    });
+    controller.abort(new Error("live research deadline"));
+    await assert.rejects(pending, /live research deadline/);
+    assert.equal(body.options.abortSignal, undefined, "中断の合図をリクエスト本体へ混ぜない");
+    assert.equal(body.options.num_ctx, undefined, "num_ctx は送らない（AGENTS.md）");
+    assert.equal(body.options.temperature, 0);
+  } finally {
+    fetchMock.mock.restore();
+    if (saved === undefined) delete process.env.OLLAMA_BASE_URL;
+    else process.env.OLLAMA_BASE_URL = saved;
+  }
 });

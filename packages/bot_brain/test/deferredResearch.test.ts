@@ -9,7 +9,8 @@ import {
 /**
  * 非同期リサーチの入口と出口。
  *
- * 語（新語）は非同期。その場では「知らない」と答え、調べた結果は次回以降に効く。
+ * prepareOllamaGrounding 自体は検索しない。語（新語）の調べものは、生成の前に
+ * liveResearch.ts がその場で行い、結果を researchMemory として渡してくる。
  * URL は同期。「このリンク見て」に「あとで読むね」では会話にならないので、
  * リプライ生成の前に読んでから返す。
  */
@@ -41,11 +42,20 @@ test("調べた事実があればリプライの根拠として差し込む", as
   const contents = JSON.stringify(result.contents);
   assert.match(contents, /grounding_research/);
   assert.match(contents, /薬屋のひとりごと 第3期/);
-  // 実在確認が目的なので、固有名詞の出所を調査ブロックに限定する拘束も付ける。
-  assert.match(contents, /must appear verbatim in the research above/);
+  // 固有名詞の出所を「投稿か調査ブロック」に限定する。返信ではユーザー自身が書いた語
+  // （カード名・作品名）を使えないと会話にならないので、調査ブロックだけには絞らない。
+  assert.match(contents, /verbatim either in the user's own post or in the research above/);
+  assert.doesNotMatch(contents, /must appear verbatim in the research above/);
+  // 材料の語を組み合わせて新しい話を作らせない（評価で人物とカードの関係を取り違えた）。
+  assert.match(contents, /材料の一文に書いてあるとおりにだけ言う/);
+  // 「1つ触れる」は禁止より後ろに置く（禁止を後ろにすると触れること自体をやめる）。
+  assert.ok(contents.indexOf("1つ選び") > contents.indexOf("材料の一文に書いてあるとおり"));
+  // 材料に合わせてユーザーの言葉を言い換えさせない。
+  assert.match(contents, /材料に合わせて言い換えたり訂正したりしない/);
+  assert.ok(contents.indexOf("1つ選び") > contents.indexOf("言い換えたり訂正したり"));
 });
 
-test("調べた事実が無ければ「知らないと言う」よう指示する", async () => {
+test("調べた事実が無ければ、知ったかぶりを禁じるが「知らない」とは言わせない", async () => {
   for (const remembered of [undefined, null, "   "]) {
     const result = await prepareOllamaGrounding(
       "BSKY_AFFIRMATIVE_REPLY",
@@ -54,8 +64,11 @@ test("調べた事実が無ければ「知らないと言う」よう指示す�
       { researchMemory: remembered },
     );
     const contents = JSON.stringify(result.contents);
-    assert.match(contents, /do not know something, say so/);
-    assert.doesNotMatch(contents, /verbatim in the research above/);
+    assert.match(contents, /Do not invent facts/);
+    // その場で調べるようになったので、「知らない」「調べておく」と口に出させない（2026-11-07）。
+    assert.match(contents, /Do not say that you do not know it/);
+    assert.doesNotMatch(contents, /say so plainly/);
+    assert.doesNotMatch(contents, /verbatim/);
   }
 });
 
@@ -68,7 +81,7 @@ test("会話機能でも同期パスでは検索しない", async () => {
   assert.doesNotMatch(JSON.stringify(result.config), /googleSearch|urlContext/);
 });
 
-test("「知らないと言え」は予算トリムで消えない", async () => {
+test("知ったかぶりの禁止は予算トリムで消えない", async () => {
   // fitOllamaMessages は予算超過時に <grounding_research> を最初に半減→削除する。
   // 指示をそこへ包むと、会話が伸びたときに真っ先に消えてしまう。deferred は
   // 全リプライが通る経路なので、包まずに残ることをここで固定する。
@@ -128,7 +141,7 @@ test("リンクが読めなければ「知らない」経路へ落とす", async
     },
     { urls: ["https://example.com/a"] },
   );
-  assert.match(JSON.stringify(result.contents), /do not know something, say so/);
+  assert.match(JSON.stringify(result.contents), /Do not invent facts/);
 });
 
 test("リンクと記憶の両方があれば両方を根拠にする", async () => {
