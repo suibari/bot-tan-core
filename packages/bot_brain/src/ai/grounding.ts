@@ -433,14 +433,23 @@ async function gatherMaterial(input: {
 }): Promise<{
   sources: ResearchSource[];
   infoboxes: string[];
+  /**
+   * 検索がまともに行えなかったか（例外、または応答しないエンジンがあった）。
+   * これが true のときの「何も見つからない」は一時的なものとして扱う。
+   */
+  searchDegraded: boolean;
 }> {
   const searched = [];
+  let searchDegraded = false;
   // 同一調査でキューを占有しない。重複・空白クエリは送信前に除去する。
   const queries = [...new Set(input.queries.map((query) => query.trim()).filter(Boolean))];
   for (const query of queries.slice(0, MAX_QUERIES)) {
     try {
-      searched.push(await searxngSearch(query, { source: input.source ?? "grounding" }));
+      const result = await searxngSearch(query, { source: input.source ?? "grounding" });
+      if (result.unresponsiveEngines.length) searchDegraded = true;
+      searched.push(result);
     } catch (error) {
+      searchDegraded = true;
       console.warn("[WARN][AI_GROUNDING] search failed", error);
     }
   }
@@ -477,7 +486,7 @@ async function gatherMaterial(input: {
     const body = (index < fetchTopN ? bodies[userUrls.length + index].text : "") || hit.content;
     sources.push({ title: hit.title, url: hit.url, body });
   });
-  return { sources: sources.filter((source) => source.body), infoboxes };
+  return { sources: sources.filter((source) => source.body), infoboxes, searchDegraded };
 }
 
 /**
@@ -742,6 +751,36 @@ function isAboutSubject(subject: string, material: string): boolean {
 }
 
 /**
+ * 何度やり直しても結果が変わらない調査の失敗（その語について検索で何も見つからない）。
+ *
+ * 呼び出し側（botMemoryResearchWorker）はこれを再試行しない。以前は一律に3回まで
+ * やり直しており、2026-11-07 時点で本番の検索の大半が「見つからない」の繰り返しだった。
+ * 検索は自前の SearXNG 経由のスクレイピングなので、無駄打ちはそのまま上流に
+ * ボットとして目を付けられる原因になる（自宅の IPv4 は実際に汚染された結果を返されている）。
+ *
+ * 検索のタイムアウトや HTTP エラー、要約の JSON 崩れは一時的なものとして普通の Error のまま
+ * 投げ、再試行に回す。
+ */
+export class KnowledgeCardNotFoundError extends Error {
+  readonly permanent = true;
+  constructor(message: string) {
+    super(message);
+    this.name = "KnowledgeCardNotFoundError";
+  }
+}
+
+/**
+ * 再試行しても変わらない失敗か。
+ *
+ * `instanceof` だけに頼らない。ワーカーと bot-brain が別々に読み込まれた場合
+ * （ビルド成果物とソースの混在など）でもクラスの同一性が崩れないよう、印でも判定する。
+ */
+export function isPermanentResearchFailure(error: unknown): boolean {
+  return error instanceof KnowledgeCardNotFoundError ||
+    (typeof error === "object" && error !== null && (error as { permanent?: unknown }).permanent === true);
+}
+
+/**
  * 非同期の bot memory 専用調査。
  *
  * 上位5ページの本文を読み、ページ別メモではなく「この対象は何か」から始まる統合知識
@@ -751,14 +790,18 @@ export async function researchKnowledgeCardSelfHosted(subject: string): Promise<
   const normalizedSubject = subject.replace(/[\r\n\t]+/g, " ").trim().slice(0, 160);
   if (!normalizedSubject) throw new Error("Knowledge-card research requires a subject");
 
-  const { sources, infoboxes } = await gatherMaterial({
+  const { sources, infoboxes, searchDegraded } = await gatherMaterial({
     queries: [normalizedSubject],
     urls: [],
     fetchTopN: KNOWLEDGE_CARD_FETCH_TOP_N,
     source: "knowledge-card",
   });
+  // 検索がまともに行えなかったときの「見つからない」は一時的なもの。再試行に回す。
+  // 検索が成功したうえで何も無かったときだけ、やり直しても変わらない失敗とする。
+  const notFound = (message: string) =>
+    searchDegraded ? new Error(`${message} (search degraded)`) : new KnowledgeCardNotFoundError(message);
   if (!sources.length && !infoboxes.length)
-    throw new Error("Self-hosted knowledge-card research returned no material");
+    throw notFound("Self-hosted knowledge-card research returned no material");
 
   const relevantSources = sources.filter((source) =>
     isAboutSubject(normalizedSubject, `${source.title}\n${source.body}`)
@@ -770,10 +813,10 @@ export async function researchKnowledgeCardSelfHosted(subject: string): Promise<
       ` infoboxes=${relevantInfoboxes.length}/${infoboxes.length}`,
   );
   if (!relevantSources.length && !relevantInfoboxes.length)
-    throw new Error("Self-hosted knowledge-card research found no material about the subject");
+    throw notFound("Self-hosted knowledge-card research found no material about the subject");
 
   const corpus = packKnowledgeCardCorpus(normalizedSubject, relevantSources, relevantInfoboxes);
-  if (!corpus) throw new Error("Self-hosted knowledge-card research produced an empty corpus");
+  if (!corpus) throw notFound("Self-hosted knowledge-card research produced an empty corpus");
 
   const response = await generateContentForProvider("ollama", {
     model: aiModel("GROUNDING_RESEARCH"),

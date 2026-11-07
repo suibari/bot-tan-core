@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { researchSubjectHash } from "../src/researchJobs.js";
+import { researchFailureState, researchSubjectHash } from "../src/researchJobs.js";
 
 /**
  * 主キーの正規化。
@@ -36,4 +36,16 @@ test("キューに積むのは語だけで、URLは扱わない", () => {
   const a = researchSubjectHash("薬屋のひとりごと");
   assert.equal(researchSubjectHash(" 薬屋のひとりごと "), a);
   assert.notEqual(researchSubjectHash("ブラッククローバー"), a);
+});
+
+test("やり直しても変わらない失敗は、試行回数に関係なくその場で failed にする", () => {
+  // 検索は成功したが何も見つからない語を3回やり直すと、その分だけ上流を叩く。
+  // 本番の検索の大半がこの空振りの繰り返しだった（2026-11-07）。
+  assert.equal(researchFailureState({ attempts: 1, maxAttempts: 3, permanent: true }), "failed");
+});
+
+test("一時的な失敗は上限まで再試行する", () => {
+  assert.equal(researchFailureState({ attempts: 1, maxAttempts: 3 }), "pending");
+  assert.equal(researchFailureState({ attempts: 2, maxAttempts: 3, permanent: false }), "pending");
+  assert.equal(researchFailureState({ attempts: 3, maxAttempts: 3 }), "failed");
 });

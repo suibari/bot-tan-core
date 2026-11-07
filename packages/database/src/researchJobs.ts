@@ -116,17 +116,25 @@ export async function completeResearchJob(subjectHash: string): Promise<void> {
     .where(eq(bot_memory_research_jobs.subject_hash, subjectHash));
 }
 
+/**
+ * 調査の失敗を記録する。
+ *
+ * `permanent` はやり直しても結果が変わらない失敗（検索は成功したが何も見つからない）。
+ * 試行回数に関係なくその場で `failed` にする。一律に再試行していた頃は、本番の検索の
+ * 大半がこの「見つからない」の繰り返しで、上流にボットとして目を付けられる原因になっていた。
+ */
 export async function failResearchJob(input: {
   subjectHash: string;
   attempts: number;
   maxAttempts: number;
   backoffMs: number;
   error: unknown;
+  permanent?: boolean;
 }): Promise<void> {
   await db
     .update(bot_memory_research_jobs)
     .set({
-      state: input.attempts >= input.maxAttempts ? "failed" : "pending",
+      state: researchFailureState(input),
       last_error:
         input.error instanceof Error ? input.error.message : String(input.error),
       lease_expires_at: null,
@@ -134,6 +142,15 @@ export async function failResearchJob(input: {
       updated_at: new Date(),
     })
     .where(eq(bot_memory_research_jobs.subject_hash, input.subjectHash));
+}
+
+/** 失敗後の状態。DB を触らずにテストできるよう分けてある。 */
+export function researchFailureState(input: {
+  attempts: number;
+  maxAttempts: number;
+  permanent?: boolean;
+}): "failed" | "pending" {
+  return input.permanent || input.attempts >= input.maxAttempts ? "failed" : "pending";
 }
 
 /**

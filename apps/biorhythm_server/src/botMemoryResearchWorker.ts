@@ -8,6 +8,7 @@ import {
 import { isAiGroundingEnabled } from "@bsky-affirmative-bot/shared-configs";
 import { startWorkerLoop } from "@bsky-affirmative-bot/bot-runtime";
 import {
+  isPermanentResearchFailure,
   isSearxngConfigured,
   researchKnowledgeCardSelfHosted,
 } from "@bsky-affirmative-bot/bot-brain";
@@ -68,6 +69,11 @@ async function researchOnce() {
     console.log(`[INFO][MEMORY_RESEARCH] learned: ${job.subject}`);
   } catch (error) {
     const backoffMs = Math.min(MAX_BACKOFF_MS, 2 ** job.attempts * 60_000);
+    // 「検索は成功したが何も見つからない」はやり直しても変わらないので再試行しない。
+    // 以前は一律に3回やり直しており、本番の検索の大半がこの空振りの繰り返しだった。
+    // 検索は自前 SearXNG 経由のスクレイピングなので、無駄打ちは上流にボットとして
+    // 目を付けられる原因になる。
+    const permanent = isPermanentResearchFailure(error);
     // 調べられなくてもリプライは既に「知らない」と答えて成立している。
     // ここで失敗しても利用者には何も起きない。
     await failResearchJob({
@@ -76,9 +82,10 @@ async function researchOnce() {
       maxAttempts: MAX_ATTEMPTS,
       backoffMs,
       error,
+      permanent,
     });
     console.warn(
-      `[WARN][MEMORY_RESEARCH] attempt=${job.attempts} 失敗`,
+      `[WARN][MEMORY_RESEARCH] attempt=${job.attempts}${permanent ? " 見つからない（再試行しない）" : " 失敗"}`,
       error instanceof Error ? error.message : error,
     );
   }

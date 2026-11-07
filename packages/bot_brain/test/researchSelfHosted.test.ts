@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { mock, test } from "node:test";
 import {
+  isPermanentResearchFailure,
+  KnowledgeCardNotFoundError,
   researchKnowledgeCardSelfHosted,
   researchSelfHosted,
   subjectCoverage,
@@ -340,6 +342,66 @@ test("知識カードは語に関係する素材が無ければ要約せずthrow
     /no material about the subject/,
   );
   assert.equal(summarized, false, "無関係な素材で Ollama を呼ばない");
+});
+
+/**
+ * 「見つからない」の扱い。
+ *
+ * 検索が成功したうえで何も無かったときは、やり直しても変わらない失敗として印を付ける
+ * （調査ワーカーが再試行しない）。一律に3回やり直していた頃は、本番の検索の大半が
+ * この空振りの繰り返しで、上流にボットとして目を付けられる原因になっていた。
+ *
+ * ただし検索そのものが落ちていたときの「見つからない」は一時的なもの。ここを取り違えると、
+ * ゲートウェイの一時的な429で調べるべき語が二度と調べられなくなる。
+ */
+test("検索が成功して素材が無いときは、再試行しない失敗として投げる", async () => {
+  stubFetch({
+    search: {
+      results: [{ url: "https://93.184.216.34/apartment", title: "Summer Place Apartments", content: "Floor plans" }],
+      infoboxes: [],
+    },
+    page: { body: "<html><body><main><p>Summer Place Apartments in Huntsville, Alabama.</p></main></body></html>" },
+  });
+  const error = await researchKnowledgeCardSelfHosted("トリシューラ").catch((caught) => caught);
+  assert.ok(error instanceof KnowledgeCardNotFoundError);
+  assert.equal(isPermanentResearchFailure(error), true);
+});
+
+test("検索結果が0件のときも、再試行しない失敗として投げる", async () => {
+  stubFetch({ search: { results: [], infoboxes: [] } });
+  const error = await researchKnowledgeCardSelfHosted("トリシューラ").catch((caught) => caught);
+  assert.equal(isPermanentResearchFailure(error), true);
+  assert.match(error.message, /returned no material/);
+});
+
+test("応答しないエンジンがあったときの「見つからない」は再試行に回す", async () => {
+  stubFetch({
+    search: { results: [], infoboxes: [], unresponsive_engines: [["yahoo", "timeout"]] },
+  });
+  const error = await researchKnowledgeCardSelfHosted("トリシューラ").catch((caught) => caught);
+  assert.equal(isPermanentResearchFailure(error), false);
+  assert.match(error.message, /search degraded/);
+});
+
+test("検索そのものが失敗したときの「見つからない」は再試行に回す", async () => {
+  globalThis.fetch = (async (input: any) => {
+    const url = String(input?.url ?? input);
+    if (url.includes("127.0.0.1:8080")) {
+      return new Response("cooldown", { status: 429 });
+    }
+    throw new Error(`unexpected fetch: ${url}`);
+  }) as typeof fetch;
+  const error = await researchKnowledgeCardSelfHosted("トリシューラ").catch((caught) => caught);
+  assert.ok(error instanceof Error);
+  assert.equal(isPermanentResearchFailure(error), false);
+});
+
+test("要約の JSON 崩れは一時的な失敗として扱う", () => {
+  assert.equal(isPermanentResearchFailure(new Error("summary was not valid JSON")), false);
+  assert.equal(isPermanentResearchFailure("文字列"), false);
+  assert.equal(isPermanentResearchFailure(null), false);
+  // 別に読み込まれたクラスでも印で判定できる。
+  assert.equal(isPermanentResearchFailure(Object.assign(new Error("x"), { permanent: true })), true);
 });
 
 test("subjectCoverage は表記ゆれを吸収し、無関係な文章を低く見る", () => {
