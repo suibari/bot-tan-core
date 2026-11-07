@@ -19,3 +19,8 @@ scripts/embedding-eval/.venv/
 
 # probe スクリプトの出力（pnpm imagegen:probe が書く生成画像）
 out/
+# reply-grounding 評価の生出力。実ユーザーの投稿への返信文（投稿内容の言い換えを含む）が入るのでコミットしない。
+# 投稿本文そのものは .cache/reply-grounding/cases.json（上の .cache/ で除外済み）。
+docs/evaluations/reply-grounding/**/result.json
+docs/evaluations/reply-grounding/**/review.md
+docs/evaluations/reply-grounding/**/review-key.txt
