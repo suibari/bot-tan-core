@@ -178,6 +178,42 @@ test("公開の会話では印象語を調査キューへ積む", async () => {
   assert.deepEqual(enqueued, [["葬送のフリーレン"]]);
 });
 
+test("言葉ラベルは固有名詞らしいものだけ調査キューへ積む", async () => {
+  // 文や一般語を調べると検索の大半が空振りになり、上流にボットとして目を付けられる。
+  const enqueued: string[][] = [];
+  await processBotMemoryImpressionBatch({
+    enqueueLabels: (labels) => enqueued.push(labels),
+    fetchPending: async () => documents,
+    generate: async () => ({
+      text: JSON.stringify({
+        items: [
+          { documentId: 10, kind: "word", label: "葬送のフリーレン", relation: "discussed" },
+          { documentId: 10, kind: "word", label: "おすすめしたい", relation: "discussed" },
+        ],
+        salience: [{ documentId: 10, score: 60 }],
+      }),
+    }),
+    save: async () => true,
+  });
+  assert.deepEqual(enqueued, [["葬送のフリーレン"]]);
+});
+
+test("積む語が無ければ調査キューを呼ばない", async () => {
+  const enqueued: string[][] = [];
+  await processBotMemoryImpressionBatch({
+    enqueueLabels: (labels) => enqueued.push(labels),
+    fetchPending: async () => documents,
+    generate: async () => ({
+      text: JSON.stringify({
+        items: [{ documentId: 10, kind: "word", label: "おすすめしたい", relation: "discussed" }],
+        salience: [{ documentId: 10, score: 60 }],
+      }),
+    }),
+    save: async () => true,
+  });
+  assert.deepEqual(enqueued, []);
+});
+
 test("予定は形で絞り、1文書1件・候補外IDを採用しない", () => {
   const parsed = parseBotMemoryFollowUps({
     plans: [

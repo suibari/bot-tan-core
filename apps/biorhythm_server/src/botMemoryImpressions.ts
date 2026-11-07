@@ -10,6 +10,7 @@ import {
   type PendingBotMemoryImpressionDocument,
 } from "@bsky-affirmative-bot/database";
 import { Type } from "@google/genai";
+import { researchLabelsFrom } from "./researchLabels.js";
 
 const BATCH_SIZE = 8;
 const BUSY_INTERVAL_MS = 5 * 60_000;
@@ -296,8 +297,11 @@ export async function processBotMemoryImpressionBatch(
       // ラベルは parseBotMemoryImpressions が検証済み（2〜40字・原文に実在）。
       // **こっそり由来は積まない。** 調べた結果は web_research として公開記憶に入り、
       // 定期ポストの根拠にもなるため、内緒話の語をここへ流してはいけない。
+      // 言葉ラベルは固有名詞らしいものだけ積む（researchLabelsFrom）。文や一般語を
+      // 調べると検索の8割が空振りになり、上流にボットとして目を付けられる。
       if (document.visibility === "public") {
-        enqueueLabels(impressions.map((item) => item.label));
+        const labels = researchLabelsFrom(impressions);
+        if (labels.length) enqueueLabels(labels);
       }
     }
   }
