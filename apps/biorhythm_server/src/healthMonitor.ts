@@ -15,6 +15,7 @@ import {
 } from "@bsky-affirmative-bot/shared-configs";
 import { startWorkerLoop } from "@bsky-affirmative-bot/bot-runtime";
 import { statfs } from "node:fs/promises";
+import { getSearxngRelevance } from "./searxngRelevance.js";
 
 /**
  * bot-tan.com のダッシュボードに出す死活監視。
@@ -604,7 +605,8 @@ export async function buildHealthSnapshot(): Promise<HealthSnapshot> {
       botReplyIndexPart(get("nagi-appview")),
     ]),
     localLlm: tile([partFromProbe("Ollama API", localLlmProbe), ollamaPlacementPart(get("ollama-placement"))]),
-    webSearch: tile([partFromProbe("SearXNG", searxngProbe)]),
+    // 疎通（/healthz）だけでは汚染に気づけないので、検索結果の中身の監視も並べる。
+    webSearch: tile([partFromProbe("SearXNG", searxngProbe), partFromProbe("検索結果の関連性", getSearxngRelevance())]),
     storage: {
       ...tile([partFromProbe("Disk", diskProbe)]),
       ...(diskProbe.disk ? { disk: diskProbe.disk } : {}),

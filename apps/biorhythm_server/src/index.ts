@@ -18,6 +18,7 @@ import { startBotMemoryEmbeddingWorker } from "./botMemoryEmbeddingWorker.js";
 import { startBotMemoryImpressionWorker } from "./botMemoryImpressions.js";
 import { startBotMemoryPronunciationWorker } from "./botMemoryPronunciations.js";
 import { startBotMemoryResearchWorker } from "./botMemoryResearchWorker.js";
+import { startSearxngRelevanceMonitor } from "./searxngRelevance.js";
 import { startBotMemoryDigestWorker } from "./botMemoryDigestWorker.js";
 import {
   readBotMemoryInternalServerConfig,
@@ -198,6 +199,8 @@ server.listen(Number(PORT), HOST, async () => {
     startBotMemoryPronunciationWorker();
     // リプライの同期パスから外した検索を裏で回す。結果は共通の bot memory へ入る。
     startBotMemoryResearchWorker();
+    // 検索結果の中身の監視（6時間ごと）。/healthz では汚染に気づけないため。
+    startSearxngRelevanceMonitor();
     // 短期記憶。前日ぶんを1日1回まとめ、検索とは独立に常時プロンプトへ載せる。
     startBotMemoryDigestWorker();
 
