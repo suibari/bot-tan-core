@@ -81,3 +81,23 @@ services:
       options:
         max-size: "1m"
         max-file: "1"
+
+# 【IPv6 で外へ出す】2026-11-07 の切り分け:
+#   自宅の IPv4（NURO 111.216.178.97）から SearXNG 経由で Yahoo を引くと、クエリと無関係な
+#   結果（他人の検索のようなもの）や HTTP 500 が返る。同じ機械でも IPv6 から出れば正常
+#   （評価用の27語で IPv4 13/27 → IPv6 25/27）。数か月この IPv4 でスクレイピングしてきたので、
+#   上流にボットとして目を付けられたと見ている。
+# ブリッジ（既定は IPv4 のみ）に IPv6 を足すと、コンテナは NAT66 でホストの IPv6 から出る。
+# 送信元は settings.yml の outgoing.source_ips で IPv6 に固定してある（IPv4 へ黙って戻らない）。
+# IPv6 も量が多ければ同じことになりうるので、検索量は絞ったまま（調査は1日60回前後）にし、
+# 中身は biorhythm_server の searxngRelevance.ts で6時間ごとに見ている。
+#
+# ネットワークの設定は `compose up` では作り直されない。既存のネットワークが IPv6 無効なら
+# scripts/deploy-searxng.sh が一度 down してから up する。
+networks:
+  default:
+    enable_ipv6: true
+    ipam:
+      config:
+        # 内部用（ULA）。外へは Docker の NAT66 でホストのグローバル IPv6 に変換される。
+        - subnet: fd5e:a7c0:5e:1::/64
