@@ -74,6 +74,11 @@ search:
   safe_search: 1
 
 outgoing:
+  # 送信元を IPv6 に固定する。自宅の IPv4 からだと Yahoo が汚染された結果を返すため
+  # （compose.yml の networks のコメント参照）。IPv6 が使えないときは黙って IPv4 へ戻らず
+  # 検索が失敗する。汚染された結果を材料にするより失敗の方がよい（関連性の監視に down で出る）。
+  source_ips:
+    - "::"
   request_timeout: 10.0
   max_request_timeout: 15.0
   pool_connections: 100
