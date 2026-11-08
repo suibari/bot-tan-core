@@ -50,7 +50,7 @@ botたんと出会った日、全肯定ニュース。**足りなかったのは
 | `nagi_joined` | `nagi.profiles.created_at`（PDS が正本） |
 | `bot_met` | `affirmative_bot.followers.created_at` |
 | `first_diary` | `min(nagi.diaries.diary_date)` |
-| `first_card_ur` / `first_card_aar` | `min(nagi.card_gets.drawn_at)`（`rarity` は焼き付け済み） |
+| `first_card_ur` / `first_card_aar` | 全期間の `nagi.card_draws` をカードごとに `min(created_at)` で集約し、カード定義のレアリティごとに最古を選ぶ（取得の控え・現在の所持状況に依存しない） |
 | `anniversary_card` | `nagi.card_instances`（`card_volume = 0`） |
 | `news_reaction` / `news_bookmark` | `nagi.reactions` / `nagi.bookmarks` × `nagi.news` |
 | `highlight` / `news_context` | `nagi.chronicle_events`（LLM） |

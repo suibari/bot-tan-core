@@ -3,7 +3,7 @@ import {
   db,
   followers,
   nagiBookmarks,
-  nagiCardGets,
+  nagiCardDraws,
   nagiCardInstances,
   nagiChronicleEvents,
   nagiChronicleNews,
@@ -23,6 +23,7 @@ import type {
 import {
   CARD_VOLUME_ANNIVERSARY,
   cardDrawDate,
+  getCardDef,
 } from "@bsky-affirmative-bot/shared-configs";
 import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, min } from "drizzle-orm";
 import { ApiError } from "../middleware/errors.js";
@@ -205,7 +206,9 @@ export type FirstsInput = {
   profileCreatedAt?: Date | string | null;
   /** affirmative_bot.followers.created_at。 */
   followerCreatedAt?: Date | string | null;
-  /** レアカードの初取得。rarity ごとの min(drawn_at)。 */
+  /** 全期間のドロー履歴。カードごとの最古の抽選時刻。 */
+  cardDraws?: Array<{ cardVolume: number; cardNumber: number; at?: Date | string | null }>;
+  /** レアカードの初取得。 */
   rareCards?: Array<{ rarity: string; at?: Date | string | null }>;
 };
 
@@ -240,13 +243,26 @@ export function buildFirstEvents(input: FirstsInput): ChronicleEventView[] {
   if (joinedAt) push("nagi_joined", chronicleDate(joinedAt));
   const metAt = toDate(input.followerCreatedAt);
   if (metAt) push("bot_met", chronicleDate(metAt));
-  for (const row of input.rareCards ?? []) {
-    const at = toDate(row.at);
-    if (!at) continue;
-    push(
-      row.rarity === "AAR" ? "first_card_aar" : "first_card_ur",
-      chronicleDate(at),
-    );
+  // 所持カードの acquired_at は引き直すと更新される。控えの card_gets は
+  // 過去分が揃わないため、抽選の正本 card_draws を全期間集計する。
+  const rareCards = [...(input.rareCards ?? [])];
+  for (const row of input.cardDraws ?? []) {
+    const def = getCardDef(row.cardVolume, row.cardNumber);
+    if (def?.rarity === "UR" || def?.rarity === "AAR")
+      rareCards.push({ rarity: def.rarity, at: row.at });
+  }
+  for (const rarity of ["UR", "AAR"]) {
+    const dates = rareCards
+      .filter((row) => row.rarity === rarity)
+      .flatMap((row) => {
+        const at = toDate(row.at);
+        return at ? [at.getTime()] : [];
+      });
+    if (dates.length)
+      push(
+        rarity === "AAR" ? "first_card_aar" : "first_card_ur",
+        chronicleDate(new Date(Math.min(...dates))),
+      );
   }
   return events;
 }
@@ -262,7 +278,7 @@ async function loadFirsts(
   did: string,
   queryDb: ChronicleDb,
 ): Promise<{ events: ChronicleEventView[]; originYear?: number }> {
-  const [profile, follower, rareCards] = await Promise.all([
+  const [profile, follower, cardDraws] = await Promise.all([
     queryDb
       .select({ createdAt: nagiProfiles.createdAt })
       .from(nagiProfiles)
@@ -273,24 +289,23 @@ async function loadFirsts(
       .from(followers)
       .where(eq(followers.did, did))
       .limit(1),
-    // rarity は card_gets に焼き付けてあるので、カード定義 JSON を読まずに SQL で絞れる。
+    // カードごとに集約してから定義でレアリティを解決する。
+    // 日付で絞らず、控えの有無・現在の所持状況にも依存しない。
     queryDb
-      .select({ rarity: nagiCardGets.rarity, at: min(nagiCardGets.drawnAt) })
-      .from(nagiCardGets)
-      .where(
-        and(
-          eq(nagiCardGets.did, did),
-          isNull(nagiCardGets.deletedAt),
-          inArray(nagiCardGets.rarity, ["UR", "AAR"]),
-        ),
-      )
-      .groupBy(nagiCardGets.rarity),
+      .select({
+        cardVolume: nagiCardDraws.cardVolume,
+        cardNumber: nagiCardDraws.cardNumber,
+        at: min(nagiCardDraws.createdAt),
+      })
+      .from(nagiCardDraws)
+      .where(eq(nagiCardDraws.did, did))
+      .groupBy(nagiCardDraws.cardVolume, nagiCardDraws.cardNumber),
   ]);
 
   const all = buildFirstEvents({
     profileCreatedAt: profile[0]?.createdAt,
     followerCreatedAt: follower[0]?.createdAt,
-    rareCards,
+    cardDraws,
   });
 
   // 起点＝いちばん古いイベントの年。年表はここから始まる。
