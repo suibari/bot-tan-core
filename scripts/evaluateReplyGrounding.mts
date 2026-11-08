@@ -469,19 +469,58 @@ function normalizeLoose(text: string): string {
   return text.normalize("NFKC").toLowerCase().replace(/[\s・･\-－‐☆★]/g, "");
 }
 
+/**
+ * 返信の中で「材料にあって投稿に無い」4文字以上の連なり（漢字の言い回しも拾う）。
+ *
+ * カタカナ語・英字だけを数えると、「宇宙万物の象徴」「黄金色の装甲」のような漢字の言い回しで
+ * 材料に触れた返信を取りこぼす（評価でわかってる度が 0% と出た）。一般的な言い回しは
+ * 呼び出し側で「3件以上の投稿への返信に出るもの」として除く。
+ */
+const MIN_SPAN = 4;
+/** ジャンル名そのもの（作品のカードから写しただけ）や、カードゲームの一般語は「わかってる」に数えない。 */
+const GENERIC_SPAN = /^(?:遊戯王|遊☆戯☆王|デュエル|カード|デッキ|モンスター)(?:OCG|ゲーム)?$/i;
+
+function researchSpans(post: string, research: string, comment: string): string[] {
+  const p = normalizeLoose(post);
+  const r = normalizeLoose(research);
+  if (!r) return [];
+  const spans: string[] = [];
+  for (const run of comment.normalize("NFKC").match(/[\p{L}\p{N}ー・]+/gu) ?? []) {
+    const chars = [...run];
+    let i = 0;
+    while (i + MIN_SPAN <= chars.length) {
+      let found = 0;
+      for (let len = chars.length - i; len >= MIN_SPAN; len--) {
+        const piece = normalizeLoose(chars.slice(i, i + len).join(""));
+        if (piece.length >= MIN_SPAN && r.includes(piece) && !p.includes(piece)) {
+          found = len;
+          break;
+        }
+      }
+      if (found) {
+        // 前後のひらがな（助詞・活用語尾）を削る。「攻撃力を」「のアイテム」のような断片を数えない。
+        const span = chars.slice(i, i + found).join("").replace(/^[ぁ-ゖ]+|[ぁ-ゖ]+$/g, "");
+        if ([...span].length >= MIN_SPAN && !COMMON_KATAKANA.has(span) && !GENERIC_SPAN.test(span)) spans.push(span);
+        i += found;
+      } else {
+        i++;
+      }
+    }
+  }
+  return spans;
+}
+
 /** 1本の返信について、材料由来の「投稿に無い語」と、出所の分からない語を数える。 */
 function resonance(post: string, research: string, comment: string) {
   const p = normalizeLoose(post);
   const r = normalizeLoose(research);
-  const fromResearch: string[] = [];
   const unsourced: string[] = [];
   for (const term of candidateTerms(comment)) {
     const t = normalizeLoose(term);
-    if (p.includes(t)) continue;
-    if (r.includes(t)) fromResearch.push(term);
-    else unsourced.push(term);
+    if (p.includes(t) || r.includes(t)) continue;
+    unsourced.push(term);
   }
-  return { fromResearch, unsourced };
+  return { fromResearch: researchSpans(post, research, comment), unsourced };
 }
 
 /** ケースごとの「投稿・材料・返信」の組。field で比べる側を選ぶ。 */
@@ -635,8 +674,16 @@ function summarize(cases: Case[], result: Result): string {
     const rows = resonanceRows(cases, result, field);
     if (!rows.length) continue;
     const genreRows = rows.filter((row) => GENRE_PATTERNS[row.c.genre]);
+    // 材料由来の連なりも、3件以上の投稿への返信に出るものは一般的な言い回しとして除く。
+    const spanCases = new Map<string, Set<string>>();
+    for (const row of rows) for (const span of row.fromResearch) {
+      const ids = spanCases.get(span) ?? new Set<string>();
+      ids.add(row.c.id);
+      spanCases.set(span, ids);
+    }
+    for (const row of rows) row.fromResearch = row.fromResearch.filter((span) => (spanCases.get(span)?.size ?? 0) < 3);
     lines.push(`## わかってる度・捏造の疑い（${field}）`, "");
-    lines.push(`- わかってる度（投稿に無く材料にある語を1つ以上含む返信）: ジャンルあり ${pct(genreRows.filter((row) => row.fromResearch.length).length, genreRows.length)} / 全体 ${pct(rows.filter((row) => row.fromResearch.length).length, rows.length)}`);
+    lines.push(`- わかってる度（投稿に無く材料にある4文字以上の連なりを含む返信）: ジャンルあり ${pct(genreRows.filter((row) => row.fromResearch.length).length, genreRows.length)} / 全体 ${pct(rows.filter((row) => row.fromResearch.length).length, rows.length)}`);
     // 3件以上の別々の投稿への返信に出てくる語は、話題と関係ない一般語（褒め言葉など）とみなす。
     const caseFrequency = new Map<string, Set<string>>();
     for (const row of rows) for (const term of row.unsourced) {
@@ -660,7 +707,7 @@ function summarize(cases: Case[], result: Result): string {
   if (lives.length) {
     const live = (c: Case) => result.cases[c.id].live!;
     const genreLives = lives.filter((c) => GENRE_PATTERNS[c.genre]);
-    const wikiCards = genreLives.flatMap((c) => live(c).cards.filter((k) => k.source === "wikipedia"));
+    const wikiCards = genreLives.flatMap((c) => live(c).cards.filter((k) => k.source === "wikipedia" || k.source === "web"));
     const researchMs = lives.map((c) => live(c).researchMs);
     const genMs = lives.flatMap((c) => live(c).runs.map((r) => r.ms));
     const totalMs = lives.flatMap((c) => live(c).runs.map((r) => live(c).researchMs + r.ms));
@@ -669,7 +716,7 @@ function summarize(cases: Case[], result: Result): string {
     lines.push(`- 語の申告があった投稿: ジャンルあり ${pct(genreLives.filter((c) => live(c).terms.length).length, genreLives.length)} / 対照 ${pct(lives.filter((c) => !GENRE_PATTERNS[c.genre] && live(c).terms.length).length, lives.length - genreLives.length)}`);
     const plannedTerms = genreLives.flatMap((c) => live(c).terms.map((t) => ({ ...t, genre: c.genre })));
     lines.push(`- 申告にジャンルが正しく付いた語（ジャンルありの投稿）: ${pct(plannedTerms.filter((t) => onGenre(t.genre, t.context)).length, plannedTerms.length)}`);
-    lines.push(`- Wikipedia で取れた材料（ジャンルありの投稿）: ${wikiCards.length}枚、うちジャンルが正しい ${pct(wikiCards.filter((k) => k.onGenre).length, wikiCards.length)}`);
+    lines.push(`- その場で取れた材料（ジャンルありの投稿）: ${wikiCards.length}枚（Wikipedia ${wikiCards.filter((k) => k.source === "wikipedia").length} / Web ${wikiCards.filter((k) => k.source === "web").length}）、うちジャンルが正しい ${pct(wikiCards.filter((k) => k.onGenre).length, wikiCards.length)}`);
     lines.push(`- 材料が1枚以上入った投稿（ジャンルあり）: ${pct(genreLives.filter((c) => live(c).cards.length).length, genreLives.length)}`);
     lines.push(`- ジャンル違いで外した既存のカード: ${lives.flatMap((c) => live(c).droppedTerms).join(" / ") || "なし"}`);
     lines.push(`- 締め切り超過: ${lives.filter((c) => live(c).timedOut).length}件`);
@@ -677,10 +724,10 @@ function summarize(cases: Case[], result: Result): string {
     lines.push(`- 生成: 中央値 ${quantile(genMs, 0.5)}ms / p90 ${quantile(genMs, 0.9)}ms`);
     lines.push(`- **合計（調べる＋生成）: 中央値 ${quantile(totalMs, 0.5)}ms / p90 ${quantile(totalMs, 0.9)}ms**`);
     lines.push("");
-    lines.push("| case | 申告（語/ジャンル） | 材料（✗=ジャンル違い） | 外した既存カード | 調べる時間 |", "|---|---|---|---|---|");
+    lines.push("| case | 申告（語/ジャンル） | 材料（W=Wikipedia S=Web M=記憶、✗=ジャンル違い） | 外した既存カード | 調べる時間 |", "|---|---|---|---|---|");
     for (const c of lives) {
       const l = live(c);
-      lines.push(`| ${c.id} | ${l.terms.map((t) => `${t.term}/${t.context}`).join(", ") || "-"} | ${l.cards.map((k) => `${k.onGenre === false ? "✗" : ""}${k.term}(${k.source === "wikipedia" ? "W" : "M"})`).join(", ") || "-"} | ${l.droppedTerms.join(", ") || "-"} | ${l.researchMs}ms${l.timedOut ? "⏱" : ""} |`);
+      lines.push(`| ${c.id} | ${l.terms.map((t) => `${t.term}/${t.context}`).join(", ") || "-"} | ${l.cards.map((k) => `${k.onGenre === false ? "✗" : ""}${k.term}(${k.source === "wikipedia" ? "W" : k.source === "web" ? "S" : "M"})`).join(", ") || "-"} | ${l.droppedTerms.join(", ") || "-"} | ${l.researchMs}ms${l.timedOut ? "⏱" : ""} |`);
     }
     lines.push("");
   }
