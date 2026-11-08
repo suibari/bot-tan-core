@@ -182,3 +182,22 @@ test("レアカードの初取得は rarity ごとに1件ずつ", () => {
     ],
   );
 });
+
+test("控えのない昔のドローも含め、カード定義のレアリティごとに初取得を選ぶ", () => {
+  const events = buildFirstEvents({
+    rareCards: [{ rarity: "UR", at: "2026-11-07T23:27:22.706Z" }],
+    cardDraws: [
+      { cardVolume: 1, cardNumber: 29, at: "2026-08-07T23:39:52.618Z" },
+      { cardVolume: 1, cardNumber: 10, at: "2026-07-25T10:14:30.171Z" },
+      { cardVolume: 1, cardNumber: 28, at: "2026-07-30T01:06:48.843Z" },
+      { cardVolume: 1, cardNumber: 30, at: "2026-09-01T18:59:59.000Z" },
+      { cardVolume: 999, cardNumber: 28, at: "2026-01-01T00:00:00.000Z" },
+      { cardVolume: 1, cardNumber: 28, at: null },
+    ],
+  });
+  assert.deepEqual(events.map(({ kind, date }) => [kind, date]), [
+    ["first_card_ur", "2026-07-30"],
+    ["first_card_aar", "2026-09-01"],
+  ]);
+  assert.equal(new Set(events.map(({ id }) => id)).size, events.length);
+});
