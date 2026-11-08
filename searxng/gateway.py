@@ -108,6 +108,9 @@ class SearchQueue:
         self.cache_bytes = cache_bytes
         self.cooldown = cooldown
         self.blocked_until = 0.0
+        # Per-engine cooldown. One engine saying "too many requests" (seen with wikidata,
+        # 2026-11-08) must not stop every other engine and the Wikipedia API for 180 s.
+        self.engine_blocked_until = {}
         self.lock = threading.Lock()
         self.jobs = Queue()
         self.pending = {}
@@ -118,11 +121,45 @@ class SearchQueue:
         self.worker = threading.Thread(target=self._run, daemon=True)
         self.worker.start()
 
+    def _without_blocked_engines(self, path):
+        """Drop engines that are cooling down from an explicit engines= list.
+
+        Returns (path, retry_after). retry_after > 0 means every requested engine is
+        cooling down and nothing should be sent. Requests without engines= use the
+        SearXNG defaults, which the gateway cannot narrow, so they pass unchanged.
+        """
+        if not path.startswith("/search?"):
+            return path, 0
+        now = time.monotonic()
+        blocked = {name: until for name, until in self.engine_blocked_until.items() if until > now}
+        self.engine_blocked_until = blocked
+        if not blocked:
+            return path, 0
+        params = dict(parse_qsl(urlsplit(path).query, keep_blank_values=True))
+        requested = [name.strip() for name in params.get("engines", "").split(",") if name.strip()]
+        if not requested:
+            return path, 0
+        allowed = [name for name in requested if name not in blocked]
+        if not allowed:
+            return path, max(1, int(min(blocked[name] for name in requested) - now) + 1)
+        if allowed == requested:
+            return path, 0
+        params["engines"] = ",".join(allowed)
+        return "/search?" + urlencode(sorted(params.items())), 0
+
     def submit(self, path, source="other"):
         # Source is observability only, never part of the cache key.
-        if source not in {"grounding", "knowledge-card", "radio", "topic-song", "character", "probe", "calendar", "calendar-wiki", "research-page"}:
+        if source not in {"grounding", "knowledge-card", "radio", "topic-song", "character", "probe", "calendar", "calendar-wiki", "research-page", "live-research"}:
             source = "other"
         with self.lock:
+            path, engine_retry = self._without_blocked_engines(path)
+            if engine_retry:
+                self.counts["requests"] += 1
+                self.sources.setdefault(source, Counter())["requests"] += 1
+                self.counts["engine_cooldown_rejected"] += 1
+                future = Future()
+                future.set_result(error_reply(429, "Requested engines cooling down", engine_retry))
+                return future, "cooldown"
             self.counts["requests"] += 1
             counts = self.sources.setdefault(source, Counter())
             counts["requests"] += 1
@@ -156,7 +193,10 @@ class SearchQueue:
             return {**self.counts, "pending": len(self.pending), "cache_entries": len(self.cache),
                     "sources": {k: dict(v) for k, v in self.sources.items()},
                     "last_search": self.last_search,
-                    "cooldown_seconds": max(0, round(self.blocked_until - time.monotonic()))}
+                    "cooldown_seconds": max(0, round(self.blocked_until - time.monotonic())),
+                    "engine_cooldowns": {name: round(until - time.monotonic())
+                                         for name, until in self.engine_blocked_until.items()
+                                         if until > time.monotonic()}}
 
     def _run(self):
         next_start = 0.0
@@ -179,6 +219,7 @@ class SearchQueue:
             ttl = 0
             summary = {}
             limited = False
+            limited_engines = []
             try:
                 reply = self.fetch(path)
                 if reply.status == 200:
@@ -191,7 +232,10 @@ class SearchQueue:
                         summary = {"results": len(body["results"]),
                                    "infoboxes": len(body.get("infoboxes", [])),
                                    "unresponsive_engines": body.get("unresponsive_engines", [])}
-                        limited = any("too many requests" in str(e).lower() for e in summary["unresponsive_engines"])
+                        # An engine-level limit only cools down that engine (see _without_blocked_engines).
+                        limited_engines = [str(e[0]) if isinstance(e, list) and e else str(e)
+                                           for e in summary["unresponsive_engines"]
+                                           if "too many requests" in str(e).lower()]
                         ttl = self.degraded_ttl if summary["unresponsive_engines"] else self.cache_ttl
                     elif "error" in body:
                         code = str(body["error"].get("code", "unknown"))
@@ -213,6 +257,8 @@ class SearchQueue:
             with self.lock:
                 if reply.status == 429 or limited:
                     self.blocked_until = time.monotonic() + (reply.retry_after or self.cooldown)
+                for name in limited_engines:
+                    self.engine_blocked_until[name] = time.monotonic() + self.cooldown
                 self.counts["upstream"] += 1
                 self.sources[source]["upstream"] += 1
                 if reply.status != 200:

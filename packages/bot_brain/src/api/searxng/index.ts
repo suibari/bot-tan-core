@@ -120,9 +120,11 @@ export async function searxngSearch(
   query: string,
   options: {
     language?: "ja" | "en";
-    source?: "grounding" | "knowledge-card" | "radio" | "topic-song" | "character" | "probe";
+    source?: "grounding" | "knowledge-card" | "radio" | "topic-song" | "character" | "probe" | "live-research";
     /** 送信先のエンジンを1つに絞るとき（関連性の監視でエンジンごとに確かめる）。既定は SEARXNG_ENGINES。 */
     engines?: string;
+    /** 呼び出し側の締め切り（その場調べなど）。既定のタイムアウト（30秒）と併用する。 */
+    signal?: AbortSignal;
   } = {},
 ): Promise<SearxngResponse> {
   const trimmed = query.trim();
@@ -143,9 +145,9 @@ export async function searxngSearch(
         accept: "application/json", "X-Search-Source": options.source ?? "grounding",
         ...(process.env.SEARXNG_API_KEY ? { Authorization: `Bearer ${process.env.SEARXNG_API_KEY}` } : {}),
       },
-      signal: AbortSignal.timeout(
-        Number(process.env.SEARXNG_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS,
-      ),
+      signal: options.signal
+        ? AbortSignal.any([options.signal, AbortSignal.timeout(Number(process.env.SEARXNG_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS)])
+        : AbortSignal.timeout(Number(process.env.SEARXNG_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS),
     });
   } catch (error) {
     reportSearchCall("error");

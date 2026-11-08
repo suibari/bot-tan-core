@@ -9,6 +9,8 @@ import {
   searchWikipediaExcerpt,
   clipWorkCard,
   wikipediaLanguage,
+  searchWebExcerpt,
+  resetLiveResearchWebBudget,
   type LiveResearchCard,
 } from "../src/ai/liveResearch.js";
 
@@ -389,4 +391,129 @@ test("英語版のゲートウェイへは /wikipedia/en で問い合わせる",
       assert.match(found?.content ?? "", /energy drink is a type of drink/);
     },
   );
+});
+
+const webResponse = (...hits: { title: string; content: string; url?: string }[]) => ({
+  hits: hits.map((hit) => ({ url: "https://example.com/", ...hit })),
+  infoboxes: [],
+  unresponsiveEngines: [],
+});
+
+test("Web 検索は抜粋を材料にし、日付の前置きと URL は入れない", async () => {
+  let asked: any;
+  const found = await searchWebExcerpt("トリシューラ", "遊戯王", new AbortController().signal, "ja", async (query, options) => {
+    asked = { query, ...options };
+    return webResponse(
+      { title: "遊戯王カードWiki - 《氷結界の龍 トリシューラ》", content: "1 day ago · 《氷結界の還零龍 トリシューラ》も存在する。", url: "https://yugioh-wiki.net/x" },
+      { title: "トリシューラ - Wikipedia", content: "シヴァ神が持つ三叉槍。" },
+    );
+  });
+  assert.equal(asked.query, "トリシューラ 遊戯王");
+  assert.equal(asked.source, "live-research");
+  assert.equal(asked.language, "ja");
+  // wikidata の制限でゲートウェイ全体が止まるので、抜粋を返すエンジンだけに送る。
+  assert.equal(asked.engines, "yahoo");
+  assert.match(found?.content ?? "", /「遊戯王カードWiki - 《氷結界の龍 トリシューラ》」より: 《氷結界の還零龍/);
+  assert.doesNotMatch(found?.content ?? "", /1 day ago|https?:/);
+  assert.doesNotMatch(found?.content ?? "", /シヴァ/, "ジャンルの語が出ない結果（一般的な意味）は使わない");
+});
+
+test("Web 検索で略称が正式名に解決されたら、そう明記して使う", async () => {
+  const found = await searchWebExcerpt("スカノヴァ", "遊戯王", new AbortController().signal, "ja", async () =>
+    webResponse({ title: "遊戯王カードWiki - 《スカーレッド・ノヴァ・ドラゴン》", content: "地縛神としてのスカーレッド・ノヴァは…" }));
+  assert.match(found?.content ?? "", /^（「スカノヴァ」の検索結果）\n「遊戯王カードWiki/);
+});
+
+test("ジャンルが空なら、語が出ている結果だけを使う", async () => {
+  const found = await searchWebExcerpt("energy drink", "", new AbortController().signal, "en", async (_q, options) => {
+    assert.equal(options?.language, "en");
+    return webResponse({ title: "Monster Energy", content: "A brand of drinks." }, { title: "Energy drink", content: "An energy drink contains caffeine." });
+  });
+  assert.equal(found?.titles.length, 1);
+  assert.match(found?.content ?? "", /energy drink contains caffeine/);
+});
+
+test("最初の語は Web 検索を先にし、2語目以降は Wikipedia で引く（Web は1件の返信につき1語）", async () => {
+  // Wikipedia を先にすると、検索＋本文取得の待ちで締め切りを使い切っていた（33件中12件）。
+  resetLiveResearchWebBudget();
+  const calls: string[] = [];
+  const result = await runLiveResearch(userinfo({ persistLiveResearch: true }), {
+    plan: async () => [{ term: "トリシューラ", context: "遊戯王" }, { term: "氷水", context: "遊戯王" }],
+    findCards: async () => [],
+    searchWeb: async (term) => {
+      calls.push(`web:${term}`);
+      return { content: "「遊戯王カードWiki」より: 氷結界の龍", titles: ["遊戯王カードWiki"] };
+    },
+    searchWikipedia: async (term) => {
+      calls.push(`wiki:${term}`);
+      return null;
+    },
+    saveCard: async () => {},
+  });
+  assert.deepEqual(calls, ["web:トリシューラ", "wiki:氷水"]);
+  assert.deepEqual(result.cards.map((card) => [card.term, card.source]), [["トリシューラ", "web"]]);
+});
+
+test("Web で取れなければ同じ語を Wikipedia で引く", async () => {
+  resetLiveResearchWebBudget();
+  const calls: string[] = [];
+  const result = await runLiveResearch(userinfo(), {
+    plan: async () => [{ term: "ラーの翼神竜", context: "遊戯王" }],
+    findCards: async () => [],
+    searchWeb: async (term) => {
+      calls.push(`web:${term}`);
+      return null;
+    },
+    searchWikipedia: async (term) => {
+      calls.push(`wiki:${term}`);
+      return { content: "Wikipedia「遊☆戯☆王」より: 3体の神の中で頂点に君臨するカード", titles: ["遊☆戯☆王"] };
+    },
+  });
+  assert.deepEqual(calls, ["web:ラーの翼神竜", "wiki:ラーの翼神竜"]);
+  assert.deepEqual(result.cards.map((card) => card.source), ["wikipedia"]);
+});
+
+test("残り時間が足りなければ Wikipedia の本文は取らない（抜粋だけで判断する）", async () => {
+  resetLiveResearchWebBudget();
+  let clock = 0;
+  const allowed: boolean[] = [];
+  await runLiveResearch(userinfo(), {
+    now: () => clock,
+    plan: async () => {
+      clock = 4_000; // 申告に4秒かかった（締め切り6秒のうち残り2秒）
+      return [{ term: "ラーの翼神竜", context: "遊戯王" }];
+    },
+    findCards: async () => [],
+    searchWeb: async () => null,
+    searchWikipedia: async (_term, _context, _signal, _language, allowExtract) => {
+      allowed.push(allowExtract);
+      return null;
+    },
+  });
+  assert.deepEqual(allowed, [false]);
+});
+
+test("Web 検索は1日の上限を超えたら使わない", async () => {
+  resetLiveResearchWebBudget();
+  const saved = process.env.AI_LIVE_RESEARCH_WEB_DAILY;
+  process.env.AI_LIVE_RESEARCH_WEB_DAILY = "1";
+  try {
+    let calls = 0;
+    const deps = {
+      plan: async () => [{ term: "トリシューラ", context: "遊戯王" }],
+      findCards: async () => [],
+      searchWikipedia: async () => null,
+      searchWeb: async () => {
+        calls++;
+        return null;
+      },
+    };
+    await runLiveResearch(userinfo(), deps);
+    await runLiveResearch(userinfo(), deps);
+    assert.equal(calls, 1);
+  } finally {
+    if (saved === undefined) delete process.env.AI_LIVE_RESEARCH_WEB_DAILY;
+    else process.env.AI_LIVE_RESEARCH_WEB_DAILY = saved;
+    resetLiveResearchWebBudget();
+  }
 });
