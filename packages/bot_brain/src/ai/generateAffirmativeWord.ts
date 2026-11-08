@@ -140,6 +140,7 @@ async function withLiveResearch(userinfo: UserInfoGemini): Promise<UserInfoGemin
     `[INFO][LIVE_RESEARCH] terms=${JSON.stringify(research.terms.map((item) => `${item.term}/${item.context}`))}` +
       ` memory=${research.cards.filter((card) => card.source === 'memory').length}` +
       ` wikipedia=${research.cards.filter((card) => card.source === 'wikipedia').length}` +
+      ` web=${research.cards.filter((card) => card.source === 'web').length}` +
       ` dropped=${JSON.stringify(research.droppedTerms)} ms=${research.elapsedMs}${research.timedOut ? ' timedOut' : ''}`,
   );
   return { ...userinfo, researchMemory: research.researchMemory };
