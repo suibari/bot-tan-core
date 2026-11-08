@@ -1,0 +1,50 @@
+{
+  "lexicon": 1,
+  "id": "com.suibari.nagi.getAdventCalendar",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "アドベントカレンダー（12/1〜25）。botたんが毎日1枚選ぶカードのうち、公開済み（JST 0:00 を過ぎた日）のものだけを返す。公開情報なので未認証でも読める。既読は getPreferences の adventRead で持つ。",
+      "parameters": {
+        "type": "params",
+        "properties": {
+          "year": {
+            "type": "integer",
+            "description": "省略すると今年（JST）。"
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "year",
+            "openedDay",
+            "cards"
+          ],
+          "properties": {
+            "year": {
+              "type": "integer"
+            },
+            "openedDay": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 25
+            },
+            "nextOpenAt": {
+              "type": "string",
+              "format": "datetime"
+            },
+            "cards": {
+              "type": "array",
+              "items": {
+                "type": "unknown"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

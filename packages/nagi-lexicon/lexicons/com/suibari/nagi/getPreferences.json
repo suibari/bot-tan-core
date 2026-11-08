@@ -28,6 +28,11 @@
               "items": { "type": "ref", "ref": "com.suibari.nagi.getChronicle#readYear" },
               "description": "年ごとの既読ハッシュ。過去の版は蓄積せず、現在の年表内容と一致する版だけを保存する。"
             },
+            "adventRead": {
+              "type": "ref",
+              "ref": "#adventRead",
+              "description": "今年のアドベントカレンダーの既読と、開封演出を見終えた自分のカードの日。"
+            },
             "readPositions": {
               "type": "array",
               "items": { "type": "ref", "ref": "#readPosition" }
@@ -234,6 +239,15 @@
       "properties": {
         "list": { "type": "boolean" },
         "push": { "type": "boolean" }
+      }
+    },
+    "adventRead": {
+      "type": "object",
+      "required": ["year", "lastSeenDay", "openedDays"],
+      "properties": {
+        "year": { "type": "integer" },
+        "lastSeenDay": { "type": "integer", "minimum": 0, "maximum": 25 },
+        "openedDays": { "type": "array", "maxLength": 25, "items": { "type": "integer" } }
       }
     },
     "readPosition": {

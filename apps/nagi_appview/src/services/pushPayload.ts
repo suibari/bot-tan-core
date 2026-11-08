@@ -29,7 +29,8 @@ export type PushNotificationType =
   | "gift"
   | "emoji"
   | "chronicle"
-  | "mood";
+  | "mood"
+  | "advent";
 
 export interface PushPayload {
   title: string;
@@ -43,6 +44,7 @@ export interface PushPayload {
 
 /** 通知一覧ページ。今はすべての通知がここへ着地する。 */
 const NOTIF_URL = "/notifications";
+const ADVENT_URL = "/advent";
 
 const CONTENT_WARNING_BODY = "Content Warning付き投稿";
 const IMAGE_POST_BODY = "画像付きの投稿";
@@ -95,7 +97,8 @@ export function buildPushPayload(input: {
     ...compose(type, actorName, actionText, contentText),
     type,
     tag: `${type}-${notificationId}`,
-    url: NOTIF_URL,
+    // アドカレは開いた先で手紙の開封演出が始まるので、通知一覧ではなくカレンダーへ。
+    url: type === "advent" ? ADVENT_URL : NOTIF_URL,
   };
 }
 
@@ -130,6 +133,14 @@ function compose(
       return {
         title: "あなたの気持ちが感情グラフに載りました",
         body: "ポストから読み取った気持ちを、アクティビティで振り返れます",
+      };
+    case "advent":
+      // アドカレのカードに選ばれた。actionText は日付（1〜25）。actorName は常に botたん。
+      return {
+        title: "botたんからクリスマスカードが届きました",
+        body: actionText
+          ? `あなたのポストがアドベントカレンダー ${actionText} 日目のカードになりました`
+          : "あなたのポストがアドベントカレンダーのカードになりました",
       };
     case "chronicle":
       // 年表に週のトピックが載った。actorName は常に botたんなので使わない。

@@ -50,6 +50,16 @@
               "items": { "type": "ref", "ref": "com.suibari.nagi.getChronicle#readYear" },
               "description": "年ごとの既読ハッシュ。過去の版は蓄積せず、現在の年表内容と一致する版だけを保存する。"
             },
+            "adventRead": {
+              "type": "object",
+              "required": ["year"],
+              "properties": {
+                "year": { "type": "integer" },
+                "lastSeenDay": { "type": "integer", "minimum": 0, "maximum": 25 },
+                "openedDay": { "type": "integer", "minimum": 1, "maximum": 25 }
+              },
+              "description": "送った項目だけを進める。既読の日は戻らず、開封済みの日は消えない。"
+            },
             "readPositions": {
               "type": "array",
               "maxLength": 16,
@@ -152,6 +162,7 @@
               "items": { "type": "ref", "ref": "com.suibari.nagi.getChronicle#readYear" },
               "description": "年ごとの既読ハッシュ。過去の版は蓄積せず、現在の年表内容と一致する版だけを保存する。"
             },
+            "adventRead": { "type": "ref", "ref": "com.suibari.nagi.getPreferences#adventRead" },
             "readPositions": {
               "type": "array",
               "items": {

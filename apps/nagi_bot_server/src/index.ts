@@ -16,6 +16,7 @@ import { startNagiAnalysisWorker } from "./NagiAnalysisWorker.js";
 import { startNagiCardCommentWorker } from "./NagiCardCommentWorker.js";
 import { processNagiZenkatsuJob, startNagiZenkatsuWorker } from "./NagiZenkatsuWorker.js";
 import { startNagiZenkatsuAwardWorker } from "./NagiZenkatsuAwardWorker.js";
+import { startNagiAdventWorker } from "./NagiAdventWorker.js";
 import { startNagiChronicleWorker } from "./NagiChronicleWorker.js";
 import { startNagiPostMoodWorker } from "./NagiPostMoodWorker.js";
 import { processChronicleMonth, processChronicleWeek } from "./NagiChronicleFeature.js";
@@ -100,6 +101,8 @@ async function start() {
   // 前日ぶんのトロフィー確定。JST 4:00 で日付が変わったぶんから順に処理する。
   startNagiZenkatsuAwardWorker();
   startNagiChronicleWorker();
+  // アドベントカレンダー（12/1〜25）。公開（JST 0:00）の1時間前に、その日のカードを選ぶ。
+  startNagiAdventWorker();
   // 日記の感情グラフ。投稿ごとの気分を採点する（過去分のバックフィルも兼ねる）。
   startNagiPostMoodWorker();
   // 動的枠の「おすすめの理由」を先に計算しておく（リクエスト経路でLLMを呼ばないため）。

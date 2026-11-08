@@ -64,6 +64,8 @@ export const NAGI = {
   getRadioTrack: "com.suibari.nagi.getRadioTrack",
   getRadioHistory: "com.suibari.nagi.getRadioHistory",
   markRadioSeen: "com.suibari.nagi.markRadioSeen",
+  /** アドベントカレンダー（12/1〜25）。公開済みのカードだけを返す。未認証でも読める。 */
+  getAdventCalendar: "com.suibari.nagi.getAdventCalendar",
   /** 自分年表。日記と同じく本人だけが読む（他人には件数も日付も返さない）。 */
   getChronicle: "com.suibari.nagi.getChronicle",
   getPositiveNews: "com.suibari.nagi.getPositiveNews",

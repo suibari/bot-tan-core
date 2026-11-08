@@ -26,6 +26,7 @@ import {
 import { getDiaries, setPostMood } from "../queries/diaries.js";
 import { getRadioHistory, getRadioTrack, markRadioSeen } from "../queries/radio.js";
 import { getChronicle } from "../queries/chronicle.js";
+import { getAdventCalendar, parseAdventYear } from "../queries/advent.js";
 import {
   getNewsItemByRkey,
   getPositiveNews,
@@ -1319,6 +1320,19 @@ xrpc.get(
     }
   },
 );
+// アドベントカレンダー。公開済みのカードは誰でも見られる（シェアのリンク先・OGP 画像も
+// ここを読む）ので認証を取らない。既読は getPreferences の adventRead が持つ。
+xrpc.get(`/${NAGI.getAdventCalendar}`, async (req, res, next) => {
+  try {
+    const year = parseAdventYear(req.query.year);
+    // 0:00 の公開をまたいで古い一覧が残らないよう、キャッシュは短く。
+    res
+      .set("Cache-Control", "public, max-age=60")
+      .json(await getAdventCalendar(year));
+  } catch (e) {
+    next(e);
+  }
+});
 /*
  * 開発専用: 今日の提出を消して、もう一度ゼンカツを出せるようにする。
  *

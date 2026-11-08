@@ -73,7 +73,8 @@ const hasPost = (type: (typeof nagiNotifications.$inferSelect)["type"]) =>
   type !== "gift" &&
   type !== "emoji" &&
   type !== "chronicle" &&
-  type !== "mood";
+  type !== "mood" &&
+  type !== "advent";
 
 /**
  * 一覧で1件にまとめる単位。リアクションは取り込み時に group_key を持ち、

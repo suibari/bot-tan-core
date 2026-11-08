@@ -542,6 +542,7 @@ export type NotificationView = {
   /** "gift" はおすそわけボードに置いたカードが届いた。actor は受け取った人、cardSubject にカードが入る。 */
   /** "chronicle" は年表に週のトピックが載った。actor は常に botたん、post も diary も付かない。 */
   /** "mood" は新しく始めた人の最初の気持ちが感情グラフに載った。actor は常に botたん、post も diary も付かない。 */
+  /** "advent" はアドベントカレンダーのカードに選ばれた。actor は常に botたん。reasonUri の末尾が日付（at://did/advent/2026-12-03）。 */
   type:
     | "reply"
     | "reaction"
@@ -551,7 +552,8 @@ export type NotificationView = {
     | "gift"
     | "emoji"
     | "chronicle"
-    | "mood";
+    | "mood"
+    | "advent";
   actor: ActorView;
   post?: PostView;
   /** type が "diary" のときの日記本体。post は付かない。 */
@@ -837,6 +839,8 @@ export type DiaryDayPreferences = {
 export type PreferencesView = {
   /** 年ごとに最後に読んだ内容ハッシュ。1アカウント・1年につき1件。 */
   chronicleReadYears?: ChronicleReadYear[];
+  /** 今年のアドカレの既読。まだ一度も見ていなければ付かない。旧 AppView も返さない。 */
+  adventRead?: AdventReadState;
   readPositions: ReadPosition[];
   emojiFavorites: EmojiFavorite[];
   /** 未同期（まだ一度も書き込んでいない）なら undefined。 */
@@ -887,6 +891,7 @@ export type PutPreferencesInput = {
   diaryDay?: { timezone?: string | null; startHour?: number };
   /** 表示した年のハッシュ。現在の内容と一致する版だけを既読にする。 */
   chronicleReadYears?: ChronicleReadYear[];
+  adventRead?: PutAdventReadInput;
   readPositions?: ReadPosition[];
   emojiFavorites?: EmojiFavorite[];
   /** emojiFavorites を送るときは必須。保存済みより古ければ書き込まない。 */
@@ -1419,4 +1424,49 @@ export type ZenkatsuDeckView = {
   /** 自分がまだ出していないコンボの伏せ札。図鑑番号順。 */
   hints: ZenkatsuComboHint[];
   trophies: ZenkatsuTrophyView[];
+};
+
+/**
+ * アドベントカレンダーのカード1枚。選んだ時点の見出しと一言を持ち、元のポストが後から
+ * 消えても編集されても変わらない（カードは原文を載せない）。
+ */
+export type AdventCardView = {
+  year: number;
+  /** 1〜25。 */
+  day: number;
+  /** 選ばれた人。現在のプロフィールを優先し、引けなければ選んだ時点の控え。 */
+  actor: ActorView;
+  /** 元のポスト。消えていれば付かない。 */
+  postUri?: string;
+  titleJa: string;
+  titleEn: string;
+  commentJa: string;
+  commentEn: string;
+  publishedAt: string;
+};
+/**
+ * アドカレの既読。getPreferences / putPreferences で読み書きする（OAuth の権限を
+ * 増やさないため、専用の XRPC は作らない）。
+ */
+export type AdventReadState = {
+  year: number;
+  /** 画面で見た最新の日。これより新しい公開日があればメニューにバッジを出す。 */
+  lastSeenDay: number;
+  /** 開封演出を見終えた自分のカードの日。 */
+  openedDays: number[];
+};
+export type AdventCalendarView = {
+  year: number;
+  /** 公開済みの最新の日（0 = まだ開いていない）。 */
+  openedDay: number;
+  /** 次の日が開く時刻。12/25 が開いたあとは付かない。 */
+  nextOpenAt?: string;
+  /** 公開済みのカード。日付の昇順。 */
+  cards: AdventCardView[];
+};
+/** 送った項目だけを進める。既読の日は戻らず、開封済みの日は消えない。 */
+export type PutAdventReadInput = {
+  year: number;
+  lastSeenDay?: number;
+  openedDay?: number;
 };

@@ -162,3 +162,19 @@ export function seedNagiTranslations(
     "TRANSLATION_SEED",
   );
 }
+
+/**
+ * アドカレのカードに選ばれたことを本人に伝える。公開時刻（JST 0:00）を過ぎてから呼ぶ。
+ * AppView 側は (did, year, day) で1通にまとめるので、重ねて呼んでも二重に届かない。
+ */
+export function notifyAdventCard(
+  did: string,
+  year: number,
+  day: number,
+): Promise<boolean> {
+  return postInternal(
+    "/internal/notifications/advent",
+    { did, year, day },
+    "ADVENT",
+  );
+}

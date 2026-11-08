@@ -1,4 +1,9 @@
 import {
+  getAdventReadState,
+  parseAdventReadInput,
+  putAdventReadState,
+} from "./advent.js";
+import {
   putChronicleReadYears,
   getChronicleReadYears,
   parseChronicleReadYears,
@@ -404,6 +409,7 @@ async function selectPreferences(did: string): Promise<PreferencesView> {
     notificationRows,
     bookmarkRows,
     chronicleRows,
+    adventRead,
   ] = await Promise.all([
     db
       .select({
@@ -465,6 +471,7 @@ async function selectPreferences(did: string): Promise<PreferencesView> {
       .where(eq(nagiBookmarkPreferences.did, did))
       .limit(1),
     getChronicleReadYears(did),
+    getAdventReadState(did),
   ]);
   const favoritesRow = favorites[0];
   const feedTabsRow = feedTabs[0];
@@ -477,6 +484,7 @@ async function selectPreferences(did: string): Promise<PreferencesView> {
   const bookmarkRow = bookmarkRows[0];
   return {
     chronicleReadYears: chronicleRows,
+    ...(adventRead ? { adventRead } : {}),
     readPositions: positions
       .filter((row) => isSection(row.section))
       .map((row) => ({
@@ -584,6 +592,7 @@ export async function putPreferences(
 ): Promise<PreferencesView> {
   const readPositions = parseReadPositions(input.readPositions);
   const chronicleReadYears = parseChronicleReadYears(input.chronicleReadYears);
+  const adventRead = parseAdventReadInput(input.adventRead);
   const hasFavorites = input.emojiFavorites !== undefined;
   const emojiFavorites = hasFavorites
     ? parseEmojiFavorites(input.emojiFavorites)
@@ -664,6 +673,7 @@ export async function putPreferences(
     });
 
   await putChronicleReadYears(did, chronicleReadYears);
+  if (adventRead) await putAdventReadState(did, adventRead);
 
   if (readPositions.length) {
     await db

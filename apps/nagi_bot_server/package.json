@@ -23,6 +23,7 @@
     "news:feed:hide": "tsx --env-file=../../.env src/newsFeedAdmin.ts hide",
     "news:image:backfill": "tsx --env-file=../../.env scripts/backfillNewsImageUrls.ts",
     "zenkatsu:drain": "tsx --env-file=../../.env scripts/drainZenkatsuComments.mts",
+    "advent:simulate": "tsx --env-file=../../.env scripts/simulateAdvent.mts",
     "radio:now": "tsx --env-file=../../.env scripts/generateNagiRadioNow.ts"
   },
   "dependencies": {
