@@ -134,13 +134,41 @@ class GatewayTests(unittest.TestCase):
         self.assertGreaterEqual(blocked.retry_after, 1)
         self.assertEqual(calls, [WIKI])
 
-    def test_searxng_suspension_and_wiki_maxlag_trigger_shared_cooldown(self):
-        for path, body in [(SEARCH, {"results": [], "unresponsive_engines": [["wikipedia", "Suspended: too many requests"]]}),
-                           (WIKI, {"error": {"code": "maxlag"}})]:
-            queue = self.queue(lambda p: Reply(200, json.dumps(body).encode()), interval=0)
-            queue.submit(path)[0].result(1)
-            self.assertEqual(queue.submit(SEARCH + "2")[0].result(1).status, 429)
-            self.assertGreater(queue.snapshot()["cooldown_seconds"], 170)
+    def test_wiki_maxlag_triggers_shared_cooldown(self):
+        queue = self.queue(lambda p: Reply(200, json.dumps({"error": {"code": "maxlag"}}).encode()), interval=0)
+        queue.submit(WIKI)[0].result(1)
+        self.assertEqual(queue.submit(SEARCH + "2")[0].result(1).status, 429)
+        self.assertGreater(queue.snapshot()["cooldown_seconds"], 170)
+
+    def test_engine_limit_cools_down_only_that_engine(self):
+        # 2026-11-08: one wikidata "too many requests" stopped yahoo and the Wikipedia API
+        # for 180 s. Only the limited engine should be dropped from later requests.
+        sent = []
+        def fetch(path):
+            sent.append(path)
+            if path.startswith("/wikipedia/"):
+                return result(path)
+            body = {"results": [], "infoboxes": []}
+            if len(sent) == 1:
+                body["unresponsive_engines"] = [["wikidata", "Suspended: too many requests"]]
+            return Reply(200, json.dumps(body).encode())
+        queue = self.queue(fetch, interval=0)
+        queue.submit(request_path(SEARCH + "&engines=yahoo,wikidata"))[0].result(1)
+        self.assertEqual(queue.snapshot()["cooldown_seconds"], 0, "no shared cooldown")
+        self.assertGreater(queue.snapshot()["engine_cooldowns"]["wikidata"], 170)
+        # Later searches go out without wikidata; Wikipedia API is unaffected.
+        self.assertEqual(queue.submit(request_path(SEARCH + "2&engines=yahoo,wikidata"))[0].result(1).status, 200)
+        self.assertIn("engines=yahoo", sent[-1])
+        self.assertNotIn("wikidata", sent[-1])
+        self.assertEqual(queue.submit(WIKI)[0].result(1).status, 200)
+        # Requests without engines= use SearXNG defaults and pass unchanged.
+        self.assertEqual(queue.submit(SEARCH + "3")[0].result(1).status, 200)
+        # A request for only the cooling engine is answered locally.
+        before = len(sent)
+        blocked = queue.submit(request_path(SEARCH + "4&engines=wikidata"))[0].result(1)
+        self.assertEqual(blocked.status, 429)
+        self.assertGreaterEqual(blocked.retry_after, 170)
+        self.assertEqual(len(sent), before, "nothing sent upstream")
 
     def test_request_validation_and_canonicalization(self):
         self.assertEqual(request_path("/search?q=%20test%20&format=json"), SEARCH)
