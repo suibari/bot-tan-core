@@ -364,6 +364,15 @@ test("only Nagi post URIs may be seeded", () => {
     isNagiPostUri("at://did:plc:example/site.standard.document/3m"),
     true,
   );
+  // 3行日記も nagi_posts に載っているので投稿と同じく訳す。
+  assert.equal(
+    isNagiPostUri("at://did:plc:example/com.suibari.trilinesat.diary/3m"),
+    true,
+  );
+  assert.equal(
+    isNagiPostUri("at://did:plc:example/com.suibari.trilinesat.like/3m"),
+    false,
+  );
   assert.equal(isNagiPostUri("at://did:plc:example/app.bsky.feed.post/3m"), false);
   assert.equal(isNagiPostUri("https://example.com/post"), false);
   assert.equal(isNagiPostUri(undefined), false);
