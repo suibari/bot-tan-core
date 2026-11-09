@@ -184,7 +184,10 @@ export async function createEmojiGeneration(
   // 生成前に入力を判定する。登録された絵文字は取り込み時のモデレーションでも画像ごと判定される。
   if (moderationEnabled()) {
     try {
-      const evaluation = await evaluateModerationInput({ texts: [input.prompt], imageUrls: [] });
+      const evaluation = await evaluateModerationInput(
+        { texts: [input.prompt], imageUrls: [] },
+        "generation",
+      );
       if (evaluation.decision !== "allow")
         throw new ApiError(400, "inappropriate", "This text cannot be used for emoji generation");
     } catch (error) {

@@ -3,6 +3,8 @@ import test from "node:test";
 import {
   ADULT_LABELS,
   DEFAULT_THRESHOLDS,
+  EXPLICIT_TERM_CATEGORY,
+  GENERATION_OBSERVE_ONLY_CATEGORIES,
   evaluateScores,
   evaluateSeparatedScores,
   mapCategoryToLabel,
@@ -139,4 +141,70 @@ test("image labels survive higher unrestricted text scores", () => {
   const result = evaluateSeparatedScores({ text: { violence: 1 }, image: { sexual: 0.85 } });
   assert.equal(result.decision, "label");
   assert.deepEqual(result.labels, ["sexual"]);
+});
+
+/**
+ * 2026-11-09 の誤判定の実測値。「生徒会にも穴がある、の5話が :eichi: すぎて…
+ * 性癖に刺さる」は sexual 0.375 / sexual/minors 0.197 で !hide が付いていた。
+ */
+test("text sexual/minors is observed, not labeled", () => {
+  const result = evaluateSeparatedScores({
+    text: { sexual: 0.375, "sexual/minors": 0.197, violence: 0.083 },
+    image: {},
+  });
+  assert.equal(result.decision, "allow");
+  assert.deepEqual(result.labels, []);
+  assert.ok(result.reasons.some(reason => reason.includes("[TEXT] [OBSERVE] sexual/minors")));
+});
+
+test("text sexual/minors never rejects, however high", () => {
+  const result = evaluateSeparatedScores({ text: { "sexual/minors": 0.99 }, image: {} });
+  assert.equal(result.decision, "allow");
+  assert.deepEqual(result.labels, []);
+});
+
+test("image sexual/minors keeps the strict thresholds", () => {
+  const labeled = evaluateSeparatedScores({ text: {}, image: { "sexual/minors": 0.15 } });
+  assert.equal(labeled.decision, "label");
+  assert.deepEqual(labeled.labels, ["!hide"]);
+  const rejected = evaluateSeparatedScores({ text: {}, image: { "sexual/minors": 0.25 } });
+  assert.equal(rejected.decision, "reject-policy");
+});
+
+test("generation prompts still block text sexual/minors", () => {
+  const result = evaluateSeparatedScores(
+    { text: { "sexual/minors": 0.15 }, image: {} },
+    { textObserveOnly: GENERATION_OBSERVE_ONLY_CATEGORIES },
+  );
+  assert.equal(result.decision, "label");
+  assert.deepEqual(result.labels, ["!hide"]);
+});
+
+/** 2026-11-07「パイズリ」単独の実測値は sexual 0.099 で素通りしていた。 */
+test("an explicit term labels the post sexual even when scores are low", () => {
+  const result = evaluateSeparatedScores(
+    { text: { sexual: 0.099, violence: 0.01 }, image: {} },
+    { explicitTerms: ["パイズリ"] },
+  );
+  assert.equal(result.decision, "label");
+  assert.deepEqual(result.labels, ["sexual"]);
+  assert.equal(result.highestCategory, EXPLICIT_TERM_CATEGORY);
+  assert.equal(result.maxScore, 1);
+  assert.ok(result.reasons.includes("[TEXT] [KEYWORD] sexual: パイズリ"));
+});
+
+test("an explicit term does not weaken a stronger decision", () => {
+  const result = evaluateSeparatedScores(
+    { text: { "hate/threatening": 0.9 }, image: {} },
+    { explicitTerms: ["フェラ"] },
+  );
+  assert.equal(result.decision, "reject-policy");
+  assert.deepEqual(result.labels.sort(), ["hate", "sexual"]);
+  assert.equal(result.highestCategory, "hate/threatening");
+});
+
+test("no explicit terms leaves the score-based decision untouched", () => {
+  const result = evaluateSeparatedScores({ text: { sexual: 0.099 }, image: {} }, { explicitTerms: [] });
+  assert.equal(result.decision, "allow");
+  assert.deepEqual(result.labels, []);
 });
