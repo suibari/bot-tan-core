@@ -157,8 +157,9 @@ test("surfaces unresponsive engines so upstream blocking is detectable", async (
       ],
     });
 
-  const { unresponsiveEngines } = await searxngSearch("q");
+  const { unresponsiveEngines, unresponsiveReasons } = await searxngSearch("q");
   assert.deepEqual(unresponsiveEngines, ["duckduckgo", "bing"]);
+  assert.deepEqual(unresponsiveReasons, { duckduckgo: "CAPTCHA", bing: "timeout" });
 });
 
 test("returns empty for a blank query without touching the network", async () => {

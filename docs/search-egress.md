@@ -205,6 +205,11 @@ YahooもBingの索引を使うので、索引の多様化ではない。Bingの�
 - 中身の監視は `apps/biorhythm_server/src/searxngRelevance.ts`（6時間ごと、エンジンごとに決まった語を
   検索して上位3件を見る）。ダッシュボードの Web 検索タイルに「検索結果の関連性」として出る。
   IPv6 も量が増えれば同じことになりうるので、ここが stale / down になったら量と経路を見直す。
+  timeout など答えが返らなかった語は「無関係」に数えず、SearXNG の Suspended が解ける15秒後に
+  1回だけ引き直す（それでも答えなければ「確認できず」として判定から外し、全部そうなら unknown）。
+  too many requests / CAPTCHA / access denied / gateway の 429 は制限として外れに数える。
+  2026-11-09 の down 2回は、1語目の timeout で Yahoo が Suspended になり残り2語が巻き添えで
+  0件になった誤報だった。
 
 ## 検証
 
