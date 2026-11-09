@@ -30,6 +30,7 @@ import {
   type ModerationDecision,
   type ModerationEvaluation,
   type ModerationInput,
+  type ModerationPurpose,
 } from "../services/moderation/index.js";
 import {
   notifyDecision,
@@ -496,6 +497,10 @@ function logDecision(
   else console.warn(line);
 }
 
+/** ニュースの見出しには語句リストを当てない（性教育などの記事で誤検知する）。 */
+const moderationPurpose = (item: Pending): ModerationPurpose =>
+  item.collection === NAGI.news ? "news" : "ingest";
+
 /**
  * 判定を1件処理する。再試行したい失敗だけを投げ返す。
  *
@@ -589,7 +594,7 @@ async function judge(
   } else {
     let evaluation: ModerationEvaluation = exhausted
       ? exhaustedInputEvaluation(exhausted.error, exhausted.failures)
-      : await evaluateModerationInput(item.input);
+      : await evaluateModerationInput(item.input, moderationPurpose(item));
     if (evaluation.decision === "reject-invalid" && hasExternalNewsImage(item)) {
       // ニュースの OGP 画像は配信元のもので、取れないのは配信元で消えたか壊れたか。
       // 記事ごと落とさず、判定できなかった画像を表示から外して見出しだけで判定し直す。
@@ -597,7 +602,7 @@ async function judge(
       // 画像なしの入力で拾われる。
       await dropUnjudgedNewsImage(item, evaluation.reasons);
       item = { ...item, input: { ...item.input, imageUrls: [] } };
-      evaluation = await evaluateModerationInput(item.input);
+      evaluation = await evaluateModerationInput(item.input, moderationPurpose(item));
     }
     decision = evaluation.decision;
     labels = evaluation.labels;

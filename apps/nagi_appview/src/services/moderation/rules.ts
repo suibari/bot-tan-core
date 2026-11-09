@@ -13,7 +13,7 @@ export type ModerationDecision =
   | "reject-invalid";
 
 /** ルール変更時に上げる。再処理をキューへ戻した行が同一 CID の旧判定を再利用しないための版。 */
-export const MODERATION_RULE_VERSION = "nagi-moderation-v4";
+export const MODERATION_RULE_VERSION = "nagi-moderation-v5";
 
 /** 判定対象外（こっそり投稿など）を表す番兵。ワーカーはこの行を拾わない。 */
 export const MODERATION_SKIPPED = "skipped";
@@ -118,11 +118,40 @@ export function mapCategoryToLabel(category: string): string {
   return "!warn";
 }
 
-/** カテゴリスコアから decision を決める。 */
+/**
+ * 本文では記録だけ残し、ラベルも拒否もしないカテゴリ。
+ *
+ * - violence / violence/graphic: 感想や引用でも高得点になる。
+ * - sexual/minors: 「生徒会」「令嬢」のような語と性的な語が並ぶだけで上がる。
+ *   2026-11-09「生徒会にも穴がある、の5話が…性癖に刺さる」が 0.197 で !hide に
+ *   なり、それまでに付いた2件はどちらも誤判定だった。画像側は従来どおり厳格に見る。
+ */
+export const TEXT_OBSERVE_ONLY_CATEGORIES: readonly string[] = [
+  "violence",
+  "violence/graphic",
+  "sexual/minors",
+];
+
+/**
+ * 生成の入力（絵文字生成のプロンプトなど）で記録だけにするカテゴリ。
+ * 投稿と違い、ここを通った文から画像が作られるので sexual/minors は止めたままにする。
+ */
+export const GENERATION_OBSERVE_ONLY_CATEGORIES: readonly string[] = [
+  "violence",
+  "violence/graphic",
+];
+
+/** 露骨な語に当たったときに判定テーブルへ残すカテゴリ名。OpenAI のスコア由来と見分けるため。 */
+export const EXPLICIT_TERM_CATEGORY = "sexual/keyword";
+
+/**
+ * カテゴリスコアから decision を決める。
+ * observeOnly に入ったカテゴリは閾値を超えても記録（OBSERVE）だけにする。
+ */
 export function evaluateScores(
   categoryScores: Record<string, number>,
   config: ThresholdConfig = DEFAULT_THRESHOLDS,
-  source: "text" | "image" = "image",
+  observeOnly: readonly string[] = [],
 ): ModerationEvaluation {
   let maxScore = 0;
   let highestCategory = "";
@@ -144,8 +173,7 @@ export function evaluateScores(
     const observeThresh = override?.observe ?? config.observeThreshold;
 
     const pct = (score * 100).toFixed(1);
-    // 本文の暴力・残虐描写は感想や引用でも高得点になるため、記録だけ残す。
-    if (source === "text" && (category === "violence" || category === "violence/graphic")) {
+    if (observeOnly.includes(category)) {
       if (score >= observeThresh)
         reasons.push(`[OBSERVE] ${category}: ${pct}% (text; no restriction)`);
     } else if (score >= rejectThresh) {
@@ -178,15 +206,29 @@ export function evaluateScores(
   };
 }
 
+export interface SeparatedScoreOptions {
+  /** 本文で記録だけにするカテゴリ。既定は投稿向けの TEXT_OBSERVE_ONLY_CATEGORIES。 */
+  textObserveOnly?: readonly string[];
+  /** 本文に含まれていた露骨な語（findExplicitTerms の結果）。1つでもあれば sexual を付ける。 */
+  explicitTerms?: readonly string[];
+}
+
 /** 本文・画像を別々に評価してから、強い方の判定を採用する。 */
-export function evaluateSeparatedScores(scores: {
-  text: Record<string, number>;
-  image: Record<string, number>;
-}): ModerationEvaluation {
-  const text = evaluateScores(scores.text, DEFAULT_THRESHOLDS, "text");
-  const image = evaluateScores(scores.image, DEFAULT_THRESHOLDS, "image");
+export function evaluateSeparatedScores(
+  scores: {
+    text: Record<string, number>;
+    image: Record<string, number>;
+  },
+  options: SeparatedScoreOptions = {},
+): ModerationEvaluation {
+  const text = evaluateScores(
+    scores.text,
+    DEFAULT_THRESHOLDS,
+    options.textObserveOnly ?? TEXT_OBSERVE_ONLY_CATEGORIES,
+  );
+  const image = evaluateScores(scores.image, DEFAULT_THRESHOLDS);
   const highest = text.maxScore > image.maxScore ? text : image;
-  return {
+  const scored: ModerationEvaluation = {
     decision: [text, image].some(value => value.decision === "reject-policy")
       ? "reject-policy"
       : [text, image].some(value => value.decision === "label") ? "label" : "allow",
@@ -197,5 +239,31 @@ export function evaluateSeparatedScores(scores: {
     ],
     maxScore: highest.maxScore,
     highestCategory: highest.highestCategory,
+  };
+  return applyExplicitTerms(scored, options.explicitTerms ?? []);
+}
+
+/**
+ * 露骨な語の照合結果を判定へ重ねる。sexual ラベルを足し、allow なら label へ上げる。
+ *
+ * スコア側だけで既にラベルか拒否になっているなら、その最高カテゴリを残す。
+ * 語句だけで付いたときは category を sexual/keyword・score を 1 にして、
+ * 判定テーブル上で OpenAI 由来のラベルと見分けられるようにする。
+ */
+function applyExplicitTerms(
+  evaluation: ModerationEvaluation,
+  terms: readonly string[],
+): ModerationEvaluation {
+  if (!terms.length) return evaluation;
+  const keywordOnly = evaluation.decision === "allow";
+  return {
+    decision: keywordOnly ? "label" : evaluation.decision,
+    labels: [...new Set([...evaluation.labels, "sexual"])],
+    reasons: [
+      ...evaluation.reasons,
+      `[TEXT] [KEYWORD] sexual: ${terms.join(", ")}`,
+    ],
+    maxScore: keywordOnly ? 1 : evaluation.maxScore,
+    highestCategory: keywordOnly ? EXPLICIT_TERM_CATEGORY : evaluation.highestCategory,
   };
 }

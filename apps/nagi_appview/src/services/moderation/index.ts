@@ -6,12 +6,16 @@ import {
 } from "./openai.js";
 import {
   evaluateSeparatedScores,
+  GENERATION_OBSERVE_ONLY_CATEGORIES,
   MODERATION_RULE_VERSION,
+  TEXT_OBSERVE_ONLY_CATEGORIES,
   type ModerationEvaluation,
 } from "./rules.js";
+import { findExplicitTerms } from "./explicitTerms.js";
 
 export * from "./rules.js";
 export * from "./subject.js";
+export * from "./explicitTerms.js";
 export {
   PermanentModerationInputError,
   TransientModerationError,
@@ -32,6 +36,15 @@ function client(): OpenAIModerator {
 }
 
 /**
+ * 判定の用途。
+ *
+ * - ingest: ユーザーの投稿・プロフィールなど。本文の sexual/minors は記録だけ。
+ * - news: 外部記事の見出し。真面目な文脈で性的な語が出るので語句リストは当てない。
+ * - generation: 生成の入力（絵文字のプロンプト）。ここから画像を作るので sexual/minors も止める。
+ */
+export type ModerationPurpose = "ingest" | "news" | "generation";
+
+/**
  * 判定入力を評価する。
  *
  * 入力が恒久的に不正（壊れた blob など）なら reject-invalid を返し、規約違反とは
@@ -40,10 +53,17 @@ function client(): OpenAIModerator {
  */
 export async function evaluateModerationInput(
   input: ModerationInput,
+  purpose: ModerationPurpose = "ingest",
 ): Promise<ModerationEvaluation> {
   try {
     const scores = await client().evaluate(input);
-    return evaluateSeparatedScores(scores);
+    return evaluateSeparatedScores(scores, {
+      textObserveOnly:
+        purpose === "generation"
+          ? GENERATION_OBSERVE_ONLY_CATEGORIES
+          : TEXT_OBSERVE_ONLY_CATEGORIES,
+      explicitTerms: purpose === "news" ? [] : findExplicitTerms(input.texts),
+    });
   } catch (error) {
     if (error instanceof PermanentModerationInputError) {
       return {

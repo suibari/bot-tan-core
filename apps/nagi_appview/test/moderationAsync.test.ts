@@ -145,7 +145,7 @@ test("an unjudgeable news image is dropped before the headline is judged alone",
   const fallback = judgeBody.slice(fallbackAt);
   const dropAt = fallback.indexOf("await dropUnjudgedNewsImage(");
   const clearAt = fallback.indexOf("imageUrls: []");
-  const reevaluateAt = fallback.indexOf("await evaluateModerationInput(item.input)");
+  const reevaluateAt = fallback.indexOf("await evaluateModerationInput(item.input,");
   assert.ok(dropAt > 0 && dropAt < clearAt && clearAt < reevaluateAt);
   // 判定結果を記録・通知するより前に入れ替えておくこと。
   assert.ok(fallbackAt < judgeBody.indexOf("insert(nagiModerationDecisions)"));
