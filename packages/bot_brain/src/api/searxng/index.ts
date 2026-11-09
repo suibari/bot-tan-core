@@ -48,6 +48,11 @@ export type SearxngResponse = {
   infoboxes: string[];
   /** 上流エンジンにブロックされたことの検知に使う。 */
   unresponsiveEngines: string[];
+  /**
+   * 応答しなかったエンジンごとの理由（SearXNG の文言のまま。"timeout"、"Suspended: timeout"、
+   * "too many requests"、"CAPTCHA" など）。制限と一時的な失敗を見分けるのに使う。
+   */
+  unresponsiveReasons?: Record<string, string>;
 };
 
 type RawResult = {
@@ -201,6 +206,7 @@ export async function searxngSearch(
   // 呼び出し側との互換性は名前配列のまま。ログには原因と件数も残す。
   const unresponsiveEngines: string[] = [];
   const engineErrors: string[] = [];
+  const unresponsiveReasons: Record<string, string> = {};
   for (const item of Array.isArray(body.unresponsive_engines)
     ? body.unresponsive_engines
     : []) {
@@ -208,6 +214,7 @@ export async function searxngSearch(
     if (name) {
       unresponsiveEngines.push(name);
       const reason = Array.isArray(item) ? text(item[1]) : "";
+      unresponsiveReasons[name] = reason;
       engineErrors.push(`${name}${reason ? ` (${reason})` : ""}`);
     }
   }
@@ -218,5 +225,5 @@ export async function searxngSearch(
     );
   }
 
-  return { hits, infoboxes, unresponsiveEngines };
+  return { hits, infoboxes, unresponsiveEngines, unresponsiveReasons };
 }
