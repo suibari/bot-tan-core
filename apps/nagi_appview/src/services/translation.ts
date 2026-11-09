@@ -9,6 +9,7 @@ import {
   NAGI,
   NAGI_LANGUAGES,
   STANDARD_SITE_DOCUMENT,
+  TRILINES,
 } from "@bsky-affirmative-bot/nagi-lexicon";
 import {
   BOT_VOICE_BRIEF_EN,
@@ -132,12 +133,15 @@ export function isZenkatsuUri(value: unknown): value is string {
   );
 }
 
-/** Nagi 投稿（standard.site のブログを含む）の AT URI か。 */
+/**
+ * Nagi 投稿（standard.site のブログと TriLinesAt の3行日記を含む）の AT URI か。
+ * 3行日記は取り込み時に行を改行でつないで nagi_posts に載せているので、投稿と同じく訳せる。
+ */
 export function isNagiPostUri(value: unknown): value is string {
   return (
     typeof value === "string" &&
     new RegExp(
-      `^at://did:(?:plc|web):[^/]+/(?:${NAGI.post}|${STANDARD_SITE_DOCUMENT})/[^/]+$`,
+      `^at://did:(?:plc|web):[^/]+/(?:${NAGI.post}|${STANDARD_SITE_DOCUMENT}|${TRILINES.diary})/[^/]+$`,
     ).test(value)
   );
 }
