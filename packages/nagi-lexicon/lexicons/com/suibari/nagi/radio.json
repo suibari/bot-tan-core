@@ -1,0 +1,23 @@
+{
+  "lexicon": 1,
+  "id": "com.suibari.nagi.radio",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "botたんラジオの1回を公開してよいという本人の宣言。ポストはこれを引用する。曲とDJコメントはレコードに持たず、AppView が本人の放送履歴から引く。rkey は slotKey と同じ。",
+      "key": "any",
+      "record": {
+        "type": "object",
+        "required": ["slotKey", "createdAt"],
+        "properties": {
+          "slotKey": {
+            "type": "string",
+            "description": "放送枠。JST の YYYY-MM-DD-HH（HH は 08/14/20）。",
+            "maxLength": 13
+          },
+          "createdAt": { "type": "string", "format": "datetime" }
+        }
+      }
+    }
+  }
+}

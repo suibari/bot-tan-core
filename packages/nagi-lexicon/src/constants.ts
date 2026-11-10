@@ -145,6 +145,12 @@ export const NAGI = {
    * 所持・クールダウン・当日かを AppView が取り込み時に照合できる＝偽レコードを索引しない。
    */
   zenkatsu: "com.suibari.nagi.zenkatsu",
+  /**
+   * botたんラジオの1回を公開する宣言。**ユーザー自身の repo** に置く（rkey = slotKey）。
+   * 曲とDJコメントは持たず、AppView が本人の radio_tracks から引く。他人の回は引けないので
+   * 偽装できない。ポストはこれを引用し、レコードを消せば引用カードも出なくなる。
+   */
+  radio: "com.suibari.nagi.radio",
   /** ある1日のお題と全回答（新着順）。記録は公開情報なので未認証でも読める。 */
   getZenkatsu: "com.suibari.nagi.getZenkatsu",
   /**
@@ -242,6 +248,7 @@ export const NAGI_COLLECTIONS = [
   NAGI.channel,
   NAGI.news,
   NAGI.bluemoji,
+  NAGI.radio,
   BLUEMOJI_ITEM,
 ] as const;
 export const STANDARD_SITE_DOCUMENT = "site.standard.document";
@@ -277,6 +284,7 @@ export const NAGI_INGEST_COLLECTIONS = [
   NAGI.news,
   NAGI.channel,
   NAGI.cardGet,
+  NAGI.radio,
 ] as const;
 export const NAGI_APPVIEW_DID =
   process.env.NAGI_APPVIEW_DID ?? "did:web:nagi-api.suibari.com";

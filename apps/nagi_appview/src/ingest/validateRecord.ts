@@ -16,6 +16,7 @@ import {
   type NagiReaction,
   type NagiZenkatsu,
   type NagiCardGet,
+  type NagiRadio,
 } from "@bsky-affirmative-bot/nagi-lexicon";
 import { isValidZenkatsuSelection } from "@bsky-affirmative-bot/shared-configs";
 import { STANDARD_DOCUMENT, standardDocumentPost } from "./standardDocument.js";
@@ -314,7 +315,8 @@ export function validateRecord(
   | NagiNews
   | NagiChannel
   | NagiZenkatsu
-  | NagiCardGet {
+  | NagiCardGet
+  | NagiRadio {
   if (collection === STANDARD_DOCUMENT) {
     const post = standardDocumentPost(value);
     return !!post && validateRecord(NAGI.post, post, true);
@@ -464,6 +466,13 @@ export function validateRecord(
           graphemes(value.description) <= 300)) &&
       (value.banner === undefined || bannerBlob(value.banner)) &&
       (value.pinnedPost === undefined || ref(value.pinnedPost))
+    );
+  if (collection === NAGI.radio)
+    // 形だけ。本人の放送があるか・rkey が slotKey と一致するかは indexRadioShare が見る。
+    return (
+      typeof value.slotKey === "string" &&
+      /^\d{4}-\d{2}-\d{2}-(?:08|14|20)$/.test(value.slotKey) &&
+      date(value.createdAt)
     );
   if (collection === NAGI.cardGet)
     // 形だけ。実際に引いたかの照合は AppView が card_draws を見て行う（applyMutation 側）。

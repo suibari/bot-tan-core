@@ -16,6 +16,7 @@ import {
   nagiCardCommentJobs,
   nagiCardDraws,
   nagiCardGets,
+  nagiRadioShares,
   nagiGuestCardDraws,
   nagiCardInstances,
   nagiCardBoardStock,
@@ -307,6 +308,8 @@ export async function deleteAccountData(did: string) {
         .delete(nagiNotifications)
         .where(inArray(nagiNotifications.subjectUri, cardGetUris));
     await tx.delete(nagiCardGets).where(eq(nagiCardGets.did, did));
+    // ラジオの公開。引用している他人のポストは「表示できません」になる。
+    await tx.delete(nagiRadioShares).where(eq(nagiRadioShares.did, did));
 
     await tx.delete(nagiCardDraws).where(eq(nagiCardDraws.did, did));
     await tx
