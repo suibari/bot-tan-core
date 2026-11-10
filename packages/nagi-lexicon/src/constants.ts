@@ -26,7 +26,7 @@ export const NAGI = {
   deleteDraft: "com.suibari.nagi.deleteDraft",
   getThread: "com.suibari.nagi.getThread",
   getProfile: "com.suibari.nagi.getProfile",
-  /** app.bsky.actor.profile の website を安全なリンクカードとして返す公開ビュー。 */
+  /** com.suibari.nagi.profile の website を安全なリンクカードとして返す公開ビュー。 */
   getProfileWebsite: "com.suibari.nagi.getProfileWebsite",
   searchActors: "com.suibari.nagi.searchActors",
   /** 投稿欄の #タグ 入力候補。認証不要の公開クエリ。 */
@@ -305,9 +305,6 @@ export const NAGI_AFFIRMATION_THRESHOLD = Number(
 );
 /** permission set の NSID。定義は lexicons/com/suibari/nagi/appviewAccess.json。 */
 export const NAGI_PERMISSION_SET = "com.suibari.nagi.appviewAccess";
-/** Nagi のプロフィール設定で app.bsky.actor.profile.website を更新する。 */
-export const NAGI_BLUESKY_PROFILE_SCOPE =
-  "repo:app.bsky.actor.profile?action=create&action=update";
 /** Nagi のブログを standard.site レコードとして作成・編集・削除する。 */
 export const NAGI_STANDARD_SITE_SCOPES = [
   "repo:site.standard.publication",
@@ -347,7 +344,6 @@ export const NAGI_OAUTH_SCOPE = [
   "blob:image/*",
   `include:${NAGI_PERMISSION_SET}`,
   `repo:${BLUEMOJI_ITEM}`,
-  NAGI_BLUESKY_PROFILE_SCOPE,
   ...NAGI_STANDARD_SITE_SCOPES,
   NAGI_TRILINES_SCOPE,
   ...NAGI_VIDEO_SCOPES,

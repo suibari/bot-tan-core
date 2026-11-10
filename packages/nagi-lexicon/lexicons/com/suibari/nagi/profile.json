@@ -11,6 +11,7 @@
         "properties": {
           "displayName": { "type": "string", "maxGraphemes": 64, "maxLength": 640 },
           "description": { "type": "string", "maxGraphemes": 256, "maxLength": 2560 },
+          "website": { "type": "string", "maxLength": 2048 },
           "avatar": {
             "type": "blob",
             "accept": ["image/jpeg", "image/png", "image/webp"],
