@@ -35,3 +35,9 @@ test("3行日記の書き込み権限は通常ログインで必須になる", a
   assert.equal(NAGI_TRILINES_SCOPE, "repo:com.suibari.trilinesat.diary");
   assert.equal(scopes(NAGI_OAUTH_SCOPE).filter((item) => item === NAGI_TRILINES_SCOPE).length, 1);
 });
+
+ test("Bluesky プロフィールの更新権限を要求しない", () => {
+  for (const scope of [NAGI_OAUTH_SCOPE, NAGI_OAUTH_SCOPE_FULL]) {
+    assert.equal(scopes(scope).some((value) => value.startsWith("repo:app.bsky.actor.profile")), false);
+  }
+});

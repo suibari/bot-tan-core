@@ -360,6 +360,7 @@ export type NagiProfile = {
   $type: "com.suibari.nagi.profile";
   displayName: string;
   description?: string;
+  website?: string;
   avatar?: BlobRef;
   createdAt: string;
 };

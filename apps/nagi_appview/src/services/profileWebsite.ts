@@ -55,7 +55,7 @@ async function fetchWebsiteCard(did: string): Promise<WebsiteCard | undefined> {
   const endpoint = new URL("/xrpc/com.atproto.repo.getRecord", pds);
   endpoint.search = new URLSearchParams({
     repo: did,
-    collection: "app.bsky.actor.profile",
+    collection: "com.suibari.nagi.profile",
     rkey: "self",
   }).toString();
   const response = await fetch(endpoint, {
@@ -80,7 +80,7 @@ async function fetchWebsiteCard(did: string): Promise<WebsiteCard | undefined> {
 }
 
 /**
- * Bluesky profile の website は補助表示なので、PDS/リンク先の失敗は空として返す。
+ * Nagi profile の website は補助表示なので、PDS/リンク先の失敗は空として返す。
  * 短時間のキャッシュと同時リクエスト共有で、プロフィール閲覧による外部負荷を抑える。
  */
 export async function getProfileWebsiteCard(
