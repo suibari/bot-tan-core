@@ -48,6 +48,7 @@ import { loadPrivateListMemberDids } from "./privateList.js";
 import { postHasAnyTag } from "./tags.js";
 import { crosspostView } from "./crosspost.js";
 import { isQuotablePostUri, trilinesView } from "./trilines.js";
+import { getRadioQuoteViews } from "./radioShares.js";
 export const encodeCursor = (date: Date, uri: string) =>
   Buffer.from(JSON.stringify([date.toISOString(), uri])).toString("base64url");
 export const decodeCursor = (cursor?: string): [Date, string] | undefined => {
@@ -429,8 +430,16 @@ export async function hydratePostViews(
       ? [{ uri: post.quoteUri, cid: post.quoteCid }]
       : [],
   );
-  const newsViews = await getNewsQuoteViews(newsRefs, mutes.actors);
-  if (!quoteUris.length && !newsRefs.length) return views;
+  const radioRefs = rows.flatMap(({ post }) =>
+    !post.deletedAt && post.quoteUri?.split("/")[3] === NAGI.radio && post.quoteCid
+      ? [{ uri: post.quoteUri, cid: post.quoteCid }]
+      : [],
+  );
+  const [newsViews, radioViews] = await Promise.all([
+    getNewsQuoteViews(newsRefs, mutes.actors),
+    getRadioQuoteViews(radioRefs, mutes.actors),
+  ]);
+  if (!quoteUris.length && !newsRefs.length && !radioRefs.length) return views;
   // 引用元がミュート著者なら引用カードだけを落とす（引用している投稿自体は残す）。
   const quoteRows = quoteUris.length
     ? dropMutedRows(await fetchPostRows(quoteUris), mutes)
@@ -447,11 +456,18 @@ export async function hydratePostViews(
       post.quoteUri && post.quoteCid
         ? newsViews.get(`${post.quoteUri}|${post.quoteCid}`)
         : undefined;
+    const quotedRadio =
+      post.quoteUri && post.quoteCid
+        ? radioViews.get(`${post.quoteUri}|${post.quoteCid}`)
+        : undefined;
     return {
       ...view,
       ...(quote ? { quote: { kind: "post" as const, post: quote } } : {}),
       ...(quotedNews
         ? { quote: { kind: "news" as const, news: quotedNews } }
+        : {}),
+      ...(quotedRadio
+        ? { quote: { kind: "radio" as const, radio: quotedRadio } }
         : {}),
     };
   });

@@ -709,6 +709,22 @@ export const nagiRadioTracks = nagiSchema.table("radio_tracks", {
   index("nagi_radio_tracks_history_idx").on(t.subjectDid, t.slotKey),
   check("nagi_radio_tracks_status_check", sql`${t.status} IN ('pending', 'ready')`),
 ]);
+/**
+ * 本人が公開した放送枠（com.suibari.nagi.radio の索引）。ポストの引用カードはこれと
+ * radio_tracks を突き合わせて作る。行があるのは「本人の ready な放送」と照合できたものだけ。
+ */
+export const nagiRadioShares = nagiSchema.table("radio_shares", {
+  /** at://did/com.suibari.nagi.radio/{slotKey}。rkey は slotKey と同じ。 */
+  uri: text("uri").primaryKey(),
+  cid: text("cid").notNull(),
+  did: text("did").notNull(),
+  slotKey: text("slot_key").notNull(),
+  indexedAt: timestamp("indexed_at", { withTimezone: true }).defaultNow().notNull(),
+  /** 本人がレコードを消したら引用カードを出さない。 */
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+}, (t) => [
+  index("nagi_radio_shares_did_idx").on(t.did),
+]);
 export const nagiRadioReadStates = nagiSchema.table("radio_read_states", {
   subjectDid: text("subject_did").primaryKey(),
   lastSeenSlotKey: text("last_seen_slot_key").notNull(),

@@ -435,7 +435,10 @@ export type PostView = {
     description?: string;
     thumb?: string;
   }>;
-  quote?: { kind: "post"; post: PostView } | { kind: "news"; news: NewsView };
+  quote?:
+    | { kind: "post"; post: PostView }
+    | { kind: "news"; news: NewsView }
+    | { kind: "radio"; radio: RadioQuoteView };
   reactions: ReactionView[];
   isBot: boolean;
   isAffirmation: boolean;
@@ -1220,6 +1223,29 @@ export type ZenkatsuFeed = {
  * ドローの控え（ユーザーの repo）。**権威ではない。**
  * 結果を決めるのは AppView で、AppView は card_draws と突き合わせて一致しないものを索引しない。
  */
+/** botたんラジオの1回を公開する宣言（com.suibari.nagi.radio）。rkey は slotKey。 */
+export type NagiRadio = {
+  $type?: "com.suibari.nagi.radio";
+  slotKey: string;
+  createdAt: string;
+};
+/**
+ * 引用されたラジオの1回。中身は AppView の radio_tracks から引く。
+ * 公開の宣言が消えた・放送が見つからないときは unavailable だけを立てて中身を空にする。
+ */
+export type RadioQuoteView = {
+  uri: string;
+  cid: string;
+  slotKey: string;
+  title: string;
+  artist: string;
+  commentJa?: string;
+  commentEn?: string;
+  songUrl?: string;
+  thumbnailUrl?: string;
+  publishedAt: string;
+  unavailable?: boolean;
+};
 export type NagiCardGet = {
   $type?: "com.suibari.nagi.cardGet";
   card: { volume: number; id: number };

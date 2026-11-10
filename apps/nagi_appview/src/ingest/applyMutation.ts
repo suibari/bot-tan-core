@@ -40,6 +40,7 @@ import {
   removeZenkatsuSubmission,
 } from "../queries/zenkatsu.js";
 import { indexCardGet, removeCardGet } from "../queries/cardNews.js";
+import { indexRadioShare, removeRadioShare } from "../queries/radioShares.js";
 import { indexEmoji, resolveEmoji, type EmojiRow } from "../services/emoji.js";
 import { dispatchPushAll, type PushJob } from "../services/pushDispatch.js";
 import {
@@ -213,6 +214,7 @@ export async function applyMutation(
       NAGI.channel,
       NAGI.zenkatsu,
       NAGI.cardGet,
+      NAGI.radio,
     ].includes(collection)
   )
     return { cursorAdvanced: false };
@@ -430,6 +432,9 @@ export async function applyMutation(
       if (collection === NAGI.cardGet)
         // 所持そのものは card_instances が権威。控えを消しても手札は減らない。
         await removeCardGet(tx, uri);
+      if (collection === NAGI.radio)
+        // 公開をやめた。引用しているポストは残り、引用カードは「表示できません」になる。
+        await removeRadioShare(tx, uri);
       if (collection === NAGI.profile)
         await tx.delete(nagiProfiles).where(eq(nagiProfiles.did, did));
       if (collection === BLUEMOJI_ITEM)
@@ -758,6 +763,20 @@ export async function applyMutation(
         if (!result.indexed)
           console.info(
             `[INFO] cardGet record rejected (${result.reason}): ${uri}`,
+          );
+      }
+      if (collection === NAGI.radio) {
+        // 本人の ready な放送と照合できたものだけを索引する。他人の回は引けない。
+        const result = await indexRadioShare(tx, {
+          uri,
+          cid: commit.cid,
+          did,
+          rkey: commit.rkey,
+          record: value,
+        });
+        if (!result.indexed)
+          console.info(
+            `[INFO] radio record rejected (${result.reason}): ${uri}`,
           );
       }
       if (collection === NAGI.reaction) {

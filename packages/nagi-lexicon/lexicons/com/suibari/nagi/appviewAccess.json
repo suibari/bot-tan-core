@@ -5,7 +5,7 @@
     "main": {
       "type": "permission-set",
       "title": "Nagi",
-      "detail": "Nagi の投稿・リアクション・ニュース・プロフィール・設定・Bluemoji 作成記録・ゼンカツ！の提出の読み書きと、Nagi AppView へのアクセス。",
+      "detail": "Nagi の投稿・リアクション・ニュース・プロフィール・設定・Bluemoji 作成記録・ゼンカツ！の提出・botたんラジオの公開の読み書きと、Nagi AppView へのアクセス。",
       "permissions": [
         {
           "type": "permission",
@@ -19,7 +19,8 @@
             "com.suibari.nagi.news",
             "com.suibari.nagi.bluemoji",
             "com.suibari.nagi.zenkatsu",
-            "com.suibari.nagi.cardGet"
+            "com.suibari.nagi.cardGet",
+            "com.suibari.nagi.radio"
           ]
         },
         {
