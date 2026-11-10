@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { selectNagiRadioPostContext } from "../src/ai/nagiRadioPostContext.js";
+import { nagiRadioSongInput, selectNagiRadioPostContext } from "../src/ai/nagiRadioPostContext.js";
 
 test("長い投稿期間でも全投稿を見て、印象的な1件と選曲文脈を返す", async () => {
   const posts = Array.from({ length: 12 }, (_, index) =>
@@ -32,4 +32,11 @@ test("長文投稿の末尾も選曲用の要約へ渡す", async () => {
   assert.equal(result.commentPostIndex, 0);
   assert.match(result.commentPostText, /終盤に語った旅行の話/);
   assert.match(result.songContext, /終盤に語った旅行の話/);
+});
+
+test("選曲はコメントで取り上げる投稿を依頼にし、残りを新しい順の履歴にする", () => {
+  const posts = ["遊戯王の話", "アニメの5話が衝撃だった", "Anki二日目", "おやすみ"];
+  const input = nagiRadioSongInput(posts, { commentPostIndex: 1, commentPostText: posts[1] });
+  assert.equal(input.postText, "アニメの5話が衝撃だった");
+  assert.deepEqual(input.recentPosts, ["おやすみ", "Anki二日目", "遊戯王の話"]);
 });
