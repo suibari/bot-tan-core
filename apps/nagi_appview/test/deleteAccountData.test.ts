@@ -44,7 +44,7 @@ test("退会で botたんの自動リアクション台帳も本人分を消す"
   );
 });
 
-test("退会でこっそり投稿の翻訳キャッシュと、それへのリアクション行も消す", async (t) => {
+test("退会でこっそり投稿の翻訳キャッシュは消し、他人が付けたリアクションは残す", async (t) => {
   const did = "did:plc:leaving";
   // こっそり投稿の URI は AppView の authority なので `at://${did}/...` では引けない。
   const kossoriUri = "at://did:web:nagi.example/com.suibari.nagi.post/opaque";
@@ -74,13 +74,19 @@ test("退会でこっそり投稿の翻訳キャッシュと、それへのリ�
   await deleteAccountData(did);
 
   const postsIndex = deletes.findIndex(({ table }) => table === "posts");
-  for (const table of ["translations", "reactions", "post_scores"]) {
+  for (const table of ["translations", "post_scores"]) {
     const index = deletes.findIndex(
       (entry) => entry.table === table && entry.params.includes(kossoriUri),
     );
     assert.ok(index >= 0, `${table} のこっそり分が消されていない`);
     assert.ok(index < postsIndex, `${table} は投稿の行より先に消す`);
   }
+
+  // リアクションは付けた人のリポジトリのデータ。消すのは本人が付けた分だけ。
+  const reactionDeletes = deletes.filter(({ table }) => table === "reactions");
+  assert.equal(reactionDeletes.length, 1);
+  assert.match(reactionDeletes[0].sql, /"reactions"\."did" = \$1/);
+  assert.deepEqual(reactionDeletes[0].params, [did]);
 });
 
 test("退会で置いたカードは残し、提供者と「〜からもらった」を匿名にする", async (t) => {

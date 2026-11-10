@@ -1398,6 +1398,11 @@ static async getPost(did: string): Promise<any> {
 
   /**
    * Nagi リアクション数とポスト数の 1h おきのアクティビティ（デフォルト直近 168 時間＝7 日間）。
+   *
+   * リアクションは取り込み時刻（indexed_at）ではなくレコードの created_at で数える。
+   * reconcile が過去のリアクションをまとめて入れ直すと indexed_at はその時刻になり、
+   * 1時間に数百件の山ができる（2026-11-04、退会者の投稿へのリアクション 1,605 件）。
+   * created_at は自己申告なので、未来日付は indexed_at で頭を押さえる。
    */
   static async getNagiHourlyActivity(
     hours = 168,
@@ -1412,10 +1417,11 @@ static async getPost(did: string): Promise<any> {
           ) as hour_jst
         ),
         r as (
-          select date_trunc('hour', ${nagiReactions.indexedAt} at time zone 'Asia/Tokyo') as hour_jst,
+          select date_trunc('hour', least(${nagiReactions.createdAt}, ${nagiReactions.indexedAt}) at time zone 'Asia/Tokyo') as hour_jst,
                  count(*) as count
           from ${nagiReactions}
           where ${gte(nagiReactions.indexedAt, sql`now() - (${sql.raw(`${hours}`)} || ' hours')::interval`)}
+            and ${gte(nagiReactions.createdAt, sql`now() - (${sql.raw(`${hours}`)} || ' hours')::interval`)}
           group by 1
         ),
         p as (
