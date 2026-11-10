@@ -187,12 +187,10 @@ export async function deleteAccountData(did: string) {
     await tx
       .delete(nagiBotReplyJobs)
       .where(like(nagiBotReplyJobs.sourceUri, postUri));
-    await tx
-      .delete(nagiReactions)
-      .where(like(nagiReactions.subjectUri, postUri));
-    await tx
-      .delete(nagiReactions)
-      .where(like(nagiReactions.subjectUri, newsUri));
+    // 本人の投稿・ニュースへ他人が付けたリアクションは消さない。レコードは付けた人の
+    // リポジトリにあるその人のデータで、AppView の行だけ消しても次の reconcile で
+    // 入れ直される（2026-11-04 に 1,605 件が戻り、集計に山ができた）。対象の投稿が
+    // 無いので表示にも通知にも出ない。
     if (appviewPostUris.length) {
       await tx
         .delete(nagiTranslations)
@@ -200,9 +198,6 @@ export async function deleteAccountData(did: string) {
       await tx
         .delete(nagiPostScores)
         .where(inArray(nagiPostScores.postUri, appviewPostUris));
-      await tx
-        .delete(nagiReactions)
-        .where(inArray(nagiReactions.subjectUri, appviewPostUris));
     }
     await tx
       .delete(nagiBotReplyJobs)
