@@ -79,3 +79,20 @@ export async function selectNagiRadioPostContext(
     commentPostText: posts[selected.postIndex].length <= 1_000
       ? posts[selected.postIndex] : selected.sourceExcerpt };
 }
+
+/**
+ * 選曲の入力。コメントで取り上げる投稿を「今回の依頼」、残りを履歴（新しい順）にする。
+ *
+ * 全投稿を1本にまとめて選ぶと、遊戯王・Anki・アニメの感想・おやすみ…が平均されて
+ * `night / relaxing` のような無難なムードになり、コメントだけが印象的な1件を語って
+ * 曲とこじつける形になっていた（2026-11-10 の放送）。曲もその1件に合わせる。
+ */
+export function nagiRadioSongInput(
+  posts: readonly string[],
+  context: { commentPostIndex: number; commentPostText: string },
+): { postText: string; recentPosts: string[] } {
+  return {
+    postText: context.commentPostText,
+    recentPosts: posts.filter((_, index) => index !== context.commentPostIndex).reverse(),
+  };
+}

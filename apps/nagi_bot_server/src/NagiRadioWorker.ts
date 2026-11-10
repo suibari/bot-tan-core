@@ -15,6 +15,7 @@ import {
 import {
   generateNagiRadioComments,
   interestMusicTags,
+  nagiRadioSongInput,
   researchNagiRadioSong,
   resolveNagiRadioSong,
   selectNagiRadioCandidate,
@@ -75,7 +76,9 @@ export async function generateNagiRadioForUser(
     const context = posts.length
       ? await selectNagiRadioPostContext(posts.map((post) => post.text), initialLanguage)
       : null;
-    const songText = context?.songContext ?? recalled!.text.slice(0, 3_400);
+    const songInput = context
+      ? nagiRadioSongInput(posts.map((post) => post.text), context)
+      : recalled!.text.slice(0, 3_400);
     const commentPost = context ? posts[context.commentPostIndex] : null;
     const language = commentPost ? detectLanguage(commentPost.text,
       Array.isArray(commentPost.langs) ? commentPost.langs as string[] : undefined) : initialLanguage;
@@ -87,7 +90,7 @@ export async function generateNagiRadioForUser(
     }));
     const selected = await selectNagiRadioCandidate(
       async (attempt, excludedSongKeys) => {
-        const candidate = attempt === 0 && options.preferredSong ? options.preferredSong : await resolveNagiRadioSong(songText, language, scope, {
+        const candidate = attempt === 0 && options.preferredSong ? options.preferredSong : await resolveNagiRadioSong(songInput, language, scope, {
           excludeSongKeys: excludedSongKeys,
           interestMusicTags: interests,
         });
