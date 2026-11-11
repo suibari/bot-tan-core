@@ -7,6 +7,7 @@ import {
   NAGI_INGEST_COLLECTIONS,
   appviewRecordUri,
 } from "@bsky-affirmative-bot/nagi-lexicon";
+import { isAdventDay } from "@bsky-affirmative-bot/shared-configs";
 import { config } from "../config.js";
 import { applyMutation } from "../ingest/applyMutation.js";
 import { botWriteWatch } from "../ingest/botWriteWatch.js";
@@ -207,6 +208,55 @@ internal.post("/notifications/mood", async (req, res, next) => {
  * 年表は AppView の Postgres にしか無いので、生成側（nagi_bot_server）が週の確定後に叩く。
  * reasonUri を週の月曜で切るので、遅れて入った日記で同じ週を作り直しても通知は増えない。
  */
+/**
+ * アドベントカレンダーのカードに選ばれた。選出ワーカーが公開時刻を過ぎてから呼ぶ。
+ * reasonUri を (did, 年月日) で決めるので、再送しても1通にまとまる。
+ */
+internal.post("/notifications/advent", async (req, res, next) => {
+  try {
+    const did = String(req.body?.did ?? "");
+    const year = Number(req.body?.year);
+    const day = Number(req.body?.day);
+    if (!did.startsWith("did:")) {
+      res.status(400).json({ error: "did is required" });
+      return;
+    }
+    if (!Number.isInteger(year) || !isAdventDay(day)) {
+      res.status(400).json({ error: "year and day (1-25) are required" });
+      return;
+    }
+    const date = `${year}-12-${String(day).padStart(2, "0")}`;
+    const inserted = await db
+      .insert(nagiNotifications)
+      .values({
+        recipientDid: did,
+        type: "advent",
+        actorDid: config.botDid,
+        subjectUri: `at://${did}`,
+        reasonUri: `at://${did}/advent/${date}`,
+      })
+      .onConflictDoNothing()
+      .returning({ id: nagiNotifications.id });
+
+    if (!inserted.length) {
+      res.status(200).json({ created: false });
+      return;
+    }
+
+    void dispatchPush({
+      recipientDid: did,
+      type: "advent",
+      actorDid: config.botDid,
+      notificationId: inserted[0].id,
+      actionText: String(day),
+    });
+
+    res.status(200).json({ created: true, notificationId: inserted[0].id });
+  } catch (e) {
+    next(e);
+  }
+});
+
 internal.post("/notifications/chronicle", async (req, res, next) => {
   try {
     const did = String(req.body?.did ?? "");

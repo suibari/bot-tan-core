@@ -28,6 +28,11 @@
               "items": { "type": "ref", "ref": "com.suibari.nagi.getChronicle#readYear" },
               "description": "年ごとの既読ハッシュ。過去の版は蓄積せず、現在の年表内容と一致する版だけを保存する。"
             },
+            "adventRead": {
+              "type": "ref",
+              "ref": "#adventRead",
+              "description": "今年のアドベントカレンダーの既読と、開封演出を見終えた自分のカードの日。"
+            },
             "readPositions": {
               "type": "array",
               "items": { "type": "ref", "ref": "#readPosition" }
@@ -214,7 +219,7 @@
     },
     "notificationPreferences": {
       "type": "object",
-      "description": "通知の種別ごとの設定。Bluesky の app.bsky.notification.defs#preferences に倣う。省略したカテゴリは list / push とも true。botInteraction は botたんからの返信・メンション・リアクション（その3種別では人からのものと分けて扱う）。",
+      "description": "通知の種別ごとの設定。Bluesky の app.bsky.notification.defs#preferences に倣う。省略したカテゴリは list / push とも true。botInteraction は botたんからの返信・メンション・リアクション（その3種別では人からのものと分けて扱う）。seasonal は季節の特別なお知らせ（アドベントカレンダーなど期間限定の催し）。",
       "properties": {
         "reply": { "type": "ref", "ref": "#notificationPreference" },
         "mention": { "type": "ref", "ref": "#notificationPreference" },
@@ -224,7 +229,8 @@
         "analysis": { "type": "ref", "ref": "#notificationPreference" },
         "chronicle": { "type": "ref", "ref": "#notificationPreference" },
         "mood": { "type": "ref", "ref": "#notificationPreference" },
-        "gift": { "type": "ref", "ref": "#notificationPreference" }
+        "gift": { "type": "ref", "ref": "#notificationPreference" },
+        "seasonal": { "type": "ref", "ref": "#notificationPreference" }
       }
     },
     "notificationPreference": {
@@ -234,6 +240,15 @@
       "properties": {
         "list": { "type": "boolean" },
         "push": { "type": "boolean" }
+      }
+    },
+    "adventRead": {
+      "type": "object",
+      "required": ["year", "lastSeenDay", "openedDays"],
+      "properties": {
+        "year": { "type": "integer" },
+        "lastSeenDay": { "type": "integer", "minimum": 0, "maximum": 25 },
+        "openedDays": { "type": "array", "maxLength": 25, "items": { "type": "integer" } }
       }
     },
     "readPosition": {

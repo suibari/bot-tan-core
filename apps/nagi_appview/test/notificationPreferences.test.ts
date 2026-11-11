@@ -110,3 +110,15 @@ test("通知欄の除外条件: botInteraction は bot からの3種別だけ、
     "diary",
   ]);
 });
+
+test("アドカレは「季節の特別なお知らせ」（seasonal）に従う", () => {
+  assert.equal(notificationCategory("advent", BOT, BOT), "seasonal");
+  assert.deepEqual(
+    preferenceFor({ seasonal: { list: false, push: false } }, notificationCategory("advent", BOT, BOT)),
+    { list: false, push: false },
+  );
+  const [condition] = notificationListFilter({ seasonal: { list: false, push: false } }, BOT);
+  const { sql, params } = dialect.sqlToQuery(and(condition)!);
+  assert.equal(sql, 'not "nagi"."notifications"."type" in ($1)');
+  assert.deepEqual(params, ["advent"]);
+});

@@ -28,6 +28,15 @@ const BOT_INTERACTION_TYPES = [
 const isBotInteractionType = (type: NotificationType) =>
   (BOT_INTERACTION_TYPES as readonly NotificationType[]).includes(type);
 
+/**
+ * 「季節の特別なお知らせ」にまとめる種別。期間限定の催しを足すときはここへ加える
+ * （設定画面のトグルは seasonal の1つだけで済む）。
+ */
+export const SEASONAL_TYPES = ["advent"] as const satisfies readonly NotificationType[];
+
+const isSeasonalType = (type: NotificationType) =>
+  (SEASONAL_TYPES as readonly NotificationType[]).includes(type);
+
 const isCategory = (value: string): value is NotificationPreferenceCategory =>
   (NOTIFICATION_PREFERENCE_CATEGORIES as readonly string[]).includes(value);
 
@@ -43,6 +52,7 @@ export function notificationCategory(
   botDid: string = config.botDid,
 ): NotificationPreferenceCategory | undefined {
   if (actorDid === botDid && isBotInteractionType(type)) return "botInteraction";
+  if (isSeasonalType(type)) return "seasonal";
   return isCategory(type) ? type : undefined;
 }
 
@@ -117,6 +127,8 @@ export function notificationListFilter(
           eq(nagiNotifications.actorDid, botDid),
         )!,
       );
+    } else if (category === "seasonal") {
+      hidden.push(inArray(nagiNotifications.type, [...SEASONAL_TYPES]));
     } else if (isBotInteractionType(category)) {
       // 人からの返信などを切っても、botたんの分は botInteraction の設定に従う。
       hidden.push(

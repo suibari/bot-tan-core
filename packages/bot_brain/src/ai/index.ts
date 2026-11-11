@@ -7,6 +7,7 @@ export * from './generateNagiAnalysis.js';
 export * from './generateNagiCardComment.js';
 export * from './generateZenkatsuComment.js';
 export * from './generateZenkatsuAward.js';
+export * from './generateAdventPick.js';
 export * from './generateChronicleMonth.js';
 export * from './generateChronicleNews.js';
 export * from './scorePostMood.js';

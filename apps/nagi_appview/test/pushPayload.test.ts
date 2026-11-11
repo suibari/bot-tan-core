@@ -78,6 +78,19 @@ test("buildPushPayload applies the notification presentation policy", () => {
   }
 });
 
+test("アドカレの通知はカレンダーを開く", () => {
+  const payload = buildPushPayload({
+    type: "advent",
+    notificationId: "advent-1",
+    actorName: "botたん",
+    actionText: "3",
+  });
+  assert.equal(payload.title, "botたんからクリスマスカードが届きました");
+  assert.equal(payload.body, "あなたのポストがアドベントカレンダー 3 日目のカードになりました");
+  assert.equal(payload.tag, "advent-advent-1");
+  assert.equal(payload.url, "/advent");
+});
+
 test("reaction title supports Bluemoji aliases and a missing emoji fallback", () => {
   assert.equal(
     buildPushPayload({

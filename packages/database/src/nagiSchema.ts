@@ -56,6 +56,9 @@ export const notificationType = nagiSchema.enum("notification_type", [
   // 新しく始めた人の最初の気持ちが感情グラフに載った。nagi_bot_server（採点ワーカー）→
   // AppView の内部エンドポイント経由。1人1回だけ。
   "mood",
+  // アドベントカレンダーのカードに選ばれた。nagi_bot_server（選出ワーカー）→
+  // AppView の内部エンドポイント経由。公開時刻（JST 0:00）を過ぎてから1日1通。
+  "advent",
 ]);
 /** Ƶ（全肯定ポイント）の台帳の理由。docs/zenkatsu.md 13.3。 */
 export const zennyLedgerReason = nagiSchema.enum("zenny_ledger_reason", [
@@ -1992,6 +1995,108 @@ export const nagiZenkatsuAwardJobs = nagiSchema.table(
       .notNull(),
   },
   (t) => [index("nagi_zenkatsu_award_jobs_ready_idx").on(t.state, t.nextAttemptAt)],
+);
+
+/**
+ * アドベントカレンダーのカード。1年・1日に1枚。
+ *
+ * **選んだ時点の見出しと一言、名前とアバターを控えとして持つ。** 元のポストが後から
+ * 消えても編集されても、カレンダーに空欄を作らないため（カードは原文を載せないので、
+ * 消えたポストの本文が残ることはない）。表示は現在のプロフィールを優先し、
+ * 引けないときだけ控えを使う。
+ *
+ * publish_at（JST 0:00）より前の行は、どの API からも返さない。
+ */
+export const nagiAdventCards = nagiSchema.table(
+  "advent_cards",
+  {
+    year: integer("year").notNull(),
+    day: integer("day").notNull(),
+    did: text("did").notNull(),
+    postUri: text("post_uri").notNull(),
+    postCid: text("post_cid").notNull(),
+    /** 嬉しい「もの・できごと」の見出し。 */
+    titleJa: text("title_ja").notNull(),
+    titleEn: text("title_en").notNull(),
+    /** botたんの一言。 */
+    commentJa: text("comment_ja").notNull(),
+    commentEn: text("comment_en").notNull(),
+    displayName: text("display_name").notNull(),
+    handle: text("handle").notNull(),
+    avatarCid: text("avatar_cid"),
+    publishAt: timestamp("publish_at", { withTimezone: true }).notNull(),
+    notifiedAt: timestamp("notified_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.year, t.day] }),
+    index("nagi_advent_cards_did_idx").on(t.did),
+    // 同じポストは2度選ばない。
+    uniqueIndex("nagi_advent_cards_post_idx").on(t.postUri),
+  ],
+);
+
+/**
+ * botたんが「どれも載せられない」と判断した回に入っていたポスト。その年はもう候補にしない。
+ *
+ * 候補が減ってくると同じポストを何度も見せ直すことになり、モデルの判断が揺れて
+ * いつか通ってしまう（2026-11-08 のシミュレーションで、17日目に不採用だった病気の話と
+ * 中身のない英文が、21日目・24日目に採用された）。
+ */
+export const nagiAdventRejections = nagiSchema.table(
+  "advent_rejections",
+  {
+    year: integer("year").notNull(),
+    postUri: text("post_uri").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.year, t.postUri] })],
+);
+
+/** アドカレの選出ジョブ。1年・1日に1件。 */
+export const nagiAdventJobs = nagiSchema.table(
+  "advent_jobs",
+  {
+    year: integer("year").notNull(),
+    day: integer("day").notNull(),
+    state: botJobState("state").default("pending").notNull(),
+    attempts: integer("attempts").default(0).notNull(),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.year, t.day] })],
+);
+
+/**
+ * アドカレの既読。メニューのバッジ（新しいカードが開いた）と、
+ * 自分のカードの開封演出（1枚につき1回だけ）に使う。端末をまたいで効かせるため AppView に持つ。
+ */
+export const nagiAdventReadStates = nagiSchema.table(
+  "advent_read_states",
+  {
+    did: text("did").notNull(),
+    year: integer("year").notNull(),
+    lastSeenDay: integer("last_seen_day").default(0).notNull(),
+    /** 開封演出を見終えた自分のカードの日。 */
+    openedDays: integer("opened_days").array().default([]).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.did, t.year] })],
 );
 
 /**
