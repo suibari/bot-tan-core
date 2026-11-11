@@ -213,8 +213,7 @@
         "analysis": { "type": "ref", "ref": "#notificationPreference" },
         "chronicle": { "type": "ref", "ref": "#notificationPreference" },
         "mood": { "type": "ref", "ref": "#notificationPreference" },
-        "gift": { "type": "ref", "ref": "#notificationPreference" },
-        "emoji": { "type": "ref", "ref": "#notificationPreference" }
+        "gift": { "type": "ref", "ref": "#notificationPreference" }
       }
     },
     "notificationPreference": {
