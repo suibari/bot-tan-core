@@ -815,6 +815,11 @@ export const NOTIFICATION_PREFERENCE_CATEGORIES = [
   "chronicle",
   "mood",
   "gift",
+  /**
+   * 季節の特別なお知らせ。種別と1対1ではなく、期間限定の催しの通知を束ねる
+   * （アドベントカレンダー。今後おみくじなども入れる）。
+   */
+  "seasonal",
 ] as const;
 export type NotificationPreferenceCategory =
   (typeof NOTIFICATION_PREFERENCE_CATEGORIES)[number];
