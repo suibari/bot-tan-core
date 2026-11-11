@@ -16,6 +16,7 @@ import {
   nagiChannels,
   nagiLanguagePreferences,
   nagiModerationPreferences,
+  nagiNotificationPreferences,
   nagiPreferredNames,
   nagiReadPositions,
 } from "@bsky-affirmative-bot/database";
@@ -44,6 +45,10 @@ import { eq, inArray, sql } from "drizzle-orm";
 import { ApiError } from "../middleware/errors.js";
 import { declareBirthDate, getAgeAssurance } from "../services/ageAssurance.js";
 import { normalizeTag } from "./tags.js";
+import {
+  parseNotificationPreferences,
+  sanitizeStoredNotificationPreferences,
+} from "../services/notificationPreferences.js";
 
 const MAX_URI_LENGTH = 2048;
 const MAX_UNICODE_EMOJI_LENGTH = 64;
@@ -371,6 +376,7 @@ async function selectPreferences(did: string): Promise<PreferencesView> {
     followerRows,
     languageRows,
     moderationRows,
+    notificationRows,
     bookmarkRows,
     chronicleRows,
   ] = await Promise.all([
@@ -417,6 +423,11 @@ async function selectPreferences(did: string): Promise<PreferencesView> {
       .limit(1),
     db
       .select()
+      .from(nagiNotificationPreferences)
+      .where(eq(nagiNotificationPreferences.did, did))
+      .limit(1),
+    db
+      .select()
       .from(nagiBookmarkPreferences)
       .where(eq(nagiBookmarkPreferences.did, did))
       .limit(1),
@@ -428,6 +439,7 @@ async function selectPreferences(did: string): Promise<PreferencesView> {
   const followerRow = followerRows[0];
   const languageRow = languageRows[0];
   const moderationRow = moderationRows[0];
+  const notificationRow = notificationRows[0];
   const bookmarkRow = bookmarkRows[0];
   return {
     chronicleReadYears: chronicleRows,
@@ -479,6 +491,16 @@ async function selectPreferences(did: string): Promise<PreferencesView> {
               moderationRow.selfNsfw as SyncedModerationPreferences["selfNsfw"],
           },
           moderationPreferencesUpdatedAt: moderationRow.updatedAt.toISOString(),
+        }
+      : {}),
+    // 行が無い＝一度も保存していない。クライアントはこれを「すべて既定」の合図に使う。
+    ...(notificationRow
+      ? {
+          notificationPreferences: sanitizeStoredNotificationPreferences(
+            notificationRow.preferences,
+          ),
+          notificationPreferencesUpdatedAt:
+            notificationRow.updatedAt.toISOString(),
         }
       : {}),
     ...(bookmarkRow
@@ -553,6 +575,17 @@ export async function putPreferences(
     ? parseUpdatedAt(
         "moderationPreferencesUpdatedAt",
         input.moderationPreferencesUpdatedAt,
+      )
+    : undefined;
+  const hasNotificationPreferences =
+    input.notificationPreferences !== undefined;
+  const notificationPreferences = hasNotificationPreferences
+    ? parseNotificationPreferences(input.notificationPreferences)
+    : undefined;
+  const notificationPreferencesUpdatedAt = hasNotificationPreferences
+    ? parseUpdatedAt(
+        "notificationPreferencesUpdatedAt",
+        input.notificationPreferencesUpdatedAt,
       )
     : undefined;
   const hasLastBookmarkFolder = input.lastBookmarkFolderId !== undefined;
@@ -718,6 +751,24 @@ export async function putPreferences(
           updatedAt: sql`excluded.updated_at`,
         },
         setWhere: sql`excluded.updated_at > moderation_preferences.updated_at`,
+      });
+  }
+
+  if (notificationPreferences && notificationPreferencesUpdatedAt) {
+    await db
+      .insert(nagiNotificationPreferences)
+      .values({
+        did,
+        preferences: notificationPreferences,
+        updatedAt: notificationPreferencesUpdatedAt,
+      })
+      .onConflictDoUpdate({
+        target: nagiNotificationPreferences.did,
+        set: {
+          preferences: sql`excluded.preferences`,
+          updatedAt: sql`excluded.updated_at`,
+        },
+        setWhere: sql`excluded.updated_at > notification_preferences.updated_at`,
       });
   }
 

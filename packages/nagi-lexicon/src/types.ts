@@ -789,6 +789,33 @@ export type SyncedModerationPreferences = {
   selfAi: ModerationPreference;
   selfNsfw: ModerationPreference;
 };
+/**
+ * 通知設定のカテゴリ。Bluesky の app.bsky.notification.defs#preferences に倣い、
+ * 種別ごとに「通知欄に出すか（list）」「プッシュするか（push）」を持つ。
+ *
+ * 通知種別（nagi.notifications.type）とほぼ1対1だが、botInteraction だけは
+ * 「botたんからの返信・メンション・リアクション」を人からのものと分けるための合成カテゴリ。
+ * botたんの返信は来て当たり前なので、人からの返信は鳴らしつつこちらだけ止めたい需要がある。
+ */
+export const NOTIFICATION_PREFERENCE_CATEGORIES = [
+  "reply",
+  "mention",
+  "reaction",
+  "botInteraction",
+  "diary",
+  "analysis",
+  "chronicle",
+  "mood",
+  "gift",
+  "emoji",
+] as const;
+export type NotificationPreferenceCategory =
+  (typeof NOTIFICATION_PREFERENCE_CATEGORIES)[number];
+export type NotificationPreference = { list: boolean; push: boolean };
+/** 省略したカテゴリは既定（list / push とも true）として扱う。 */
+export type NotificationPreferences = Partial<
+  Record<NotificationPreferenceCategory, NotificationPreference>
+>;
 /** 日記の「1日」を決める設定。本人にだけ返す。 */
 export type DiaryDayPreferences = {
   /** Nagi を開いたときにブラウザから届いたタイムゾーン（IANA 名）。 */
@@ -820,6 +847,9 @@ export type PreferencesView = {
   languagePreferencesUpdatedAt?: string;
   moderationPreferences?: SyncedModerationPreferences;
   moderationPreferencesUpdatedAt?: string;
+  /** 通知設定。未設定（一度も保存していない）なら undefined＝すべて既定。 */
+  notificationPreferences?: NotificationPreferences;
+  notificationPreferencesUpdatedAt?: string;
   lastBookmarkFolderId?: string;
   lastBookmarkFolderUpdatedAt?: string;
   /**
@@ -866,6 +896,10 @@ export type PutPreferencesInput = {
   languagePreferencesUpdatedAt?: string;
   moderationPreferences?: SyncedModerationPreferences;
   moderationPreferencesUpdatedAt?: string;
+  /** 全カテゴリ分をまとめて送る（部分更新ではなく丸ごと置き換え）。 */
+  notificationPreferences?: NotificationPreferences;
+  /** notificationPreferences を送るときは必須。保存済みより古ければ書き込まない。 */
+  notificationPreferencesUpdatedAt?: string;
   lastBookmarkFolderId?: string | null;
   lastBookmarkFolderUpdatedAt?: string;
   /**

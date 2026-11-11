@@ -45,6 +45,7 @@ before(async () => {
     database.followers,
     database.nagiLanguagePreferences,
     database.nagiModerationPreferences,
+    database.nagiNotificationPreferences,
     database.nagiBookmarkPreferences,
     database.nagiAgeAssurance,
     database.nagiProfiles,

@@ -43,6 +43,7 @@ import {
   nagiDiaryDayPreferences,
   nagiDiaryDaySchedules,
   nagiModerationPreferences,
+  nagiNotificationPreferences,
   nagiPreferredNames,
   nagiMutes,
   nagiNotifications,
@@ -377,6 +378,9 @@ export async function deleteAccountData(did: string) {
     await tx
       .delete(nagiModerationPreferences)
       .where(eq(nagiModerationPreferences.did, did));
+    await tx
+      .delete(nagiNotificationPreferences)
+      .where(eq(nagiNotificationPreferences.did, did));
     await tx
       .delete(nagiBookmarkPreferences)
       .where(eq(nagiBookmarkPreferences.did, did));

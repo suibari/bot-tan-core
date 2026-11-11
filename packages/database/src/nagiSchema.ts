@@ -1292,6 +1292,21 @@ export const nagiModerationPreferences = nagiSchema.table(
     index("nagi_moderation_preferences_updated_idx").on(t.updatedAt),
   ],
 );
+/**
+ * 通知設定（種別ごとの list / push）。端末をまたいで同期し、AppView が通知一覧と
+ * プッシュ配信の両方で参照する。中身は NotificationPreferences（nagi-lexicon）で、
+ * 省略したカテゴリは既定（両方 true）。putPreferences で丸ごと置き換え、updatedAt の後勝ち。
+ */
+export const nagiNotificationPreferences = nagiSchema.table(
+  "notification_preferences",
+  {
+    did: text("did").primaryKey(),
+    preferences: jsonb("preferences").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+);
 
 /**
  * 全肯定カード（1日1回引けるトレカ）の「世界に1枚」の実体。
