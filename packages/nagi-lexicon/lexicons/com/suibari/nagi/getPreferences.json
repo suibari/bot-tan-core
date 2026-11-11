@@ -4,7 +4,7 @@
   "defs": {
     "main": {
       "type": "query",
-      "description": "端末をまたいで同期する本人の設定（既読位置、お気に入り絵文字、フィードタブ、投稿・翻訳言語、コンテンツ表示、最後のブックマークフォルダ）を返す。他ユーザーからは参照できない。",
+      "description": "端末をまたいで同期する本人の設定（既読位置、お気に入り絵文字、フィードタブ、投稿・翻訳言語、コンテンツ表示、通知、最後のブックマークフォルダ）を返す。他ユーザーからは参照できない。",
       "output": {
         "encoding": "application/json",
         "schema": {
@@ -69,6 +69,15 @@
             "moderationPreferencesUpdatedAt": {
               "type": "string",
               "format": "datetime"
+            },
+            "notificationPreferences": {
+              "type": "ref",
+              "ref": "#notificationPreferences"
+            },
+            "notificationPreferencesUpdatedAt": {
+              "type": "string",
+              "format": "datetime",
+              "description": "省略時は、この利用者がまだ一度も通知設定を保存していないことを表す（すべて既定）。"
             },
             "lastBookmarkFolderId": { "type": "string", "maxLength": 64 },
             "lastBookmarkFolderUpdatedAt": {
@@ -190,6 +199,31 @@
           "type": "string",
           "knownValues": ["warn", "hide", "ignore"]
         }
+      }
+    },
+    "notificationPreferences": {
+      "type": "object",
+      "description": "通知の種別ごとの設定。Bluesky の app.bsky.notification.defs#preferences に倣う。省略したカテゴリは list / push とも true。botInteraction は botたんからの返信・メンション・リアクション（その3種別では人からのものと分けて扱う）。",
+      "properties": {
+        "reply": { "type": "ref", "ref": "#notificationPreference" },
+        "mention": { "type": "ref", "ref": "#notificationPreference" },
+        "reaction": { "type": "ref", "ref": "#notificationPreference" },
+        "botInteraction": { "type": "ref", "ref": "#notificationPreference" },
+        "diary": { "type": "ref", "ref": "#notificationPreference" },
+        "analysis": { "type": "ref", "ref": "#notificationPreference" },
+        "chronicle": { "type": "ref", "ref": "#notificationPreference" },
+        "mood": { "type": "ref", "ref": "#notificationPreference" },
+        "gift": { "type": "ref", "ref": "#notificationPreference" },
+        "emoji": { "type": "ref", "ref": "#notificationPreference" }
+      }
+    },
+    "notificationPreference": {
+      "type": "object",
+      "description": "list は通知欄に出すか、push はプッシュ通知するか。",
+      "required": ["list", "push"],
+      "properties": {
+        "list": { "type": "boolean" },
+        "push": { "type": "boolean" }
       }
     },
     "readPosition": {

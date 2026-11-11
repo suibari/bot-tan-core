@@ -9,6 +9,11 @@ import {
 } from "../queries/pushSubscriptions.js";
 import { loadMutes } from "../queries/mutes.js";
 import { buildPushPayload, type PushNotificationType } from "./pushPayload.js";
+import {
+  loadNotificationPreferences,
+  notificationCategory,
+  preferenceFor,
+} from "./notificationPreferences.js";
 
 let configured = false;
 let warnedMissingConfig = false;
@@ -73,12 +78,23 @@ export async function dispatchPush(job: PushJob): Promise<void> {
   if (!ensureConfigured()) return;
   // 通知一覧に出ないものはプッシュも送らない。ingest のトランザクション外なので、
   // ここでミュートを引いてもホットパスは重くならない。
-  const mutes = await loadMutes(job.recipientDid);
+  const [mutes, preferences] = await Promise.all([
+    loadMutes(job.recipientDid),
+    loadNotificationPreferences(job.recipientDid),
+  ]);
   // 早期 return は必ずログを残す。無言で return していたせいで「通知は発生している
   // のに端末が1つも登録されていない」状態に長期間気づけなかった実績がある。
   if (mutes.actors.includes(job.actorDid)) {
     console.info(
       `[push] skipped by mute type=${job.type} recipient=${job.recipientDid} actor=${job.actorDid}`,
+    );
+    return;
+  }
+  // 本人が通知設定でプッシュを切ったカテゴリ。通知欄に出すかどうか（list）とは独立に見る。
+  const category = notificationCategory(job.type, job.actorDid);
+  if (!preferenceFor(preferences, category).push) {
+    console.info(
+      `[push] skipped by preference type=${job.type} category=${category} recipient=${job.recipientDid}`,
     );
     return;
   }

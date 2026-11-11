@@ -36,6 +36,10 @@ import { emojiView } from "../services/emoji.js";
 import { fetchPostRows, hydratePostViews } from "./timeline.js";
 import { diaryView, fetchDiaryRows } from "./diaries.js";
 import { loadMutes } from "./mutes.js";
+import {
+  loadNotificationPreferences,
+  notificationListFilter,
+} from "../services/notificationPreferences.js";
 import { giftLedgerIdOf, loadGiftCards } from "./cardBoard.js";
 
 /**
@@ -78,12 +82,16 @@ const hasPost = (type: (typeof nagiNotifications.$inferSelect)["type"]) =>
 const groupKeyOf = sql<string>`coalesce(${nagiNotifications.groupKey}::text, ${nagiNotifications.id}::text)`;
 
 export async function getNotifications(did: string, limit: number) {
-  const mutes = await loadMutes(did);
+  const [mutes, preferences] = await Promise.all([
+    loadMutes(did),
+    loadNotificationPreferences(did),
+  ]);
   // JS 側で後から filter すると1ページの件数が減るので、必ず SQL で落とす。
   const visible = and(
     eq(nagiNotifications.recipientDid, did),
     validReactionNotification,
     ...muteFilter(mutes.actors),
+    ...notificationListFilter(preferences),
   );
   // limit は「まとめた後の件数」で数える。行で数えると、まとめた分だけ1ページが短くなる。
   const latestAt = max(nagiNotifications.createdAt);
@@ -267,7 +275,10 @@ export function groupNotificationRows<
   return [...byKey.values()].filter((group) => group.length > 0);
 }
 export async function getUnreadCount(did: string) {
-  const mutes = await loadMutes(did);
+  const [mutes, preferences] = await Promise.all([
+    loadMutes(did),
+    loadNotificationPreferences(did),
+  ]);
   // 一覧と同じく、まとめた単位で数える。行で数えるとバッジだけ多くなる。
   const [row] = await db
     .select({ value: countDistinct(groupKeyOf) })
@@ -278,6 +289,7 @@ export async function getUnreadCount(did: string) {
         isNull(nagiNotifications.readAt),
         validReactionNotification,
         ...muteFilter(mutes.actors),
+        ...notificationListFilter(preferences),
       ),
     );
   return { count: row?.value ?? 0 };
