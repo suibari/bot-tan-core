@@ -81,6 +81,16 @@
               "format": "datetime",
               "description": "feedTabs を送るときは必須。保存済みより古ければ書き込まない。"
             },
+            "tagFavorites": {
+              "type": "array",
+              "maxLength": 32,
+              "items": { "type": "string", "maxLength": 64 }
+            },
+            "tagFavoritesUpdatedAt": {
+              "type": "string",
+              "format": "datetime",
+              "description": "tagFavorites を送るときは必須。保存済みより古ければ書き込まない。"
+            },
             "languagePreferences": {
               "type": "ref",
               "ref": "com.suibari.nagi.getPreferences#languagePreferences"
@@ -168,6 +178,12 @@
               }
             },
             "feedTabsUpdatedAt": { "type": "string", "format": "datetime" },
+            "tagFavorites": {
+              "type": "array",
+              "maxLength": 32,
+              "items": { "type": "string", "maxLength": 64 }
+            },
+            "tagFavoritesUpdatedAt": { "type": "string", "format": "datetime" },
             "languagePreferences": {
               "type": "ref",
               "ref": "com.suibari.nagi.getPreferences#languagePreferences"

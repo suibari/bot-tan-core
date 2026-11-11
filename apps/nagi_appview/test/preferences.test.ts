@@ -10,6 +10,7 @@ const {
   parseFeedTabs,
   parseLanguagePreferences,
   parseModerationPreferences,
+  parseTagFavorites,
   upgradeLegacyFeedTabs,
 } = await import("../src/queries/preferences.js");
 
@@ -138,4 +139,26 @@ test("廃止した形を含まないタブはそのまま返し、チャンネ�
     throw new Error("should not load channels");
   });
   assert.equal(upgraded, tabs);
+});
+
+test("お気に入りタグは正規形にそろえ、空と重複を落として順序を保つ", () => {
+  assert.deepEqual(parseTagFavorites(["#Nagi", "  ＃日記 ", "nagi", "", "#", "bsky"]), [
+    "nagi",
+    "日記",
+    "bsky",
+  ]);
+  assert.deepEqual(parseTagFavorites([]), []);
+});
+
+test("お気に入りタグは配列・文字列・上限・長さ・空白を検証する", () => {
+  for (const invalid of [
+    "nagi",
+    null,
+    [1],
+    [{ tag: "nagi" }],
+    Array.from({ length: 33 }, (_, i) => `tag${i}`),
+    ["a".repeat(65)],
+    ["two words"],
+  ])
+    assert.throws(() => parseTagFavorites(invalid));
 });

@@ -19,6 +19,7 @@ import {
   nagiNotificationPreferences,
   nagiPreferredNames,
   nagiReadPositions,
+  nagiTagFavorites,
 } from "@bsky-affirmative-bot/database";
 import {
   EMOJI_FAVORITES_LIMIT,
@@ -26,6 +27,8 @@ import {
   FEED_TABS_LIMIT,
   NAGI_SUPPORTED_LANGUAGES,
   READ_POSITION_SECTIONS,
+  TAG_FAVORITE_MAX_LENGTH,
+  TAG_FAVORITES_LIMIT,
   type EmojiFavorite,
   type FeedTab,
   type FeedTabKind,
@@ -156,6 +159,27 @@ function parseEmojiFavorites(input: unknown): EmojiFavorite[] {
       invalid("emojiFavorites");
     return { kind: "custom" as const, emoji } as EmojiFavorite;
   });
+}
+
+/**
+ * お気に入りタグ。正規形（# なし小文字）にそろえ、空と重複は落とす。
+ * 正規化で重なったものは先の1つだけ残す（順序が表示順なので）。
+ */
+export function parseTagFavorites(input: unknown): string[] {
+  if (!Array.isArray(input) || input.length > TAG_FAVORITES_LIMIT)
+    invalid("tagFavorites");
+  const seen = new Set<string>();
+  const tags: string[] = [];
+  for (const raw of input as unknown[]) {
+    if (typeof raw !== "string") invalid("tagFavorites");
+    const tag = normalizeTag(raw as string);
+    if (tag.length > TAG_FAVORITE_MAX_LENGTH || /\s/.test(tag))
+      invalid("tagFavorites");
+    if (!tag || seen.has(tag)) continue;
+    seen.add(tag);
+    tags.push(tag);
+  }
+  return tags;
 }
 
 function parseUpdatedAt(field: string, input: unknown): Date {
@@ -372,6 +396,7 @@ async function selectPreferences(did: string): Promise<PreferencesView> {
     positions,
     favorites,
     feedTabs,
+    tagFavoriteRows,
     preferredNames,
     followerRows,
     languageRows,
@@ -400,6 +425,14 @@ async function selectPreferences(did: string): Promise<PreferencesView> {
       .select({ tabs: nagiFeedTabs.tabs, updatedAt: nagiFeedTabs.updatedAt })
       .from(nagiFeedTabs)
       .where(eq(nagiFeedTabs.did, did))
+      .limit(1),
+    db
+      .select({
+        tags: nagiTagFavorites.tags,
+        updatedAt: nagiTagFavorites.updatedAt,
+      })
+      .from(nagiTagFavorites)
+      .where(eq(nagiTagFavorites.did, did))
       .limit(1),
     db
       .select({ name: nagiPreferredNames.name })
@@ -435,6 +468,7 @@ async function selectPreferences(did: string): Promise<PreferencesView> {
   ]);
   const favoritesRow = favorites[0];
   const feedTabsRow = feedTabs[0];
+  const tagFavoritesRow = tagFavoriteRows[0];
   const preferredName = preferredNames[0]?.name;
   const followerRow = followerRows[0];
   const languageRow = languageRows[0];
@@ -463,6 +497,15 @@ async function selectPreferences(did: string): Promise<PreferencesView> {
     // 行が無い＝一度もカスタムしていない。クライアントはこれを既定タブの合図に使う。
     ...(feedTabsRow
       ? { feedTabsUpdatedAt: feedTabsRow.updatedAt.toISOString() }
+      : {}),
+    tagFavorites: Array.isArray(tagFavoritesRow?.tags)
+      ? (tagFavoritesRow.tags as unknown[]).filter(
+          (tag): tag is string => typeof tag === "string",
+        )
+      : [],
+    // 未同期（行が無い）なら省略する。クライアントはこれを「初回同期」の合図に使う。
+    ...(tagFavoritesRow
+      ? { tagFavoritesUpdatedAt: tagFavoritesRow.updatedAt.toISOString() }
       : {}),
     replyFreq: followerRow?.reply_freq != null ? followerRow.reply_freq : 100,
     // 未設定なら省略する。クライアントはこれを「表示名で呼ばれる」の合図に使う。
@@ -554,6 +597,13 @@ export async function putPreferences(
     : [];
   const feedTabsUpdatedAt = hasFeedTabs
     ? parseUpdatedAt("feedTabsUpdatedAt", input.feedTabsUpdatedAt)
+    : undefined;
+  const hasTagFavorites = input.tagFavorites !== undefined;
+  const tagFavorites = hasTagFavorites
+    ? parseTagFavorites(input.tagFavorites)
+    : [];
+  const tagFavoritesUpdatedAt = hasTagFavorites
+    ? parseUpdatedAt("tagFavoritesUpdatedAt", input.tagFavoritesUpdatedAt)
     : undefined;
   const preferredName = parsePreferredName(input.preferredName);
   const replyFreq = parseReplyFreq(input.replyFreq);
@@ -707,6 +757,21 @@ export async function putPreferences(
           updatedAt: sql`excluded.updated_at`,
         },
         setWhere: sql`excluded.updated_at > feed_tabs.updated_at`,
+      });
+  }
+
+  if (tagFavoritesUpdatedAt) {
+    // 絵文字のお気に入りと同じく、順序のある1本の配列なので updated_at による後勝ち。
+    await db
+      .insert(nagiTagFavorites)
+      .values({ did, tags: tagFavorites, updatedAt: tagFavoritesUpdatedAt })
+      .onConflictDoUpdate({
+        target: nagiTagFavorites.did,
+        set: {
+          tags: sql`excluded.tags`,
+          updatedAt: sql`excluded.updated_at`,
+        },
+        setWhere: sql`excluded.updated_at > tag_favorites.updated_at`,
       });
   }
 

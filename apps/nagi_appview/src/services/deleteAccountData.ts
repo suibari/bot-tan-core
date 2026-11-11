@@ -37,6 +37,7 @@ import {
   nagiEmojis,
   nagiEmojiFavorites,
   nagiFeedTabs,
+  nagiTagFavorites,
   nagiDrafts,
   nagiLanguagePreferences,
   diaryJobs,
@@ -365,6 +366,7 @@ export async function deleteAccountData(did: string) {
     await tx.delete(nagiReadPositions).where(eq(nagiReadPositions.did, did));
     await tx.delete(nagiEmojiFavorites).where(eq(nagiEmojiFavorites.did, did));
     await tx.delete(nagiFeedTabs).where(eq(nagiFeedTabs.did, did));
+    await tx.delete(nagiTagFavorites).where(eq(nagiTagFavorites.did, did));
     await tx.delete(nagiDrafts).where(eq(nagiDrafts.ownerDid, did));
     await tx
       .delete(nagiLanguagePreferences)
