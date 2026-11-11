@@ -29,6 +29,18 @@ test("botたんからの返信・メンション・リアクションだけを b
   assert.equal(notificationCategory("analysis", BOT, BOT), "analysis");
 });
 
+test("廃止済みの emoji 通知は設定の対象外（常に既定）", () => {
+  assert.equal(notificationCategory("emoji", BOT, BOT), undefined);
+  assert.deepEqual(
+    preferenceFor({ reply: { list: false, push: false } }, undefined),
+    { list: true, push: true },
+  );
+  assert.deepEqual(
+    parseNotificationPreferences({ emoji: { list: false, push: false } }),
+    {},
+  );
+});
+
 test("未設定のカテゴリは list / push とも有効", () => {
   assert.deepEqual(preferenceFor({}, "reply"), { list: true, push: true });
   assert.deepEqual(

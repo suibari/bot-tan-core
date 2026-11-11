@@ -33,22 +33,24 @@ const isCategory = (value: string): value is NotificationPreferenceCategory =>
 
 const DEFAULT_PREFERENCE: NotificationPreference = { list: true, push: true };
 
-/** 通知1件がどのカテゴリの設定に従うか。 */
+/**
+ * 通知1件がどのカテゴリの設定に従うか。undefined は設定の対象外（常に通知する）。
+ * 廃止済みの emoji（絵文字の生成完了）のように、もう作られない種別がここに来る。
+ */
 export function notificationCategory(
   type: NotificationType,
   actorDid: string,
   botDid: string = config.botDid,
-): NotificationPreferenceCategory {
-  return actorDid === botDid && isBotInteractionType(type)
-    ? "botInteraction"
-    : type;
+): NotificationPreferenceCategory | undefined {
+  if (actorDid === botDid && isBotInteractionType(type)) return "botInteraction";
+  return isCategory(type) ? type : undefined;
 }
 
 export function preferenceFor(
   preferences: NotificationPreferences,
-  category: NotificationPreferenceCategory,
+  category: NotificationPreferenceCategory | undefined,
 ): NotificationPreference {
-  return preferences[category] ?? DEFAULT_PREFERENCE;
+  return (category && preferences[category]) || DEFAULT_PREFERENCE;
 }
 
 /**

@@ -796,6 +796,9 @@ export type SyncedModerationPreferences = {
  * 通知種別（nagi.notifications.type）とほぼ1対1だが、botInteraction だけは
  * 「botたんからの返信・メンション・リアクション」を人からのものと分けるための合成カテゴリ。
  * botたんの返信は来て当たり前なので、人からの返信は鳴らしつつこちらだけ止めたい需要がある。
+ *
+ * 種別 emoji（絵文字の生成完了）はもう作られないので、カテゴリにしない。
+ * 過去の行は設定の対象外として、これまでどおり通知欄に出る。
  */
 export const NOTIFICATION_PREFERENCE_CATEGORIES = [
   "reply",
@@ -807,7 +810,6 @@ export const NOTIFICATION_PREFERENCE_CATEGORIES = [
   "chronicle",
   "mood",
   "gift",
-  "emoji",
 ] as const;
 export type NotificationPreferenceCategory =
   (typeof NOTIFICATION_PREFERENCE_CATEGORIES)[number];
