@@ -63,6 +63,7 @@ import { shouldEnqueueBotReply } from "./botReplyJob.js";
 import { trilinesCommit } from "./trilinesCommit.js";
 import { shouldAcceptSemanticRecord } from "./semanticRecord.js";
 import { validateRecord } from "./validateRecord.js";
+import { hasPostContentChange } from "./postEditContent.js";
 import {
   MODERATED_COLLECTIONS,
   MODERATION_SKIPPED,
@@ -332,7 +333,7 @@ export async function applyMutation(
     const existingPost =
       collection === NAGI.post
         ? await tx
-            .select({ cid: nagiPosts.cid })
+            .select({ cid: nagiPosts.cid, recordJson: nagiPosts.recordJson })
             .from(nagiPosts)
             .where(eq(nagiPosts.uri, uri))
             .limit(1)
@@ -447,8 +448,14 @@ export async function applyMutation(
           ? reconciledIndexedAt(createdAt)
           : undefined;
       if (collection === NAGI.post) {
-        // 既存投稿 かつ cid が変わった＝投稿後編集。翻訳キャッシュ破棄と edited フラグ立てに使う。
-        const isEdit = !!existingPost[0] && existingPost[0].cid !== commit.cid;
+        // 既存投稿の cid が変わり、かつ見える内容が変わった＝投稿後編集。翻訳キャッシュ破棄・
+        // edited フラグ・再判定に使う。クロスポスト参照の追記など付帯情報だけの更新は編集にしない。
+        // 記事は document から組み立てた値なので、従来どおり cid の変化で判定する。
+        const isEdit =
+          !!existingPost[0] &&
+          existingPost[0].cid !== commit.cid &&
+          (isArticle ||
+            hasPostContentChange(existingPost[0].recordJson, value));
         articleChanged = isArticle && (!existingPost[0] || isEdit);
         // 所属チャンネルはこっそりと同じくスレッドルートが所有する。返信は自分のレコードの
         // channel を見ない（旧クライアントが複製した値が残っていても無視する）ことで、
@@ -516,10 +523,9 @@ export async function applyMutation(
               tags: extractTags(value),
               langs: value.langs,
               recordJson: value,
-              // 内容が変わった（cid 変化＝投稿後編集）ときだけ判定待ちに戻す。
-              // Jetstream の再配信で同じ cid が来ても再判定はしない。
-              moderationLabels: sql`case when ${nagiPosts.cid} is distinct from excluded.cid then '{}'::text[] else ${nagiPosts.moderationLabels} end`,
-              moderationVersion: sql`case when ${nagiPosts.cid} is distinct from excluded.cid then ${moderationVersion}::text else ${nagiPosts.moderationVersion} end`,
+              // 内容が変わった編集のときだけ判定待ちに戻す。Jetstream の再配信や
+              // 付帯情報だけの更新では再判定しない。
+              ...(isEdit ? { moderationLabels: [], moderationVersion } : {}),
               selfLabels: extractSelfLabels(value),
               replyRootUri: value.reply?.root.uri ?? null,
               replyParentUri: value.reply?.parent.uri ?? null,
