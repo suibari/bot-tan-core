@@ -54,6 +54,17 @@
               "format": "datetime",
               "description": "省略時は、この利用者がまだ一度もタブをカスタムしていないことを表す（クライアントは既定タブを使う）。"
             },
+            "tagFavorites": {
+              "type": "array",
+              "maxLength": 32,
+              "items": { "type": "string", "maxLength": 64 },
+              "description": "お気に入りタグ。# を除いた小文字の正規形で、表示順そのまま。"
+            },
+            "tagFavoritesUpdatedAt": {
+              "type": "string",
+              "format": "datetime",
+              "description": "省略時は、この利用者のお気に入りタグがまだ一度も同期されていないことを表す。"
+            },
             "languagePreferences": {
               "type": "ref",
               "ref": "#languagePreferences"

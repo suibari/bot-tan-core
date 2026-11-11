@@ -684,6 +684,9 @@ export type EmojiFavorite =
   { kind: "unicode"; emoji: string } | { kind: "custom"; emoji: EmojiView };
 /** お気に入りパレットの上限。クライアントの MAX_FAVORITES と揃える。 */
 export const EMOJI_FAVORITES_LIMIT = 32;
+/** お気に入りタグの上限と1つの長さ。クライアントの tags/favorites と揃える。 */
+export const TAG_FAVORITES_LIMIT = 32;
+export const TAG_FAVORITE_MAX_LENGTH = 64;
 /**
  * フィードのタブ1枚の種別。
  * list / custom は「入れ物」で、どれを指すかは source が持つ（list はいまホームだけ、
@@ -841,6 +844,10 @@ export type PreferencesView = {
   feedTabs: FeedTab[];
   /** 未設定（一度もカスタムしていない）なら undefined。クライアントは既定タブを使う。 */
   feedTabsUpdatedAt?: string;
+  /** お気に入りタグ（正規形、表示順）。旧 AppView は返さない。 */
+  tagFavorites?: string[];
+  /** 未同期（まだ一度も書き込んでいない）なら undefined。 */
+  tagFavoritesUpdatedAt?: string;
   /** botたんからの返信確率（0〜100%）。未設定なら undefined。 */
   replyFreq?: number;
   /** botたんに呼んでほしい名前。未設定なら undefined＝表示名で呼ばれる。 */
@@ -887,6 +894,9 @@ export type PutPreferencesInput = {
   feedTabs?: FeedTab[];
   /** feedTabs を送るときは必須。保存済みより古ければ書き込まない。 */
   feedTabsUpdatedAt?: string;
+  tagFavorites?: string[];
+  /** tagFavorites を送るときは必須。保存済みより古ければ書き込まない。 */
+  tagFavoritesUpdatedAt?: string;
   /** botたんからの返信確率（0〜100%）。送らなければ変更しない。 */
   replyFreq?: number;
   /**

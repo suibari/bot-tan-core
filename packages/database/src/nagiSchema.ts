@@ -1627,6 +1627,19 @@ export const nagiEmojiFavorites = nagiSchema.table("emoji_favorites", {
 });
 
 /**
+ * お気に入りタグ（投稿画面のタグパレット）。正規形（# なし小文字）の配列で、順序がそのまま表示順。
+ * 絵文字と同じく1本の配列なので updated_at による後勝ち。性質の違う設定と updated_at を
+ * 共有しないよう、絵文字やタブとは別の行にする。
+ */
+export const nagiTagFavorites = nagiSchema.table("tag_favorites", {
+  did: text("did").primaryKey(),
+  tags: jsonb("tags").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
+
+/**
  * フィードのタブ構成（並び順と、追加したチャンネル/検索タブ）。
  * お気に入り絵文字と同じく順序のある1本の配列なので updated_at による後勝ち。
  * 絵文字と同居させないのは、性質の違う2つの設定が1行の updated_at を共有すると
