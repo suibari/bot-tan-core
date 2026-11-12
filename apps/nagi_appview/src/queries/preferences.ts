@@ -667,10 +667,7 @@ export async function putPreferences(
 
   // 生年月日は他の設定と違って上書きできない。2度目以降は declareBirthDate が 409。
   if (input.birthDate !== undefined)
-    await declareBirthDate(did, {
-      birthDate: input.birthDate,
-      parentalConsent: input.parentalConsent,
-    });
+    await declareBirthDate(did, { birthDate: input.birthDate });
 
   await putChronicleReadYears(did, chronicleReadYears);
   if (adventRead) await putAdventReadState(did, adventRead);

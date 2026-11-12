@@ -927,9 +927,9 @@ export type PutPreferencesInput = {
   /**
    * 生年月日の申告。YYYY-MM-DD。設定できるのは1度だけで、以後は 409 を返す
    * （成人向けコンテンツを見るために年齢を上書きされないようにするため）。
-   * 18歳未満なら parentalConsent: true が必須。
    */
   birthDate?: string;
+  /** 旧クライアント互換のため受け付けるが使わない。保護者同意の要件は廃止した。 */
   parentalConsent?: boolean;
 };
 export type PutPreferencesResult = PreferencesView;
