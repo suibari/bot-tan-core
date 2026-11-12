@@ -114,13 +114,10 @@ async function loadAgeAssurance(
 
 const BIRTH_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
-/**
- * 生年月日の申告。1度だけ受け付ける。
- * 未成年で利用を続ける場合は保護者同意の自己申告を必須にする。
- */
+/** 生年月日の申告。1度だけ受け付ける。 */
 export async function declareBirthDate(
   did: string,
-  input: { birthDate: unknown; parentalConsent?: unknown },
+  input: { birthDate: unknown },
   now: Date = new Date(),
 ): Promise<AgeAssurance> {
   const birthDate = input.birthDate;
@@ -131,12 +128,6 @@ export async function declareBirthDate(
     throw new ApiError(400, "invalid_request", "birthDate is not a valid past date");
 
   const isAdult = isAdultBirthDate(birthDate, now);
-  if (!isAdult && input.parentalConsent !== true)
-    throw new ApiError(
-      400,
-      "parental_consent_required",
-      "Users under 18 need a parent or guardian's permission",
-    );
 
   const inserted = await db
     .insert(nagiAgeAssurance)
@@ -144,7 +135,6 @@ export async function declareBirthDate(
       did,
       birthDate,
       source: "self",
-      parentalConsentAt: isAdult ? null : now,
     })
     .onConflictDoNothing()
     .returning({ did: nagiAgeAssurance.did });

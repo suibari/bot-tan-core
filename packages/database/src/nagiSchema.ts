@@ -270,7 +270,7 @@ export const nagiAgeAssurance = nagiSchema.table("age_assurance", {
   did: text("did").primaryKey(),
   /** null は未申告（＝未成年扱い）。設定できるのは1度だけ。 */
   birthDate: date("birth_date"),
-  /** 18歳未満で利用開始する際の保護者同意の自己申告。 */
+  /** 廃止した保護者同意の自己申告。書き込まず、既存値も消去済み。列の削除は別に行う。 */
   parentalConsentAt: timestamp("parental_consent_at", { withTimezone: true }),
   /** self | legacy */
   source: text("source").notNull(),
