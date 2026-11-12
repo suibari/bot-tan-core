@@ -38,6 +38,40 @@ test("does not match longer words that merely contain a term", () => {
     assert.deepEqual(findExplicitTerms([text]), [], text);
 });
 
+/**
+ * 区切り照合で外れる例。2026-11-12 の「かわいいカフェラテ」が部分一致で当たったのが発端。
+ * ICU の辞書が Node の更新で変わったら、ここが先に落ちる。
+ */
+test("does not match a term in the middle of a word", () => {
+  for (const text of [
+    "かわいいカフェラテ",
+    "アイスカフェラテください",
+    "モカフェラテ",
+    "ガチンコ勝負",
+    "背中出しコーデ",
+    "街中出しゃばる",
+  ])
+    assert.deepEqual(findExplicitTerms([text]), [], text);
+});
+
+test("matches a term that spans several word segments", () => {
+  const cases: Array<[string, string]> = [
+    ["フェラした", "フェラ"],
+    ["フェラ顔", "フェラ"],
+    ["ドフェラ", "フェラ"],
+    ["ﾌｪﾗ", "フェラ"],
+    ["カフェラテとフェラ", "フェラ"],
+    ["中出しされた", "中出し"],
+    ["ちんこ立った", "ちんこ"],
+    ["おまんこ", "まんこ"],
+    ["手コキされた", "手コキ"],
+    ["ハメ撮り", "ハメ撮り"],
+    ["顔射", "顔射"],
+  ];
+  for (const [text, term] of cases)
+    assert.deepEqual(findExplicitTerms([text]), [term], text);
+});
+
 test("an excluded occurrence does not hide a real one in the same text", () => {
   assert.deepEqual(findExplicitTerms(["パチンコ帰りにちんこ"]), ["ちんこ"]);
 });

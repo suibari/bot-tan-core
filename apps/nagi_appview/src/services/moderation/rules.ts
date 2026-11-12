@@ -13,7 +13,7 @@ export type ModerationDecision =
   | "reject-invalid";
 
 /** ルール変更時に上げる。再処理をキューへ戻した行が同一 CID の旧判定を再利用しないための版。 */
-export const MODERATION_RULE_VERSION = "nagi-moderation-v5";
+export const MODERATION_RULE_VERSION = "nagi-moderation-v6";
 
 /** 判定対象外（こっそり投稿など）を表す番兵。ワーカーはこの行を拾わない。 */
 export const MODERATION_SKIPPED = "skipped";
