@@ -214,7 +214,7 @@ export async function getCardBoard(viewerDid: string): Promise<CardBoardView> {
   };
 }
 
-/** ボードに置かれた分は置いたときと同じ額、無い AAR は botたんの分で 600Ƶ。 */
+/** ボードに置かれた分は置いたときと同じ額、無い AAR は botたんの分（CARD_SHELF_AAR_PRICE）。 */
 function takePrice(def: CardDefinition, stocked: boolean) {
   return !stocked && def.rarity === "AAR"
     ? CARD_SHELF_AAR_PRICE
@@ -391,7 +391,7 @@ export async function takeBoardCard(
     if (fromBot && def.rarity !== "AAR")
       throw new ApiError(409, "out_of_stock", "This card is gone");
     const price = takePrice(def, !fromBot);
-    // 見ていた額より高くは取らない（100Ƶ の AAR が直前に取られ、600Ƶ になっていた）。
+    // 見ていた額より高くは取らない（100Ƶ の AAR が直前に取られ、botたんの額になっていた）。
     if (price > shownPrice)
       throw new ApiError(409, "out_of_stock", "This card is gone");
     if (balance < price)

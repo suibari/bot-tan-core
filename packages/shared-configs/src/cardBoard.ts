@@ -24,8 +24,11 @@ export const ZENNY_PER_CARD: Record<CardRarity, number> = {
  */
 export const CARD_BOARD_KEEP = 3;
 
-/** ボードに無い AAR を botたんから受け取る値段。AAR は4枚持つ人がまず現れず、ボードに並ばないため。 */
-export const CARD_SHELF_AAR_PRICE = 600;
+/**
+ * ボードに無い AAR を botたんから受け取る値段。AAR は4枚持つ人がまず現れず、ボードに並ばないため。
+ * 額の根拠は docs/zenkatsu.md の13.3（供給1枚/日で約8か月）。
+ */
+export const CARD_SHELF_AAR_PRICE = 300;
 
 /** はじめての人に1回だけ配る Ƶ。Ƶ を持たない新しい人がボードを使えるようにする。 */
 export const ZENNY_WELCOME = 30;
