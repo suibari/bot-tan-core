@@ -29,7 +29,7 @@ test("guest device secret is hashed and one draw per device and date is enforced
 
 test("sign-in claims the exact guest card through the existing authenticated draw route", () => {
   assert.match(routes, /requiredServiceAuth\(NAGI\.drawCard\)/);
-  assert.match(routes, /drawCard\(req\.viewerDid!, source, reactionUri, guestToken\)/);
+  assert.match(routes, /drawCard\(req\.viewerDid!, guestToken\)/);
   assert.match(cards, /rolled = def/);
   assert.match(cards, /claimedByDid: viewerDid, claimedAt: now/);
 });
@@ -44,4 +44,10 @@ test("an account draw already made that day wins and the guest draw is discarded
 
 test("public guest drawing has an independent rate limit", () => {
   assert.match(routes, /NAGI\.drawGuestCard}`,[\s\S]{0,100}guestCardLimiter/);
+});
+
+test("the retired reaction slot is rejected and never draws", () => {
+  assert.match(routes, /if \(source !== "my_nagi" && source !== "anniversary"\)/);
+  assert.doesNotMatch(routes, /reactionUri/);
+  assert.doesNotMatch(cards, /verifyReactionCardTrigger/);
 });

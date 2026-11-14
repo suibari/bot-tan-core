@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { CARD_BOARD_KEEP, donatableCount } from "../src/cardBoard.js";
+import {
+  CARD_BOARD_KEEP,
+  CARD_SHELF_AAR_PRICE,
+  ZENNY_PER_CARD,
+  donatableCount,
+} from "../src/cardBoard.js";
 
 test("手元に3枚を残した残りだけ置ける", () => {
   assert.equal(CARD_BOARD_KEEP, 3);
@@ -20,4 +25,9 @@ test("お休み中の在庫は置けない", () => {
 test("所持が少なければ0", () => {
   assert.equal(donatableCount({ stock: 1 }, { available: 1 }), 0);
   assert.equal(donatableCount({ stock: 0 }, { available: 0 }), 0);
+});
+
+test("botたんの AAR は供給1枚/日に合わせた300Ƶで、置かれた AAR より高い", () => {
+  assert.equal(CARD_SHELF_AAR_PRICE, 300);
+  assert.ok(CARD_SHELF_AAR_PRICE > ZENNY_PER_CARD.AAR);
 });

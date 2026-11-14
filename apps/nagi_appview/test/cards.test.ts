@@ -77,7 +77,7 @@ test("actor が DID でなければ 400 で弾く（DB へは行かない）", a
   }
 });
 
-test("通常枠とリアクション枠を独立して返し、旧canDrawは通常枠を表す", () => {
+test("通常枠だけを返し、廃止したリアクション枠の行は通常枠に数えない", () => {
   const now = new Date("2026-08-12T03:00:00.000Z");
   const onlyMyNagi = drawStatusOf(
     [{ source: "my_nagi", cardVolume: 1, cardNumber: 2 }],
@@ -85,7 +85,7 @@ test("通常枠とリアクション枠を独立して返し、旧canDrawは通�
   );
   assert.equal(onlyMyNagi.canDraw, false);
   assert.equal(onlyMyNagi.myNagi.canDraw, false);
-  assert.equal(onlyMyNagi.reaction.canDraw, true);
+  assert.equal("reaction" in onlyMyNagi, false);
   assert.equal(onlyMyNagi.todayCardId, 2);
 
   const onlyReaction = drawStatusOf(
@@ -94,7 +94,7 @@ test("通常枠とリアクション枠を独立して返し、旧canDrawは通�
   );
   assert.equal(onlyReaction.canDraw, true);
   assert.equal(onlyReaction.myNagi.canDraw, true);
-  assert.equal(onlyReaction.reaction.canDraw, false);
+  assert.equal("reaction" in onlyReaction, false);
   assert.equal(onlyReaction.todayCardId, undefined);
 });
 

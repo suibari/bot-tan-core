@@ -1410,27 +1410,22 @@ xrpc.post(
     }
   },
 );
-// 抽選結果は入力に取らずサーバ側で決める。リアクション枠だけ、本人のPDSにある
-// 当日リアクションURIを検証してから別枠を解放する。
+// 抽選結果は入力に取らずサーバ側で決める。
 xrpc.post(
   `/${NAGI.drawCard}`,
   requiredServiceAuth(NAGI.drawCard),
   async (req, res, next) => {
     try {
       const source = req.body?.source ?? "my_nagi";
-      const reactionUri = req.body?.reactionUri;
       const guestToken = req.body?.guestToken;
-      if (
-        source !== "my_nagi" &&
-        source !== "reaction" &&
-        source !== "anniversary"
-      )
+      // リアクション枠は廃止した。旧クライアントの "reaction" もここで拒否する。
+      if (source !== "my_nagi" && source !== "anniversary")
         throw new ApiError(400, "invalid_request", "Invalid draw source");
-      if (reactionUri !== undefined && typeof reactionUri !== "string")
+      if (guestToken !== undefined && source !== "my_nagi")
         throw new ApiError(
           400,
           "invalid_request",
-          "reactionUri must be a string",
+          "guestToken is only valid for my_nagi draws",
         );
       if (guestToken !== undefined && typeof guestToken !== "string")
         throw new ApiError(
@@ -1444,7 +1439,7 @@ xrpc.post(
         .json(
           source === "anniversary"
             ? await claimAnniversaryCards(req.viewerDid!)
-            : await drawCard(req.viewerDid!, source, reactionUri, guestToken),
+            : await drawCard(req.viewerDid!, guestToken),
         );
     } catch (e) {
       next(e);

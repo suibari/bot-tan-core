@@ -1014,8 +1014,9 @@ export type CardView = {
   year?: number;
 };
 /**
- * カードの入手経路。my_nagi と reaction はガチャの1日枠、anniversary は
+ * カードの入手経路。my_nagi はガチャの1日枠、anniversary は
  * その日が記念日の人に配る特別枠（抽選ではないので確率もコンプ率も関係しない）。
+ * reaction は廃止したリアクション枠で、過去の行にだけ現れる。
  */
 export type CardDrawSource = "my_nagi" | "reaction" | "anniversary";
 /**
@@ -1029,7 +1030,7 @@ export type CardDrawSlotStatus = {
   cardVolume?: number;
   cardId?: number;
 };
-/** 本日の2つの取得枠。自分のコレクションを見ているときだけ返す。 */
+/** 本日の取得枠。自分のコレクションを見ているときだけ返す。 */
 export type CardDrawStatus = {
   /** 旧クライアント互換。myNagi.canDraw と同じ値。 */
   canDraw: boolean;
@@ -1039,7 +1040,6 @@ export type CardDrawStatus = {
   todayCardVolume?: number;
   todayCardId?: number;
   myNagi: CardDrawSlotStatus;
-  reaction: CardDrawSlotStatus;
 };
 /** その日が記念日で、まだ受け取っていない1枚。 */
 export type PendingAnniversary = {

@@ -4,7 +4,7 @@
   "defs": {
     "main": {
       "type": "procedure",
-      "description": "全肯定カードを1枚引く。my Nagiの通常枠と他ユーザーへのリアクション枠を1日各1回利用できる（JST 4:00 が日付境界）。同じ枠を既に引いている場合は、そのカードをそのまま返す（冪等）。抽選はサーバ側で行う。source=anniversary は抽選ではなく、その日が記念日の人へ未受領ぶんを一括で配る（同じ記念日は1年に1枚）。",
+      "description": "全肯定カードを1枚引く。my Nagiの通常枠を1日1回利用できる（JST 4:00 が日付境界）。既に引いている場合は、そのカードをそのまま返す（冪等）。抽選はサーバ側で行う。source=anniversary は抽選ではなく、その日が記念日の人へ未受領ぶんを一括で配る（同じ記念日は1年に1枚）。",
       "input": {
         "encoding": "application/json",
         "schema": {
@@ -12,13 +12,8 @@
           "properties": {
             "source": {
               "type": "string",
-              "knownValues": ["my_nagi", "reaction", "anniversary"],
-              "description": "省略時は後方互換のためmy_nagi。anniversary は記念日カードの受け取りで、抽選枠を消費しない。"
-            },
-            "reactionUri": {
-              "type": "string",
-              "format": "at-uri",
-              "description": "source=reaction のとき必須。本人が当日作成した他ユーザー宛てリアクション。"
+              "knownValues": ["my_nagi", "anniversary"],
+              "description": "省略時は後方互換のためmy_nagi。anniversary は記念日カードの受け取りで、抽選枠を消費しない。廃止したリアクション枠の reaction は拒否する。"
             },
             "guestToken": {
               "type": "string",
@@ -39,7 +34,8 @@
             },
             "source": {
               "type": "string",
-              "knownValues": ["my_nagi", "reaction", "anniversary"]
+              "knownValues": ["my_nagi", "reaction", "anniversary"],
+              "description": "reaction は廃止したリアクション枠。新しい応答には現れない。"
             },
             "alreadyDrawn": {
               "type": "boolean",

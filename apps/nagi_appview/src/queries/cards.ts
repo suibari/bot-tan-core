@@ -41,7 +41,6 @@ import { createHash } from "node:crypto";
 import { and, eq, gt, inArray, isNull, lt, sql } from "drizzle-orm";
 import { config } from "../config.js";
 import { ApiError } from "../middleware/errors.js";
-import { verifyReactionCardTrigger } from "../services/reactionCardEligibility.js";
 import { jstCalendarDate } from "../services/ageAssurance.js";
 import { listUnmirroredDraws } from "./cardNews.js";
 
@@ -254,10 +253,9 @@ async function loadTodayDraws(did: string, now: Date): Promise<TodayDraw[]> {
 }
 
 export function drawStatusOf(today: TodayDraw[], now: Date): CardDrawStatus {
+  // 廃止したリアクション枠で今日引いた行があっても、通常枠の判定には数えない。
   const myNagi = today.find((draw) => draw.source === "my_nagi");
-  const reaction = today.find((draw) => draw.source === "reaction");
   return {
-    // 旧クライアントが2枚目を通常ボタンから引こうとしないよう、canDrawは通常枠のまま。
     canDraw: !myNagi,
     nextDrawAt: nextCardDrawAt(now).toISOString(),
     ...(myNagi
@@ -270,12 +268,6 @@ export function drawStatusOf(today: TodayDraw[], now: Date): CardDrawStatus {
       canDraw: !myNagi,
       ...(myNagi
         ? { cardVolume: myNagi.cardVolume, cardId: myNagi.cardNumber }
-        : {}),
-    },
-    reaction: {
-      canDraw: !reaction,
-      ...(reaction
-        ? { cardVolume: reaction.cardVolume, cardId: reaction.cardNumber }
         : {}),
     },
   };
@@ -342,20 +334,16 @@ export async function drawGuestCard(input: unknown): Promise<GuestCardDrawResult
     commentPending: false,
     // ゲストは DID を持たないので PDS へ控えは書けないが、型を揃えるため日付は返す。
     drawDate,
-    drawStatus: {
-      ...drawStatusOf(
-        [
-          {
-            source: "my_nagi",
-            cardVolume: row.cardVolume,
-            cardNumber: row.cardNumber,
-          },
-        ],
-        now,
-      ),
-      // リアクション枠はサインインした本人のPDS検証が必要なので、ゲスト表示では案内しない。
-      reaction: { canDraw: false },
-    },
+    drawStatus: drawStatusOf(
+      [
+        {
+          source: "my_nagi",
+          cardVolume: row.cardVolume,
+          cardNumber: row.cardNumber,
+        },
+      ],
+      now,
+    ),
     expiresAt: row.expiresAt.toISOString(),
   };
 }
@@ -501,44 +489,22 @@ export async function claimAnniversaryCards(
 }
 
 /**
- * 通常枠・リアクション枠を1日各1回引く。
+ * 通常枠を1日1回引く。リアクション枠は廃止した（draw_source の "reaction" は過去の行にだけ残る）。
  *
  * 「今日引いたか」の判定はアプリ側の事前チェックではなく、card_draws の主キー
- * (did, draw_date, draw_source) の一意索引への衝突で行う。同時押しや二重送信でも各枠1回に収束するため。
+ * (did, draw_date, draw_source) の一意索引への衝突で行う。同時押しや二重送信でも1回に収束するため。
  * 既に引いていた場合はエラーにせず、その日のカードをそのまま返す（updateSeen / setMute と
  * 同じ冪等方針。リロードしても「今日のカード」が見えるほうが UI が素直になる）。
  */
 export async function drawCard(
   viewerDid: string,
-  source: CardGachaSource = "my_nagi",
-  reactionUri?: string,
   guestToken?: string,
 ): Promise<DrawCardResult> {
+  const source: CardGachaSource = "my_nagi";
   const now = new Date();
   const drawDate = cardDrawDate(now);
   const normalizedGuestToken =
     guestToken === undefined ? undefined : parseGuestToken(guestToken, "guestToken");
-  if (normalizedGuestToken && source !== "my_nagi")
-    throw new ApiError(
-      400,
-      "invalid_request",
-      "guestToken is only valid for my_nagi draws",
-    );
-  if (source === "reaction") {
-    if (!reactionUri)
-      throw new ApiError(
-        400,
-        "invalid_request",
-        "reactionUri is required for reaction draws",
-      );
-    await verifyReactionCardTrigger(viewerDid, reactionUri, now);
-  } else if (reactionUri) {
-    throw new ApiError(
-      400,
-      "invalid_request",
-      "reactionUri is only valid for reaction draws",
-    );
-  }
 
   const result = await db.transaction(async (tx) => {
     let rolled = rollCard();
@@ -578,7 +544,7 @@ export async function drawCard(
         did: viewerDid,
         drawDate,
         drawSource: source,
-        triggerUri: source === "reaction" ? reactionUri : null,
+        triggerUri: null,
         cardVolume: rolled.volume,
         cardNumber: rolled.id,
       })
