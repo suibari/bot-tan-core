@@ -147,7 +147,14 @@ export function parseDraftContent(input: unknown): DraftContent {
       raw.quoteUri.length > MAX_URI)
   )
     invalid("content.quoteUri");
+  if (raw.articleTitle !== undefined && typeof raw.articleTitle !== "string")
+    invalid("content.articleTitle");
+  if (raw.articleTags !== undefined &&
+      (!Array.isArray(raw.articleTags) || raw.articleTags.some((tag) => typeof tag !== "string")))
+    invalid("content.articleTags");
   return {
+    ...(typeof raw.articleTitle === "string" ? { articleTitle: raw.articleTitle } : {}),
+    ...(Array.isArray(raw.articleTags) ? { articleTags: [...raw.articleTags] as string[] } : {}),
     text: raw.text as string,
     mentions,
     emojis,
@@ -180,6 +187,8 @@ export async function getDrafts(ownerDid: string): Promise<DraftsView> {
       return {
         id: row.id,
         text: content.text,
+        ...(content.articleTitle !== undefined ? { articleTitle: content.articleTitle } : {}),
+        ...(content.articleTags !== undefined ? { articleTags: content.articleTags } : {}),
         linkCardCount: content.linkCards.length,
         createdAt: row.createdAt.toISOString(),
         updatedAt: row.updatedAt.toISOString(),

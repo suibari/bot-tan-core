@@ -50,3 +50,15 @@ test("ブログ用の長い下書きは3,000文字を超えても受理する", 
   const content = { ...valid(), text: "長".repeat(3_001) };
   assert.deepEqual(parseDraftContent(content), content);
 });
+
+
+test("ブログのタイトル・タグだけの下書きと旧下書きを保持する", () => {
+  const content = { ...valid(), text: "", articleTitle: "書きかけ", articleTags: ["日常", "旅行"] };
+  assert.deepEqual(parseDraftContent(content), content);
+  assert.deepEqual(parseDraftContent(valid()), valid());
+  assert.deepEqual(parseDraftContent({ ...valid(), articleTitle: "", articleTags: [] }),
+    { ...valid(), articleTitle: "", articleTags: [] });
+  for (const extra of [{ articleTitle: 12 }, { articleTags: "tag" }, { articleTags: [false] },
+    { articleTitle: "data:image/png;base64,abc" }])
+    assert.throws(() => parseDraftContent({ ...valid(), ...extra }));
+});
