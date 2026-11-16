@@ -940,6 +940,8 @@ export type DraftLinkCard = {
   description?: string;
 };
 export type DraftContent = {
+  articleTitle?: string;
+  articleTags?: string[];
   text: string;
   mentions: Array<{ start: number; end: number; did: string; handle: string }>;
   emojis: Array<{ start: number; end: number; uri: string }>;
@@ -953,6 +955,8 @@ export type DraftView = DraftContent & {
   updatedAt: string;
 };
 export type DraftSummary = {
+  articleTitle?: string;
+  articleTags?: string[];
   id: string;
   text: string;
   linkCardCount: number;

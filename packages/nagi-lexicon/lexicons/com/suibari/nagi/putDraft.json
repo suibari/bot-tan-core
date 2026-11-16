@@ -39,6 +39,8 @@
       ],
       "properties": {
         "text": { "type": "string" },
+        "articleTitle": { "type": "string" },
+        "articleTags": { "type": "array", "items": { "type": "string" } },
         "mentions": {
           "type": "array",
           "maxLength": 100,
@@ -105,6 +107,8 @@
       "properties": {
         "id": { "type": "string", "maxLength": 36 },
         "text": { "type": "string" },
+        "articleTitle": { "type": "string" },
+        "articleTags": { "type": "array", "items": { "type": "string" } },
         "mentions": {
           "type": "array",
           "maxLength": 100,
