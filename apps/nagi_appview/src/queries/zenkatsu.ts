@@ -26,7 +26,7 @@ import {
   getThemeDef,
   isValidZenkatsuSelection,
   resolveCardDef,
-  themeForDate,
+  pickThemeForDate,
   ZENKATSU_MAX_CARDS,
   zenkatsuAvailability,
   zenkatsuRestWindowStart,
@@ -86,9 +86,11 @@ const cardKeyOf = (c: CardRef) => `${c.volume}:${c.id}`;
 /**
  * その日のお題を確定させる。
  *
- * **お題は初回アクセス時に焼き付けて以後動かさない。** themes_v{n}.json にお題を足すと
- * `themeForDate` の割り当てが変わるので、都度計算にすると過去の日のお題が書き換わる。
+ * **お題は初回アクセス時に焼き付けて以後動かさない。** `pickThemeForDate` は履歴と
+ * themes_v{n}.json の中身で結果が変わるので、都度計算にすると過去の日のお題が書き換わる。
  * 日付パーマリンクでさかのぼれる仕様なので、それはアーカイブの破壊になる。
+ *
+ * 選ぶときは、この日より前に焼き付けたお題を履歴として渡す。まだ出ていないお題が優先される。
  */
 export async function resolveThemeForDate(
   themeDate: string,
@@ -103,7 +105,16 @@ export async function resolveThemeForDate(
   let id = existing[0]?.themeNumber;
 
   if (volume === undefined || id === undefined) {
-    const picked = themeForDate(themeDate);
+    // themeDate はテキスト列なので、文字列比較で「この日より前」を取る（Date を渡さない）。
+    const history = await handle
+      .select({
+        themeDate: nagiZenkatsuDaily.themeDate,
+        volume: nagiZenkatsuDaily.themeVolume,
+        id: nagiZenkatsuDaily.themeNumber,
+      })
+      .from(nagiZenkatsuDaily)
+      .where(lt(nagiZenkatsuDaily.themeDate, themeDate));
+    const picked = pickThemeForDate(themeDate, history);
     // 同時アクセスでも1つに収束させる。負けた側は入った値を読み直す。
     await handle
       .insert(nagiZenkatsuDaily)
