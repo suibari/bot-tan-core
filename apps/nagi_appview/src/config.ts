@@ -222,6 +222,12 @@ export const config = {
   // カスタム絵文字一覧は60件単位で画像を取得し、スクロールで続けて読み込む。
   // API全体の小さいIPバケットを流用せず、公開画像配信として独立して調整可能にする。
   emojiAssetRateLimit: integer("NAGI_EMOJI_ASSET_RATE_LIMIT", 1_200, 1, 100_000),
+  // getEmoji と（意味検索でない）searchEmojis の枠。閲覧者（DID か IP）ごと・1分あたり。
+  // クライアントは起動時にお気に入りと使用履歴の絵文字を1件ずつ確かめ直すので、
+  // API 全体の60回/分とは分けて持つ。
+  emojiReadRateLimit: integer("NAGI_EMOJI_READ_RATE_LIMIT", 600, 1, 100_000),
+  // 開発環境ではレート制限を数えない（middleware/rateLimit.ts）。
+  rateLimitEnabled: !isDev,
   affirmationThreshold: integer(
     "NAGI_AFFIRMATION_THRESHOLD",
     Number(process.env.NAGI_TREND_THRESHOLD ?? 86),

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { rateLimit } from "express-rate-limit";
+import { createRateLimit } from "../middleware/rateLimit.js";
 import { NAGI } from "@bsky-affirmative-bot/nagi-lexicon";
 import {
   optionalServiceAuth,
@@ -173,17 +173,13 @@ const pushInstallationInput = (body: any) => {
 
 // DIDを持たない利用者向け。既存のこっそり投稿APIの認証は緩めず、短命な返信ジョブだけを
 // 別の低レート経路で受ける。本文はタイムライン・検索へ取り込まれない。
-const guestAffirmationLimiter = rateLimit({
+const guestAffirmationLimiter = createRateLimit(config.rateLimitEnabled, {
   windowMs: 10 * 60_000,
   limit: 10,
-  standardHeaders: "draft-8",
-  legacyHeaders: false,
 });
-const guestCardLimiter = rateLimit({
+const guestCardLimiter = createRateLimit(config.rateLimitEnabled, {
   windowMs: 10 * 60_000,
   limit: 30,
-  standardHeaders: "draft-8",
-  legacyHeaders: false,
 });
 xrpc.post(
   `/${NAGI.createGuestAffirmation}`,
@@ -583,11 +579,9 @@ xrpc.get(
 );
 // 任意アプリ連携のためのスキーマ解決。認証不要の公開クエリ（PDS プロキシを経由せず
 // AppView へ直接呼ばれる）。DNS 解決を伴うため専用のレート制限を掛ける。
-const resolveLexiconLimiter = rateLimit({
+const resolveLexiconLimiter = createRateLimit(config.rateLimitEnabled, {
   windowMs: 60_000,
   limit: 30,
-  standardHeaders: "draft-8",
-  legacyHeaders: false,
 });
 xrpc.get(
   `/${NAGI.resolveLexicon}`,
