@@ -1,6 +1,5 @@
 import express from "express";
 import cors from "cors";
-import { rateLimit, ipKeyGenerator } from "express-rate-limit";
 import {
   initializeDatabases,
   reportHeartbeat,
@@ -16,6 +15,11 @@ import { getStandardSitePublication } from "./routes/standardSitePublication.js"
 import { getVideo } from "./routes/video.js";
 import { getEmojiAsset } from "./routes/emojiAsset.js";
 import { emojiAssetNoStoreHeaders } from "./util/emojiAssetHeaders.js";
+import {
+  createRateLimit,
+  isEmojiReadRequest,
+  viewerKey,
+} from "./middleware/rateLimit.js";
 import { errorHandler, notFound } from "./middleware/errors.js";
 import { startJetstream } from "./ingest/jetstream.js";
 import {
@@ -35,25 +39,9 @@ import {
 } from "./ingest/reconcileWorker.js";
 const app = express();
 app.set("trust proxy", 1);
-// atproto-proxy 経由の authed リクエストは送信元 IP がユーザの PDS になり、IP キーだと
-// 同一 PDS 配下の全ユーザが 1 バケットを共有してしまう。Bearer（PDS 発行の service auth
-// JWT）の iss（=ユーザ DID）をキーにし、Bearer 無しの公開直 fetch は IP キーへフォールバック。
-// rate-limit のバケット用途なので iss は未検証デコードで十分。
-const issFromBearer = (
-  authorization: string | undefined,
-): string | undefined => {
-  const token = authorization?.match(/^Bearer (.+)$/i)?.[1];
-  const payload = token?.split(".")[1];
-  if (!payload) return undefined;
-  try {
-    const claims = JSON.parse(
-      Buffer.from(payload, "base64url").toString("utf8"),
-    );
-    return typeof claims.iss === "string" ? claims.iss : undefined;
-  } catch {
-    return undefined;
-  }
-};
+// 開発環境では数えない（middleware/rateLimit.ts）。
+const limit = (options: Parameters<typeof createRateLimit>[1]) =>
+  createRateLimit(config.rateLimitEnabled, options);
 app.use(
   cors({
     origin: config.clientOrigins,
@@ -73,52 +61,36 @@ app.get("/.well-known/did.json", wellKnownDid);
 app.get("/.well-known/nagi-passport-jwks.json", passportJwks);
 app.use(
   "/xrpc",
-  rateLimit({
+  // 絵文字の読み取りは API 全体の枠と分ける。共有すると絵文字の多い人ほど
+  // 起動直後に枠を使い切り、絵文字もタイムラインも 429 で出なくなる。
+  limit({
+    windowMs: 60_000,
+    limit: config.emojiReadRateLimit,
+    keyGenerator: viewerKey,
+    skip: (req) => !isEmojiReadRequest(req),
+  }),
+  limit({
     windowMs: 60_000,
     limit: 60,
-    standardHeaders: "draft-8",
-    legacyHeaders: false,
-    keyGenerator: (req) => {
-      const r = req as unknown as {
-        header(name: string): string | undefined;
-        ip?: string;
-      };
-      return (
-        issFromBearer(r.header("authorization")) ?? ipKeyGenerator(r.ip ?? "")
-      );
-    },
+    keyGenerator: viewerKey,
+    skip: (req) => isEmojiReadRequest(req),
   }),
   xrpc,
 );
 app.get(
   "/api/standard-site/publication/:did",
-  rateLimit({
-    windowMs: 60_000,
-    limit: 60,
-    standardHeaders: "draft-8",
-    legacyHeaders: false,
-  }),
+  limit({ windowMs: 60_000, limit: 60 }),
   getStandardSitePublication,
 );
 app.get(
   "/api/blob/:did/:cid",
-  rateLimit({
-    windowMs: 60_000,
-    limit: 120,
-    standardHeaders: "draft-8",
-    legacyHeaders: false,
-  }),
+  limit({ windowMs: 60_000, limit: 120 }),
   getBlob,
 );
 // プレイリスト1回とセグメント数本で1再生。タイムラインのサムネイルもここを通る。
 app.get(
   "/api/video/:did/:cid/:file",
-  rateLimit({
-    windowMs: 60_000,
-    limit: 300,
-    standardHeaders: "draft-8",
-    legacyHeaders: false,
-  }),
+  limit({ windowMs: 60_000, limit: 300 }),
   getVideo,
 );
 app.get(
@@ -128,12 +100,7 @@ app.get(
     res.set(emojiAssetNoStoreHeaders());
     next();
   },
-  rateLimit({
-    windowMs: 60_000,
-    limit: config.emojiAssetRateLimit,
-    standardHeaders: "draft-8",
-    legacyHeaders: false,
-  }),
+  limit({ windowMs: 60_000, limit: config.emojiAssetRateLimit }),
   getEmojiAsset,
 );
 app.use(notFound);
@@ -175,7 +142,7 @@ const emojiGenerationWorker = startWorkerLoop({
 // 開発補助は config.dev に集約してあるので、この1行が「何が開いているか」の一覧になる。
 if (config.dev) {
   console.warn(
-    `[dev] development mode is ON (trustViewerHeader=${config.devTrustViewer}). Never run production like this.`,
+    `[dev] development mode is ON (trustViewerHeader=${config.devTrustViewer}, rateLimit=${config.rateLimitEnabled}). Never run production like this.`,
   );
 }
 const onListen = () =>
