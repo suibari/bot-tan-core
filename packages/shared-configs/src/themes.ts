@@ -108,7 +108,7 @@ export function getThemeDef(
   return THEME_BY_KEY.get(themeKey({ volume, id }));
 }
 
-/** 決定論的な擬似乱数（mulberry32）。巡回ごとの並べ替えにだけ使う。 */
+/** 決定論的な擬似乱数（mulberry32）。同じ日付なら同じ選択になるようにだけ使う。 */
 function mulberry32(seed: number): () => number {
   let a = seed >>> 0;
   return () => {
@@ -120,41 +120,65 @@ function mulberry32(seed: number): () => number {
   };
 }
 
-/**
- * 巡回番号 cycle における出題順（THEME_DEFS の添字の並べ替え）。
- *
- * 素朴に `日付 % お題数` にすると、お題数が7の倍数のとき（初段はちょうど42件）
- * **各お題が永久に同じ曜日に出続ける**。巡回ごとにシードを変えて並べ替えることで、
- * 「1巡でぜんぶ1回ずつ出る」を保ったまま曜日の固定を壊す。
- */
-function orderForCycle(count: number, cycle: number): number[] {
-  const order = Array.from({ length: count }, (_, i) => i);
-  const rand = mulberry32(cycle * 2654435761 + count);
-  // Fisher-Yates。cycle と count が同じなら常に同じ並びになる。
-  for (let i = count - 1; i > 0; i--) {
-    const j = Math.floor(rand() * (i + 1));
-    [order[i], order[j]] = [order[j], order[i]];
-  }
-  return order;
+/** これまでに焼き付けたお題の履歴（nagi.zenkatsu_daily の行）。 */
+export interface ThemeHistoryEntry {
+  themeDate: string;
+  volume: number;
+  id: number;
 }
 
 /**
- * その日付に割り当てるお題を決める。
+ * 出たことのあるお題から選ぶとき、古い順に並べた先頭のこの割合を候補にする。
  *
- * **この関数の結果を保存せずに使い回してはいけない。** お題を JSON に足すと
- * 割り当てが変わるので、過去の日付を後から解決し直すと違うお題が返る
- * （日付パーマリンクでさかのぼれる設計なので、それはアーカイブの破壊になる）。
+ * 「いちばん古い1件」に絞らないのは、それだと2巡目以降が1巡目と同じ順番の繰り返しになり、
+ * お題数が7の倍数なら各お題が永久に同じ曜日に出続けるため。先頭4分の1から選べば、
+ * 再登場までの間隔はおおむね「お題数の4分の3」以上を保ったまま、順番は毎巡崩れる。
+ */
+const RECENT_POOL_RATIO = 0.25;
+
+/**
+ * その日付に割り当てるお題を、これまでの履歴から決める。
  *
- * 正しい使い方は「その日を初めて開いたときに1度だけ呼び、結果を nagi.zenkatsu_daily へ
- * 焼き付ける」こと。以後は DB の値を読む。カード番号を変更禁止にしているのと同じ理屈。
+ * 1. **まだ一度も出ていないお題を優先する。** JSON にお題を足すと、それが先に出る
+ * 2. 全部出ていたら、最後に出た日が古いものから選ぶ（直前に出たお題はすぐには戻らない）
+ *
+ * 以前は「日付から巡回を計算する」方式だったが、お題を足すと件数が変わって巡回が
+ * 途中で組み直され、最近出たお題がすぐまた出たり、足したお題がいつまでも出なかったりした。
+ *
+ * **結果は保存して使うこと。** 履歴が変われば結果も変わるので、その日を初めて開いたときに
+ * 1度だけ呼び、nagi.zenkatsu_daily へ焼き付ける。以後は DB の値を読む。
  *
  * @param themeDate JST 4:00 始まりの "YYYY-MM-DD"（cardDrawDate と同じ日付キー）
+ * @param history 焼き付け済みのお題。themeDate 以降の行は無視する
  */
-export function themeForDate(themeDate: string): ThemeDefinition {
-  const count = THEME_DEFS.length;
+export function pickThemeForDate(
+  themeDate: string,
+  history: readonly ThemeHistoryEntry[],
+  defs: readonly ThemeDefinition[] = THEME_DEFS,
+): ThemeDefinition {
   const day = dayIndexOfDateKey(themeDate);
-  // 負の日付（1970年より前）でも剰余が負にならないようにする。
-  const cycle = Math.floor(day / count);
-  const pos = ((day % count) + count) % count;
-  return THEME_DEFS[orderForCycle(count, cycle)[pos]];
+  const lastUsed = new Map<string, string>();
+  for (const entry of history) {
+    if (entry.themeDate >= themeDate) continue;
+    const key = themeKey(entry);
+    const prev = lastUsed.get(key);
+    if (prev === undefined || entry.themeDate > prev)
+      lastUsed.set(key, entry.themeDate);
+  }
+
+  const unused = defs.filter((theme) => !lastUsed.has(themeKey(theme)));
+  let pool: readonly ThemeDefinition[];
+  if (unused.length) {
+    pool = unused;
+  } else {
+    // 古い順。同じ日付は定義順で並べて、結果を決定論にする。
+    const byAge = [...defs].sort((a, b) => {
+      const da = lastUsed.get(themeKey(a))!;
+      const db = lastUsed.get(themeKey(b))!;
+      return da < db ? -1 : da > db ? 1 : 0;
+    });
+    pool = byAge.slice(0, Math.max(1, Math.floor(defs.length * RECENT_POOL_RATIO)));
+  }
+  const rand = mulberry32(day * 2654435761 + defs.length);
+  return pool[Math.floor(rand() * pool.length)];
 }
