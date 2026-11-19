@@ -25,3 +25,6 @@ docs/evaluations/reply-grounding/**/result.json
 docs/evaluations/reply-grounding/**/review.md
 docs/evaluations/reply-grounding/**/review-key.txt
 docs/evaluations/reply-grounding/**/resonance-check.md
+
+# 検索 gateway の1日の使用量（searxng/compose.yml）
+searxng/data/

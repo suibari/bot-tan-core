@@ -8,6 +8,7 @@ import {
   jetstreamActivityPart,
   jetstreamEndpointPart,
   ollamaPlacementPart,
+  searchBudgetHealthPart,
   servicePart,
   upstreamPart,
   type HealthPart,
@@ -145,4 +146,15 @@ test("LLM配置・回復・未ロード・監視停止を区別する", () => {
   assert.equal(ollamaPlacementPart(record({ placement: "unloaded" })).state, "unknown");
   assert.equal(ollamaPlacementPart(record({ placement: "mixed", gpuPercent: NaN })).state, "unknown");
   assert.equal(ollamaPlacementPart({ lastOkAt: new Date(Date.now() - 200_000).toISOString() }).state, "down");
+});
+
+test("検索の無料枠は残りがあれば ok、全部使い切ったら stale（壊れてはいない）", () => {
+  const limits = { tavily: 32, exa: 80 };
+  const ok = searchBudgetHealthPart({ day: "2026-11-19", used: { tavily: 32, exa: 5 }, limits });
+  assert.equal(ok.state, "ok");
+  assert.equal(ok.message, "今日 tavily 32/32、exa 5/80");
+  const spent = searchBudgetHealthPart({ day: "2026-11-19", used: { tavily: 32, exa: 80 }, limits });
+  assert.equal(spent.state, "stale");
+  assert.match(spent.lastError ?? "", /使い切った/);
+  assert.equal(searchBudgetHealthPart(undefined).state, "unknown");
 });

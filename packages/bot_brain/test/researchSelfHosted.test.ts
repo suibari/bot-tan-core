@@ -413,3 +413,33 @@ test("subjectCoverage は表記ゆれを吸収し、無関係な文章を低く�
   assert.ok(subjectCoverage("something crazy in a park", "Parks offer picnics and hiking.") < 0.6);
   assert.equal(subjectCoverage("Nagi作品部", "Where to go in summer: travel ideas"), 0);
 });
+
+test("知識カードは Wikipedia に対象の記事があれば Web 検索しない", async () => {
+  // Web 検索は API の毎月の無料枠でまかなうので、Wikipedia で足りる語には使わない（2026-11-19）。
+  const gathered: { queries: string[]; urls: string[] }[] = [];
+  stubFetch({ summary: { overview: "超融合は遊戯王OCGの速攻魔法です。", sections: [] } });
+  const research = await researchKnowledgeCardSelfHosted("超融合", {
+    wikipediaUrls: async () => ["https://ja.wikipedia.org/wiki/%E8%B6%85%E8%9E%8D%E5%90%88"],
+    gather: async (input) => {
+      gathered.push({ queries: input.queries, urls: input.urls });
+      return { sources: [{ title: "超融合", url: input.urls[0], body: "超融合は遊戯王OCGの速攻魔法カード。" }], infoboxes: [], searchDegraded: false };
+    },
+  });
+  assert.deepEqual(gathered, [{ queries: [], urls: ["https://ja.wikipedia.org/wiki/%E8%B6%85%E8%9E%8D%E5%90%88"] }]);
+  assert.match(research, /^概要\n超融合は/);
+});
+
+test("Wikipedia の記事が対象の話でなければ Web 検索へ進む", async () => {
+  const gathered: { queries: string[]; urls: string[] }[] = [];
+  stubFetch({ summary: { overview: "超融合は遊戯王OCGの速攻魔法です。", sections: [] } });
+  await researchKnowledgeCardSelfHosted("超融合", {
+    wikipediaUrls: async () => ["https://ja.wikipedia.org/wiki/HCI"],
+    gather: async (input) => {
+      gathered.push({ queries: input.queries, urls: input.urls });
+      return input.urls.length
+        ? { sources: [{ title: "ハイパーコンバージドインフラ", url: input.urls[0], body: "サーバーとストレージを統合する。" }], infoboxes: [], searchDegraded: false }
+        : { sources: [{ title: "《超融合》", url: "https://93.184.216.34/x", body: "超融合は速攻魔法。" }], infoboxes: [], searchDegraded: false };
+    },
+  });
+  assert.deepEqual(gathered.map((item) => item.queries), [[], ["超融合"]]);
+});

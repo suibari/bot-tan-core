@@ -5,7 +5,7 @@ import {
   type UserInfoGemini,
 } from "@bsky-affirmative-bot/shared-configs";
 import { generateContentForProvider, normalizeJsonSchema } from "./generationClient.js";
-import { searxngSearch, type SearchHit } from "../api/searxng/index.js";
+import { gatewayWikipediaQuery, searxngSearch, type SearchHit } from "../api/searxng/index.js";
 
 /**
  * リプライのその場調べ。
@@ -20,14 +20,16 @@ import { searxngSearch, type SearchHit } from "../api/searxng/index.js";
  * 1. 申告: 返信は書かせず、投稿の中の「知らない固有名詞」とそのジャンルだけを短く返させる
  *    （実測 中央値1.4秒）。ジャンルが付くので「トリシューラ」を「遊戯王」の語として調べられる。
  * 2. 記憶: 同じ語・同じジャンルの知識カードがあればそれを使い、検索しない。
- * 3. Web: 最初の1語は自前 SearXNG で「語 ジャンル」を検索し、上位の抜粋を使う（カード Wiki など。
- *    略称も検索エンジンが正式名へ解決する）。1件の返信につき1語、1日の上限つき。
- * 4. Wikipedia: 2語目以降と Web で取れなかった語は Wikipedia で引き、抜粋か本文の語の周辺を使う。
+ * 3. Wikipedia: 「語 ジャンル」で引き、抜粋か本文の語の周辺を使う。
  *    LLM の要約は挟まない（ローカル推論が1回増えて遅くなるため）。
+ * 4. Web: Wikipedia で取れなかった最初の1語だけ、Web 検索 API の抜粋を使う（カード Wiki など。
+ *    略称も検索エンジンが正式名へ解決する）。1件の返信につき1語、1日の上限つき。
  * 5. 結果を返信の材料（researchMemory）に入れ、公開の文脈なら知識カードとして保存する。
  *
- * Web 検索（自前 SearXNG）は、IPv6 で出すようにして Yahoo の汚染が直った（2026-11-08）ので
- * 使う。最初に調べる1語だけ、1日の上限つき。結果の中身は searxngRelevance.ts が監視している。
+ * 【Wikipedia が先】Web 検索は API の毎月の無料枠（gateway 全体で1日110回ほど）でまかなう
+ * （2026-11-19 に SearXNG から切り替え）。以前は Web を先にしていたが、無料枠に収めるため、
+ * Wikipedia で取れなかった語だけに使う。gateway の間隔を1秒から0.3秒に縮めたので、
+ * Wikipedia（検索＋本文）→ Web の順でも締め切りに収まる。
  *
  * 【守ること】
  * - 外へ出すのは語とジャンルだけ。投稿本文は検索に渡さない（申告はローカル LLM）。
@@ -98,19 +100,32 @@ const MAX_SEARCH_TERMS = 2;
  *
  * 検索はスクレイピングで、量が多いと上流にボットとして目を付けられる。自宅の IPv4 は
  * 1日300回前後のスクレイピングを数週間続けたあと、Yahoo に汚染された結果を返されるように
- * なった（2026-11）。今は IPv6 で出しているが、同じことを繰り返さないよう Wikipedia で
- * 取れなかった語だけに使い、量を絞る。上限はプロセスごと（nagi-bot と bsky-bot で別々に数える）。
+ * なった（2026-11）。今は Web 検索 API の無料枠でまかなうので、Wikipedia で取れなかった語だけに
+ * 使い、量を絞る。上限はプロセスごと（nagi-bot と bsky-bot で別々に数える）。gateway 全体の
+ * 1日の上限とは別で、ここで絞るのは知識カードなど他の用途の分を残すため。
  */
 const MAX_WEB_SEARCHES_PER_REPLY = 1;
 /** Wikipedia の本文を取りに行くのに必要な残り時間。足りなければ抜粋だけで判断する。 */
 const EXTRACT_MIN_REMAINING_MS = 2_500;
-const DEFAULT_WEB_DAILY_LIMIT = 50;
+/**
+ * まだ Web 検索へ回せる語では、Web の分の時間を残す。Wikipedia の本文取得は大きい記事だと
+ * 2秒近くかかり、取った末に語が無ければ Web へ行く前に締め切りを迎えていた
+ * （「グレイドル」で実測、2026-11-19）。Exa lite は約0.3秒＋gateway の間隔。
+ */
+const WEB_RESERVE_MS = 1_500;
+const DEFAULT_WEB_DAILY_LIMIT = 30;
 
 let webBudget = { day: "", used: 0 };
 
 function webDailyLimit(): number {
   const raw = Number(process.env.AI_LIVE_RESEARCH_WEB_DAILY);
   return Number.isFinite(raw) && raw >= 0 ? raw : DEFAULT_WEB_DAILY_LIMIT;
+}
+
+/** 今日の Web 検索の枠が残っているか（使わずに見るだけ）。 */
+function webBudgetLeft(now = new Date()): boolean {
+  const day = now.toISOString().slice(0, 10);
+  return webBudget.day !== day || webBudget.used < webDailyLimit();
 }
 
 /** 今日の Web 検索の枠を1つ使う。使い切っていれば false。 */
@@ -293,12 +308,6 @@ export function excerptsAround(text: string, term: string): string[] {
   return excerpts;
 }
 
-function gatewayBase(): string {
-  const base = process.env.SEARXNG_BASE_URL?.trim();
-  if (!base) throw new Error("SEARXNG_BASE_URL is not configured");
-  return base.replace(/\/+$/, "");
-}
-
 /**
  * 投稿の言語に対応する Wikipedia の言語版。分からなければ日本語版。
  *
@@ -310,22 +319,8 @@ export function wikipediaLanguage(langStr: UserInfoGemini["langStr"]): string {
   return languageData.find((item) => item.name === langStr)?.code ?? "ja";
 }
 
-async function wikipediaQuery(params: Record<string, string>, signal: AbortSignal, language = "ja"): Promise<any> {
-  if (!/^[a-z]{2,3}$/.test(language)) throw new Error(`Unsupported Wikipedia language: ${language}`);
-  const url = new URL(`${gatewayBase()}/wikipedia/${language}`);
-  for (const [key, value] of Object.entries({ action: "query", format: "json", ...params })) {
-    url.searchParams.set(key, value);
-  }
-  const response = await fetch(url, {
-    headers: {
-      accept: "application/json",
-      "X-Search-Source": "live-research",
-      ...(process.env.SEARXNG_API_KEY ? { Authorization: `Bearer ${process.env.SEARXNG_API_KEY}` } : {}),
-    },
-    signal,
-  });
-  if (!response.ok) throw new Error(`Wikipedia gateway HTTP ${response.status}`);
-  return response.json();
+function wikipediaQuery(params: Record<string, string>, signal: AbortSignal, language = "ja"): Promise<any> {
+  return gatewayWikipediaQuery(language, params, { source: "live-research", signal });
 }
 
 /** 検索結果の抜粋（HTML のハイライトと実体参照を含む）をただの文字列にする。 */
@@ -441,15 +436,14 @@ function cardText(card: LiveResearchCard): string {
 }
 
 /**
- * その場調べの Web 検索で使うエンジン。既定は yahoo だけ。
+ * その場調べの Web 検索で先に使う API（gateway の engines= が優先順になる）。
  *
- * SEARXNG_ENGINES の既定には wikipedia / wikidata が入っているが、SearXNG の中のこの2つは
- * 要約枠（infobox）しか返さず、抜粋を使うその場調べには要らない（Wikipedia は API で直接引く）。
- * しかも wikidata が「too many requests」を返すと、ゲートウェイは出口全体を180秒止める。
- * 評価中に実際に起き、その3分間は本番の検索も止まった（2026-11-08）。
+ * Exa lite が先。応答が約0.3秒で、Tavily（1.3〜2秒）だと申告と Wikipedia を合わせて
+ * 5秒の締め切りに収まらない。その場調べは必ず「語 ジャンル」で引くので、語だけの検索で
+ * 弱い Exa lite でも評価は32/32だった（docs/evaluations/search-api/、2026-11-19）。
  */
 function webEngines(): string {
-  return process.env.AI_LIVE_RESEARCH_WEB_ENGINES?.trim() || "yahoo";
+  return process.env.AI_LIVE_RESEARCH_WEB_ENGINES?.trim() || "exa,tavily";
 }
 
 /** 検索結果の抜粋の先頭に付く日付（「1 day ago · 」「Oct 2, 2026 · 」）を外す。 */
@@ -608,30 +602,27 @@ export async function runLiveResearch(
         }
         if (searched >= MAX_SEARCH_TERMS) continue;
         searched++;
-        // 最初に調べる語は Web 検索（抜粋1回）を先にする。カード名のような細かい語は Wikipedia に
-        // 載っていないことが多く、Wikipedia を先にすると検索＋本文取得の待ち（ゲートウェイは
-        // 1リクエストごとに1秒空ける）で締め切りを使い切っていた（評価で33件中12件が時間切れ）。
-        // Web 検索は1件の返信につき1語、1日の上限つき。2語目以降と、Web で取れなかった語は Wikipedia。
-        let source: LiveResearchCard["source"] = "web";
-        let result: { content: string; titles: string[] } | null = null;
-        if (webSearched < MAX_WEB_SEARCHES_PER_REPLY && takeWebBudget()) {
+        // Wikipedia を先に引き、取れなかった語だけ Web 検索へ回す（Web は API の無料枠でまかなう）。
+        // Web 検索は1件の返信につき1語、1日の上限つき。
+        let source: LiveResearchCard["source"] = "wikipedia";
+        // 本文の取得は、残り時間が十分あるときだけ（抜粋で足りなければ本文を1記事取る＝もう1往復）。
+        const webPossible = webSearched < MAX_WEB_SEARCHES_PER_REPLY && webBudgetLeft();
+        const allowExtract = deadlineAt - now() > EXTRACT_MIN_REMAINING_MS + (webPossible ? WEB_RESERVE_MS : 0);
+        let result: { content: string; titles: string[] } | null = await (deps.searchWikipedia ?? searchWikipediaExcerpt)(
+          item.term, item.context, controller.signal, language, allowExtract,
+        ).catch((error) => {
+          if (!controller.signal.aborted) {
+            console.warn("[WARN][LIVE_RESEARCH] Wikipedia を引けなかった", error instanceof Error ? error.message : error);
+          }
+          return null;
+        });
+        if (!result && !controller.signal.aborted && webSearched < MAX_WEB_SEARCHES_PER_REPLY && takeWebBudget()) {
           webSearched++;
+          source = "web";
           result = await (deps.searchWeb ?? searchWebExcerpt)(item.term, item.context, controller.signal, language)
             .catch((error) => {
               if (!controller.signal.aborted) {
                 console.warn("[WARN][LIVE_RESEARCH] Web 検索に失敗", error instanceof Error ? error.message : error);
-              }
-              return null;
-            });
-        }
-        if (!result && !controller.signal.aborted) {
-          source = "wikipedia";
-          // 本文の取得は、残り時間が十分あるときだけ（抜粋で足りなければ本文を1記事取る＝さらに1秒以上）。
-          const allowExtract = deadlineAt - now() > EXTRACT_MIN_REMAINING_MS;
-          result = await (deps.searchWikipedia ?? searchWikipediaExcerpt)(item.term, item.context, controller.signal, language, allowExtract)
-            .catch((error) => {
-              if (!controller.signal.aborted) {
-                console.warn("[WARN][LIVE_RESEARCH] Wikipedia を引けなかった", error instanceof Error ? error.message : error);
               }
               return null;
             });

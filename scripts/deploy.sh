@@ -64,7 +64,7 @@ if echo "$DIFF_FILES" | grep -q "apps/nagi_appview/"; then
     RESTART_NAGI_APPVIEW=true
 fi
 
-# SearXNG は grounding の検索段。唯一 systemd ではなく Docker で動かしている。
+# 検索 gateway（searxng/）。唯一 systemd ではなく Docker で動かしている。
 if echo "$DIFF_FILES" | grep -Eq "^searxng/|^scripts/deploy-searxng\.sh$"; then
     RESTART_SEARXNG=true
 fi
@@ -95,7 +95,7 @@ if [ "$RESTART_SEARXNG" = true ]; then
 fi
 if ! bash scripts/deploy-searxng.sh "${SEARXNG_ARGS[@]}"; then
     SEARXNG_FAILED=true
-    echo "⚠️ SearXNG の更新に失敗。他のサービスは続行する。" >&2
+    echo "⚠️ 検索 gateway の更新に失敗。他のサービスは続行する。" >&2
 fi
 
 if [ "$RESTART_BIO" = true ]; then

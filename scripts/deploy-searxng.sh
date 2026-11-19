@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Git差分にかかわらず毎デプロイ実行する。上流イメージの更新はGit差分には出ない。
+# 検索 gateway（searxng/compose.yml）の更新。Git差分にかかわらず毎デプロイ実行する。
+# 上流イメージ（python:3.13-alpine）の更新はGit差分には出ない。
 set -euo pipefail
 
 PROJECT_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -19,9 +20,15 @@ if ! docker info >/dev/null 2>&1; then
     fi
 fi
 
+# gateway は1日の使用量を ./data に書く。リポジトリの持ち主の UID で動かす。
+mkdir -p data
+export GATEWAY_UID GATEWAY_GID
+GATEWAY_UID="$(id -u)"
+GATEWAY_GID="$(id -g)"
+
 # pull失敗時はupへ進まず、稼働中のコンテナを維持する。
 "${DOCKER[@]}" compose config --quiet
-echo "🔎 Checking SearXNG / gateway images..."
+echo "🔎 Checking gateway image..."
 "${DOCKER[@]}" compose pull
 
 # 新イメージやcompose設定の変更はupが検知する。bind mountの内容変更だけは
@@ -32,17 +39,10 @@ case "${1:-}" in
     "") ;;
     *) echo "Unknown argument: $1" >&2; exit 1 ;;
 esac
-# ネットワークの設定（IPv6 の有効化など）は up では作り直されない。稼働中のネットワークが
-# IPv6 無効なら、一度 down してネットワークごと作り直す（止まるのは数秒）。
-NETWORK="$("${DOCKER[@]}" inspect nagi-searxng --format '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}}{{end}}' 2>/dev/null || true)"
-if [ -n "$NETWORK" ] && [ "$("${DOCKER[@]}" network inspect "$NETWORK" --format '{{.EnableIPv6}}' 2>/dev/null)" != "true" ]; then
-    echo "🔁 ネットワーク $NETWORK が IPv6 無効のため作り直します"
-    "${DOCKER[@]}" compose down
+# SearXNG をやめた（2026-11-19）ときの移行。旧構成のコンテナと IPv6 ネットワークが残っていれば、
+# 一度 down して作り直す（止まるのは数秒）。
+if "${DOCKER[@]}" inspect nagi-searxng >/dev/null 2>&1; then
+    echo "🔁 旧 SearXNG を止めて、gateway だけの構成に作り直します"
+    "${DOCKER[@]}" compose down --remove-orphans
 fi
-"${DOCKER[@]}" compose up -d --pull never "${RECREATE[@]}" --wait --wait-timeout 90
-"${DOCKER[@]}" inspect nagi-searxng --format \
-    'SearXNG version={{index .Config.Labels "org.opencontainers.image.version"}} image={{.Image}} created={{.Created}}'
-# 外へ出る経路の確認。IPv4 で出ていたら汚染された結果が返る（compose.yml のコメント参照）。
-"${DOCKER[@]}" exec nagi-searxng /usr/local/searxng/.venv/bin/python -c \
-    "from curl_cffi import requests as r; print('SearXNG egress=' + r.get('https://ifconfig.me/ip', impersonate='chrome', interface='::', timeout=10).text)" \
-    || echo "⚠️ SearXNG の外向き IPv6 を確認できませんでした" >&2
+"${DOCKER[@]}" compose up -d --pull never --remove-orphans "${RECREATE[@]}" --wait --wait-timeout 90
