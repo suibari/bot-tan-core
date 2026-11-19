@@ -411,8 +411,8 @@ test("Web 検索は抜粋を材料にし、日付の前置きと URL は入れ�
   assert.equal(asked.query, "トリシューラ 遊戯王");
   assert.equal(asked.source, "live-research");
   assert.equal(asked.language, "ja");
-  // wikidata の制限でゲートウェイ全体が止まるので、抜粋を返すエンジンだけに送る。
-  assert.equal(asked.engines, "yahoo");
+  // 締め切りに収めるため、速い Exa lite を先に使うよう gateway へ頼む。
+  assert.equal(asked.engines, "exa,tavily");
   assert.match(found?.content ?? "", /「遊戯王カードWiki - 《氷結界の龍 トリシューラ》」より: 《氷結界の還零龍/);
   assert.doesNotMatch(found?.content ?? "", /1 day ago|https?:/);
   assert.doesNotMatch(found?.content ?? "", /シヴァ/, "ジャンルの語が出ない結果（一般的な意味）は使わない");
@@ -433,8 +433,8 @@ test("ジャンルが空なら、語が出ている結果だけを使う", async
   assert.match(found?.content ?? "", /energy drink contains caffeine/);
 });
 
-test("最初の語は Web 検索を先にし、2語目以降は Wikipedia で引く（Web は1件の返信につき1語）", async () => {
-  // Wikipedia を先にすると、検索＋本文取得の待ちで締め切りを使い切っていた（33件中12件）。
+test("Wikipedia を先に引き、取れなかった最初の1語だけ Web 検索へ回す（Web は1件の返信につき1語）", async () => {
+  // Web 検索は API の毎月の無料枠でまかなうので、Wikipedia に無い語だけに使う（2026-11-19）。
   resetLiveResearchWebBudget();
   const calls: string[] = [];
   const result = await runLiveResearch(userinfo({ persistLiveResearch: true }), {
@@ -450,11 +450,11 @@ test("最初の語は Web 検索を先にし、2語目以降は Wikipedia で引
     },
     saveCard: async () => {},
   });
-  assert.deepEqual(calls, ["web:トリシューラ", "wiki:氷水"]);
+  assert.deepEqual(calls, ["wiki:トリシューラ", "web:トリシューラ", "wiki:氷水"]);
   assert.deepEqual(result.cards.map((card) => [card.term, card.source]), [["トリシューラ", "web"]]);
 });
 
-test("Web で取れなければ同じ語を Wikipedia で引く", async () => {
+test("Wikipedia で取れた語には Web 検索を使わない", async () => {
   resetLiveResearchWebBudget();
   const calls: string[] = [];
   const result = await runLiveResearch(userinfo(), {
@@ -469,7 +469,7 @@ test("Web で取れなければ同じ語を Wikipedia で引く", async () => {
       return { content: "Wikipedia「遊☆戯☆王」より: 3体の神の中で頂点に君臨するカード", titles: ["遊☆戯☆王"] };
     },
   });
-  assert.deepEqual(calls, ["web:ラーの翼神竜", "wiki:ラーの翼神竜"]);
+  assert.deepEqual(calls, ["wiki:ラーの翼神竜"]);
   assert.deepEqual(result.cards.map((card) => card.source), ["wikipedia"]);
 });
 
@@ -491,6 +491,27 @@ test("残り時間が足りなければ Wikipedia の本文は取らない（抜
     },
   });
   assert.deepEqual(allowed, [false]);
+});
+
+test("Web 検索へ回せる語では、Web の分の時間を残して本文取得を控える", async () => {
+  resetLiveResearchWebBudget();
+  let clock = 0;
+  const allowed: boolean[] = [];
+  await runLiveResearch(userinfo(), {
+    now: () => clock,
+    plan: async () => {
+      clock = 1_400; // 締め切り5秒のうち残り3.6秒。本文取得の2.5秒＋Web の1.5秒には足りない
+      return [{ term: "グレイドル", context: "遊戯王" }, { term: "壊獣", context: "遊戯王" }];
+    },
+    findCards: async () => [],
+    searchWeb: async () => null,
+    searchWikipedia: async (_term, _context, _signal, _language, allowExtract) => {
+      allowed.push(allowExtract);
+      return null;
+    },
+  });
+  // 2語目はもう Web に回せない（1件の返信につき1語）ので、残り3.6秒で本文を取ってよい。
+  assert.deepEqual(allowed, [false, true]);
 });
 
 test("Web 検索は1日の上限を超えたら使わない", async () => {

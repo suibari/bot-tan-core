@@ -1,60 +1,76 @@
-# 検索・Wikipediaの共通出口（2026-09-27）
+# 検索・Wikipediaの共通出口（2026-09-27、2026-11-19 に Web 検索 API へ切り替え）
 
-本番は `192.168.1.200:8080` の共通APIだけを使う。SearXNG本体にはホストポートを
-割り当てない。220側のSearXNGは廃止し、bot-tan-calenderも200へ接続する。
+本番は `192.168.1.200:8080` の共通APIだけを使う。bot-tan-calender（220）も200へ接続する。
+Web 検索は **SearXNG ではなく、Web 検索 API の毎月の無料枠**で引く（Tavily → Exa lite）。
+経緯は末尾の「SearXNG をやめて Web 検索 API へ（2026-11-19）」。
 
 ```mermaid
 flowchart LR
   B[Bluesky / Nagi / リサーチ] --> G[200 共通出口API]
   C[220 calendar] --> G
-  G --> Q[共有キュー・キャッシュ]
-  Q --> S[SearXNG 検索]
+  G --> Q[共有キュー・キャッシュ・1日の上限]
+  Q --> S[Web 検索]
   Q --> W[Wikipedia 記事・カテゴリ取得]
-  S --> E[Yahoo / Bing / Wikipedia / Wikidata]
+  S --> E[Tavily / Exa lite]
 ```
 
 ## APIと制御
 
-- `GET /search?format=json&q=...`: SearXNG JSON API。既存の検索パラメータを受け付ける。
+- `GET /search?format=json&q=...`: 応答は SearXNG の JSON の形（`results` / `infoboxes` /
+  `unresponsive_engines`）。`provider` に答えた API の名前が入る。`engines=` に API の名前
+  （`exa,tavily`）を並べるとその順に使う。SearXNG のエンジン名（`yahoo` など）は無視する。
 - `GET /wikipedia/ja?action=query&format=json&...`: Wikipediaの読取専用API。
   言語部分は `en` 等も可。記事本文、検索、カテゴリ一覧だけを許可する。任意URLは受け付けない。
-- `GET /stats`: 呼び出し元別の件数、キャッシュ、共有、上流実行、混雑、429待機を確認する。
-- `GET /healthz`: APIとSearXNGの疎通のみ。**検索の関連性を保証しない**。
+  **Web 検索の無料枠を使わない。**
+- `GET /stats`: 呼び出し元別の件数、キャッシュ、共有、上流実行、混雑、429待機、
+  `budget`（API ごとの今日の使用量と上限）を確認する。
+- `GET /healthz`: gateway 自身の生存のみ。API は呼ばない。
 
 healthz以外は `Authorization: Bearer <SEARXNG_API_KEY>` が必要。
 クライアントの `X-Search-Source` は観測用で、キャッシュを分割しない。
 
-検索とWikipedia取得を同じワーカーで直列化し、**完了から次の開始まで最低1秒**空ける。
+検索とWikipedia取得を同じワーカーで直列化し、完了から次の開始まで `SEARCH_GATEWAY_INTERVAL`
+（既定0.3秒）空ける。SearXNG の頃はスクレイピングを控えめにするため1秒だったが、API と
+Wikipedia には要らず、その場調べの5秒の締め切りに Wikipedia と Web の両方を収めるために縮めた。
 同一URL（パラメータ順とqの前後空白を正規化）の進行中要求は共有する。
-応答は最大256件・合計16MiBまでキャッシュする。検索は5分、Wikipedia記事は6時間、
-エンジンの部分障害を含む検索応答は15秒に短縮する。
-HTTPエラー、不正JSON、Wikipedia APIエラーは成功キャッシュへ入れない。
+応答は最大256件・合計16MiBまでキャッシュする。検索は6時間（`SEARCH_CACHE_TTL`）、
+Wikipedia記事は6時間。HTTPエラー、不正JSON、Wikipedia APIエラーは成功キャッシュへ入れない。
 
 未完了の異なる要求は最大8件、キュー待ちは最大10秒、上流タイムアウトは15秒。
 期限切れの仕事は上流へ送らず503とする。呼び出し側のタイムアウトは30秒にする。
 HTTP待機スレッドも32本までに制限する。
 
-429はRetry-After（最大1時間、指定なしは180秒）、Wikipediaのratelimited / maxlagは180秒、
-出口全体を休ませる。SearXNGの中の1エンジンが「too many requests」を返したときは、そのエンジン
-だけを180秒休ませ、以後の `engines=` から取り除いて送る（頼まれたエンジンがすべて休み中なら
-そのリクエストだけ429）。以前は1エンジンの制限でも出口全体を止めており、2026-11-08 に
-wikidataの制限1回でYahooとWikipedia APIまで180秒止まった。`engines=` を付けない検索は
-SearXNGの既定エンジンに任せるので絞れない。休み中のエンジンは `/stats` の `engine_cooldowns`。休止中もキャッシュは返せる。
-新規の未キャッシュ要求は429になるため、呼び出し側は通常の取得失敗として扱い、
+### 1日の上限（無料枠）
+
+API ごとの上限は月の無料枠÷31。Tavily 1,000回 → 32回、Exa は $10 を lite（抜粋込みで1回 $0.004、
+2026-11-19 実測）で使って 80回。`TAVILY_DAILY_LIMIT` / `EXA_DAILY_LIMIT` で変えられる。
+使った回数は `searxng/data/budget.json` に残り、再起動してもその日の残りは増えない。日付は0時（JST）で替わる。
+
+- 先頭の API の枠が尽きたら次の API へ回る。API が「上限超過」（401/402/403/432/433）を返したら
+  その日は閉じる。通信エラーや 5xx は請求されないので枠を返す。
+- 全部尽きたら、翌0時まで `/search` は即座に 429 を返す（キャッシュにあれば返す）。
+  この 429 は出口全体の休止を起こさないので、**Wikipedia API は止まらない**。
+- 呼び出し側は通常の検索失敗として扱う。その場調べは Wikipedia の材料だけで返信し、
+  知識カードは「検索がまともに行えなかった」として後で再試行する。
+
+上流の 429（Retry-After、最大1時間、指定なしは180秒）と Wikipedia の ratelimited / maxlag（180秒）は、
+従来どおり出口全体を休ませる。新規の未キャッシュ要求は429になるため、呼び出し側は通常の取得失敗として扱い、
 直接接続や即時再試行で迂回しない。待機中の要求も10秒を超えたら破棄する。
 
-キュー・キャッシュ・休止状態は単一プロセスのメモリ内。**gatewayを複数台/複数プロセスで起動しない**。
-再起動でこれらの状態は消える。上流429直後の再起動で制限を解除する運用は避ける。
+キュー・キャッシュ・休止状態は単一プロセスのメモリ内（1日の使用量だけはファイル）。
+**gatewayを複数台/複数プロセスで起動しない**。
 
 ## 接続設定
 
 `searxng/.env`:
 
 ```dotenv
-SEARXNG_SECRET=<SearXNGのsecret>
 SEARCH_GATEWAY_API_KEY=<openssl rand -hex 32で生成>
 SEARCH_GATEWAY_BIND=192.168.1.200
 SEARXNG_PORT=8080
+WEB_SEARCH_PROVIDERS=tavily,exa
+TAVILY_API_KEY=<Tavily のキー>
+EXA_API_KEY=<Exa のキー>
 ```
 
 両PJの `.env`:
@@ -62,13 +78,13 @@ SEARXNG_PORT=8080
 ```dotenv
 SEARXNG_BASE_URL=http://192.168.1.200:8080
 SEARXNG_API_KEY=<上のSEARCH_GATEWAY_API_KEYと同じ値>
-SEARXNG_ENGINES=yahoo,bing,wikipedia,wikidata
+SEARXNG_ENGINES=yahoo,bing,wikipedia,wikidata   # SearXNG 時代の名残。gateway は無視する
 ```
 
 bsky側は `SEARXNG_TIMEOUT_MS=30000`、calendar側は `SEARXNG_TIMEOUT_S=30`。
 LAN外へ公開しない。キーはログやコマンド引数へ出さない。
 `scripts/deploy.sh` は毎回 `scripts/deploy-searxng.sh` を実行し、Git差分の有無にかかわらず
-SearXNGの `latest` とgatewayのイメージをpullする。新イメージがあればComposeが更新する。
+gatewayのイメージをpullする。新イメージがあればComposeが更新する。
 `searxng/` または更新スクリプトに差分があれば、bind mountの変更も反映するため再作成する。
 変更がなければ稼働中コンテナを維持する。更新後はhealthcheckを待ち、版とimage IDを記録する。
 pull失敗時は再作成せず、他appsのデプロイを続行した後、全体を非ゼロで終了する。
@@ -211,11 +227,43 @@ YahooもBingの索引を使うので、索引の多様化ではない。Bingの�
   2026-11-09 の down 2回は、1語目の timeout で Yahoo が Suspended になり残り2語が巻き添えで
   0件になった誤報だった。
 
+## SearXNG をやめて Web 検索 API へ（2026-11-19）
+
+IPv6 へ移したあとも、11/14 02:54 JST から関連性監視が落ち始め、11/14 22:18 以降は Yahoo が
+ずっと無関係な結果を返した（「葬送のフリーレン」→「Walmart Supercenter」など）。知識カードの
+「関連あり」は 11/08〜13 の 49〜90% から 4〜16% に落ちた。SearXNG を通さず curl で叩くと、
+本番機は IPv4 / IPv6 とも HTTP 500。開発機（同じ IPv4、IPv6 も同じ /64）は最初の数回だけ正常で、
+約20回で 500 に変わった。アドレス1つではなく /64 か回線全体が目を付けられたと見ている。
+IPv6 化と同じ 11/08 にその場調べの Web 検索も入り、gateway の検索は1日330〜400回あった。
+
+同じ回線からスクレイピングする限り繰り返すので、Web 検索 API に替えた。比較
+（`pnpm search-api:compare`、結果は `docs/evaluations/search-api/`）:
+
+| API | 語だけ | 語＋文脈語 | 応答 | 毎月の無料枠 | 結果の保存 |
+|---|---|---|---|---|---|
+| Brave | 31/32 | 32/32 | 0.58秒 | 約1,000回 | 規約 §3(b)(i) で一時的な保存以外は禁止 |
+| Tavily | 29/32 | 31/32 | 1.3秒 | 1,000回 | 禁止する条文なし |
+| Exa lite | 22/32 | 32/32 | 0.28秒 | 約2,500回 | §4.2(a) は定型の広い禁止（API にも文字どおり当てはめると使えない） |
+| Serper | 29/32 | 30/32 | 1.4秒 | 補充なし（初回2,500回だけ） | — |
+
+無料のまま続ける方針なので Serper は外した。知識カードは結果から作った要約を DB に残すので、
+Brave は使わない。Tavily を先、Exa lite を後にする。ただしその場調べは5秒の締め切りがあるので、
+`engines=exa,tavily` で速い Exa lite を先にする（必ず「語 ジャンル」で引くので、Exa lite でも32/32）。
+
+無料枠（1日約110回）に収めるため、量も減らした。
+
+- Nagi ラジオの曲の豆知識は Web 検索をやめ、Wikipedia の全文検索だけにした（1日約120回）。
+- 関連性の監視（`searxngRelevance.ts`）は削除。API は汚染されないので要らない。
+  ダッシュボードの Web 検索タイルには、代わりに今日の使用量（「検索の無料枠」）を出す。
+- その場調べと知識カードは Wikipedia を先に引き、取れなかった語だけ Web 検索へ回す。
+  その場調べの Web 検索はプロセスごとに1日30回まで（`AI_LIVE_RESEARCH_WEB_DAILY`）。
+
 ## 検証
 
 ```sh
 python3 -B -m unittest discover -s searxng -p 'test_*.py' -v
 ```
 
-独立したクライアントプロセスからの検索/Wikipedia混在リクエストで実時間の1秒間隔を確認する。
-キャッシュ、進行中共有、期限切れ破棄、上限、429、認証、許可先の限定もテストする。
+独立したクライアントプロセスからの検索/Wikipedia混在リクエストで実時間の間隔を確認する。
+キャッシュ、進行中共有、期限切れ破棄、上限、429、認証、許可先の限定、1日の上限（翌日の戻り・
+再起動をまたいだ保持・上限超過で閉じる・通信エラーで返す）、API の切り替えもテストする。

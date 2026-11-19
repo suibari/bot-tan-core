@@ -1,9 +1,10 @@
 /**
- * 自宅ホストの SearXNG を叩く検索クライアント。
+ * 共通の検索 gateway（searxng/gateway.py）を叩く検索クライアント。
  *
- * grounding の調査段を Gemini + Google Search から置き換えるためのもの。API キーも
- * アカウントも要らないので、利用者が第三者サービスの規約に同意する関係が生まれない
- * （18歳以上要件の根拠だった Gemini 規約を外すのが目的）。
+ * もとは自宅の SearXNG を叩いていた。2026-11-19 に gateway の中身を Web 検索 API
+ * （Tavily → Exa lite、毎月の無料枠）へ替えたが、応答は SearXNG の JSON の形のままなので
+ * ここの名前と環境変数（SEARXNG_*）は互換のため残している。
+ * 無料枠を使い切った日は gateway が HTTP 429 を返す（呼び出し側は通常の検索失敗として扱う）。
  *
  * 【重要】ここで叩く先は設定済みの共通出口API（本番 http://192.168.1.200:8080）。
  * nagi-linkcard の `safeUrl` / `blockedAddress` はループバックと RFC1918 を遮断するので、
@@ -15,17 +16,8 @@
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_RESULTS = 5;
 /**
- * yahoo = 一覧・時事・曲名の主索引。bing = yahoo が薄いときの補完。
- * 優先度は searxng/settings.yml の weight が決める（ここでの並び順は効かない）。
- * bing は曲名を無視した無関係な結果を返すことがあるので単独に戻さないこと。
- * wikipedia / wikidata = 固有名詞の実在確認。
- *
- * wikipedia と wikidata は `results` ではなく **infobox** を返す。
- * 「薬屋のひとりごと」で『日向夏による日本のライトノベル』という定義が取れるので、
- * RESEARCH_ONLY_NOTE が要求する実在確認にそのまま効く。必ず入れておくこと。
- *
- * duckduckgo は外してある。自前インスタンスからだと CAPTCHA (jp-jp) を返し続け、
- * 実測では全クエリで応答なし。残すと毎回タイムアウト待ちが乗るだけになる。
+ * SearXNG 時代のエンジン指定。gateway は API に替わって engines を無視するが、
+ * 古い gateway へ向けても動くよう送り続けている。
  */
 export const DEFAULT_ENGINES = "yahoo,bing,wikipedia,wikidata";
 
@@ -80,6 +72,58 @@ export function isSearxngConfigured(): boolean {
   return Boolean(process.env.SEARXNG_BASE_URL?.trim());
 }
 
+export type GatewaySource =
+  | "grounding" | "knowledge-card" | "radio" | "topic-song" | "character" | "probe" | "live-research" | "research-page";
+
+/**
+ * gateway 経由の Wikipedia API（action=query）。Web 検索の無料枠を使わない。
+ * 許される引数は gateway の request_path が決める（list=search / prop=extracts など）。
+ */
+export async function gatewayWikipediaQuery(
+  language: string,
+  params: Record<string, string>,
+  options: { source: GatewaySource; signal?: AbortSignal },
+): Promise<any> {
+  if (!/^[a-z]{2,3}$/.test(language)) throw new Error(`Unsupported Wikipedia language: ${language}`);
+  const url = new URL(`${searxngBaseUrl()}/wikipedia/${language}`);
+  for (const [key, value] of Object.entries({ action: "query", format: "json", ...params })) {
+    url.searchParams.set(key, value);
+  }
+  const response = await fetch(url, {
+    headers: {
+      accept: "application/json",
+      "X-Search-Source": options.source,
+      ...(process.env.SEARXNG_API_KEY ? { Authorization: `Bearer ${process.env.SEARXNG_API_KEY}` } : {}),
+    },
+    signal: options.signal
+      ? AbortSignal.any([options.signal, AbortSignal.timeout(Number(process.env.SEARXNG_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS)])
+      : AbortSignal.timeout(Number(process.env.SEARXNG_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS),
+  });
+  if (!response.ok) throw new Error(`Wikipedia gateway HTTP ${response.status}`);
+  return response.json();
+}
+
+/** Wikipedia の全文検索（list=search）。抜粋の HTML ハイライトは外して返す。 */
+export async function searchWikipediaTitles(
+  query: string,
+  options: { language?: string; limit?: number; source: GatewaySource; signal?: AbortSignal },
+): Promise<{ title: string; snippet: string; url: string }[]> {
+  const language = options.language ?? "ja";
+  const body = await gatewayWikipediaQuery(language, {
+    list: "search", srsearch: query, srlimit: String(options.limit ?? 3),
+  }, options);
+  return (body?.query?.search ?? [])
+    .map((item: any) => {
+      const title = typeof item?.title === "string" ? item.title : "";
+      const snippet = typeof item?.snippet === "string"
+        ? item.snippet.replace(/<[^>]+>/g, "").replace(/&quot;/g, "\"").replace(/&#0?39;/g, "'")
+          .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&").replace(/\s+/g, " ").trim()
+        : "";
+      return { title, snippet, url: `https://${language}.wikipedia.org/wiki/${encodeURIComponent(title.replace(/ /g, "_"))}` };
+    })
+    .filter((hit: { title: string }) => hit.title);
+}
+
 /**
  * 検索回数の計上。LLM 呼び出しではないので rpd / localRpd とは別カウンタにする。
  * ここを rpd に混ぜると、課金枠を使っていないのに Gemini の日次上限判定
@@ -125,7 +169,7 @@ export async function searxngSearch(
   query: string,
   options: {
     language?: "ja" | "en";
-    source?: "grounding" | "knowledge-card" | "radio" | "topic-song" | "character" | "probe" | "live-research";
+    source?: GatewaySource;
     /** 送信先のエンジンを1つに絞るとき（関連性の監視でエンジンごとに確かめる）。既定は SEARXNG_ENGINES。 */
     engines?: string;
     /** 呼び出し側の締め切り（その場調べなど）。既定のタイムアウト（30秒）と併用する。 */

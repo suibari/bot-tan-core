@@ -1,6 +1,6 @@
 import { BOT_VOICE_BRIEF_EN, NAME_RULES_EN, NAME_RULES_JA, SYSTEM_INSTRUCTION, TONE_RULES_JA } from "@bsky-affirmative-bot/shared-configs";
 import { ollamaChat } from "../ollamaChat.js";
-import { searxngSearch } from "../api/searxng/index.js";
+import { searchWikipediaTitles, type GatewaySource, type SearxngResponse } from "../api/searxng/index.js";
 import { radioObservances, type RadioLanguage } from "./nagiRadioOpening.js";
 import { BILINGUAL_COMMENT_INSTRUCTION, bilingualCommentFormat, parseBilingualComment, type BilingualComment } from "./bilingualComment.js";
 
@@ -23,11 +23,34 @@ export function ensureRadioAddress(comment: string, name: string | null, languag
   return language === "日本語" ? `${listener}、${comment}` : `${listener}, ${comment}`;
 }
 
+type RadioSearch = (
+  query: string,
+  options: { language?: "ja" | "en"; source?: GatewaySource },
+) => Promise<SearxngResponse>;
+
+/**
+ * 曲の豆知識は Wikipedia の全文検索で探す（Web 検索は使わない）。
+ *
+ * 以前は SearXNG で Web を検索していたが、1日120回ほどあり、Web 検索 API の無料枠
+ * （gateway 全体で1日110回ほど）に乗せると他の用途が回らない。豆知識は無くても放送は
+ * 成り立つので、無料の Wikipedia API だけにした（2026-11-19）。
+ */
+const radioWikipediaSearch: RadioSearch = async (query, options) => {
+  const hits = await searchWikipediaTitles(query, {
+    language: options.language ?? "ja", limit: 5, source: options.source ?? "radio",
+  });
+  return {
+    hits: hits.map((hit) => ({ title: hit.title, url: hit.url, content: hit.snippet })),
+    infoboxes: [],
+    unresponsiveEngines: [],
+  };
+};
+
 /** 投稿や個人情報は検索に渡さず、曲名とアーティストだけを照会する。 */
 export async function researchNagiRadioSong(
   song: NagiRadioSong,
   language: "日本語" | "English" = "日本語",
-  deps: { search?: typeof searxngSearch; chat?: typeof ollamaChat } = {},
+  deps: { search?: RadioSearch; chat?: typeof ollamaChat } = {},
 ): Promise<NagiRadioFact | null> {
   // 選曲時に確認したOP/ED情報があれば、同じ事実を検索し直さない。
   // URLは検索結果ではなくAnimeThemes APIで実際に照会した作品へ向ける。
@@ -41,7 +64,7 @@ export async function researchNagiRadioSong(
     : null;
   if (animeFact) return animeFact;
   const queries = language === "日本語" ? [
-    // Bing は語を増やすと一般語だけで検索することがある。曲名と歌手名だけで先に調べる。
+    // 語を増やすと一般語だけに当たりやすい。曲名と歌手名だけで先に調べる。
     `${song.artist} ${song.title}`,
     `${song.title} ${song.artist} 主題歌 挿入歌`,
   ] : [
@@ -49,7 +72,7 @@ export async function researchNagiRadioSong(
     `"${song.title}" "${song.artist}" soundtrack theme song`,
   ];
   for (const query of queries) {
-    const { hits } = await (deps.search ?? searxngSearch)(query, {
+    const { hits } = await (deps.search ?? radioWikipediaSearch)(query, {
       language: language === "日本語" ? "ja" : "en", source: "radio",
     });
     const relevant = hits.filter((hit) => {

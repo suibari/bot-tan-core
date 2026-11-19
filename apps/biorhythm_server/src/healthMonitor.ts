@@ -15,7 +15,6 @@ import {
 } from "@bsky-affirmative-bot/shared-configs";
 import { startWorkerLoop } from "@bsky-affirmative-bot/bot-runtime";
 import { statfs } from "node:fs/promises";
-import { getSearxngRelevance } from "./searxngRelevance.js";
 
 /**
  * bot-tan.com のダッシュボードに出す死活監視。
@@ -77,6 +76,7 @@ interface ProbeResult {
 
 let localLlmProbe: ProbeResult = { state: "unknown" };
 let searxngProbe: ProbeResult = { state: "unknown" };
+let searchBudgetPart: HealthPart = { name: "検索の無料枠", state: "unknown" };
 let repoRelayProbe: ProbeResult = { state: "unknown" };
 let diskProbe: ProbeResult & { disk?: DiskUsage } = { state: "unknown" };
 
@@ -294,8 +294,8 @@ async function warnOnContextLengthDrift(baseUrl: string): Promise<void> {
 }
 
 /**
- * 自前 SearXNG の疎通。Gemini のときと違い自分で立てているサービスなので、
- * 「呼ばれたときだけ記録」ではなく能動プローブにできる。無料なので叩き放題。
+ * 検索 gateway の疎通。自分で立てているサービスなので能動プローブにできる。
+ * /healthz と /stats は Web 検索 API を呼ばないので、無料枠は減らない。
  *
  * `SEARXNG_BASE_URL` は LAN/loopback の固定アドレスなので safeFetch（SSRF 対策）は
  * 通さない。通すとプライベートアドレスとして自分の検索基盤が弾かれる。
@@ -319,6 +319,39 @@ async function probeSearxng(): Promise<ProbeResult> {
     return { state: "down", lastError: message.slice(0, 300) };
   } finally {
     clearTimeout(timer);
+  }
+}
+
+type SearchBudget = { day?: string; used?: Record<string, number>; limits?: Record<string, number> };
+
+/**
+ * 検索 gateway の /stats にある、Web 検索 API の今日の使用量（2026-11-19 に SearXNG から切り替え）。
+ * 使い切っても壊れてはいない（翌0時 JST に戻り、その間は Wikipedia だけで調べる）ので stale にする。
+ */
+export function searchBudgetHealthPart(budget: SearchBudget | undefined): HealthPart {
+  const name = "検索の無料枠";
+  const limits = Object.entries(budget?.limits ?? {});
+  if (!limits.length) return { name, state: "unknown" };
+  const usage = limits.map(([provider, limit]) => `${provider} ${budget?.used?.[provider] ?? 0}/${limit}`).join("、");
+  const left = limits.some(([provider, limit]) => (budget?.used?.[provider] ?? 0) < limit);
+  return left
+    ? { name, state: "ok", message: `今日 ${usage}` }
+    : { name, state: "stale", lastError: `今日の無料枠を使い切った（${usage}）。翌0時に戻る` };
+}
+
+async function probeSearchBudget(): Promise<HealthPart> {
+  const baseUrl = process.env.SEARXNG_BASE_URL;
+  if (!baseUrl) return { name: "検索の無料枠", state: "unconfigured" };
+  try {
+    const response = await fetch(`${baseUrl.replace(/\/$/, "")}/stats`, {
+      headers: process.env.SEARXNG_API_KEY ? { Authorization: `Bearer ${process.env.SEARXNG_API_KEY}` } : {},
+      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+    });
+    if (!response.ok) return { name: "検索の無料枠", state: "unknown", lastError: `HTTP ${response.status}` };
+    const stats = await response.json() as { budget?: SearchBudget };
+    return searchBudgetHealthPart(stats.budget);
+  } catch (e) {
+    return { name: "検索の無料枠", state: "unknown", lastError: (e instanceof Error ? e.message : String(e)).slice(0, 300) };
   }
 }
 
@@ -605,8 +638,7 @@ export async function buildHealthSnapshot(): Promise<HealthSnapshot> {
       botReplyIndexPart(get("nagi-appview")),
     ]),
     localLlm: tile([partFromProbe("Ollama API", localLlmProbe), ollamaPlacementPart(get("ollama-placement"))]),
-    // 疎通（/healthz）だけでは汚染に気づけないので、検索結果の中身の監視も並べる。
-    webSearch: tile([partFromProbe("SearXNG", searxngProbe), partFromProbe("検索結果の関連性", getSearxngRelevance())]),
+    webSearch: tile([partFromProbe("検索 gateway", searxngProbe), searchBudgetPart]),
     storage: {
       ...tile([partFromProbe("Disk", diskProbe)]),
       ...(diskProbe.disk ? { disk: diskProbe.disk } : {}),
@@ -624,11 +656,12 @@ export function getCachedHealthSnapshot(): HealthSnapshot | null {
 
 export function startHealthMonitor(): () => void {
   const runProbes = async () => {
-    [localLlmProbe, repoRelayProbe, searxngProbe, diskProbe] = await Promise.all([
+    [localLlmProbe, repoRelayProbe, searxngProbe, diskProbe, searchBudgetPart] = await Promise.all([
       probeLocalLlm(),
       probeRepoRelay(),
       probeSearxng(),
       probeDiskUsage(),
+      probeSearchBudget(),
     ]);
     await buildHealthSnapshot();
   };

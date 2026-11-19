@@ -7,7 +7,7 @@ import {
   type AiFeatureKey,
 } from "@bsky-affirmative-bot/shared-configs";
 import { fetchReadableText } from "@bsky-affirmative-bot/nagi-linkcard";
-import { searxngSearch, type SearchHit } from "../api/searxng/index.js";
+import { searchWikipediaTitles, searxngSearch, type SearchHit } from "../api/searxng/index.js";
 import { generateContentForProvider, normalizeJsonSchema } from "./generationClient.js";
 
 export type GroundingPolicy = "off" | "deferred" | "required" | "preferred";
@@ -791,29 +791,63 @@ export function isPermanentResearchFailure(error: unknown): boolean {
  * 上位5ページの本文を読み、ページ別メモではなく「この対象は何か」から始まる統合知識
  * カードへする。通常の同期グラウンディングが必要とする列挙形式は変更しない。
  */
-export async function researchKnowledgeCardSelfHosted(subject: string): Promise<string> {
+/**
+ * 知識カードの材料にする Wikipedia 記事。記事名か抜粋が対象を指しているものだけ、2件まで。
+ * Wikipedia API は Web 検索の無料枠を使わない。失敗しても Web 検索へ進めばよいので throw しない。
+ */
+async function wikipediaArticleUrls(subject: string): Promise<string[]> {
+  try {
+    const hits = await searchWikipediaTitles(subject, { source: "knowledge-card", limit: 3 });
+    return hits
+      .filter((hit) => isAboutSubject(subject, `${hit.title}\n${hit.snippet}`))
+      .slice(0, KNOWLEDGE_CARD_WIKIPEDIA_ARTICLES)
+      .map((hit) => hit.url);
+  } catch (error) {
+    console.warn("[WARN][AI_GROUNDING] knowledge-card Wikipedia search failed", error instanceof Error ? error.message : error);
+    return [];
+  }
+}
+
+const KNOWLEDGE_CARD_WIKIPEDIA_ARTICLES = 2;
+
+export async function researchKnowledgeCardSelfHosted(
+  subject: string,
+  deps: { wikipediaUrls?: typeof wikipediaArticleUrls; gather?: typeof gatherMaterial } = {},
+): Promise<string> {
   const normalizedSubject = subject.replace(/[\r\n\t]+/g, " ").trim().slice(0, 160);
   if (!normalizedSubject) throw new Error("Knowledge-card research requires a subject");
+  const gather = deps.gather ?? gatherMaterial;
+  const about = (source: ResearchSource) => isAboutSubject(normalizedSubject, `${source.title}\n${source.body}`);
 
-  const { sources, infoboxes, searchDegraded } = await gatherMaterial({
-    queries: [normalizedSubject],
-    urls: [],
-    fetchTopN: KNOWLEDGE_CARD_FETCH_TOP_N,
-    source: "knowledge-card",
-  });
+  // Wikipedia を先に引く。Web 検索は API の毎月の無料枠でまかなうので（2026-11-19〜）、
+  // Wikipedia に記事がある語には使わない。
+  let origin: "wikipedia" | "web" = "wikipedia";
+  let material: Awaited<ReturnType<typeof gatherMaterial>> = { sources: [], infoboxes: [], searchDegraded: false };
+  const wikiUrls = await (deps.wikipediaUrls ?? wikipediaArticleUrls)(normalizedSubject);
+  if (wikiUrls.length) material = await gather({ queries: [], urls: wikiUrls, source: "knowledge-card" });
+  if (!material.sources.some(about)) {
+    origin = "web";
+    material = await gather({
+      queries: [normalizedSubject],
+      urls: [],
+      fetchTopN: KNOWLEDGE_CARD_FETCH_TOP_N,
+      source: "knowledge-card",
+    });
+  }
+  const { sources, infoboxes, searchDegraded } = material;
   // 検索がまともに行えなかったときの「見つからない」は一時的なもの。再試行に回す。
   // 検索が成功したうえで何も無かったときだけ、やり直しても変わらない失敗とする。
+  // 無料枠を使い切った日（gateway の 429）も「まともに行えなかった」側に入る。
   const notFound = (message: string) =>
     searchDegraded ? new Error(`${message} (search degraded)`) : new KnowledgeCardNotFoundError(message);
   if (!sources.length && !infoboxes.length)
     throw notFound("Self-hosted knowledge-card research returned no material");
 
-  const relevantSources = sources.filter((source) =>
-    isAboutSubject(normalizedSubject, `${source.title}\n${source.body}`)
-  );
+  const relevantSources = sources.filter(about);
   const relevantInfoboxes = infoboxes.filter((box) => isAboutSubject(normalizedSubject, box));
   console.log(
     `[INFO][AI_GROUNDING] knowledge-card relevance subject=${JSON.stringify(normalizedSubject)}` +
+      ` origin=${origin}` +
       ` sources=${relevantSources.length}/${sources.length}` +
       ` infoboxes=${relevantInfoboxes.length}/${infoboxes.length}`,
   );

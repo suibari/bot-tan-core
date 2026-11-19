@@ -1,33 +1,32 @@
-# bot 機（Raspberry Pi）で Nagi 本体と同居させる SearXNG。
+# bot 機（Raspberry Pi）で動かす、検索と Wikipedia の共通出口（gateway）。
 #
-# grounding の検索段を Gemini から自前へ移すための基盤。API キーもアカウントも要らず、
-# 利用者が第三者サービスの規約に同意する関係が生まれないことが採用理由。
+# 【SearXNG はやめた（2026-11-19）】
+#   自宅回線から Yahoo をスクレイピングし続けた結果、IPv4 が汚染され（11月上旬。偽の結果や
+#   HTTP 500 が返る）、11/08 に IPv6 へ移したあとも 11/14 には /64 ごと同じ状態になった。
+#   いまは Web 検索 API の毎月の無料枠で引く（Tavily → Exa lite の順）。比較は
+#   docs/evaluations/search-api/。ディレクトリ名 searxng/ と、bot 側の SEARXNG_* という
+#   環境変数名は互換のため残している。
 #
-# 【なぜ LLM 機ではなく bot 機か】
-#   - リポジトリは bot 機にしか置かない（scripts/deploy.sh が git pull する先）。
-#     compose ファイル 1 個のために 2 台で git 管理したくない。
-#   - 複数bot・ラジオ・リサーチの検索は gateway の共通キューで間隔を制御する。
-#     I/O バウンドで GPU も要らないので Pi で足りる。
-#   - SearXNG 本体は非公開。出口APIはAPIキーで認証し、bind先を指定する。
-#   - 上流エンジンから見た IP は同じ NAT なので、ブロックリスクは変わらない。
+# 【無料枠を超えないために】
+#   gateway が API ごとの1日の上限を持ち、使った回数を ./data/budget.json に残す（再起動しても
+#   その日の残りは増えない）。上限は月の無料枠÷31（Tavily 1,000回 → 32回、Exa $10 → 80回）。
+#   使い切ったら翌0時（JST）まで /search は 429 を返す（Wikipedia API は止めない）。
+#   その日の使用量: curl -s -H "Authorization: Bearer $KEY" localhost:8080/stats | jq .budget
 #
 # 起動:
 #   cd searxng
-#   cp .env.example .env && $EDITOR .env   # SEARXNG_SECRET を埋める
+#   cp .env.example .env && $EDITOR .env   # API キーを埋める
 #   docker compose up -d
 #
-# 【重要】settings.yml を書き換えたときは --force-recreate が要る。
-# bind mount した設定はプロセス起動時にしか読まれず、compose ファイル自体が
-# 変わらない限り `up -d` はコンテナを作り直さないので、変更が黙って無視される。
-#   docker compose up -d --force-recreate
-# 反映確認: curl -s localhost:8080/config | grep -o '"name": "[a-z]*"' | sort -u
+# gateway.py は bind mount なので、書き換えたら --force-recreate が要る。
 services:
   gateway:
     image: docker.io/library/python:3.13-alpine
     container_name: nagi-search-gateway
     restart: unless-stopped
     command: ["python", "-B", "/app/gateway.py"]
-    user: "65534:65534"
+    # ./data に書けるよう、リポジトリの持ち主の UID で動かす（scripts/deploy-searxng.sh が渡す）。
+    user: "${GATEWAY_UID:-1000}:${GATEWAY_GID:-1000}"
     read_only: true
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
@@ -35,12 +34,15 @@ services:
       - "${SEARCH_GATEWAY_BIND:-127.0.0.1}:${SEARXNG_PORT:-8080}:8080"
     volumes:
       - ./gateway.py:/app/gateway.py:ro
+      - ./data:/data
     environment:
-      SEARXNG_UPSTREAM: http://searxng:8080
       SEARCH_GATEWAY_API_KEY: ${SEARCH_GATEWAY_API_KEY:?set SEARCH_GATEWAY_API_KEY in searxng/.env}
-    depends_on:
-      searxng:
-        condition: service_healthy
+      WEB_SEARCH_PROVIDERS: ${WEB_SEARCH_PROVIDERS:-tavily,exa}
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      EXA_API_KEY: ${EXA_API_KEY:-}
+      TAVILY_DAILY_LIMIT: ${TAVILY_DAILY_LIMIT:-32}
+      EXA_DAILY_LIMIT: ${EXA_DAILY_LIMIT:-80}
+      SEARCH_BUDGET_FILE: /data/budget.json
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=3).close()"]
       interval: 30s
@@ -51,53 +53,3 @@ services:
       options:
         max-size: "5m"
         max-file: "2"
-  searxng:
-    # deploy-searxng.shが毎デプロイpullし、新イメージがあれば更新する。
-    image: docker.io/searxng/searxng:latest
-    container_name: nagi-searxng
-    restart: unless-stopped
-    # ホストへ直接公開しない。全検索を gateway に通してプロセス間の制限を共有。
-    # bot の接続先は引き続き http://127.0.0.1:8080。
-    volumes:
-      - ./settings.yml:/etc/searxng/settings.yml:ro
-    environment:
-      # settings.yml の server.secret_key を上書きする。秘密をリポジトリに置かないため。
-      SEARXNG_SECRET: ${SEARXNG_SECRET:?set SEARXNG_SECRET in searxng/.env}
-      SEARXNG_BASE_URL: http://127.0.0.1:${SEARXNG_PORT:-8080}/
-    cap_drop:
-      - ALL
-    cap_add:
-      - CHOWN
-      - SETGID
-      - SETUID
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:8080/healthz || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 20s
-    logging:
-      driver: json-file
-      options:
-        max-size: "1m"
-        max-file: "1"
-
-# 【IPv6 で外へ出す】2026-11-07 の切り分け:
-#   自宅の IPv4（NURO 111.216.178.97）から SearXNG 経由で Yahoo を引くと、クエリと無関係な
-#   結果（他人の検索のようなもの）や HTTP 500 が返る。同じ機械でも IPv6 から出れば正常
-#   （評価用の27語で IPv4 13/27 → IPv6 25/27）。数か月この IPv4 でスクレイピングしてきたので、
-#   上流にボットとして目を付けられたと見ている。
-# ブリッジ（既定は IPv4 のみ）に IPv6 を足すと、コンテナは NAT66 でホストの IPv6 から出る。
-# 送信元は settings.yml の outgoing.source_ips で IPv6 に固定してある（IPv4 へ黙って戻らない）。
-# IPv6 も量が多ければ同じことになりうるので、検索量は絞ったまま（調査は1日60回前後）にし、
-# 中身は biorhythm_server の searxngRelevance.ts で6時間ごとに見ている。
-#
-# ネットワークの設定は `compose up` では作り直されない。既存のネットワークが IPv6 無効なら
-# scripts/deploy-searxng.sh が一度 down してから up する。
-networks:
-  default:
-    enable_ipv6: true
-    ipam:
-      config:
-        # 内部用（ULA）。外へは Docker の NAT66 でホストのグローバル IPv6 に変換される。
-        - subnet: fd5e:a7c0:5e:1::/64

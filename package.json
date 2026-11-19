@@ -15,6 +15,7 @@
     "embedding:evaluate": "tsx --env-file=.env scripts/evaluateEmbeddingModels.mts",
     "test:embedding": "tsx --test scripts/test/embeddingEvaluation.test.ts",
     "searxng:probe": "tsx --env-file=.env scripts/probeSearxng.mts",
+    "search-api:compare": "tsx --env-file=.env scripts/compareSearchApis.mts",
     "reply:probe": "tsx --env-file=.env scripts/probeReply.mts",
     "reply-grounding:evaluate": "tsx --env-file=.env scripts/evaluateReplyGrounding.mts",
     "imagegen:probe": "tsx --env-file=.env scripts/probeImageGen.mts",
