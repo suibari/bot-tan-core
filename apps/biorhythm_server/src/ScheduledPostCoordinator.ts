@@ -7,6 +7,8 @@ import {
 } from "@bsky-affirmative-bot/clients";
 import {
   generateGoodNight,
+  goodNightPickedName,
+  type GoodNightPickedPost,
   generateImage,
   generateMonologue,
   type MonologueInput,
@@ -27,6 +29,8 @@ import {
   drawingDay,
   getTodaysLearnedWorks,
   finalizeBotSongSelection,
+  pickNagiNewsForScheduledPost,
+  type ScheduledPostNews,
   protectBotSongSelectionForPublish,
   recordBotMemoryUsages,
   releaseBotSongSelection,
@@ -244,6 +248,33 @@ export async function postMonologue(
   return { textJa: generated.textJa, withImage: Boolean(image) };
 }
 
+/**
+ * 気まぐれポストの締めに紹介する Nagi のニュース。最近の定期ポストで紹介した記事は避ける。
+ * 紹介できる記事が無い・DB が見えないときはニュース無しで出す（投稿は止めない）。
+ */
+export async function pickWhimsicalNagiNews(
+  dependencies: {
+    pick?: typeof pickNagiNewsForScheduledPost;
+    recent?: typeof getRecentNewsArticleIds;
+    botDid?: string;
+  } = {},
+): Promise<ScheduledPostNews | undefined> {
+  const botDid = dependencies.botDid ?? process.env.NAGI_BOT_DID;
+  if (!botDid) {
+    console.warn("[WARN][WHIMSICAL] NAGI_BOT_DID is not set. Posting without Nagi news.");
+    return undefined;
+  }
+  try {
+    const excludeArticleIds = await (dependencies.recent ?? getRecentNewsArticleIds)();
+    const news = await (dependencies.pick ?? pickNagiNewsForScheduledPost)({ botDid, excludeArticleIds });
+    if (!news) console.log("[INFO][WHIMSICAL] No Nagi news to introduce. Posting without it.");
+    return news;
+  } catch (error) {
+    console.error("[ERROR][WHIMSICAL] Failed to pick Nagi news. Posting without it:", error);
+    return undefined;
+  }
+}
+
 const whimsicalPostGenerator = new WhimsicalPostGenerator();
 const moodSongResolver = new MoodSongResolver();
 let isJapanesePost = true;
@@ -325,9 +356,7 @@ export async function postMorning(botContext?: BotContext) {
 
 export async function postWhimsical(currentMood: string, botContext?: BotContext) {
   const langStr = isJapanesePost ? "日本語" : "English";
-  const excludedNewsArticleIds = isJapanesePost
-    ? await getRecentNewsArticleIds()
-    : undefined;
+  const nagiNews = await pickWhimsicalNagiNews();
   let userReplies: string[] | null = null;
   try {
     userReplies = await MemoryService.getUnreadReplies();
@@ -386,7 +415,14 @@ export async function postWhimsical(currentMood: string, botContext?: BotContext
             scheduledEndAt: youtubeLive.scheduledEndAt,
           }
         : undefined,
-      excludedNewsArticleIds,
+      nagiNews: nagiNews
+        ? {
+            titleJa: nagiNews.titleJa,
+            commentJa: nagiNews.commentJa,
+            titleEn: nagiNews.titleEn,
+            commentEn: nagiNews.commentEn,
+          }
+        : undefined,
       botContext,
       focus,
     });
@@ -419,7 +455,12 @@ export async function postWhimsical(currentMood: string, botContext?: BotContext
 
   let results: Partial<Record<"bsky" | "nagi", ScheduledPostResult>>;
   try {
-    results = await publish(buildWhimsicalPostRequest({ generated, song, isJapanesePost }));
+    results = await publish(buildWhimsicalPostRequest({
+      generated,
+      song,
+      isJapanesePost,
+      news: generated.usedNagiNews ? nagiNews : null,
+    }));
   } catch (error) {
     // 外部投稿の成否を断定できないため、publishing の30日保護を残す。
     throw error;
@@ -439,8 +480,10 @@ export async function postWhimsical(currentMood: string, botContext?: BotContext
     });
     if (giftIdToUpdate !== undefined) await MemoryService.updateGiftStatus(giftIdToUpdate, "used");
     if (newShort && generated.usedYoutubeShort) await MemoryService.updateYoutubeShortStatus(newShort.id, "posted");
-    if (generated.selectedNewsArticleId) {
-      await recordRecentNewsArticle(generated.selectedNewsArticleId);
+    if (nagiNews && generated.usedNagiNews) {
+      await recordRecentNewsArticle(nagiNews.articleId).catch((error) =>
+        console.error("[WARN][WHIMSICAL] Failed to record introduced Nagi news", error),
+      );
     }
     await recordScheduledPostMemoryUsage(
       results,
@@ -457,6 +500,13 @@ export async function postWhimsical(currentMood: string, botContext?: BotContext
   // 他ターゲットだけが成功した場合に進めてはならない。
   if (results.bsky) {
     await MemoryService.setWhimsicalPostRoots([results.bsky.uri]);
+    await MemoryService.setScheduledPostContext({
+      uri: results.bsky.uri,
+      text: isJapanesePost ? generated.textJa : generated.textEn,
+      ...(nagiNews && generated.usedNagiNews
+        ? { linkTitle: isJapanesePost ? nagiNews.titleJa : nagiNews.titleEn ?? nagiNews.titleJa }
+        : {}),
+    });
     await MemoryService.clearReplies();
     await MemoryService.incrementLang(langStr as any);
     isJapanesePost = !isJapanesePost;
@@ -483,6 +533,22 @@ async function getNightVideoForGoodNight() {
     console.error("[ERROR][GOOD_NIGHT] Failed to load night video. Posting without it:", error);
     return null;
   }
+}
+
+/**
+ * 夜の動画で紹介したポストを、おやすみ本文で触れる形にする。表示名が無ければ触れない
+ * （「誰が選ばれたか」を伝えるのが目的なので、名前が無いと意味をなさない）。
+ */
+export function nightVideoPickedPost(
+  video: { source_display_name?: string | null; caption?: string | null; hook?: string | null } | null,
+): GoodNightPickedPost | undefined {
+  const displayName = goodNightPickedName(video?.source_display_name);
+  if (!video || !displayName) return undefined;
+  return {
+    displayName,
+    ...(video.caption?.trim() ? { caption: video.caption.trim() } : {}),
+    ...(video.hook?.trim() ? { hook: video.hook.trim() } : {}),
+  };
 }
 
 export async function postGoodNight(currentMood: string, botContext?: BotContext) {
@@ -546,6 +612,7 @@ export async function postGoodNight(currentMood: string, botContext?: BotContext
         giftCandidates,
         learnedTerms: learnedTerms.length > 0 ? learnedTerms : undefined,
         morningQuestion,
+        pickedPost: nightVideoPickedPost(nightVideo),
         botContext,
       });
       if (!result.textJa || !result.textEn) {
@@ -579,6 +646,10 @@ export async function postGoodNight(currentMood: string, botContext?: BotContext
       await MemoryService.setWhimsicalPostRoots([
         results.bsky.uri,
       ]);
+      await MemoryService.setScheduledPostContext({
+        uri: results.bsky.uri,
+        text: `${generated.textJa}\n\n${generated.textEn}`,
+      });
     }
     if (nightVideo && results.bsky?.nightVideoRepost) {
       await MemoryService.markNightVideoIntroduced(nightVideo.id, results.bsky.nightVideoRepost.uri)

@@ -1,6 +1,7 @@
 import type {
   ScheduledPostImage,
   ScheduledPostNightVideo,
+  ScheduledPostQuote,
   ScheduledPostRequest,
   ScheduledPostResult,
 } from "@bsky-affirmative-bot/clients";
@@ -104,11 +105,23 @@ export async function resolveNightVideo(
 /**
  * 絵と動画は1投稿に両方載せる。両方あるときだけ #gallery（画像と動画を混ぜられる唯一の形）。
  * 並びは「絵 → 動画」。
+ *
+ * 引用（気まぐれポストで紹介する Nagi のニュース）があれば #quote にする。#quote は画像と
+ * 動画を併せ持てるので、どちらと重なっても落とさない。
  */
 export function scheduledPostEmbed(
   image: NagiImage | null,
   video: NagiVideo | null,
+  quote?: ScheduledPostQuote | null,
 ): NagiPost["embed"] {
+  if (quote) {
+    return {
+      $type: `${NAGI.post}#quote`,
+      record: { uri: quote.uri, cid: quote.cid },
+      ...(image ? { images: [image] } : {}),
+      ...(video ? { video } : {}),
+    };
+  }
   if (image && video) {
     return {
       $type: `${NAGI.post}#gallery`,
@@ -128,7 +141,7 @@ export async function publishScheduledPost(request: ScheduledPostRequest): Promi
   const nagiImage = request.image ? await uploadScheduledImage(request.image) : null;
   const nagiVideo = request.nightVideo ? await resolveNightVideo(request.nightVideo) : null;
   // 本文中のURLは共通処理でリンクカードになる。linkCards は embed と別枠なので併用できる。
-  const embed = scheduledPostEmbed(nagiImage, nagiVideo);
+  const embed = scheduledPostEmbed(nagiImage, nagiVideo, request.quote);
 
   return retry(async () => {
 

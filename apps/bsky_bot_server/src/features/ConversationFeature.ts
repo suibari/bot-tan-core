@@ -419,13 +419,20 @@ export class ConversationFeature implements BotFeature {
                 return false;
             }
 
-            // リプライ生成
+            // リプライ生成。自分が何を書いたか（どんな問いかけで締めたか）も渡す。
+            // 読めなければ従来どおり、リプライだけを見て返す。
+            const botPost = rootUri
+                ? await MemoryService.getScheduledPostContext(rootUri).catch((error) => {
+                    console.warn(`[WARN][${follower.did}][WHIMSICAL] Failed to load scheduled post context`, error);
+                    return undefined;
+                })
+                : undefined;
             const result = await generateWhimsicalReply({
                 follower,
                 posts: [record.text],
                 langStr,
                 botContext: await getBotContext(),
-            });
+            }, { botPost });
             if (!result) {
                 console.warn(`[WARN][${follower.did}][WHIMSICAL] no usable reply, skipping`);
                 return false;

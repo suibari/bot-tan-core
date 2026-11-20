@@ -70,3 +70,26 @@ test("similar news and news quotes reject malformed targets before the database 
     { items: [], hasMore: false },
   );
 });
+
+test("news comments include replies under the bot's post that introduced the news, but not the bot's own posts", async () => {
+  const { newsCommentCondition } = await import("../src/queries/newsQuotes.js");
+  const { nagiPosts } = await import("@bsky-affirmative-bot/database");
+  const newsUri = "at://did:plc:testbot/com.suibari.nagi.news/abc";
+  const botPost = "at://did:plc:testbot/com.suibari.nagi.post/scheduled";
+  const render = (uris: string[]) =>
+    db.select({ uri: nagiPosts.uri }).from(nagiPosts).where(newsCommentCondition(newsUri, uris)).toSQL();
+
+  const withPost = render([botPost]);
+  // botたん自身の投稿（定期ポスト・スレッド内の返信）は外す。
+  assert.match(withPost.sql, /"posts"\."did" <> \$1/);
+  // ニュースを直接引用した投稿か、ルートが「ニュースを引用した botたんの投稿」である返信。
+  assert.match(withPost.sql, /"posts"\."quote_uri" = \$2 or "nagi"\."posts"\."reply_root_uri" in \(\$3\)/);
+  // 相関サブクエリにしない（インデックスが効かず全件スキャンになる）。
+  assert.doesNotMatch(withPost.sql, /exists/);
+  assert.deepEqual(withPost.params, [process.env.NAGI_BOT_DID, newsUri, botPost]);
+
+  // 定期ポストで紹介していないニュースは、引用だけを見る（空の IN を作らない）。
+  const withoutPost = render([]);
+  assert.doesNotMatch(withoutPost.sql, /reply_root_uri/);
+  assert.deepEqual(withoutPost.params, [process.env.NAGI_BOT_DID, newsUri]);
+});

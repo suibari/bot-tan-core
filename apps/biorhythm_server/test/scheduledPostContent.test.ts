@@ -9,22 +9,17 @@ import {
   summarizeQuestionAnswers,
 } from "../src/scheduledPostContent.js";
 
-test("ニュースURLはNagiだけに追加しBluesky本文は変えない", () => {
+test("本文にニュースURLを足さない（Nagiは引用、Blueskyはリンクカードで見せる）", () => {
   const result = buildWhimsicalPostTexts({
     textJa: "うれしいニュースだよ",
     textEn: "Here is some happy news",
     moodSong: "MyMoodSong:\nSong - Artist\nhttps://youtube.example/song",
-    selectedNewsUrl: "https://news.example/article",
   });
 
-  assert.equal(
-    result.bskyJa,
-    "うれしいニュースだよ\n\nMyMoodSong:\nSong - Artist\nhttps://youtube.example/song",
-  );
-  assert.doesNotMatch(result.bskyJa, /news\.example/);
-  assert.match(result.nagiJa, /https:\/\/news\.example\/article/);
-  assert.match(result.nagiJa, /https:\/\/youtube\.example\/song/);
-  assert.match(result.nagiEn, /https:\/\/news\.example\/article/);
+  const expectedJa = "うれしいニュースだよ\n\nMyMoodSong:\nSong - Artist\nhttps://youtube.example/song";
+  assert.equal(result.bskyJa, expectedJa);
+  assert.equal(result.nagiJa, expectedJa);
+  assert.equal(result.nagiEn, "Here is some happy news\n\nMyMoodSong:\nSong - Artist\nhttps://youtube.example/song");
 });
 
 test("曲を確認できなければMyMoodSongを省略し、ニュースURLも増やさない", () => {

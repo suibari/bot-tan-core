@@ -806,7 +806,7 @@ xrpc.get(
     }
   },
 );
-// パーマリンクの「みんなのコメント」。ニュースを引用した投稿を新しい順に。
+// パーマリンクの「みんなのコメント」。ニュースを引用した投稿と、ニュースを紹介した定期ポストへの返信を新しい順に。
 xrpc.get(
   `/${NAGI.getNewsQuotes}`,
   optionalServiceAuth(NAGI.getNewsQuotes),

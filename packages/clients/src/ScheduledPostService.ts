@@ -17,6 +17,26 @@ export interface ScheduledPostNightVideo {
 }
 
 /**
+ * Nagi の投稿に引用として埋め込むレコード（気まぐれポストで紹介する Nagi のニュース）。
+ * Bluesky では引用できない（Nagi のレコードなので）ため、Bluesky には external を使う。
+ */
+export interface ScheduledPostQuote {
+  uri: string;
+  cid: string;
+}
+
+/**
+ * Bluesky のリンクカード。thumbUrl は Bluesky サーバが取得して blob にする。
+ * 取れなければサムネイル無しのカードで出す（本文の方が本体）。
+ */
+export interface ScheduledPostExternal {
+  uri: string;
+  title: string;
+  description: string;
+  thumbUrl?: string;
+}
+
+/**
  * 生成済みの対訳。Gemini が textJa と textEn を同時に作っている定時投稿で、
  * 英語版を機械翻訳させず本人の文章のまま出すために翻訳キャッシュへ投入する。
  */
@@ -32,6 +52,8 @@ export interface ScheduledPostRequest {
   translations?: ScheduledPostTranslation[];
   image?: ScheduledPostImage;
   nightVideo?: ScheduledPostNightVideo;
+  quote?: ScheduledPostQuote;
+  external?: ScheduledPostExternal;
 }
 
 /**
@@ -57,6 +79,10 @@ export interface ScheduledPostContent {
   image?: ScheduledPostImage;
   /** Bluesky は RP、Nagi は動画ポストの blob を埋め込む（絵があれば #gallery で併用）。 */
   nightVideo?: ScheduledPostNightVideo;
+  /** Nagi だけが使う。 */
+  quote?: ScheduledPostQuote;
+  /** Bluesky だけが使う。 */
+  external?: ScheduledPostExternal;
 }
 
 export interface ScheduledPostPublishRequest {

@@ -64,6 +64,7 @@ export * from './health.js';
 export * from './botMemory.js';
 export * from './botMemoryGraph.js';
 export * from './newsInterestTopics.js';
+export * from './scheduledPostNews.js';
 export * from './botMemoryPronunciation.js';
 export * from './researchJobs.js';
 export * from './drawingClaims.js';
@@ -326,6 +327,30 @@ export class MemoryService {
     } catch (error) {
       console.error("Failed to set whimsical post roots:", error);
     }
+  }
+
+  /**
+   * 最新の定期ポスト（気まぐれ・おやすみ）の Bluesky 本文。返信してくれた人へ応答するとき、
+   * botたんが何を書いたか（どんな問いかけで締めたか）を返信生成へ渡すために残す。
+   * 長い投稿は分割スレッドになり、ルートを読み直しても先頭の300字しか取れないので、
+   * 投稿前の全文をここに置く。
+   */
+  static async setScheduledPostContext(context: { uri: string; text: string; linkTitle?: string }) {
+    try {
+      await this.setBotState('scheduled_post_context', context);
+    } catch (error) {
+      console.error("Failed to set scheduled post context:", error);
+    }
+  }
+
+  /** ルート URI が最新の定期ポストと一致するときだけ返す。 */
+  static async getScheduledPostContext(rootUri: string): Promise<{ text: string; linkTitle?: string } | undefined> {
+    const value = await this.getBotState('scheduled_post_context');
+    if (!value || typeof value !== 'object' || value.uri !== rootUri || typeof value.text !== 'string') return undefined;
+    return {
+      text: value.text,
+      ...(typeof value.linkTitle === 'string' && value.linkTitle ? { linkTitle: value.linkTitle } : {}),
+    };
   }
 
   static async setQuestionState(uri: string, theme: string) {
