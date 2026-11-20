@@ -1,7 +1,9 @@
 import type {
+  ScheduledPostExternal,
   ScheduledPostImage,
   ScheduledPostPublishRequest,
 } from "@bsky-affirmative-bot/clients";
+import { nagiNewsPageUrl, type ScheduledPostNews } from "@bsky-affirmative-bot/database";
 import { buildGoodNightPostTexts, buildWhimsicalPostTexts } from "./scheduledPostContent.js";
 
 type GeneratedTexts = { textJa: string; textEn: string };
@@ -22,26 +24,49 @@ export function buildMorningPostRequest(generated: GeneratedTexts): ScheduledPos
   };
 }
 
+/**
+ * Bluesky のリンクカード。行き先は Nagi のニュースページ（みんなのコメントも読める）で、
+ * サムネイルは記事の画像。英語の回は英訳見出しがあればそれを使う。
+ */
+export function buildNagiNewsExternal(
+  news: ScheduledPostNews,
+  isJapanesePost: boolean,
+): ScheduledPostExternal {
+  const title = isJapanesePost ? news.titleJa : news.titleEn ?? news.titleJa;
+  return {
+    uri: nagiNewsPageUrl(news.rkey),
+    title,
+    description: [news.sourceName, isJapanesePost ? "Nagi のニュース" : "News on Nagi"]
+      .filter(Boolean)
+      .join(" · "),
+    ...(news.imageUrl ? { thumbUrl: news.imageUrl } : {}),
+  };
+}
+
 export function buildWhimsicalPostRequest(params: {
-  generated: GeneratedTexts & { selectedNewsUrl?: string };
+  generated: GeneratedTexts;
   song: { title: string; artist: string; url: string } | null;
   isJapanesePost: boolean;
+  news?: ScheduledPostNews | null;
 }): ScheduledPostPublishRequest {
-  const { generated, song, isJapanesePost } = params;
+  const { generated, song, isJapanesePost, news } = params;
   const texts = buildWhimsicalPostTexts({
     textJa: generated.textJa,
     textEn: generated.textEn,
-    selectedNewsUrl: generated.selectedNewsUrl,
     moodSong: song ? `MyMoodSong:\n${song.title} - ${song.artist}\n${song.url}` : "",
   });
   return {
     kind: "whimsical",
     contentByTarget: {
-      bsky: { text: isJapanesePost ? texts.bskyJa : texts.bskyEn },
+      bsky: {
+        text: isJapanesePost ? texts.bskyJa : texts.bskyEn,
+        ...(news ? { external: buildNagiNewsExternal(news, isJapanesePost) } : {}),
+      },
       nagi: {
         text: texts.nagiJa,
         langs: ["ja"],
         translations: [{ lang: "en", text: texts.nagiEn }],
+        ...(news ? { quote: { uri: news.uri, cid: news.cid } } : {}),
       },
     },
   };

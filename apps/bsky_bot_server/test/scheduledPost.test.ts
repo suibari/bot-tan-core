@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { agent } from "../src/bsky/agent.js";
-import { publishScheduledPost } from "../src/ScheduledPostFeature.js";
+import { buildScheduledExternal, publishScheduledPost } from "../src/ScheduledPostFeature.js";
 
 function productionEnv(t: { after: (fn: () => void) => void }) {
   const previousEnv = process.env.NODE_ENV;
@@ -71,4 +71,57 @@ test("夜の動画が無い日は RP もリプライもしない", async (t) => 
   await publishScheduledPost({ kind: "good-night", text: "おやすみ！" });
   assert.equal(posted.length, 1);
   assert.equal(posted[0].reply, undefined);
+});
+
+const newsCard = {
+  uri: "https://nagi.suibari.com/news/3news",
+  title: "見出し",
+  description: "Example News · Nagi のニュース",
+  thumbUrl: "https://image.example/news.jpg",
+};
+
+test("気まぐれ：Nagi のニュースページのカードに記事の画像をサムネとして付ける", async (t) => {
+  productionEnv(t);
+  const thumb = { ref: "bafythumb", mimeType: "image/jpeg", size: 4 } as any;
+  t.mock.method(agent, "uploadBlob", async (data: Buffer, opts: any) => {
+    assert.equal(data.toString(), "jpeg");
+    assert.equal(opts.encoding, "image/jpeg");
+    return { data: { blob: thumb } };
+  });
+  t.mock.method(globalThis, "fetch", async (input: any) => {
+    assert.equal(String(input), newsCard.thumbUrl);
+    return new Response("jpeg", { headers: { "content-type": "image/jpeg" } });
+  });
+  let posted: any;
+  t.mock.method(agent, "post", async (record: any) => {
+    posted = record;
+    return { uri: "at://post", cid: "post-cid" };
+  });
+  // safeFetch は DNS を引くので、ここでは解決結果を差し替えずに fetchImage を注入した版で検証する。
+  const card = await buildScheduledExternal(newsCard, {
+    fetchImage: (async (url: string) => fetch(url)) as any,
+  });
+  assert.deepEqual(card, {
+    uri: newsCard.uri, title: newsCard.title, description: newsCard.description, thumb,
+  });
+
+  await publishScheduledPost({
+    kind: "whimsical",
+    text: "ニュースだよ！みんなは最近どう？\n\nMyMoodSong:\nSong - Artist\nhttps://www.youtube.com/watch?v=stub",
+    external: { ...newsCard, thumbUrl: undefined },
+  });
+  // 本文の YouTube URL から自動でカードを作らず、渡したカードを優先する。
+  assert.deepEqual(posted.embed, {
+    $type: "app.bsky.embed.external",
+    external: { uri: newsCard.uri, title: newsCard.title, description: newsCard.description },
+  });
+});
+
+test("気まぐれ：サムネを取れなければサムネ無しのカードで出す", async (t) => {
+  t.mock.method(console, "warn", () => {});
+  const card = await buildScheduledExternal(newsCard, {
+    fetchImage: (async () => new Response("gone", { status: 404 })) as any,
+    upload: async () => { throw new Error("must not upload"); },
+  });
+  assert.deepEqual(card, { uri: newsCard.uri, title: newsCard.title, description: newsCard.description });
 });

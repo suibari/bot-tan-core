@@ -136,3 +136,23 @@ test("おやすみ：動画を取れない・他人の投稿なら絵だけで�
   assert.equal(getRecord.mock.callCount(), 1, "他人の投稿は取りに行かない");
   for (const record of records) assert.equal(record.embed.$type, "com.suibari.nagi.post#images");
 });
+
+test("気まぐれ：紹介する Nagi のニュースを #quote で埋め込む", async (t) => {
+  let record: any;
+  t.mock.method(globalThis, "fetch", async () =>
+    new Response("{}", { headers: { "content-type": "application/json" } }));
+  t.mock.method(agent.api.com.atproto.repo, "createRecord", async (params: any) => {
+    record = params.record;
+    return { data: { uri: "at://did:plc:bot/com.suibari.nagi.post/new", cid: "new-cid" } };
+  });
+  await publishScheduledPost({
+    kind: "whimsical",
+    text: "ニュースだよ！みんなは最近どう？",
+    langs: ["ja"],
+    quote: { uri: "at://did:plc:bot/com.suibari.nagi.news/3news", cid: "bafynews" },
+  });
+  assert.deepEqual(record.embed, {
+    $type: "com.suibari.nagi.post#quote",
+    record: { uri: "at://did:plc:bot/com.suibari.nagi.news/3news", cid: "bafynews" },
+  });
+});

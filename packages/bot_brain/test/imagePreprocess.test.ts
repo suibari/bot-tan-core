@@ -4,6 +4,7 @@ import { createCanvas } from "@napi-rs/canvas";
 import {
   maxImageTiles,
   prepareModelImages,
+  shrinkImageToBytes,
   tileLabel,
 } from "../src/ai/imagePreprocess.js";
 import { buildAffirmativeImageParts } from "../src/ai/affirmativeImages.js";
@@ -180,4 +181,29 @@ test("肯定リプライではタイルが全体像の直後に、ラベル付�
     assert.match((parts[2] as any).text, /画像1-1: 画像1の/);
     assert.ok((parts[3] as any).inlineData);
   });
+});
+
+test("shrinkImageToBytes: 上限内はそのまま、超えたら JPEG に縮め、壊れた入力は諦める", async () => {
+  const small = png(64, 64);
+  assert.deepEqual(await shrinkImageToBytes(small, "image/png", 1_000_000), { data: small, mimeType: "image/png" });
+
+  // ノイズ入りの大きい PNG は数 MB になる。長辺を縮めた JPEG で上限に収める。
+  const width = 2400, height = 1600;
+  const canvas = createCanvas(width, height);
+  const context = canvas.getContext("2d");
+  const pixels = context.createImageData(width, height);
+  let seed = 12345;
+  for (let i = 0; i < pixels.data.length; i++) {
+    seed = (Math.imul(seed, 1103515245) + 12345) >>> 0;
+    pixels.data[i] = i % 4 === 3 ? 255 : seed >>> 24;
+  }
+  context.putImageData(pixels, 0, 0);
+  const large = canvas.toBuffer("image/png");
+  assert.ok(large.length > 950_000);
+  const shrunk = await shrinkImageToBytes(large, "image/png", 950_000);
+  assert.equal(shrunk?.mimeType, "image/jpeg");
+  assert.ok(shrunk!.data.length <= 950_000);
+
+  // loadImage が固まる入力（AGENTS.md）でも、署名判定で即座に undefined を返す。
+  assert.equal(await shrinkImageToBytes(Buffer.from([1, 2, 3]), "image/jpeg", 2), undefined);
 });

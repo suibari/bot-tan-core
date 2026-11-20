@@ -54,3 +54,4 @@ export * from './actorThemes.js';
 export * from './newsInterestTopics.js';
 
 export * from "./linkedMoodSong.js";
+export { shrinkImageToBytes } from './imagePreprocess.js';

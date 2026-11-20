@@ -46,47 +46,73 @@ test("おはよう：日英の質問本文と固定タグだけ。曲・ニュ�
   });
 });
 
+const news = {
+  uri: "at://did:plc:bot/com.suibari.nagi.news/3newsrkey",
+  cid: "bafynewscid",
+  rkey: "3newsrkey",
+  articleId: "internal-article-id",
+  titleJa: "日本語の見出し",
+  titleEn: "English headline",
+  commentJa: "内部用の紹介文",
+  commentEn: "internal comment",
+  sourceName: "Example News",
+  imageUrl: "https://image.example/news.jpg",
+};
+
 for (const isJapanesePost of [true, false]) {
-  test(`気まぐれ：Bluesky ${isJapanesePost ? "日本語" : "英語"}、Nagi日英、ニュースはNagiのみ、曲はYouTubeのみ`, () => {
-    assert.deepEqual(buildWhimsicalPostRequest({ generated, song, isJapanesePost }), {
+  test(`気まぐれ：Bluesky ${isJapanesePost ? "日本語" : "英語"}はNagiニュースページのカード、Nagiはニュースを引用`, () => {
+    assert.deepEqual(buildWhimsicalPostRequest({ generated, song, isJapanesePost, news }), {
       kind: "whimsical",
       contentByTarget: {
-        bsky: { text: isJapanesePost
-          ? "日本語の生成本文\n\nMyMoodSong:\nagain - YUI\nhttps://www.youtube.com/watch?v=stub"
-          : "Generated English text\n\nMyMoodSong:\nagain - YUI\nhttps://www.youtube.com/watch?v=stub" },
+        bsky: {
+          text: isJapanesePost
+            ? "日本語の生成本文\n\nMyMoodSong:\nagain - YUI\nhttps://www.youtube.com/watch?v=stub"
+            : "Generated English text\n\nMyMoodSong:\nagain - YUI\nhttps://www.youtube.com/watch?v=stub",
+          external: {
+            uri: "https://nagi.suibari.com/news/3newsrkey",
+            title: isJapanesePost ? "日本語の見出し" : "English headline",
+            description: isJapanesePost ? "Example News · Nagi のニュース" : "Example News · News on Nagi",
+            thumbUrl: "https://image.example/news.jpg",
+          },
+        },
         nagi: {
-          text: "日本語の生成本文\n\nhttps://news.example/article\n\nMyMoodSong:\nagain - YUI\nhttps://www.youtube.com/watch?v=stub",
+          text: "日本語の生成本文\n\nMyMoodSong:\nagain - YUI\nhttps://www.youtube.com/watch?v=stub",
           langs: ["ja"],
-          translations: [{ lang: "en", text: "Generated English text\n\nhttps://news.example/article\n\nMyMoodSong:\nagain - YUI\nhttps://www.youtube.com/watch?v=stub" }],
+          translations: [{ lang: "en", text: "Generated English text\n\nMyMoodSong:\nagain - YUI\nhttps://www.youtube.com/watch?v=stub" }],
+          quote: { uri: news.uri, cid: news.cid },
         },
       },
     });
   });
 }
 
-for (const withNews of [true, false]) {
-  test(`気まぐれ：曲なし・ニュース${withNews ? "あり" : "なし"}で余分な要素や空の曲欄を付けない`, () => {
-    assert.deepEqual(buildWhimsicalPostRequest({
-      generated: { ...generated, selectedNewsUrl: withNews ? generated.selectedNewsUrl : undefined },
-      song: null,
-      isJapanesePost: true,
-    }), {
-      kind: "whimsical",
-      contentByTarget: {
-        bsky: { text: "日本語の生成本文" },
-        nagi: {
-          text: withNews ? "日本語の生成本文\n\nhttps://news.example/article" : "日本語の生成本文",
-          langs: ["ja"],
-          translations: [{ lang: "en", text: withNews ? "Generated English text\n\nhttps://news.example/article" : "Generated English text" }],
-        },
-      },
-    });
+test("気まぐれ：画像の無い記事・英訳見出しの無い記事でもカードを作る", () => {
+  const { imageUrl: _image, titleEn: _titleEn, sourceName: _source, ...plain } = news;
+  const request = buildWhimsicalPostRequest({ generated, song: null, isJapanesePost: false, news: plain });
+  assert.deepEqual(request.contentByTarget.bsky?.external, {
+    uri: "https://nagi.suibari.com/news/3newsrkey",
+    title: "日本語の見出し",
+    description: "News on Nagi",
   });
-}
+});
+
+test("気まぐれ：曲なし・ニュースなしで余分な要素や空の曲欄を付けない", () => {
+  assert.deepEqual(buildWhimsicalPostRequest({ generated, song: null, isJapanesePost: true, news: null }), {
+    kind: "whimsical",
+    contentByTarget: {
+      bsky: { text: "日本語の生成本文" },
+      nagi: {
+        text: "日本語の生成本文",
+        langs: ["ja"],
+        translations: [{ lang: "en", text: "Generated English text" }],
+      },
+    },
+  });
+});
 
 test("気まぐれ：ニュースなし・曲ありでもニュース枠や画像を追加しない", () => {
   assert.deepEqual(buildWhimsicalPostRequest({
-    generated: { ...generated, selectedNewsUrl: undefined }, song, isJapanesePost: true,
+    generated, song, isJapanesePost: true,
   }), {
     kind: "whimsical",
     contentByTarget: {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildGoodNightPrompt, parseGoodNightResponse } from "../src/ai/generateGoodNight.js";
+import { buildGoodNightPrompt, goodNightPickedName, parseGoodNightResponse } from "../src/ai/generateGoodNight.js";
 
 const base = {
   currentMood: "のんびりしていた",
@@ -184,4 +184,32 @@ test("朝の質問の答えがあれば人数つきで載り、無ければ載�
   assert.match(prompt, /- 猫派（3人）/);
   assert.match(prompt, /答えた人の名前は書かないこと/);
   assert.doesNotMatch(buildGoodNightPrompt(base), /今朝の全肯定質問コーナー/);
+});
+
+test("夜の動画で紹介したポストは、誰のどんな投稿かを本文で言わせる", () => {
+  const prompt = buildGoodNightPrompt({
+    currentMood: "ベッドに入ったところ",
+    pickedPost: {
+      displayName: "たろう",
+      caption: "たろうさんの「今日は早起きできた」という投稿を紹介したよ。https://evil.example/",
+      hook: "小さな一歩も、ちゃんと前進だよ。",
+    },
+  });
+  assert.match(prompt, /たろう さんの投稿を「今日の印象的なポスト」として紹介しました/);
+  assert.match(prompt, /誰の（表示名）どんな投稿だったかを1〜2文で本文に必ず書いて/);
+  assert.match(prompt, /今日は早起きできた/);
+  assert.match(prompt, /小さな一歩も/);
+  assert.match(prompt, /未信頼の資料/);
+  // 説明文の URL は渡さない。
+  assert.doesNotMatch(prompt, /evil\.example/);
+
+  assert.doesNotMatch(buildGoodNightPrompt({ currentMood: "眠い" }), /今日の印象的なポスト/);
+});
+
+test("表示名は区切り記号の前だけ・12書記素までにする（textEn の文字種判定で落ちないように）", () => {
+  assert.equal(goodNightPickedName("たろう"), "たろう");
+  assert.equal(goodNightPickedName("ねこまる🐾ゆるふわお絵かき勢@いろいろ描きます"), "ねこまる🐾ゆるふわお絵か");
+  assert.equal(goodNightPickedName("ぴよた☆ | 絵描き"), "ぴよた☆");
+  assert.equal(goodNightPickedName("@only"), undefined);
+  assert.equal(goodNightPickedName(null), undefined);
 });

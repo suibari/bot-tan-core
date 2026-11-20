@@ -299,3 +299,43 @@ export function tileLabel(
     ? `画像${index}: 画像${parentIndex}の${image.position ?? ""}を拡大したもの。新しい被写体ではなく、同じ画像の一部です。ここで読み取れた具体物を、画像${parentIndex}について書くときの根拠にしてください。`
     : `Image ${index}: a ${image.positionEn ?? "cropped"} close-up of image ${parentIndex}. It is not a separate subject; use what you can read here as evidence when you write about image ${parentIndex}.`;
 }
+
+/**
+ * 外部の画像を blob の上限に収める（リンクカードのサムネ向け）。
+ *
+ * 上限以下ならそのまま返す。超えていれば長辺を縮めた JPEG にし、それでも超えるなら
+ * もう一段縮める。デコードは prepareModelImages と同じく署名判定とタイムアウトで守る
+ * （`loadImage` は壊れた入力で固まる）。収められなければ undefined（サムネ無しで出す）。
+ */
+export async function shrinkImageToBytes(
+  buffer: Buffer,
+  mimeType: string,
+  maxBytes: number,
+): Promise<{ data: Buffer; mimeType: string } | undefined> {
+  if (buffer.length <= maxBytes && ["image/jpeg", "image/png", "image/webp"].includes(mimeType)) {
+    return { data: buffer, mimeType };
+  }
+  try {
+    if (!isDecodableImage(buffer)) return undefined;
+    const source = await withTimeout(loadImage(buffer), DECODE_TIMEOUT_MS, "loadImage");
+    if (!source.width || !source.height) return undefined;
+    for (const longSide of [1600, 1000, 640]) {
+      const { width, height } = scaleToLongSide(source.width, source.height, longSide);
+      const canvas = createCanvas(width, height);
+      const context = canvas.getContext("2d");
+      // 透過は JPEG で黒になるので白で塗っておく。
+      context.fillStyle = "#ffffff";
+      context.fillRect(0, 0, width, height);
+      context.drawImage(source, 0, 0, width, height);
+      const data = canvas.toBuffer("image/jpeg", 0.82);
+      if (data.length <= maxBytes) return { data, mimeType: "image/jpeg" };
+    }
+    return undefined;
+  } catch (error) {
+    console.warn(
+      "[WARN][AI_IMAGE] 画像を blob の上限へ縮められなかった",
+      error instanceof Error ? error.message : error,
+    );
+    return undefined;
+  }
+}
