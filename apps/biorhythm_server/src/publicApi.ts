@@ -3,6 +3,7 @@ import {
   BOT_MEMORY_GRAPH_MAX_NODES,
   BOT_MEMORY_GRAPH_MAX_WINDOW_DAYS,
   getBotMemoryGraph,
+  getPublicKnowledgeCards,
 } from "@bsky-affirmative-bot/database";
 import express from "express";
 import { buildHealthSnapshot } from "./healthMonitor.js";
@@ -181,6 +182,13 @@ publicApi.get("/timeline", async (req, res) => {
   }
 });
 
+function cachedMemoryGraph(days: number, nodes: number | undefined) {
+  return cached(
+    `memory-graph:${days}:${nodes ?? "default"}`,
+    () => getBotMemoryGraph({ windowDays: days, nodeLimit: nodes }),
+  );
+}
+
 /**
  * botたんの記憶のネットワークグラフ。bot-tan.com の /memory が読む。
  *
@@ -210,13 +218,44 @@ publicApi.get("/memory-graph", async (req, res) => {
     : Math.min(Math.floor(requestedNodes), BOT_MEMORY_GRAPH_MAX_NODES);
 
   try {
-    const payload = await cached(
-      `memory-graph:${days}:${nodes ?? "default"}`,
-      () => getBotMemoryGraph({ windowDays: days, nodeLimit: nodes }),
-    );
-    res.json(payload);
+    res.json(await cachedMemoryGraph(days, nodes));
   } catch (error) {
     console.error("[ERROR][BIO][API] /memory-graph failed:", error);
     res.status(500).json({ error: "failed to build memory graph" });
+  }
+});
+
+/**
+ * ラベル1つぶんの知識カード。/memory でノードを選んだときに読む。
+ *
+ * 返すのは web_research（botたんが外の公開ページを調べてまとめた知識）だけで、
+ * 会話の記憶は返さない（getPublicKnowledgeCards の冒頭コメントを参照）。
+ *
+ * **既定の公開グラフにいま載っているラベルしか受け付けない。** 任意の語を投げて
+ * 「botたんがそれを調べたか」を確かめられると、グラフ側の MIN_OCCURRENCES で
+ * 伏せている1回きりの話題が、カードの有無から漏れる。グラフはページが読むのと
+ * 同じキャッシュを引くので、ここで重いクエリが増えることもない。
+ */
+publicApi.get("/memory-graph/card", async (req, res) => {
+  const label = typeof req.query.label === "string" ? req.query.label.trim() : "";
+  if (!label || label.length > 80) {
+    res.status(400).json({ error: "label is required" });
+    return;
+  }
+  const key = label.toLowerCase();
+
+  try {
+    const graph = await cachedMemoryGraph(BOT_MEMORY_GRAPH_MAX_WINDOW_DAYS, undefined);
+    const node = graph.nodes.find((candidate) => candidate.id === key);
+    if (!node) {
+      res.status(404).json({ error: "label is not in the public memory graph" });
+      return;
+    }
+    // キーはグラフのノード id に揃える。ノード数で上限が決まるので、キャッシュが膨らまない。
+    const cards = await cached(`memory-card:${node.id}`, () => getPublicKnowledgeCards(node.label));
+    res.json({ label: node.label, cards });
+  } catch (error) {
+    console.error("[ERROR][BIO][API] /memory-graph/card failed:", error);
+    res.status(500).json({ error: "failed to load knowledge card" });
   }
 });
