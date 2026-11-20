@@ -63,6 +63,7 @@ export * from './nagiSchema.js';
 export * from './health.js';
 export * from './botMemory.js';
 export * from './botMemoryGraph.js';
+export * from './botMemoryCard.js';
 export * from './newsInterestTopics.js';
 export * from './scheduledPostNews.js';
 export * from './botMemoryPronunciation.js';
