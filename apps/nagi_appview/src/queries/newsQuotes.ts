@@ -1,6 +1,7 @@
 import { db, nagiActors, nagiPostScores, nagiPosts, nagiProfiles } from "@bsky-affirmative-bot/database";
 import { NAGI, type FeedItem } from "@bsky-affirmative-bot/nagi-lexicon";
-import { and, desc, eq, lt, or } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lt, ne, or } from "drizzle-orm";
+import { config } from "../config.js";
 import { viewerIsAdult } from "../services/ageAssurance.js";
 import { loadMutes } from "./mutes.js";
 import {
@@ -12,8 +13,47 @@ import {
   timelineVisibilityFilters,
 } from "./timeline.js";
 
+/** ニュースを引用した botたんの投稿（定期ポスト）。quote_uri のインデックスで引ける。 */
+export async function botPostsQuotingNews(newsUri: string): Promise<string[]> {
+  const rows = await db
+    .select({ uri: nagiPosts.uri })
+    .from(nagiPosts)
+    .where(
+      and(
+        eq(nagiPosts.quoteUri, newsUri),
+        eq(nagiPosts.did, config.botDid),
+        isNull(nagiPosts.deletedAt),
+      ),
+    );
+  return rows.map((row) => row.uri);
+}
+
 /**
- * ニュースのパーマリンクに出す「みんなのコメント」。そのニュースを引用した投稿を新しい順に返す。
+ * 「このニュースへのコメント」とみなす投稿の条件。
+ *
+ * - 利用者がニュースを引用した投稿。
+ * - botたんの定期ポスト（ニュースを引用し、読者への問いかけで締めている）への返信。
+ *   返信はレコード上ニュースを引用していないが、問いかけへの答えなので中身はニュースへの
+ *   コメントになる。スレッドのどの深さの返信でも、ルートがその定期ポストなら含める。
+ *
+ * botたん自身の投稿は含めない。定期ポストの問いかけはニュースページの botたんコメントと
+ * 重なり、スレッド内の返信は会話のやり取りで、ニュースへの感想ではない。
+ *
+ * 定期ポストの URI は先に引いて値で渡す。OR の中に相関サブクエリを置くとプランナーが
+ * quote_uri / reply_root_uri のインデックスを使えず、posts を全件スキャンした
+ * （2026-11-20 本番で EXPLAIN）。値の一覧なら両インデックスの BitmapOr になる。
+ */
+export function newsCommentCondition(newsUri: string, botPostUris: string[]) {
+  return and(
+    ne(nagiPosts.did, config.botDid),
+    botPostUris.length
+      ? or(eq(nagiPosts.quoteUri, newsUri), inArray(nagiPosts.replyRootUri, botPostUris))
+      : eq(nagiPosts.quoteUri, newsUri),
+  )!;
+}
+
+/**
+ * ニュースのパーマリンクに出す「みんなのコメント」。newsCommentCondition の投稿を新しい順に返す。
  *
  * 外からニュースページへ来た人に、Nagi の中でその話題がどう受け止められたかを見せるための読み口。
  * 可視性は共有TLと同じ条件（timelineVisibilityFilters）に乗せる。こっそり・ミュート・
@@ -31,9 +71,10 @@ export async function getNewsQuotes(opts: {
   hasMore: boolean;
 }> {
   if (opts.uri.split("/")[3] !== NAGI.news) return { items: [], hasMore: false };
-  const [mutes, isAdult] = await Promise.all([
+  const [mutes, isAdult, botPostUris] = await Promise.all([
     loadMutes(opts.viewerDid),
     viewerIsAdult(opts.viewerDid),
+    botPostsQuotingNews(opts.uri),
   ]);
   const filters = timelineVisibilityFilters(
     { viewerDid: opts.viewerDid },
@@ -44,7 +85,7 @@ export async function getNewsQuotes(opts: {
       isAdult,
     },
   );
-  filters.push(eq(nagiPosts.quoteUri, opts.uri));
+  filters.push(newsCommentCondition(opts.uri, botPostUris));
   const point = decodeCursor(opts.cursor);
   if (point)
     filters.push(
