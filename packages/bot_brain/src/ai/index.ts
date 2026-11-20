@@ -33,6 +33,7 @@ export * from './lastFmMoodSong.js';
 export * from './generateOmikuji.js';
 export * from './generateQuestion.js';
 export * from './generateQuestionsAnswer.js';
+export * from './questionThemes.js';
 export * from './generateRecapResult.js';
 export * from './generateRecommendedSong.js';
 export * from './generateWhimsicalPost.js';
