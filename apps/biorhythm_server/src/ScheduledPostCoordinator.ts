@@ -38,6 +38,7 @@ import {
   SCHEDULED_POST_SONG_SCOPE,
 } from "@bsky-affirmative-bot/database";
 import { fetchDisplayName } from "./displayName.js";
+import { loadQuestionThemeHistory, rememberQuestionTheme } from "./questionThemeHistory.js";
 import { jstDateString as jstDate } from "./jstDate.js";
 import { getRecentNewsArticleIds, recordRecentNewsArticle } from "./whimsicalPostNewsHistory.js";
 import { selectGoodNightLearnedTerms, summarizeQuestionAnswers } from "./scheduledPostContent.js";
@@ -346,9 +347,13 @@ export async function getYoutubeLiveForWhimsical(
 }
 
 export async function postMorning(botContext?: BotContext) {
-  const { textJa, textEn, theme } = await generateQuestion(botContext);
+  const recentThemes = await loadQuestionThemeHistory();
+  const { textJa, textEn, theme } = await generateQuestion(botContext, { recentThemes });
   const results = await publish(buildMorningPostRequest({ textJa, textEn }));
-  if (results.bsky || results.nagi) await rememberOwnPost({ kind: "morning", text: textJa });
+  if (results.bsky || results.nagi) {
+    await rememberOwnPost({ kind: "morning", text: textJa });
+    await rememberQuestionTheme(recentThemes, theme);
+  }
   if (results.bsky) {
     await MemoryService.setQuestionState(results.bsky.uri, theme);
   }
