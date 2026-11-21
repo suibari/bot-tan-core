@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  NAGI_BLUESKY_INTERACTION_SCOPES,
   NAGI_BLUESKY_VIEW_SCOPES,
   NAGI_CROSSPOST_SCOPE,
   NAGI_OAUTH_SCOPE,
@@ -40,4 +41,18 @@ test("3行日記の書き込み権限は通常ログインで必須になる", a
   for (const scope of [NAGI_OAUTH_SCOPE, NAGI_OAUTH_SCOPE_FULL]) {
     assert.equal(scopes(scope).some((value) => value.startsWith("repo:app.bsky.actor.profile")), false);
   }
+});
+
+test("Bluesky の操作権限は連携時だけ要求し、update・ブロック・フォローを含まない", () => {
+  const required = scopes(NAGI_OAUTH_SCOPE);
+  const full = scopes(NAGI_OAUTH_SCOPE_FULL);
+  for (const scope of NAGI_BLUESKY_INTERACTION_SCOPES) {
+    assert.equal(required.includes(scope), false);
+    assert.equal(full.filter((item) => item === scope).length, 1);
+  }
+  const bskyRepo = full.filter((scope) => scope.startsWith("repo:app.bsky."));
+  assert.equal(bskyRepo.some((scope) => scope.includes("action=update")), false);
+  assert.equal(bskyRepo.every((scope) => scope.includes("action=")), true);
+  assert.equal(full.some((scope) => scope.startsWith("repo:app.bsky.graph.")), false);
+  assert.equal(NAGI_CROSSPOST_SCOPE, "repo:app.bsky.feed.post?action=create&action=delete");
 });
