@@ -122,3 +122,20 @@ test("アドカレは「季節の特別なお知らせ」（seasonal）に従う
   assert.equal(sql, 'not "nagi"."notifications"."type" in ($1)');
   assert.deepEqual(params, ["advent"]);
 });
+
+test("Bluesky の Push は未設定なら送らず、保存した値に従う", () => {
+  assert.deepEqual(preferenceFor({}, "blueskyLike"), { list: false, push: false });
+  assert.deepEqual(
+    preferenceFor({ blueskyLike: { list: false, push: true } }, "blueskyLike"),
+    { list: false, push: true },
+  );
+  assert.deepEqual(
+    parseNotificationPreferences({ blueskyReply: { list: false, push: true } }),
+    { blueskyReply: { list: false, push: true } },
+  );
+});
+
+test("Bluesky のカテゴリは Nagi の通知欄の絞り込みに入れない", () => {
+  // 既定が list: false でも、Nagi の通知の行は無いので何も隠さない。
+  assert.deepEqual(notificationListFilter({}, BOT), []);
+});

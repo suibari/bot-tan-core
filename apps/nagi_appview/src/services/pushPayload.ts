@@ -35,7 +35,7 @@ export type PushNotificationType =
 export interface PushPayload {
   title: string;
   body: string;
-  type: PushNotificationType;
+  type: PushNotificationType | BlueskyPushType;
   /** 通知1件ごとに一意。理由は上のコメントを必ず読むこと。 */
   tag: string;
   /** 通知タップ時に開くパス。 */
@@ -179,4 +179,49 @@ export function cardSubjectPushBody(
   if (subject.kind === "cardGet") return `${subject.cardNameJa} をゲット`;
   const cards = subject.cardNames.join("・");
   return subject.themeJa ? `「${subject.themeJa}」に ${cards}` : cards;
+}
+
+/** Bluesky の通知の Push を開いた先。通知画面の Bluesky タブ。 */
+const BLUESKY_NOTIF_URL = "/notifications?tab=bluesky";
+
+export type BlueskyPushType =
+  | "blueskyReply"
+  | "blueskyMention"
+  | "blueskyQuote"
+  | "blueskyLike"
+  | "blueskyRepost"
+  | "blueskyFollow";
+
+/**
+ * Bluesky の通知の Push（クライアント仕様 NOTIFY-08・09）。文面は Nagi の通知と同じ形にし、
+ * Bluesky での出来事だと分かるようにする。件数は出さず、1件ずつ送る。
+ *
+ * Nagi の通知の行は無いので、tag の一意性はイベントのレコードの AT-URI で担保する。
+ */
+export function buildBlueskyPushPayload(input: {
+  type: BlueskyPushType;
+  recordUri: string;
+  actorName: string;
+  body: string;
+}): PushPayload {
+  const { type, recordUri, actorName: name, body } = input;
+  const title =
+    type === "blueskyReply"
+      ? `${name}さんがBlueskyで返信しました`
+      : type === "blueskyMention"
+        ? `${name}さんがBlueskyであなたをメンションしました`
+        : type === "blueskyQuote"
+          ? `${name}さんがBlueskyで引用しました`
+          : type === "blueskyLike"
+            ? `${name}さんがBlueskyでいいねしました`
+            : type === "blueskyRepost"
+              ? `${name}さんがBlueskyでリポストしました`
+              : `${name}さんにBlueskyでフォローされました`;
+  return {
+    title,
+    body: type === "blueskyFollow" ? "" : body,
+    type,
+    tag: `${type}-${recordUri}`,
+    url: BLUESKY_NOTIF_URL,
+  };
 }

@@ -57,6 +57,7 @@ import {
   parseNotificationPreferences,
   sanitizeStoredNotificationPreferences,
 } from "../services/notificationPreferences.js";
+import { refreshBlueskyPushRecipient } from "../services/blueskyPush.js";
 
 const MAX_URI_LENGTH = 2048;
 const MAX_UNICODE_EMOJI_LENGTH = 64;
@@ -842,6 +843,10 @@ export async function putPreferences(
         },
         setWhere: sql`excluded.updated_at > notification_preferences.updated_at`,
       });
+    // Bluesky の通知の Push の宛先を、保存できた結果で更新する（古い更新は上で弾かれている）。
+    await refreshBlueskyPushRecipient(did).catch((error) =>
+      console.error("[bluesky-push] refresh recipient failed", error),
+    );
   }
 
   if (lastBookmarkFolderUpdatedAt) {

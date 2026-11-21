@@ -795,6 +795,20 @@ export type SyncedModerationPreferences = {
   selfNsfw: ModerationPreference;
 };
 /**
+ * Bluesky の通知の Push（クライアント仕様 NOTIFY-08）。Nagi の通知と違い、未設定は無効
+ * （push も list も false）として扱う。一覧は Bluesky 側にあるので list は使わない。
+ */
+export const BLUESKY_PUSH_CATEGORIES = [
+  "blueskyReply",
+  "blueskyMention",
+  "blueskyQuote",
+  "blueskyLike",
+  "blueskyRepost",
+  "blueskyFollow",
+] as const;
+export type BlueskyPushCategory = (typeof BLUESKY_PUSH_CATEGORIES)[number];
+
+/**
  * 通知設定のカテゴリ。Bluesky の app.bsky.notification.defs#preferences に倣い、
  * 種別ごとに「通知欄に出すか（list）」「プッシュするか（push）」を持つ。
  *
@@ -820,11 +834,13 @@ export const NOTIFICATION_PREFERENCE_CATEGORIES = [
    * （アドベントカレンダー。今後おみくじなども入れる）。
    */
   "seasonal",
+  ...BLUESKY_PUSH_CATEGORIES,
 ] as const;
+
 export type NotificationPreferenceCategory =
   (typeof NOTIFICATION_PREFERENCE_CATEGORIES)[number];
 export type NotificationPreference = { list: boolean; push: boolean };
-/** 省略したカテゴリは既定（list / push とも true）として扱う。 */
+/** 省略したカテゴリは既定（list / push とも true）として扱う。Bluesky のカテゴリだけは既定が false。 */
 export type NotificationPreferences = Partial<
   Record<NotificationPreferenceCategory, NotificationPreference>
 >;
