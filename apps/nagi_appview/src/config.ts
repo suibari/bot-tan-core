@@ -156,6 +156,11 @@ export const config = {
     ),
     "URL_JETSTREAM_APPVIEW",
   ),
+  // Bluesky の通知の Push 用の受信（services/blueskyPush.ts）。Bluesky の全投稿・いいねを受けるので、
+  // Nagi の取り込みとは分けて bot と同じ自作 proxy へ向ける。Push は取りこぼしても通知タブで
+  // 確かめられるので、proxy が cursor を上流へ渡さないことは許容する。
+  blueskyPushJetstreamUrl:
+    process.env.URL_JETSTREAM_BLUESKY_PUSH ?? process.env.URL_JETSTREAM,
   jetstreamReplaySeconds: integer(
     "NAGI_JETSTREAM_REPLAY_SECONDS",
     60,

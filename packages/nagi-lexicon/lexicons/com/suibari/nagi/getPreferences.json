@@ -219,7 +219,7 @@
     },
     "notificationPreferences": {
       "type": "object",
-      "description": "通知の種別ごとの設定。Bluesky の app.bsky.notification.defs#preferences に倣う。省略したカテゴリは list / push とも true。botInteraction は botたんからの返信・メンション・リアクション（その3種別では人からのものと分けて扱う）。seasonal は季節の特別なお知らせ（アドベントカレンダーなど期間限定の催し）。",
+      "description": "通知の種別ごとの設定。Bluesky の app.bsky.notification.defs#preferences に倣う。省略したカテゴリは list / push とも true。botInteraction は botたんからの返信・メンション・リアクション（その3種別では人からのものと分けて扱う）。seasonal は季節の特別なお知らせ（アドベントカレンダーなど期間限定の催し）。bluesky で始まるカテゴリは Bluesky の通知の Push で、省略時は list / push とも false。list は使わない。",
       "properties": {
         "reply": { "type": "ref", "ref": "#notificationPreference" },
         "mention": { "type": "ref", "ref": "#notificationPreference" },
@@ -230,7 +230,13 @@
         "chronicle": { "type": "ref", "ref": "#notificationPreference" },
         "mood": { "type": "ref", "ref": "#notificationPreference" },
         "gift": { "type": "ref", "ref": "#notificationPreference" },
-        "seasonal": { "type": "ref", "ref": "#notificationPreference" }
+        "seasonal": { "type": "ref", "ref": "#notificationPreference" },
+        "blueskyReply": { "type": "ref", "ref": "#notificationPreference" },
+        "blueskyMention": { "type": "ref", "ref": "#notificationPreference" },
+        "blueskyQuote": { "type": "ref", "ref": "#notificationPreference" },
+        "blueskyLike": { "type": "ref", "ref": "#notificationPreference" },
+        "blueskyRepost": { "type": "ref", "ref": "#notificationPreference" },
+        "blueskyFollow": { "type": "ref", "ref": "#notificationPreference" }
       }
     },
     "notificationPreference": {

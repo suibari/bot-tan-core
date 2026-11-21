@@ -22,6 +22,7 @@ import {
 } from "./middleware/rateLimit.js";
 import { errorHandler, notFound } from "./middleware/errors.js";
 import { startJetstream } from "./ingest/jetstream.js";
+import { startBlueskyPush } from "./services/blueskyPush.js";
 import {
   startBotReplyIndexWorker,
   unindexedBotReplies,
@@ -108,6 +109,11 @@ app.use(errorHandler);
 logAiRouteTable({ prefixes: ["OLLAMA_"] });
 await initializeDatabases();
 const stream = await startJetstream();
+// Bluesky の通知の Push。VAPID が無い環境では始めない。失敗しても AppView は止めない。
+const blueskyPush = await startBlueskyPush().catch((error) => {
+  console.error("[ERROR][BLUESKY_PUSH] failed to start:", error);
+  return undefined;
+});
 const appviewHeartbeat = setInterval(() => {
   // 投稿済みなのに AppView に無い botたんの返信数。監視ダッシュボードが読む。
   reportHeartbeat("nagi-appview", { ...unindexedBotReplies() }).catch((error) =>
@@ -187,6 +193,7 @@ const shutdown = async () => {
     serverClosed,
     internalClosed,
     stream.close(),
+    blueskyPush?.close(),
     stopReconcileWorker(),
   ]);
   process.exit(0);

@@ -363,7 +363,8 @@ export const NAGI_OAUTH_SCOPE = [
  * Bluesky クロスポストを有効にしたときだけ追加で要求するスコープ。
  * standard.site は Nagi ブログの正本なので、通常ログインのスコープに含める。
  */
-export const NAGI_CROSSPOST_SCOPE = "repo:app.bsky.feed.post?action=create";
+// update は使わないので除く。削除は利用者が明示したときだけ行う（クライアント仕様 BSKY-06/10）。
+export const NAGI_CROSSPOST_SCOPE = "repo:app.bsky.feed.post?action=create&action=delete";
 
 /**
  * Bluesky のカスタムフィードを Nagi のタブで読むための権限。クロスポストと同じオプトインで
@@ -381,6 +382,35 @@ export const NAGI_BLUESKY_VIEW_SCOPES = [
   "rpc:app.bsky.actor.getPreferences?aud=*",
   "rpc:app.bsky.labeler.getServices?aud=*",
   "rpc:app.bsky.feed.getLikes?aud=*",
+  "rpc:app.bsky.feed.getPostThread?aud=*",
+];
+
+/**
+ * Bluesky 投稿への操作（いいね・リポスト・返信と引用の許可・通知・ミュート・ブックマーク・通報）。
+ * 閲覧と同じオプトインで要求する。repo は付け外しだけで update を使わない。
+ * ブロック・フォローの権限は要求しない（クライアント仕様 AUTH-03）。
+ */
+export const NAGI_BLUESKY_INTERACTION_SCOPES = [
+  ...[
+    "app.bsky.feed.like",
+    "app.bsky.feed.repost",
+    "app.bsky.feed.threadgate",
+    "app.bsky.feed.postgate",
+  ].map((collection) => `repo:${collection}?action=create&action=delete`),
+  ...[
+    "app.bsky.feed.getPosts",
+    "app.bsky.notification.listNotifications",
+    "app.bsky.notification.getUnreadCount",
+    "app.bsky.notification.updateSeen",
+    "app.bsky.graph.muteActor",
+    "app.bsky.graph.unmuteActor",
+    "app.bsky.graph.muteThread",
+    "app.bsky.graph.unmuteThread",
+    "app.bsky.bookmark.createBookmark",
+    "app.bsky.bookmark.deleteBookmark",
+    "app.bsky.bookmark.getBookmarks",
+    "com.atproto.moderation.createReport",
+  ].map((method) => `rpc:${method}?aud=*`),
 ];
 
 /** client-metadata.json に宣言する最大集合（Bluesky 連携の権限を含む）。 */
@@ -388,4 +418,5 @@ export const NAGI_OAUTH_SCOPE_FULL = [
   NAGI_OAUTH_SCOPE,
   NAGI_CROSSPOST_SCOPE,
   ...NAGI_BLUESKY_VIEW_SCOPES,
+  ...NAGI_BLUESKY_INTERACTION_SCOPES,
 ].join(" ");

@@ -8,7 +8,11 @@ import {
   markSubscriptionSuccess,
 } from "../queries/pushSubscriptions.js";
 import { loadMutes } from "../queries/mutes.js";
-import { buildPushPayload, type PushNotificationType } from "./pushPayload.js";
+import {
+  buildPushPayload,
+  type PushNotificationType,
+  type PushPayload,
+} from "./pushPayload.js";
 import {
   loadNotificationPreferences,
   notificationCategory,
@@ -98,22 +102,36 @@ export async function dispatchPush(job: PushJob): Promise<void> {
     );
     return;
   }
-  const subs = await listSubscriptions(job.recipientDid);
+  await deliverPush(
+    job.recipientDid,
+    job.type,
+    async () =>
+      buildPushPayload({
+        type: job.type,
+        notificationId: job.notificationId,
+        actorName: await actorName(job.actorDid),
+        actionText: job.actionText,
+        contentText: job.contentText,
+      }),
+  );
+}
+
+/**
+ * 組み立てた payload を受信者の全購読へ送る。Nagi の通知と Bluesky の通知（blueskyPush.ts）で共用する。
+ * payload は購読があると分かってから作る（表示名の取得などを無駄にしない）。
+ */
+export async function deliverPush(
+  recipientDid: string,
+  type: string,
+  build: () => Promise<PushPayload>,
+): Promise<void> {
+  if (!ensureConfigured()) return;
+  const subs = await listSubscriptions(recipientDid);
   if (!subs.length) {
-    console.info(
-      `[push] no subscriptions type=${job.type} recipient=${job.recipientDid}`,
-    );
+    console.info(`[push] no subscriptions type=${type} recipient=${recipientDid}`);
     return;
   }
-  const payload = JSON.stringify(
-    buildPushPayload({
-      type: job.type,
-      notificationId: job.notificationId,
-      actorName: await actorName(job.actorDid),
-      actionText: job.actionText,
-      contentText: job.contentText,
-    }),
-  );
+  const payload = JSON.stringify(await build());
   let accepted = 0;
   let expired = 0;
   let failed = 0;
@@ -147,7 +165,7 @@ export async function dispatchPush(job: PushJob): Promise<void> {
         } else {
           failed += 1;
           console.error(
-            `[push] send failed status=${status} service=${endpointService(sub.endpoint)}`,
+            `[push] send failed type=${type} status=${status} service=${endpointService(sub.endpoint)}`,
             e?.body ?? e?.message,
           );
         }
@@ -159,7 +177,7 @@ export async function dispatchPush(job: PushJob): Promise<void> {
   // ここを sent と呼んでいたため、配信できている前提で調査が始まる事故が起きた。
   const services = [...new Set(subs.map((s) => endpointService(s.endpoint)))];
   console.info(
-    `[push] dispatch type=${job.type} recipient=${job.recipientDid} ` +
+    `[push] dispatch type=${type} recipient=${recipientDid} ` +
       `subscriptions=${subs.length} accepted=${accepted} expired=${expired} failed=${failed} ` +
       `services=${services.join(",")}`,
   );

@@ -4,6 +4,8 @@ import {
   nagiNotifications,
 } from "@bsky-affirmative-bot/database";
 import {
+  BLUESKY_PUSH_CATEGORIES,
+  type BlueskyPushCategory,
   NOTIFICATION_PREFERENCE_CATEGORIES,
   type NotificationPreference,
   type NotificationPreferenceCategory,
@@ -41,6 +43,11 @@ const isCategory = (value: string): value is NotificationPreferenceCategory =>
   (NOTIFICATION_PREFERENCE_CATEGORIES as readonly string[]).includes(value);
 
 const DEFAULT_PREFERENCE: NotificationPreference = { list: true, push: true };
+/** Bluesky の通知の Push は、利用者が有効にしたときだけ送る（NOTIFY-08）。 */
+const BLUESKY_DEFAULT_PREFERENCE: NotificationPreference = { list: false, push: false };
+
+export const isBlueskyCategory = (category: string): category is BlueskyPushCategory =>
+  (BLUESKY_PUSH_CATEGORIES as readonly string[]).includes(category);
 
 /**
  * 通知1件がどのカテゴリの設定に従うか。undefined は設定の対象外（常に通知する）。
@@ -60,7 +67,11 @@ export function preferenceFor(
   preferences: NotificationPreferences,
   category: NotificationPreferenceCategory | undefined,
 ): NotificationPreference {
-  return (category && preferences[category]) || DEFAULT_PREFERENCE;
+  if (!category) return DEFAULT_PREFERENCE;
+  return (
+    preferences[category] ??
+    (isBlueskyCategory(category) ? BLUESKY_DEFAULT_PREFERENCE : DEFAULT_PREFERENCE)
+  );
 }
 
 /**
@@ -119,6 +130,8 @@ export function notificationListFilter(
 ): SQL[] {
   const hidden: SQL[] = [];
   for (const category of NOTIFICATION_PREFERENCE_CATEGORIES) {
+    // Bluesky の通知は Nagi の通知欄に行を持たない。
+    if (isBlueskyCategory(category)) continue;
     if (preferenceFor(preferences, category).list) continue;
     if (category === "botInteraction") {
       hidden.push(
