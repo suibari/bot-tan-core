@@ -398,6 +398,7 @@ export const NAGI_BLUESKY_INTERACTION_SCOPES = [
     "app.bsky.feed.postgate",
   ].map((collection) => `repo:${collection}?action=create&action=delete`),
   ...[
+    "app.bsky.feed.getPosts",
     "app.bsky.notification.listNotifications",
     "app.bsky.notification.getUnreadCount",
     "app.bsky.notification.updateSeen",
