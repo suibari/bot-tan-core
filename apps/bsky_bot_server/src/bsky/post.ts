@@ -8,6 +8,12 @@ import { assertPublicUrl, safeFetch, sanitizeBotPostFacets } from "@bsky-affirma
 export interface PostOptions {
   /** メンションとして残してよい DID。返信相手以外への通知を飛ばさないため。 */
   mentionDids?: readonly string[];
+  /**
+   * コードで組み立てた自前サービスへのリンク（定期ポストの「🌐 English」など）。
+   * 本文に URL が無いので facet 検出では作れず、サニタイズの後に足す。リンクカードの元にはしない。
+   * 生成文から作ったリンクをここへ渡してはいけない。
+   */
+  linkFacets?: readonly AppBskyRichtextFacet.Main[];
 }
 
 /**
@@ -28,7 +34,10 @@ export async function post(record: Record, embedRecord?: Record, options: PostOp
     const facets = sanitizeBotPostFacets(rt.text, rt.facets, {
       allowedMentionDids: options.mentionDids,
     });
-    record.facets = facets.length ? facets : undefined;
+    const allFacets = [...facets, ...(options.linkFacets ?? [])].sort(
+      (a, b) => a.index.byteStart - b.index.byteStart,
+    );
+    record.facets = allFacets.length ? allFacets : undefined;
 
     // リンクカードは facet と同じ URL から選ぶ。本文を正規表現で拾い直すと、
     // URL の直後に続く日本語まで含んだ開けない URL で OGP を取りに行ってしまう。

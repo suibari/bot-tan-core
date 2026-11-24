@@ -1,6 +1,7 @@
 import type {
   ScheduledPostExternal,
   ScheduledPostImage,
+  ScheduledPostNagiLink,
   ScheduledPostPublishRequest,
 } from "@bsky-affirmative-bot/clients";
 import { nagiNewsPageUrl, type ScheduledPostNews } from "@bsky-affirmative-bot/database";
@@ -8,13 +9,20 @@ import { buildGoodNightPostTexts, buildWhimsicalPostTexts } from "./scheduledPos
 
 type GeneratedTexts = { textJa: string; textEn: string };
 
+/**
+ * Bluesky の定期ポストは1つの言語で書き、もう一方の言語は Nagi の同じ投稿へのリンクにする。
+ * Nagi の投稿は日本語の原文に英訳を添えてあり、閲覧者の言語で表示される。
+ */
+export const NAGI_LINK_FROM_JA: ScheduledPostNagiLink = { label: "🌐 English", seeMoreLabel: "もっと見る" };
+export const NAGI_LINK_FROM_EN: ScheduledPostNagiLink = { label: "🌐 日本語", seeMoreLabel: "See more" };
+
 /** 生成結果から、各投稿で許可する送信要素だけを明示的に組み立てる。 */
 export function buildMorningPostRequest(generated: GeneratedTexts): ScheduledPostPublishRequest {
   const hashtags = "#全肯定質問コーナー #BottansQuestion";
   return {
     kind: "morning",
     contentByTarget: {
-      bsky: { text: `${generated.textJa}\n\n${generated.textEn}\n\n${hashtags}` },
+      bsky: { text: generated.textJa, footer: hashtags, nagiLink: NAGI_LINK_FROM_JA },
       nagi: {
         text: `${generated.textJa}\n\n${hashtags}`,
         langs: ["ja"],
@@ -50,16 +58,19 @@ export function buildWhimsicalPostRequest(params: {
   news?: ScheduledPostNews | null;
 }): ScheduledPostPublishRequest {
   const { generated, song, isJapanesePost, news } = params;
+  const moodSong = song ? `MyMoodSong:\n${song.title} - ${song.artist}\n${song.url}` : "";
   const texts = buildWhimsicalPostTexts({
     textJa: generated.textJa,
     textEn: generated.textEn,
-    moodSong: song ? `MyMoodSong:\n${song.title} - ${song.artist}\n${song.url}` : "",
+    moodSong,
   });
   return {
     kind: "whimsical",
     contentByTarget: {
       bsky: {
-        text: isJapanesePost ? texts.bskyJa : texts.bskyEn,
+        text: isJapanesePost ? generated.textJa : generated.textEn,
+        ...(moodSong ? { footer: moodSong } : {}),
+        nagiLink: isJapanesePost ? NAGI_LINK_FROM_JA : NAGI_LINK_FROM_EN,
         ...(news ? { external: buildNagiNewsExternal(news, isJapanesePost) } : {}),
       },
       nagi: {
@@ -87,7 +98,8 @@ export function buildGoodNightPostRequest(params: {
     contentByTarget: {
       // Blueskyサーバへ渡す画像はLeaflet日記用。Bluesky投稿自体には添付しない。
       bsky: {
-        text: texts.bsky,
+        text: generated.textJa,
+        nagiLink: NAGI_LINK_FROM_JA,
         ...(image ? { image } : {}),
         ...(nightVideo
           ? { nightVideo: { uri: nightVideo.uri, cid: nightVideo.cid } }

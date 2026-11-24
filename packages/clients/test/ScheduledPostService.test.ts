@@ -68,3 +68,60 @@ test("contentByTarget に無い配信先へは、設定されていても送ら�
   assert.deepEqual(urls, [`${process.env.NAGI_BOT_SERVER_URL || "http://localhost:3003"}/posts/scheduled`]);
   assert.deepEqual(Object.keys(results), ["nagi"]);
 });
+
+function withTargets(t: { after: (fn: () => void) => void }, value: string) {
+  const previous = process.env.SCHEDULED_POST_TARGETS;
+  process.env.SCHEDULED_POST_TARGETS = value;
+  t.after(() => {
+    if (previous === undefined) delete process.env.SCHEDULED_POST_TARGETS;
+    else process.env.SCHEDULED_POST_TARGETS = previous;
+  });
+}
+
+const nagiLink = { label: "🌐 English", seeMoreLabel: "もっと見る" };
+const NAGI_SERVER = process.env.NAGI_BOT_SERVER_URL || "http://localhost:3003";
+const nagiUri = "at://did:plc:bot/com.suibari.nagi.post/1";
+
+test("Nagi へのリンクを載せる回は、Nagi を先に出してその投稿を Bluesky へ渡す", async (t) => {
+  withTargets(t, "bsky,nagi");
+  const sent: Array<{ url: string; body: any }> = [];
+  t.mock.method(axios, "post", async (url: string, body: any) => {
+    sent.push({ url, body });
+    return url.startsWith(NAGI_SERVER)
+      ? { data: { uri: nagiUri, cid: "nagi-cid" } }
+      : { data: { uri: "at://did:plc:bot/app.bsky.feed.post/1", cid: "bsky-cid" } };
+  });
+
+  const results = await ScheduledPostService.publish({
+    kind: "morning",
+    contentByTarget: { bsky: { text: "おはよう", nagiLink }, nagi: { text: "おはよう" } },
+  });
+
+  assert.equal(sent.length, 2);
+  assert.ok(sent[0].url.startsWith(NAGI_SERVER));
+  assert.deepEqual(sent[1].body.nagiPost, { uri: nagiUri, cid: "nagi-cid" });
+  assert.deepEqual(Object.keys(results).sort(), ["bsky", "nagi"]);
+});
+
+test("Nagi への投稿が失敗しても、Bluesky へはリンク無しで出す", async (t) => {
+  withTargets(t, "bsky,nagi");
+  t.mock.method(console, "error", () => {});
+  const bskyBodies: any[] = [];
+  t.mock.method(axios, "post", async (url: string, body: any) => {
+    if (url.startsWith(NAGI_SERVER)) {
+      const error = Object.assign(new Error("down"), { isAxiosError: true, response: { status: 500 } });
+      throw error;
+    }
+    bskyBodies.push(body);
+    return { data: { uri: "at://did:plc:bot/app.bsky.feed.post/1", cid: "bsky-cid" } };
+  });
+
+  const results = await ScheduledPostService.publish({
+    kind: "morning",
+    contentByTarget: { bsky: { text: "おはよう", nagiLink }, nagi: { text: "おはよう" } },
+  });
+
+  assert.equal(bskyBodies.length, 1);
+  assert.equal(bskyBodies[0].nagiPost, undefined);
+  assert.deepEqual(Object.keys(results), ["bsky"]);
+});
