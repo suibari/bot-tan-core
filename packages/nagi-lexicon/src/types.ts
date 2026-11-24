@@ -692,7 +692,7 @@ export const TAG_FAVORITE_MAX_LENGTH = 64;
 /**
  * フィードのタブ1枚の種別。
  * list / custom は「入れ物」で、どれを指すかは source が持つ（list はいまホームだけ、
- * custom はいま全肯定だけ）。将来ユーザーが定義した Nagi のカスタムフィードも custom に入る。
+ * custom はいまおすすめだけ）。将来ユーザーが定義した Nagi のカスタムフィードも custom に入る。
  * bsky は Bluesky のフィードジェネレータで、クライアントがユーザーの PDS 経由で読む。
  */
 export type FeedTabKind =
@@ -708,11 +708,12 @@ export const FEED_TAB_KINDS: readonly FeedTabKind[] = [
 /**
  * list / custom が指す組み込みの中身。bsky の following は Bluesky のホームタイムライン
  * （フォロー中）で、uri の代わりにこれで指す。
+ * 旧クライアントが書く custom の "affirmation" は、読むときに "recommended" へ寄せる。
  */
-export type FeedTabSource = "home" | "affirmation" | "following";
+export type FeedTabSource = "home" | "recommended" | "following";
 export const FEED_TAB_SOURCES: readonly FeedTabSource[] = [
   "home",
-  "affirmation",
+  "recommended",
   "following",
 ] as const;
 /**
@@ -724,7 +725,7 @@ export type FeedTab = {
   id: string;
   kind: FeedTabKind;
   /**
-   * kind が list / custom のときの参照先（list=home, custom=affirmation）。
+   * kind が list / custom のときの参照先（list=home, custom=recommended）。
    * kind が bsky のときは following（Bluesky のホームタイムライン）だけを取り、uri と排他。
    */
   source?: FeedTabSource;

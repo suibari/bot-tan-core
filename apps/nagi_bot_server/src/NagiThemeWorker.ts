@@ -37,6 +37,7 @@ import {
   THEME_SOURCE_POSTS,
 } from "@bsky-affirmative-bot/bot-brain";
 import { eq, sql } from "drizzle-orm";
+import { pruneInterestProbes } from "./interestProbes.js";
 
 /** 1 tick で面倒を見るユーザー数。LLM 呼び出しが1人あたり最大2回走る。 */
 const BATCH_SIZE = 4;
@@ -314,6 +315,14 @@ export function startNagiThemeWorker() {
         // Ollama 不通など。テーマが無ければ理由が出ないだけで、推薦自体は動く。
         console.error(`[ERROR]${LOG_PREFIX} themes did=${did}`, error);
       }
+    }
+    try {
+      // おすすめの興味の材料を、Nagi 投稿で測れるようになった人から Bluesky 由来の分を消す。
+      // 消すだけなので worked には数えない（空振りの間隔を詰めない）。
+      const pruned = await pruneInterestProbes();
+      if (pruned > 0) console.info(LOG_PREFIX, { event: "probes-pruned", actors: pruned });
+    } catch (error) {
+      console.error(`[ERROR]${LOG_PREFIX} probes`, error);
     }
     for (const did of await actorsNeedingReasons(BATCH_SIZE)) {
       try {

@@ -83,13 +83,13 @@ test("bsky タブは app.bsky.feed.generator の AT-URI だけを受け、ほか
     parseFeedTabs([
       { id: "b", kind: "bsky", uri: feed, label: "Discover" },
       { id: "w", kind: "bsky", uri: "at://did:web:feeds.example.com/app.bsky.feed.generator/a" },
-      { id: "a", kind: "custom", source: "affirmation", uri: feed },
+      { id: "a", kind: "custom", source: "recommended", uri: feed },
       { id: "f", kind: "bsky", source: "following", label: "Following" },
     ]),
     [
       { id: "b", kind: "bsky", uri: feed, label: "Discover" },
       { id: "w", kind: "bsky", uri: "at://did:web:feeds.example.com/app.bsky.feed.generator/a" },
-      { id: "a", kind: "custom", source: "affirmation" },
+      { id: "a", kind: "custom", source: "recommended" },
       { id: "f", kind: "bsky", source: "following", label: "Following" },
     ],
   );
@@ -103,6 +103,22 @@ test("bsky タブは app.bsky.feed.generator の AT-URI だけを受け、ほか
     [{ id: "b", kind: "bsky", uri: `at://did:plc:a/app.bsky.feed.generator/${"x".repeat(512)}` }],
   ])
     assert.throws(() => parseFeedTabs(invalid));
+});
+
+test("旧クライアントが書く全肯定タブは、同じ位置のおすすめタブとして読む", () => {
+  assert.deepEqual(
+    parseFeedTabs([
+      { id: "home", kind: "list", source: "home" },
+      { id: "affirmation", kind: "custom", source: "affirmation" },
+      { id: "c", kind: "custom" },
+    ]),
+    [
+      { id: "home", kind: "list", source: "home" },
+      { id: "affirmation", kind: "custom", source: "recommended" },
+      { id: "c", kind: "custom", source: "recommended" },
+    ],
+  );
+  assert.throws(() => parseFeedTabs([{ id: "c", kind: "custom", source: "home" }]));
 });
 
 test("廃止した channel / タグ検索のタブは hashtag タブへ寄せる", async () => {

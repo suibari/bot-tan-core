@@ -274,10 +274,16 @@ export function parseFeedTabs(input: unknown): FeedTab[] {
         invalid("feedTabs.source");
       tab.source = "home";
     }
+    // 旧クライアントは全肯定タブを "affirmation" で書いてくる。全肯定はおすすめに置き換えたので、
+    // 拒否せず同じ位置のおすすめとして保存する。
     if (tab.kind === "custom") {
-      if (item.source !== undefined && item.source !== "affirmation")
+      if (
+        item.source !== undefined &&
+        item.source !== "recommended" &&
+        item.source !== "affirmation"
+      )
         invalid("feedTabs.source");
-      tab.source = "affirmation";
+      tab.source = "recommended";
     }
     if (tab.kind === "search" || tab.kind === "hashtag") {
       const raw = typeof item.query === "string" ? (item.query as string) : "";

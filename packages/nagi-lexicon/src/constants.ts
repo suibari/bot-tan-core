@@ -20,6 +20,7 @@ export const NAGI = {
   /** 認証した本人向けの、自分・botたん・非公開リストからなるホーム。 */
   getHomeTimeline: "com.suibari.nagi.getHomeTimeline",
   getAffirmation: "com.suibari.nagi.getAffirmation",
+  getRecommended: "com.suibari.nagi.getRecommended",
   getDrafts: "com.suibari.nagi.getDrafts",
   getDraft: "com.suibari.nagi.getDraft",
   putDraft: "com.suibari.nagi.putDraft",

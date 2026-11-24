@@ -20,6 +20,7 @@ import { getConcatAuthorFeed } from "./bsky/getConcatAuthorFeed.js";
 import { getConcatPosts } from "./bsky/getConcatPosts.js";
 import { getPds } from "./bsky/getPds.js";
 import { notifyAnalysisUpdated } from "./appviewInternal.js";
+import { saveBlueskyInterestProbes, selectProbeTexts } from "./interestProbes.js";
 
 export type AnalysisSource = "bluesky" | "nagi";
 
@@ -98,7 +99,9 @@ const botDids = (): string[] => [
 ];
 
 /** Bluesky 投稿＋いいねを集める（Nagi 初回登録時）。public appview 読み出しで認可不要。 */
-async function gatherBlueskyInput(did: string): Promise<NagiAnalysisInput> {
+async function gatherBlueskyInput(
+  did: string,
+): Promise<NagiAnalysisInput & { probeTexts: string[] }> {
   const profile = await agent.getProfile({ actor: did }).catch(() => undefined);
   const displayName = profile?.data.displayName || profile?.data.handle || did;
 
@@ -106,9 +109,12 @@ async function gatherBlueskyInput(did: string): Promise<NagiAnalysisInput> {
   // throw するとワーカーが全リトライを焼き切って failed で残るだけなので、投稿0件
   // （＝スキップ）に倒す。Nagi 投稿10件到達で source='nagi' の分析が改めて走り、そちらで名刺が出る。
   let posts: string[] = [];
+  // おすすめフィードの興味の材料（本文は保存せず、埋め込みだけを残す）。
+  let probeTexts: string[] = [];
   try {
     const feeds = await getConcatAuthorFeed(did, 100);
     posts = feeds.map((feed) => (feed.post.record as any).text as string);
+    probeTexts = selectProbeTexts(feeds);
   } catch (error) {
     console.warn(
       `[WARN][NAGI][ANALYSIS] Failed to collect Bluesky posts for ${did}:`,
@@ -139,7 +145,7 @@ async function gatherBlueskyInput(did: string): Promise<NagiAnalysisInput> {
     );
   }
 
-  return { displayName, posts, liked, isSubscriber: false };
+  return { displayName, posts, liked, isSubscriber: false, probeTexts };
 }
 
 /** Nagi 投稿（直近100件）＋リアクションを集める（Nagi 投稿100到達時）。 */
@@ -221,7 +227,7 @@ export async function runNagiAnalysis(
   job: AnalysisJobLike,
   options: NagiAnalysisRunOptions = {},
 ): Promise<NagiAnalysisRunResult> {
-  const input =
+  const input: NagiAnalysisInput & { probeTexts?: string[] } =
     job.source === "bluesky"
       ? await gatherBlueskyInput(job.did)
       : await gatherNagiInput(job.did);
@@ -286,6 +292,18 @@ export async function runNagiAnalysis(
     .update(nagiProfiles)
     .set({ embedding: null })
     .where(eq(nagiProfiles.did, job.did));
+
+  if (input.probeTexts?.length) {
+    // 失敗しても名刺は出す。材料が無ければおすすめが反応の候補だけになるだけ。
+    try {
+      await saveBlueskyInterestProbes(job.did, input.probeTexts);
+    } catch (error) {
+      console.warn(
+        `[WARN][NAGI][ANALYSIS] Failed to save interest probes for ${job.did}:`,
+        error,
+      );
+    }
+  }
 
   const updatedAt = now.toISOString();
   if (options.notify !== false) await notifyAnalysisUpdated(job.did, updatedAt);
