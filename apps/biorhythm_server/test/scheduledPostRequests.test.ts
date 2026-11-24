@@ -32,11 +32,15 @@ const image = {
   dataBase64: "c3R1Yg==", mimeType: "image/png", width: 1, height: 1, alt: "画像スタブ",
 };
 
-test("おはよう：日英の質問本文と固定タグだけ。曲・ニュース・画像・引用元を付けない", () => {
+test("おはよう：Blueskyは日本語の質問と固定タグ、英語はNagiへのリンク。曲・ニュース・画像・引用元を付けない", () => {
   assert.deepEqual(buildMorningPostRequest(generated), {
     kind: "morning",
     contentByTarget: {
-      bsky: { text: "日本語の生成本文\n\nGenerated English text\n\n#全肯定質問コーナー #BottansQuestion" },
+      bsky: {
+        text: "日本語の生成本文",
+        footer: "#全肯定質問コーナー #BottansQuestion",
+        nagiLink: { label: "🌐 English", seeMoreLabel: "もっと見る" },
+      },
       nagi: {
         text: "日本語の生成本文\n\n#全肯定質問コーナー #BottansQuestion",
         langs: ["ja"],
@@ -65,9 +69,11 @@ for (const isJapanesePost of [true, false]) {
       kind: "whimsical",
       contentByTarget: {
         bsky: {
-          text: isJapanesePost
-            ? "日本語の生成本文\n\nMyMoodSong:\nagain - YUI\nhttps://www.youtube.com/watch?v=stub"
-            : "Generated English text\n\nMyMoodSong:\nagain - YUI\nhttps://www.youtube.com/watch?v=stub",
+          text: isJapanesePost ? "日本語の生成本文" : "Generated English text",
+          footer: "MyMoodSong:\nagain - YUI\nhttps://www.youtube.com/watch?v=stub",
+          nagiLink: isJapanesePost
+            ? { label: "🌐 English", seeMoreLabel: "もっと見る" }
+            : { label: "🌐 日本語", seeMoreLabel: "See more" },
           external: {
             uri: "https://nagi.suibari.com/news/3newsrkey",
             title: isJapanesePost ? "日本語の見出し" : "English headline",
@@ -100,7 +106,7 @@ test("気まぐれ：曲なし・ニュースなしで余分な要素や空の�
   assert.deepEqual(buildWhimsicalPostRequest({ generated, song: null, isJapanesePost: true, news: null }), {
     kind: "whimsical",
     contentByTarget: {
-      bsky: { text: "日本語の生成本文" },
+      bsky: { text: "日本語の生成本文", nagiLink: { label: "🌐 English", seeMoreLabel: "もっと見る" } },
       nagi: {
         text: "日本語の生成本文",
         langs: ["ja"],
@@ -116,7 +122,11 @@ test("気まぐれ：ニュースなし・曲ありでもニュース枠や画�
   }), {
     kind: "whimsical",
     contentByTarget: {
-      bsky: { text: "日本語の生成本文\n\nMyMoodSong:\nagain - YUI\nhttps://www.youtube.com/watch?v=stub" },
+      bsky: {
+        text: "日本語の生成本文",
+        footer: "MyMoodSong:\nagain - YUI\nhttps://www.youtube.com/watch?v=stub",
+        nagiLink: { label: "🌐 English", seeMoreLabel: "もっと見る" },
+      },
       nagi: {
         text: "日本語の生成本文\n\nMyMoodSong:\nagain - YUI\nhttps://www.youtube.com/watch?v=stub",
         langs: ["ja"],
@@ -139,7 +149,8 @@ for (const withVideo of [true, false]) {
         kind: "good-night",
         contentByTarget: {
           bsky: {
-            text: "日本語の生成本文\n\nGenerated English text",
+            text: "日本語の生成本文",
+            nagiLink: { label: "🌐 English", seeMoreLabel: "もっと見る" },
             ...(withImage ? { image } : {}),
             ...(withVideo
               ? { nightVideo }

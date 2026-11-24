@@ -45,9 +45,25 @@ export interface ScheduledPostTranslation {
   text: string;
 }
 
+/**
+ * Bluesky の本文の後ろに置く、同じ内容の Nagi 投稿へのリンク（Bluesky だけが使う）。
+ * label は別の言語で読みたい人への導線（「🌐 English」など）、seeMoreLabel は
+ * 本文が 300 字に収まらず冒頭で切ったときに付ける「もっと見る」の文言。
+ * Nagi への投稿が失敗した回はリンクを付けずに投稿する。
+ */
+export interface ScheduledPostNagiLink {
+  label: string;
+  seeMoreLabel: string;
+}
+
 export interface ScheduledPostRequest {
   kind: ScheduledPostKind;
   text: string;
+  /** 本文を切っても残す末尾（ハッシュタグ・曲など）。Bluesky だけが使う。 */
+  footer?: string;
+  nagiLink?: ScheduledPostNagiLink;
+  /** nagiLink のリンク先。ScheduledPostService が Nagi へ先に投稿して埋める。 */
+  nagiPost?: { uri: string; cid: string };
   langs?: string[];
   translations?: ScheduledPostTranslation[];
   image?: ScheduledPostImage;
@@ -83,6 +99,10 @@ export interface ScheduledPostContent {
   quote?: ScheduledPostQuote;
   /** Bluesky だけが使う。 */
   external?: ScheduledPostExternal;
+  /** Bluesky だけが使う。 */
+  footer?: string;
+  /** Bluesky だけが使う。あれば Nagi へ先に投稿し、その URL を Bluesky に載せる。 */
+  nagiLink?: ScheduledPostNagiLink;
 }
 
 export interface ScheduledPostPublishRequest {
@@ -141,26 +161,42 @@ function configuredTargets(): ScheduledPostNetwork[] {
   return uniqueTargets.length > 0 ? uniqueTargets : ["bsky"];
 }
 
+async function deliver(
+  target: ScheduledPostNetwork,
+  wireRequest: ScheduledPostRequest,
+): Promise<ScheduledPostResult> {
+  const baseUrl = target === "bsky" ? BSKY_BOT_SERVER_URL : NAGI_BOT_SERVER_URL;
+  for (let attempt = 1; attempt <= MAX_TRANSPORT_ATTEMPTS; attempt++) {
+    try {
+      const response = await axios.post<ScheduledPostResult>(`${baseUrl}/posts/scheduled`, wireRequest);
+      return response.data;
+    } catch (error) {
+      const receivedResponse = axios.isAxiosError(error) && error.response !== undefined;
+      if (receivedResponse || attempt === MAX_TRANSPORT_ATTEMPTS) throw error;
+      console.warn(`[WARN][SCHEDULED_POST] ${target} transport retry ${attempt}`);
+    }
+  }
+  throw new Error(`${target} delivery exhausted`);
+}
+
 export class ScheduledPostService {
   static async publish(request: ScheduledPostPublishRequest) {
     const targets = configuredTargets().filter((target) => request.contentByTarget[target]);
-    const tasks = targets.map(async (target) => {
-      const baseUrl = target === "bsky" ? BSKY_BOT_SERVER_URL : NAGI_BOT_SERVER_URL;
-      const wireRequest: ScheduledPostRequest = {
-        kind: request.kind,
-        ...request.contentByTarget[target]!,
-      };
-      for (let attempt = 1; attempt <= MAX_TRANSPORT_ATTEMPTS; attempt++) {
-        try {
-          const response = await axios.post<ScheduledPostResult>(`${baseUrl}/posts/scheduled`, wireRequest);
-          return { target, ...response.data };
-        } catch (error) {
-          const receivedResponse = axios.isAxiosError(error) && error.response !== undefined;
-          if (receivedResponse || attempt === MAX_TRANSPORT_ATTEMPTS) throw error;
-          console.warn(`[WARN][SCHEDULED_POST] ${target} transport retry ${attempt}`);
-        }
-      }
-      throw new Error(`${target} delivery exhausted`);
+    const wire = (target: ScheduledPostNetwork): ScheduledPostRequest => ({
+      kind: request.kind,
+      ...request.contentByTarget[target]!,
+    });
+    // Bluesky に Nagi の URL を載せる回は、Nagi の投稿を待ってから Bluesky へ出す。
+    // それ以外は従来どおり並列に出し、片方の失敗がもう片方を止めないようにする。
+    const nagiFirst = targets.includes("nagi") && Boolean(request.contentByTarget.bsky?.nagiLink);
+    const nagiTask = targets.includes("nagi") ? deliver("nagi", wire("nagi")) : undefined;
+    const tasks = targets.map((target) => {
+      if (target === "nagi") return nagiTask!;
+      if (!nagiFirst) return deliver(target, wire(target));
+      return nagiTask!.then(
+        (nagi) => deliver(target, { ...wire(target), nagiPost: { uri: nagi.uri, cid: nagi.cid } }),
+        () => deliver(target, wire(target)),
+      );
     });
 
     const settled = await Promise.allSettled(tasks);

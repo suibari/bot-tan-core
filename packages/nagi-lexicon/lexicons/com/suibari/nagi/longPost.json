@@ -1,0 +1,24 @@
+{
+  "lexicon": 1,
+  "id": "com.suibari.nagi.longPost",
+  "description": "Marks a Bluesky post as the opening of a long post whose full text is a Nagi post.",
+  "defs": {
+    "main": {
+      "type": "object",
+      "description": "An extra field on an app.bsky.feed.post record, stored under the key 'com.suibari.nagi.longPost'. It means the post is the opening of a long post that did not fit on Bluesky, and the full text is the referenced Nagi post. It is set only when the text was shortened. The reference must point to a com.suibari.nagi.post in the same repository as the post (the post's author); readers must ignore it when the DID differs. The same shape as site.mochott.longPost.",
+      "required": ["uri", "cid"],
+      "properties": {
+        "uri": {
+          "type": "string",
+          "format": "at-uri",
+          "description": "AT URI of the com.suibari.nagi.post holding the full text: at://{author DID}/com.suibari.nagi.post/{rkey}."
+        },
+        "cid": {
+          "type": "string",
+          "format": "cid",
+          "description": "CID of that post at the time the Bluesky post was created. Nagi adds a reference to the Bluesky post to the Nagi post afterwards, so the current CID usually differs; readers must not treat the difference as an edit."
+        }
+      }
+    }
+  }
+}

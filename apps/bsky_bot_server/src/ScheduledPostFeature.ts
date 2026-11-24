@@ -7,10 +7,13 @@ import type {
   ScheduledPostResult,
 } from "@bsky-affirmative-bot/clients";
 import { LeafletDiaryService, MemoryService } from "@bsky-affirmative-bot/clients";
+import { NAGI } from "@bsky-affirmative-bot/nagi-lexicon";
 import { shrinkImageToBytes } from "@bsky-affirmative-bot/bot-brain";
 import { safeFetch } from "@bsky-affirmative-bot/shared-configs";
 import retry from "async-retry";
 import { agent } from "./bsky/agent.js";
+import { buildNagiLinkedPost } from "./bsky/nagiLinkedPost.js";
+import { post } from "./bsky/post.js";
 import { postContinuous } from "./bsky/postContinuous.js";
 import { repost } from "./bsky/repost.js";
 
@@ -123,8 +126,38 @@ export async function publishScheduledPost(request: ScheduledPostRequest): Promi
   // 「image を持っているのに使っていない」ように見えるが、使わないことが仕様。
   // カードはリトライの外で一度だけ作る（失敗のたびに孤児 blob を増やさない）。
   const external = request.external ? await buildScheduledExternal(request.external) : undefined;
+  const linked = request.nagiLink && request.nagiPost
+    ? buildNagiLinkedPost({
+        text: request.text,
+        footer: request.footer,
+        nagiLink: request.nagiLink,
+        nagiPost: request.nagiPost,
+      })
+    : undefined;
+  const publish = linked
+    ? () =>
+        post(
+          {
+            $type: "app.bsky.feed.post",
+            text: linked.text,
+            createdAt: new Date().toISOString(),
+            ...(external ? { embed: { $type: "app.bsky.embed.external", external } } : {}),
+            ...(linked.longPost ? { [NAGI.longPost]: linked.longPost } : {}),
+          },
+          undefined,
+          { linkFacets: linked.linkFacets },
+        )
+    // Nagi への投稿が失敗した回は、リンクを付けずに従来どおり出す（300字を超えれば分割）。
+    : () =>
+        postContinuous(
+          [request.text, request.footer].filter(Boolean).join("\n\n"),
+          undefined,
+          undefined,
+          undefined,
+          external,
+        );
   const result = await retry(
-    () => postContinuous(request.text, undefined, undefined, undefined, external),
+    publish,
     {
       retries: 2,
       onRetry: (error, attempt) => {

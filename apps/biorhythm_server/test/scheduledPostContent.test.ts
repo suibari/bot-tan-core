@@ -17,7 +17,6 @@ test("本文にニュースURLを足さない（Nagiは引用、Blueskyはリン
   });
 
   const expectedJa = "うれしいニュースだよ\n\nMyMoodSong:\nSong - Artist\nhttps://youtube.example/song";
-  assert.equal(result.bskyJa, expectedJa);
   assert.equal(result.nagiJa, expectedJa);
   assert.equal(result.nagiEn, "Here is some happy news\n\nMyMoodSong:\nSong - Artist\nhttps://youtube.example/song");
 });
@@ -28,10 +27,9 @@ test("曲を確認できなければMyMoodSongを省略し、ニュースURLも�
     textEn: "Taking it easy today",
   });
 
-  assert.equal(result.bskyJa, "今日はのんびりだよ");
-  assert.doesNotMatch(result.bskyJa, /MyMoodSong|Not found/);
-  assert.equal(result.nagiJa, result.bskyJa);
-  assert.equal(result.nagiEn, result.bskyEn);
+  assert.equal(result.nagiJa, "今日はのんびりだよ");
+  assert.doesNotMatch(result.nagiJa, /MyMoodSong|Not found/);
+  assert.equal(result.nagiEn, "Taking it easy today");
 });
 
 test("おやすみ本文は出来事だけ。紹介元のURLは足さない", () => {
@@ -40,7 +38,6 @@ test("おやすみ本文は出来事だけ。紹介元のURLは足さない", ()
     textEn: "Thank you for today. Good night!",
   });
 
-  assert.equal(result.bsky, "今日もありがとう。おやすみー！\n\nThank you for today. Good night!");
   assert.equal("bskyVideoComment" in result, false);
   assert.equal(result.nagiJa, "今日もありがとう。おやすみー！");
   assert.equal(result.nagiEn, "Thank you for today. Good night!");

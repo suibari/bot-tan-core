@@ -125,3 +125,50 @@ test("気まぐれ：サムネを取れなければサムネ無しのカード�
   });
   assert.deepEqual(card, { uri: newsCard.uri, title: newsCard.title, description: newsCard.description });
 });
+
+test("Nagi の投稿があれば、1件の投稿に Nagi へのリンクと長文の目印を付ける", async (t) => {
+  productionEnv(t);
+  t.mock.method(console, "warn", () => {});
+  const records: any[] = [];
+  t.mock.method(agent, "post", async (record: any) => {
+    records.push(record);
+    return { uri: "at://post", cid: "post-cid" };
+  });
+  const nagiPost = { uri: "at://did:plc:bot/com.suibari.nagi.post/3kpost", cid: "nagi-cid" };
+  await publishScheduledPost({
+    kind: "good-night",
+    text: "おやすみ".repeat(100),
+    nagiLink: { label: "🌐 English", seeMoreLabel: "もっと見る" },
+    nagiPost,
+  });
+  assert.equal(records.length, 1);
+  assert.match(records[0].text, /…もっと見る\n\n🌐 English$/);
+  assert.deepEqual(
+    records[0].facets.map((facet: any) => facet.features[0].uri),
+    [
+      "https://nagi.suibari.com/thread/did%3Aplc%3Abot/3kpost",
+      "https://nagi.suibari.com/thread/did%3Aplc%3Abot/3kpost",
+    ],
+  );
+  assert.equal(records[0].embed, undefined);
+  assert.deepEqual(records[0]["com.suibari.nagi.longPost"], nagiPost);
+});
+
+test("Nagi の投稿が無い回は、リンクを付けずに本文と末尾を出す", async (t) => {
+  productionEnv(t);
+  t.mock.method(console, "warn", () => {});
+  const records: any[] = [];
+  t.mock.method(agent, "post", async (record: any) => {
+    records.push(record);
+    return { uri: "at://post", cid: "post-cid" };
+  });
+  await publishScheduledPost({
+    kind: "morning",
+    text: "おはよう！",
+    footer: "#全肯定質問コーナー",
+    nagiLink: { label: "🌐 English", seeMoreLabel: "もっと見る" },
+  });
+  assert.equal(records.length, 1);
+  assert.equal(records[0].text, "おはよう！\n\n#全肯定質問コーナー");
+  assert.equal(records[0]["com.suibari.nagi.longPost"], undefined);
+});

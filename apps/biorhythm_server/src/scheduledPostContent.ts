@@ -1,13 +1,9 @@
 export interface WhimsicalPostTexts {
-  bskyJa: string;
-  bskyEn: string;
   nagiJa: string;
   nagiEn: string;
 }
 
 export interface GoodNightPostTexts {
-  /** 出来事スレッド（Bluesky）。 */
-  bsky: string;
   nagiJa: string;
   nagiEn: string;
 }
@@ -51,7 +47,6 @@ export function buildGoodNightPostTexts(params: {
   textEn: string;
 }): GoodNightPostTexts {
   return {
-    bsky: sections(params.textJa, params.textEn),
     nagiJa: params.textJa,
     nagiEn: params.textEn,
   };
@@ -103,8 +98,6 @@ export function buildWhimsicalPostTexts(params: {
   moodSong?: string;
 }): WhimsicalPostTexts {
   return {
-    bskyJa: sections(params.textJa, params.moodSong),
-    bskyEn: sections(params.textEn, params.moodSong),
     nagiJa: sections(params.textJa, params.moodSong),
     nagiEn: sections(params.textEn, params.moodSong),
   };
