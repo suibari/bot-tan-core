@@ -101,6 +101,7 @@ import {
   getEmojiGenerations,
 } from "../services/emojiGeneration.js";
 import { loadPersonalizationContext } from "../queries/personalizedFeed.js";
+import { getRecommended } from "../queries/recommended.js";
 
 /** 全肯定ニュースの動的枠の件数。一覧の頭に置くので、多いと時系列が押し下げられる。 */
 import {
@@ -407,6 +408,27 @@ for (const [nsid, affirmation] of [
       next(e);
     }
   });
+xrpc.get(
+  `/${NAGI.getRecommended}`,
+  optionalServiceAuth(NAGI.getRecommended),
+  async (req, res, next) => {
+    try {
+      const data = await getRecommended({
+        limit: limit(req.query.limit),
+        cursor: String(req.query.cursor ?? "") || undefined,
+        viewerDid: req.viewerDid,
+      });
+      res
+        .set(
+          "Cache-Control",
+          req.viewerDid ? "private, no-store" : "public, max-age=15",
+        )
+        .json(data);
+    } catch (e) {
+      next(e);
+    }
+  },
+);
 xrpc.get(
   `/${NAGI.getThread}`,
   optionalServiceAuth(NAGI.getThread),

@@ -1036,6 +1036,26 @@ export const nagiActorInterestGenres = nagiSchema.table(
   (t) => [primaryKey({ columns: [t.did, t.genre] })],
 );
 /**
+ * おすすめの「興味の近さ」を測る材料のうち、Bluesky 由来のもの。
+ *
+ * Nagi の埋め込み済み投稿がまだ足りない新規登録者のために、登録時の分析で読んだ
+ * Bluesky 投稿（返信・リポストを除く直近10件）の埋め込みだけを持つ。本文は持たない。
+ * Nagi 投稿で測れるようになったら削除する（NagiThemeWorker）。
+ */
+export const nagiActorInterestProbes = nagiSchema.table(
+  "actor_interest_probes",
+  {
+    did: text("did").notNull(),
+    /** 材料の並び（0 が最新）。 */
+    position: integer("position").notNull(),
+    embedding: vector("embedding", { dimensions: 1024 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.did, t.position] })],
+);
+/**
  * 「この人の関心ジャンルのうち、この記事はどれに当たるか」のローカルLLM判定結果。
  *
  * リクエスト経路でLLMを呼ぶと直列キューが詰まるので、ワーカーが先に計算して置いておく

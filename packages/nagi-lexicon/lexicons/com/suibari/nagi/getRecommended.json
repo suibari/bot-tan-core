@@ -1,0 +1,31 @@
+{
+  "lexicon": 1,
+  "id": "com.suibari.nagi.getRecommended",
+  "defs": {
+    "main": {
+      "type": "query",
+      "parameters": {
+        "type": "params",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 50
+          },
+          "cursor": {
+            "type": "string"
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "ref",
+          "ref": "com.suibari.nagi.getTimeline#output"
+        }
+      },
+      "description": "おすすめ。閲覧者の興味に近い投稿と、投稿者本人とbotたん以外の5人以上がリアクションした投稿を、1人1日1件で新しい順に返す。代表は興味に近い投稿を優先する。"
+    }
+  }
+}

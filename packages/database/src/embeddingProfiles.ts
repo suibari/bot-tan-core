@@ -46,6 +46,11 @@ export type EmbeddingProfile = {
   emojiDistMax: number;
   /** 絵文字検索の relativeCut のマージン。 */
   emojiRelMargin: number;
+  /**
+   * おすすめで「興味に近い」とみなす、閲覧者の材料（投稿どうし、接頭辞なし）との最近傍距離。
+   * 検索と違い順位で打ち止めできず、これがそのまま候補の可否になるので狭めに置く。
+   */
+  recommendDistMax: number;
 };
 
 const PROFILES: Record<string, EmbeddingProfile> = {
@@ -68,6 +73,10 @@ const PROFILES: Record<string, EmbeddingProfile> = {
       "Instruct: Given a search query, retrieve emoji whose meaning matches the query\nQuery: ",
     emojiDistMax: 0.52,
     emojiRelMargin: 0.08,
+    // 2026-11-24 実測（開発DB、1人の直近10投稿 × 他人のトップ投稿2,564件）。最近傍距離の
+    // 1%点 0.41・5%点 0.51・10%点 0.55。0.50 までは同じ趣味（Anki・遊戯王）や同じ話題が並び、
+    // 0.55 を超えると挨拶や日常のひとことが混ざり始めた。
+    recommendDistMax: 0.5,
   },
 
   // 2026-09-04 まで本番。過去の設定を再現できるよう残してある。
@@ -82,6 +91,8 @@ const PROFILES: Record<string, EmbeddingProfile> = {
     emojiQueryPrefix: "query: ",
     emojiDistMax: 0.8,
     emojiRelMargin: 0.12,
+    // 実測していない。興味の候補を出さず、反応の候補だけにする。
+    recommendDistMax: -1,
   },
 };
 
@@ -99,6 +110,8 @@ const FALLBACK: EmbeddingProfile = {
   emojiQueryPrefix: "",
   emojiDistMax: 1.0,
   emojiRelMargin: 0.12,
+  // 検索と違って打ち止めが無いので、通すと全投稿が「興味に近い」になる。こちらは切る側に倒す。
+  recommendDistMax: -1,
 };
 
 /** `:latest` などのタグを落として引く。Ollama は同じモデルを別表記で返すことがある。 */
