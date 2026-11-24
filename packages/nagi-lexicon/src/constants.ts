@@ -16,6 +16,11 @@ export const NAGI = {
   channel: "com.suibari.nagi.channel",
   /** Nagi で作成した Bluemoji を識別するサイドカー。対象 item と同じ rkey で本人の PDS に置く。 */
   bluemoji: "com.suibari.nagi.bluemoji",
+  /**
+   * Bluesky 投稿（app.bsky.feed.post）の追加フィールドのキー。本文を省略したクロスポストに、
+   * 全文を持つ Nagi 投稿への強参照を入れる。定義は lexicons/com/suibari/nagi/longPost.json。
+   */
+  longPost: "com.suibari.nagi.longPost",
   getTimeline: "com.suibari.nagi.getTimeline",
   /** 認証した本人向けの、自分・botたん・非公開リストからなるホーム。 */
   getHomeTimeline: "com.suibari.nagi.getHomeTimeline",
