@@ -13,6 +13,7 @@ import {
   type ConversationView,
   type FeedItem,
   type PostView,
+  replyGateAllows,
 } from "@bsky-affirmative-bot/nagi-lexicon";
 import {
   and,
@@ -407,6 +408,10 @@ export async function hydratePostViews(
       ...(record?.article === true ? { article: true } : {}),
       ...(!deleted ? trilinesView(post.uri, record) : {}),
       ...(!deleted && !post.kossori ? crosspostView(post.did, record, viewerDid) : {}),
+      ...(!deleted &&
+      !replyGateAllows(record?.replyGate, post.did, viewerDid ?? "", config.botDid)
+        ? { replyDisabled: true }
+        : {}),
       kossori: post.kossori || undefined,
       threadKossori: threadKossori || undefined,
       deleted: deleted || undefined,

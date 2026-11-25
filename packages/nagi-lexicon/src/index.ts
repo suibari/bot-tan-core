@@ -4,3 +4,4 @@ export * from "./trilines.js";
 export * from "./types.js";
 export * from "./radio.js";
 export * from "./postMedia.js";
+export * from "./replyGate.js";

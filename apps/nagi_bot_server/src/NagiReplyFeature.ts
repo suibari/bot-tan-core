@@ -10,6 +10,7 @@ import {
   nagiPostFromTrilinesDiary,
   TRILINES,
   STANDARD_SITE_DOCUMENT,
+  replyGateAllows,
 } from "@bsky-affirmative-bot/nagi-lexicon";
 import {
   classifyPostThread,
@@ -122,6 +123,27 @@ export async function onNagiPost(evt: any) {
   if (indexed?.deletedAt) {
     console.log(`[INFO][NAGI][${did}] Skipping reply: post already removed`);
     return;
+  }
+
+  // 返信先の replyGate が受け付けない返信は AppView が取り込まないので、返事もしない。
+  if (typeof record.reply?.parent?.uri === "string") {
+    const [parent] = await db
+      .select({ did: nagiPosts.did, recordJson: nagiPosts.recordJson })
+      .from(nagiPosts)
+      .where(eq(nagiPosts.uri, record.reply.parent.uri))
+      .limit(1);
+    if (
+      parent &&
+      !replyGateAllows(
+        (parent.recordJson as { replyGate?: unknown } | null)?.replyGate,
+        parent.did,
+        did,
+        botDid,
+      )
+    ) {
+      console.log(`[INFO][NAGI][${did}] Skipping reply: parent does not accept replies`);
+      return;
+    }
   }
 
   // AppView も取り込み時に同じジョブを積む（こちらの Jetstream が遅れても返信を

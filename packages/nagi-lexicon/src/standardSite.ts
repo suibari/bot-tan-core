@@ -73,6 +73,7 @@ export function nagiPostFromStandardDocument(value: any): any | undefined {
     tags: value.tags,
     labels: value.labels,
     botSilent: extension?.botSilent,
+    replyGate: extension?.replyGate,
     embed:
       extension?.embed ??
       (value.coverImage

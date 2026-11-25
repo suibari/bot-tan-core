@@ -65,6 +65,11 @@ import { shouldAcceptSemanticRecord } from "./semanticRecord.js";
 import { validateRecord } from "./validateRecord.js";
 import { hasPostContentChange } from "./postEditContent.js";
 import {
+  hideGatedReplies,
+  hideReplies,
+  parentAcceptsReply,
+} from "./replyGate.js";
+import {
   MODERATED_COLLECTIONS,
   MODERATION_SKIPPED,
   isKossoriSubject,
@@ -347,7 +352,20 @@ export async function applyMutation(
             .where(eq(nagiProfiles.did, did))
             .limit(1)
         : [];
-    if (commit.operation === "delete") {
+    // 返信先の replyGate が受け付けない返信は取り込まない（表示・通知・bot返信のどれにも載せない）。
+    const replyGateRejected =
+      collection === NAGI.post &&
+      commit.operation !== "delete" &&
+      typeof commit.record?.reply?.parent?.uri === "string" &&
+      !(await parentAcceptsReply(
+        tx,
+        commit.record.reply.parent.uri,
+        did,
+        config.botDid,
+      ));
+    if (replyGateRejected) {
+      if (existingPost[0]) await hideReplies(tx, [uri]);
+    } else if (commit.operation === "delete") {
       // 判定記録もレコードと一緒に消す。同じ rkey が作り直されたら判定もやり直す。
       if (MODERATED_COLLECTIONS.includes(collection))
         await tx
@@ -552,6 +570,7 @@ export async function applyMutation(
               deletedAt: null,
             },
           });
+        await hideGatedReplies(tx, uri, did, value.replyGate, config.botDid);
         // 本文の編集を記憶へ反映する。こっそりも覚えるようになったので、
         // 非公開化は行の削除ではなく visibility の付け替えで表す。公開へ戻す編集も
         // 同じ経路で戻るよう、毎回どちらの値も書く。

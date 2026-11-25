@@ -20,7 +20,7 @@ const document = (overrides: Record<string, unknown> = {}) => ({
     $type: "at.markpub.markdown",
     text: { $type: "at.markpub.text", markdown: "本文" },
   },
-  nagi: { botSilent: true, langs: ["ja"] },
+  nagi: { botSilent: true, replyGate: "nobody", langs: ["ja"] },
   ...overrides,
 });
 
@@ -30,7 +30,7 @@ test("standard.site 文書を投稿へ射影する", () => {
   assert.equal(post?.text, "本文");
   assert.equal(post?.article, true);
   assert.equal(post?.botSilent, true);
-
+  assert.equal(post?.replyGate, "nobody");
 });
 
 test("document の所有者・path・publication参照を検証する", () => {

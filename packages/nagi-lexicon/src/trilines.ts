@@ -20,7 +20,7 @@ const isBlob = (value: any): boolean =>
  *
  * - text は行を改行でつないだもの（検索・翻訳・モデレーションがそのまま読める）
  * - 行ごとの画像は embed.images にまとめ、行からは imageIndex で指す
- * - botSilent は付けない。botたんは通常の投稿と同じく日記にも全肯定で返信する
+ * - botSilent は付けない。botたんは日記にも全肯定で返信する。止めるのは replyGate: nobody だけ
  * - shareToNagi: true の無い日記は undefined（Nagi に公開しない）
  */
 export function nagiPostFromTrilinesDiary(value: any): any | undefined {
@@ -65,5 +65,6 @@ export function nagiPostFromTrilinesDiary(value: any): any | undefined {
       ? { $type: `${NAGI.post}#images`, images }
       : undefined,
     trilines: { lines },
+    ...(typeof value.replyGate === "string" ? { replyGate: value.replyGate } : {}),
   };
 }

@@ -9,11 +9,13 @@ import {
   NAGI,
   appviewRecordUri,
   isAppviewOwnedUri,
+  isReplyGate,
 } from "@bsky-affirmative-bot/nagi-lexicon";
 import { and, eq, isNull } from "drizzle-orm";
 import { config } from "../config.js";
 import { applyMutation } from "../ingest/applyMutation.js";
 import { validateRecord } from "../ingest/validateRecord.js";
+import { parentAcceptsReply } from "../ingest/replyGate.js";
 import { ApiError } from "../middleware/errors.js";
 import { mentionsDid } from "@bsky-affirmative-bot/bot-runtime";
 
@@ -82,6 +84,12 @@ async function assertReplyAllowed(
       "reply_not_allowed",
       "Only the author and bot-tan can reply to a kossori thread",
     );
+  if (!(await parentAcceptsReply(db, reply.parent.uri, authorDid, config.botDid)))
+    throw new ApiError(
+      403,
+      "reply_not_allowed",
+      "The parent post does not accept replies",
+    );
 }
 
 /** 本文中に botたん宛の mention facet があるか（bot_server の mentionsBot と同じ判定）。 */
@@ -128,6 +136,7 @@ export type CreateKossoriPostInput = {
   createdAt: unknown;
   botSilent?: unknown;
   silentReply?: unknown;
+  replyGate?: unknown;
   reply?: {
     root: { uri: string; cid: string };
     parent: { uri: string; cid: string };
@@ -155,6 +164,7 @@ export async function createKossoriPost(
     kossori: true,
     ...(input.botSilent === true ? { botSilent: true } : {}),
     ...(input.reply && input.silentReply === true ? { silentReply: true } : {}),
+    ...(isReplyGate(input.replyGate) ? { replyGate: input.replyGate } : {}),
     ...(input.reply ? { reply: input.reply } : {}),
   };
   if (!validateRecord(NAGI.post, record))

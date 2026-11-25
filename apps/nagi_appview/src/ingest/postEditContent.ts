@@ -20,6 +20,7 @@ export const POST_CONTENT_FIELDS: ReadonlySet<string> = new Set([
   "kossori",
   "botSilent",
   "silentReply",
+  "replyGate",
   "channel",
   "reply",
   "linkCards",
