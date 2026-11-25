@@ -54,6 +54,14 @@ test("3行日記を投稿へ射影する", () => {
   assert.deepEqual(post?.embed.images, [{ image: blob("bafycat"), alt: "猫" }]);
 });
 
+test("返信できる人を投稿形へ引き継ぐ", () => {
+  assert.equal(nagiPostFromTrilinesDiary(diary())?.replyGate, undefined);
+  assert.equal(
+    nagiPostFromTrilinesDiary(diary({ replyGate: "nobody" }))?.replyGate,
+    "nobody",
+  );
+});
+
 test("画像がなければ embed を付けない", () => {
   const post = nagiPostFromTrilinesDiary(diary({ lines: [{ text: "一行" }] }));
   assert.equal(post?.embed, undefined);

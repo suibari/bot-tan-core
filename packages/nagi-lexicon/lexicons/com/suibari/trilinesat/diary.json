@@ -32,6 +32,11 @@
             "type": "boolean",
             "description": "Show this entry on Nagi as a post. Nagi indexes the entry (and the bot replies to it) only when true. Entries written from Nagi always set it."
           },
+          "replyGate": {
+            "type": "string",
+            "knownValues": ["bot", "nobody"],
+            "description": "Who can reply on Nagi. bot allows only the author and Nagi's bot; nobody allows only the author (the bot does not reply either). Omitted means everyone."
+          },
           "sharedPost": {
             "type": "ref",
             "ref": "com.atproto.repo.strongRef",

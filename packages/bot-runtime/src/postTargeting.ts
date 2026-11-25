@@ -66,7 +66,10 @@ export function classifyPostThread(
   return "third-party-thread";
 }
 
-export type NagiReplyJobRecord = PostRecordLike & { botSilent?: unknown };
+export type NagiReplyJobRecord = PostRecordLike & {
+  botSilent?: unknown;
+  replyGate?: unknown;
+};
 
 export type NagiReplyJobDecision =
   | { enqueue: true; toBot: boolean }
@@ -89,7 +92,9 @@ export function decideNagiReplyJob(
 ): NagiReplyJobDecision {
   if (authorDid === botDid) return { enqueue: false, reason: "own-post" };
   // botたんサイレント機能がONの投稿には返信しない。
-  if (record.botSilent) return { enqueue: false, reason: "bot-silent" };
+  // 返信不可（replyGate: nobody）は botたんの返信も AppView が受け付けないので、同じく返さない。
+  if (record.botSilent || record.replyGate === "nobody")
+    return { enqueue: false, reason: "bot-silent" };
   if (!record.reply) return { enqueue: true, toBot: false };
 
   const parentDid = didFromAtUri(record.reply.parent?.uri);

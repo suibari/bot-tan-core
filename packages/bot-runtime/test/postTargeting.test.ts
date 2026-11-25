@@ -65,6 +65,14 @@ test("Nagi返信ジョブ: bot自身・サイレント・宛先違いは積ま�
     { enqueue: false, reason: "bot-silent" },
   );
   assert.deepEqual(
+    decideNagiReplyJob({ replyGate: "nobody" } as any, USER, BOT),
+    { enqueue: false, reason: "bot-silent" },
+  );
+  assert.deepEqual(decideNagiReplyJob({ replyGate: "bot" } as any, USER, BOT), {
+    enqueue: true,
+    toBot: false,
+  });
+  assert.deepEqual(
     decideNagiReplyJob({ reply: { root: ref(USER), parent: ref(OTHER) } }, USER, BOT),
     { enqueue: false, reason: "not-addressed" },
   );

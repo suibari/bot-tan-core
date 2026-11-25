@@ -354,6 +354,12 @@ export function validateRecord(
       typeof value.silentReply !== "boolean"
     )
       return false;
+    // knownValues なので未知の文字列は受け入れる（制限としては扱わない。replyGateAllows）。
+    if (
+      value.replyGate !== undefined &&
+      (typeof value.replyGate !== "string" || value.replyGate.length > 64)
+    )
+      return false;
     if (
       value.cwRestricted !== undefined &&
       typeof value.cwRestricted !== "boolean"

@@ -24,6 +24,11 @@
           "cwRestricted": { "type": "boolean" },
           "kossori": { "type": "boolean" },
           "botSilent": { "type": "boolean" },
+          "replyGate": {
+            "type": "string",
+            "knownValues": ["bot", "nobody"],
+            "description": "返信を受け付ける相手。bot は投稿者本人と botたんだけ、nobody は投稿者本人だけが直接返信できる。省略時は誰でも。"
+          },
           "silentReply": {
             "type": "boolean",
             "description": "true の返信は直接の返信先へ通知しない。返信以外では効果を持たない。"

@@ -1,3 +1,4 @@
+import type { ReplyGate } from "./replyGate.js";
 export type StrongRef = { uri: string; cid: string };
 export type AspectRatio = { width: number; height: number };
 export type BlobRef = {
@@ -74,6 +75,11 @@ export type NagiPost = {
   botSilent?: boolean;
   /** true の返信は直接の返信先へ通知しない。返信以外では効果を持たない。 */
   silentReply?: boolean;
+  /**
+   * 返信を受け付ける相手。bot は投稿者本人と botたん、nobody は投稿者本人だけが直接返信できる。
+   * 省略時は誰でも。投稿時に決まり、変更しない。
+   */
+  replyGate?: ReplyGate;
   /**
    * 所属チャンネル（com.suibari.nagi.channel）への参照。チャンネルは廃止したので新しい
    * レコードには設定しない。既存の値は AppView がチャンネル名のハッシュタグとして扱う。
@@ -398,6 +404,8 @@ export type ReactionView = {
   viewerReactionUri?: string;
 };
 export type PostView = {
+  /** 閲覧者がこの投稿へ直接返信できない（親の replyGate による）。投稿者本人には付けない。 */
+  replyDisabled?: boolean;
   /** 記事表示。新規記事の正本は site.standard.document。 */
   article?: boolean;
   /**
