@@ -109,6 +109,7 @@
     "attribute": "earth",
     "atk": 1123,
     "def": 2600,
+    "art": "anniv-thanksgiving-us",
     "textJa": "感謝を数える日。数え始めると意外と多いことに、毎年おなじだけ驚く。",
     "textEn": "A day for counting what you are thankful for. Every year, the same surprise at how long the list gets."
   },
