@@ -14,7 +14,7 @@ import {
   SLOT_NAGI_REGISTERED_DAY,
   SLOT_USER_ANNIVERSARY,
 } from "../src/anniversaryCards.js";
-import { CARD_ART_PATTERN, CARD_DEFS } from "../src/cards.js";
+import { CARD_ART_PATTERN, CARD_DEFS, cardDrawDate } from "../src/cards.js";
 
 test("slot は 0..99 で重複が無い", () => {
   const seen = new Set<number>();
@@ -96,6 +96,21 @@ test("その日のプリセット記念日を返す", () => {
     ["halloween"],
   );
   assert.equal(found[0].art, "anniv-halloween");
+});
+
+test("サンクスギビングデーの配布候補と所持カードに同じ画像を使う", () => {
+  const previousDay = cardDrawDate(new Date("2026-11-25T18:59:59Z"));
+  const thanksgiving = cardDrawDate(new Date("2026-11-25T19:00:00Z"));
+  const nextDay = cardDrawDate(new Date("2026-11-26T19:00:00Z"));
+  assert.deepEqual(resolveTodayAnniversaries(previousDay), []);
+  assert.deepEqual(resolveTodayAnniversaries(nextDay), []);
+
+  const [pending] = resolveTodayAnniversaries(thanksgiving);
+  assert.ok(pending);
+  assert.equal(pending.anniversaryId, "thanksgiving_us");
+  assert.equal(pending.art, "anniv-thanksgiving-us");
+  const number = anniversaryCardNumber(pending.year, pending.slot);
+  assert.equal(resolveCardDef(CARD_VOLUME_ANNIVERSARY, number)?.art, pending.art);
 });
 
 test("セントパトリックデーは削除済みで、追加した5件は拾える", () => {
