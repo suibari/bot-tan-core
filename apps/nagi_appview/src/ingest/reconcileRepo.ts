@@ -1,3 +1,4 @@
+import { safeFetch } from "@bsky-affirmative-bot/shared-configs/ssrf";
 import {
   db,
   nagiCardGets,
@@ -121,7 +122,7 @@ async function xrpc<T>(
 ): Promise<T> {
   const url = new URL(`/xrpc/${method}`, pds);
   url.search = params.toString();
-  const response = await fetch(url, {
+  const response = await safeFetch(url, {
     headers: { accept: "application/json" },
     signal: AbortSignal.timeout(15_000),
   });

@@ -1,3 +1,4 @@
+import { safeFetch } from "@bsky-affirmative-bot/shared-configs/ssrf";
 import {
   db,
   embeddingProfile,
@@ -149,8 +150,11 @@ async function fetchEmojiRecord(uri: string) {
   url.searchParams.set("repo", did);
   url.searchParams.set("collection", collection);
   url.searchParams.set("rkey", rkey);
-  const response = await fetch(url, { signal: AbortSignal.timeout(10_000) });
-  if (!response.ok) return null;
+  const response = await safeFetch(url, { signal: AbortSignal.timeout(10_000) });
+  if (!response.ok) {
+    await response.body?.cancel();
+    return null;
+  }
   const body: any = await response.json();
   const record = body?.value;
   if (typeof body?.cid !== "string") return null;

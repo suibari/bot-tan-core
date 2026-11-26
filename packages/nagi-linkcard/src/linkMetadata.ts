@@ -1,40 +1,37 @@
 import { LinkMetadataError } from "./errors.js";
-import { safeUrl } from "./ssrf.js";
+import { fetchPublicUrl } from "@bsky-affirmative-bot/shared-configs/ssrf";
+import { safeUrl, withPublicUrlError } from "./ssrf.js";
 
 const HTML_LIMIT = 1_000_000;
 const IMAGE_LIMIT = 1_000_000;
 const CARDYB_LIMIT = 100_000;
-const REDIRECT_LIMIT = 4;
 const allowedImageTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 /** readable.ts と共用。SSRF 検証・リダイレクト上限・タイムアウトをまとめて掛ける。 */
 export async function limitedFetch(raw: string, accept: string) {
-  let url = await safeUrl(raw);
-  for (let redirects = 0; redirects <= REDIRECT_LIMIT; redirects++) {
-    const response = await fetch(url, {
-      redirect: "manual",
+  const result = await withPublicUrlError(() =>
+    fetchPublicUrl(raw, {
       headers: { accept, "user-agent": "NagiLinkPreview/1.0" },
       signal: AbortSignal.timeout(8_000),
-    });
-    if ([301, 302, 303, 307, 308].includes(response.status)) {
-      const location = response.headers.get("location");
-      if (!location || redirects === REDIRECT_LIMIT)
-        throw new LinkMetadataError(502, "upstream_unavailable", "Too many redirects");
-      url = await safeUrl(location, url);
-      continue;
-    }
-    if (!response.ok)
-      throw new LinkMetadataError(502, "upstream_unavailable", "Link could not be fetched");
-    return { response, url };
+    }),
+  ).catch((error) => {
+    if (error instanceof LinkMetadataError) throw error;
+    throw new LinkMetadataError(502, "upstream_unavailable", "Link could not be fetched");
+  });
+  if (!result.response.ok) {
+    await result.response.body?.cancel();
+    throw new LinkMetadataError(502, "upstream_unavailable", "Link could not be fetched");
   }
-  throw new LinkMetadataError(502, "upstream_unavailable", "Link could not be fetched");
+  return result;
 }
 
 /** readable.ts と共用。content-length とストリームの両方でサイズ上限を掛ける。 */
 export async function bytes(response: Response, limit: number) {
   const length = Number(response.headers.get("content-length") ?? 0);
-  if (length > limit)
+  if (length > limit) {
+    await response.body?.cancel();
     throw new LinkMetadataError(413, "response_too_large", "Remote content is too large");
+  }
   const reader = response.body?.getReader();
   if (!reader) return new Uint8Array();
   const chunks: Uint8Array[] = [];
@@ -169,6 +166,7 @@ async function fetchViaCardyb(url: URL): Promise<LinkMetadata | undefined> {
     const response = await fetch(
       `https://cardyb.bsky.app/v1/extract?url=${encodeURIComponent(url.href)}`,
       {
+        redirect: "error",
         headers: { accept: "application/json", "user-agent": "NagiLinkPreview/1.0" },
         signal: AbortSignal.timeout(8_000),
       },

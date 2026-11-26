@@ -1,3 +1,4 @@
+import { safeFetch } from "@bsky-affirmative-bot/shared-configs/ssrf";
 import { db, nagiEmojis } from "@bsky-affirmative-bot/database";
 import type { RequestHandler } from "express";
 import { and, eq } from "drizzle-orm";
@@ -51,15 +52,17 @@ export const getEmojiAsset: RequestHandler = async (req, res, next) => {
       url.pathname = "/xrpc/com.atproto.sync.getBlob";
       url.searchParams.set("did", did);
       url.searchParams.set("cid", asset.value);
-      const upstream = await fetch(url, {
+      const upstream = await safeFetch(url, {
         signal: AbortSignal.timeout(10_000),
       });
-      if (!upstream.ok || !upstream.body)
+      if (!upstream.ok || !upstream.body) {
+        await upstream.body?.cancel();
         throw new ApiError(
           upstream.status === 404 ? 404 : 502,
           "upstream_unavailable",
           "Emoji asset unavailable",
         );
+      }
       setSuccessHeaders(res, asset.mediaType);
       await upstream.body.pipeTo(
         new WritableStream({

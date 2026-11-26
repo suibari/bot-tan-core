@@ -1,3 +1,4 @@
+import { safeFetch } from "@bsky-affirmative-bot/shared-configs/ssrf";
 import { spawn } from "node:child_process";
 import { createWriteStream } from "node:fs";
 import { mkdir, rename, rm, stat } from "node:fs/promises";
@@ -181,7 +182,8 @@ export function createVideoFallback(deps: VideoFallbackDeps) {
     url.pathname = "/xrpc/com.atproto.sync.getBlob";
     url.searchParams.set("did", did);
     url.searchParams.set("cid", cid);
-    const response = await fetcher(url, {
+    const fetchPds = deps.fetch ?? safeFetch;
+    const response = await fetchPds(url, {
       signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
     });
     if (!response.ok || !response.body) {

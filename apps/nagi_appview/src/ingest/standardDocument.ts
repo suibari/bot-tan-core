@@ -1,3 +1,4 @@
+import { safeFetch } from "@bsky-affirmative-bot/shared-configs/ssrf";
 import {
   isNagiStandardSitePublication,
   nagiPostFromStandardDocument,
@@ -34,13 +35,15 @@ const loadPublication: PublicationLoader = async (did, publicationUri) => {
     collection: "site.standard.publication",
     rkey,
   }).toString();
-  const response = await fetch(endpoint, {
+  const response = await safeFetch(endpoint, {
     headers: { accept: "application/json" },
     signal: AbortSignal.timeout(15_000),
   });
-  if (response.status === 404) return undefined;
-  if (!response.ok)
+  if (!response.ok) {
+    await response.body?.cancel();
+    if (response.status === 404) return undefined;
     throw new Error(`Failed to read standard.site publication: ${response.status}`);
+  }
   const data = (await response.json()) as { value?: unknown };
   return data.value;
 };
