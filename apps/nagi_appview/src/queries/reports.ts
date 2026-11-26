@@ -15,7 +15,7 @@ const RATE_LIMIT = 10;
 const RATE_WINDOW_MS = 60 * 60_000;
 const COMMENT_MAX = 1000;
 
-export type ReportInput = {
+export type PostReportInput = {
   uri: string;
   /** 付いていればリアクションの通報（この投稿にこの人が付けたリアクション）。 */
   reactorDid?: string;
@@ -23,22 +23,19 @@ export type ReportInput = {
   comment: string;
 };
 
-/** 入力の検証。対象は Nagi の投稿か、投稿に付いたリアクションだけ。 */
-export function parseReportInput(body: unknown): ReportInput {
-  const value = (body ?? {}) as {
-    subject?: { uri?: unknown; reactor?: unknown };
-    reason?: unknown;
-    comment?: unknown;
-  };
-  const uri = value.subject?.uri;
-  if (typeof uri !== "string")
-    throw new ApiError(400, "invalid_request", "subject.uri is required");
-  const match = /^at:\/\/(did:[^/]+)\/([^/]+)\/([^/]+)$/.exec(uri);
-  if (match?.[2] !== NAGI.post)
-    throw new ApiError(400, "invalid_request", "subject must be a Nagi post");
-  const reactor = value.subject?.reactor;
-  if (reactor !== undefined && (typeof reactor !== "string" || !/^did:[a-z]+:\S+$/.test(reactor)))
-    throw new ApiError(400, "invalid_request", "subject.reactor must be a DID");
+/** Nagi Space の Space（member があればその参加者）の通報。存在は確かめられないので受け取ったまま運ぶ。 */
+export type SpaceReportInput = {
+  space: { id: string; title: string; url: string; hostDid: string; member?: string };
+  reason: ReportReason;
+  comment: string;
+};
+
+export type ReportInput = PostReportInput | SpaceReportInput;
+
+const DID_PATTERN = /^did:[a-z]+:\S+$/;
+const SPACE_TITLE_MAX = 100;
+
+function parseReasonAndComment(value: { reason?: unknown; comment?: unknown }) {
   if (!REPORT_REASONS.includes(value.reason as ReportReason))
     throw new ApiError(400, "invalid_request", "reason is invalid");
   const comment = value.comment === undefined ? "" : value.comment;
@@ -46,11 +43,50 @@ export function parseReportInput(body: unknown): ReportInput {
     throw new ApiError(400, "invalid_request", "comment must be a string");
   if ([...comment].length > COMMENT_MAX)
     throw new ApiError(400, "invalid_request", `comment must be ${COMMENT_MAX} characters or fewer`);
+  return { reason: value.reason as ReportReason, comment: comment.trim() };
+}
+
+function parseSpaceSubject(space: unknown): SpaceReportInput["space"] {
+  const value = (space ?? {}) as Record<string, unknown>;
+  const { id, title, url, hostDid, member } = value;
+  if (typeof id !== "string" || !id || id.length > 64)
+    throw new ApiError(400, "invalid_request", "subject.space.id is invalid");
+  if (typeof title !== "string" || [...title].length > SPACE_TITLE_MAX)
+    throw new ApiError(400, "invalid_request", "subject.space.title is invalid");
+  if (typeof url !== "string" || !/^https?:\/\//.test(url) || url.length > 2048)
+    throw new ApiError(400, "invalid_request", "subject.space.url is invalid");
+  if (typeof hostDid !== "string" || !DID_PATTERN.test(hostDid))
+    throw new ApiError(400, "invalid_request", "subject.space.hostDid must be a DID");
+  if (member !== undefined && (typeof member !== "string" || !DID_PATTERN.test(member)))
+    throw new ApiError(400, "invalid_request", "subject.space.member must be a DID");
+  return { id, title, url, hostDid, ...(member ? { member: member as string } : {}) };
+}
+
+/** 入力の検証。対象は Nagi の投稿、投稿に付いたリアクション、Nagi Space の Space とその参加者。 */
+export function parseReportInput(body: unknown): ReportInput {
+  const value = (body ?? {}) as {
+    subject?: { uri?: unknown; reactor?: unknown; space?: unknown };
+    reason?: unknown;
+    comment?: unknown;
+  };
+  if (value.subject?.space !== undefined) {
+    if (value.subject.uri !== undefined)
+      throw new ApiError(400, "invalid_request", "subject must be either uri or space");
+    return { space: parseSpaceSubject(value.subject.space), ...parseReasonAndComment(value) };
+  }
+  const uri = value.subject?.uri;
+  if (typeof uri !== "string")
+    throw new ApiError(400, "invalid_request", "subject.uri is required");
+  const match = /^at:\/\/(did:[^/]+)\/([^/]+)\/([^/]+)$/.exec(uri);
+  if (match?.[2] !== NAGI.post)
+    throw new ApiError(400, "invalid_request", "subject must be a Nagi post");
+  const reactor = value.subject?.reactor;
+  if (reactor !== undefined && (typeof reactor !== "string" || !DID_PATTERN.test(reactor)))
+    throw new ApiError(400, "invalid_request", "subject.reactor must be a DID");
   return {
     uri,
     ...(reactor ? { reactorDid: reactor as string } : {}),
-    reason: value.reason as ReportReason,
-    comment: comment.trim(),
+    ...parseReasonAndComment(value),
   };
 }
 
@@ -111,6 +147,20 @@ export async function createReport(
   body: unknown,
 ): Promise<Record<string, never>> {
   const input = parseReportInput(body);
+  if ("space" in input) {
+    const { space } = input;
+    return deliver(viewerDid, {
+      reporterDid: viewerDid,
+      reason: input.reason,
+      comment: input.comment,
+      subjectType: space.member ? "spaceMember" : "space",
+      subjectUri: space.url,
+      authorDid: space.member ?? space.hostDid,
+      authorIsBot: (space.member ?? space.hostDid) === config.botDid,
+      content: space.title,
+      ...(space.member ? { contextText: `Space ${space.id}（ホスト ${space.hostDid}）` } : {}),
+    });
+  }
   const post = await visiblePost(input.uri, viewerDid);
   if (!post) throw new ApiError(404, "not_found", "Post not found");
   let notice: ReportNotice;
@@ -145,6 +195,10 @@ export async function createReport(
       contextText: post.text,
     };
   }
+  return deliver(viewerDid, notice);
+}
+
+async function deliver(viewerDid: string, notice: ReportNotice): Promise<Record<string, never>> {
   if (!takeReportSlot(viewerDid))
     throw new ApiError(429, "rate_limited", "Too many reports. Please try again later.");
   try {

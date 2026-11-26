@@ -109,3 +109,55 @@ test("Webhook が失敗したら呼び出し側へ失敗を返す", async () => 
     globalThis.fetch = originalFetch;
   }
 });
+
+const SPACE = {
+  id: "abcdefghjkmn",
+  title: "みんなで話そう",
+  url: "https://space.example/s/abcdefghjkmn",
+  hostDid: "did:plc:host",
+};
+
+test("Nagi Space の Space と、その参加者を通報対象として受け付ける", () => {
+  assert.deepEqual(parseReportInput({ subject: { space: SPACE }, reason: "harassment" }), {
+    space: SPACE,
+    reason: "harassment",
+    comment: "",
+  });
+  assert.equal(
+    parseReportInput({
+      subject: { space: { ...SPACE, member: "did:plc:member" } },
+      reason: "spam",
+      comment: " うるさい ",
+    }).comment,
+    "うるさい",
+  );
+  for (const subject of [
+    { space: { ...SPACE, id: "" } },
+    { space: { ...SPACE, title: "あ".repeat(101) } },
+    { space: { ...SPACE, url: "javascript:alert(1)" } },
+    { space: { ...SPACE, hostDid: "host" } },
+    { space: { ...SPACE, member: "someone" } },
+    { space: SPACE, uri: POST },
+  ])
+    assert.throws(() => parseReportInput({ subject, reason: "spam" }), { status: 400 });
+});
+
+test("Space の参加者の通報は、参加者と Space を運営に伝える", () => {
+  const payload = buildReportPayload({
+    reporterDid: "did:plc:reporter",
+    reason: "harassment",
+    comment: "",
+    subjectType: "spaceMember",
+    subjectUri: SPACE.url,
+    authorDid: "did:plc:member",
+    authorIsBot: false,
+    content: SPACE.title,
+    contextText: `Space ${SPACE.id}（ホスト ${SPACE.hostDid}）`,
+  });
+  assert.equal(payload.embeds[0].title, "Nagi Space の参加者への攻撃的・いやがらせ");
+  const fields = Object.fromEntries(payload.embeds[0].fields.map((f) => [f.name, f.value]));
+  assert.equal(fields["参加者"], "did:plc:member");
+  assert.equal(fields["URL"], SPACE.url);
+  assert.match(fields["Space のタイトル"], /みんなで話そう/);
+  assert.match(fields["Space"], /ホスト did:plc:host/);
+});

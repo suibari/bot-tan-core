@@ -4,7 +4,7 @@
   "defs": {
     "main": {
       "type": "procedure",
-      "description": "Nagi の投稿（botたんの投稿を含む）や、投稿に付いたリアクションを運営に通報する、またはフィードバックを送る。内容は運営の Discord にだけ届き、通報された側には知らされない。",
+      "description": "Nagi の投稿（botたんの投稿を含む）や、投稿に付いたリアクション、Nagi Space の Space とその参加者を運営に通報する、またはフィードバックを送る。内容は運営の Discord にだけ届き、通報された側には知らされない。",
       "input": {
         "encoding": "application/json",
         "schema": {
@@ -16,9 +16,6 @@
           "properties": {
             "subject": {
               "type": "object",
-              "required": [
-                "uri"
-              ],
               "properties": {
                 "uri": {
                   "type": "string",
@@ -29,8 +26,13 @@
                   "type": "string",
                   "format": "did",
                   "description": "付けると、この投稿にこの人が付けたリアクションを通報する。"
+                },
+                "space": {
+                  "type": "ref",
+                  "ref": "#spaceSubject"
                 }
-              }
+              },
+              "description": "uri（投稿・リアクション）か space（Nagi Space）のどちらか一方を指定する。"
             },
             "reason": {
               "type": "string",
@@ -73,6 +75,41 @@
           "description": "短時間に送りすぎた。"
         }
       ]
+    },
+    "spaceSubject": {
+      "type": "object",
+      "description": "Nagi Space の Space、またはその参加者。Nagi Space の サーバーが組み立てて送る。AppView は存在を確かめられないため、運営への通知にそのまま載せる。",
+      "required": [
+        "id",
+        "title",
+        "url",
+        "hostDid"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "title": {
+          "type": "string",
+          "maxGraphemes": 100,
+          "maxLength": 1000
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "maxLength": 2048
+        },
+        "hostDid": {
+          "type": "string",
+          "format": "did"
+        },
+        "member": {
+          "type": "string",
+          "format": "did",
+          "description": "付けると、Space の中のこの参加者を通報する。無ければ Space そのものを通報する。"
+        }
+      }
     }
   }
 }

@@ -29,7 +29,8 @@ export type ReportNotice = {
   reporterDid: string;
   reason: ReportReason;
   comment: string;
-  subjectType: "post" | "reaction";
+  /** space / spaceMember は Nagi Space の Space とその参加者。 */
+  subjectType: "post" | "reaction" | "space" | "spaceMember";
   subjectUri: string;
   /** 対象の作者（リアクションならリアクションした人）。 */
   authorDid: string;
@@ -53,20 +54,31 @@ export function buildReportPayload(notice: ReportNotice) {
       ? notice.authorIsBot
         ? "botたんの投稿"
         : "投稿"
-      : "リアクション";
+      : notice.subjectType === "reaction"
+        ? "リアクション"
+        : notice.subjectType === "space"
+          ? "Nagi Space の Space"
+          : "Nagi Space の参加者";
+  const isSpace = notice.subjectType === "space" || notice.subjectType === "spaceMember";
   const fields = [
     { name: "理由", value: REASON_LABEL[notice.reason], inline: true },
     { name: "対象", value: target, inline: true },
-    { name: "作者", value: notice.authorDid, inline: false },
+    { name: isSpace ? (notice.subjectType === "space" ? "ホスト" : "参加者") : "作者", value: notice.authorDid, inline: false },
     { name: "通報者", value: notice.reporterDid, inline: false },
-    { name: "URI", value: notice.subjectUri, inline: false },
+    { name: isSpace ? "URL" : "URI", value: notice.subjectUri, inline: false },
     {
-      name: notice.subjectType === "post" ? "本文" : "絵文字",
+      name: isSpace ? "Space のタイトル" : notice.subjectType === "post" ? "本文" : "絵文字",
       value: quote(notice.content, 900),
       inline: false,
     },
     ...(notice.contextText !== undefined
-      ? [{ name: "リアクション先の投稿", value: quote(notice.contextText, 600), inline: false }]
+      ? [
+          {
+            name: isSpace ? "Space" : "リアクション先の投稿",
+            value: quote(notice.contextText, 600),
+            inline: false,
+          },
+        ]
       : []),
     ...(notice.comment
       ? [{ name: "コメント", value: quote(notice.comment, 1000), inline: false }]
