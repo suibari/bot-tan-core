@@ -333,19 +333,6 @@ export async function recordScheduledPostMemoryUsage(
   return true;
 }
 
-export async function getYoutubeLiveForWhimsical(
-  load: typeof MemoryService.getNextYoutubeLiveBroadcast =
-    () => MemoryService.getNextYoutubeLiveBroadcast(),
-) {
-  try {
-    return await load();
-  } catch (error) {
-    // DBパッケージ側もnullへフォールバックするが、差し替えや版ずれでも投稿を止めない。
-    console.error("[WARN][YOUTUBE_LIVE] Failed to prepare whimsical candidate", error);
-    return null;
-  }
-}
-
 export async function postMorning(botContext?: BotContext) {
   const recentThemes = await loadQuestionThemeHistory();
   const { textJa, textEn, theme } = await generateQuestion(botContext, { recentThemes });
@@ -403,7 +390,6 @@ export async function postWhimsical(currentMood: string, botContext?: BotContext
   }
 
   const newShort = await MemoryService.getNewYoutubeShort();
-  const youtubeLive = await getYoutubeLiveForWhimsical();
   const generated = await retry(async () => {
     const result = await whimsicalPostGenerator.generate({
       langStr,
@@ -413,13 +399,6 @@ export async function postWhimsical(currentMood: string, botContext?: BotContext
       giftContext,
       youtubeShortUrl: newShort?.url,
       youtubeShortTitle: newShort?.title ?? undefined,
-      youtubeLive: youtubeLive
-        ? {
-            url: youtubeLive.url,
-            scheduledStartAt: youtubeLive.scheduledStartAt,
-            scheduledEndAt: youtubeLive.scheduledEndAt,
-          }
-        : undefined,
       nagiNews: nagiNews
         ? {
             titleJa: nagiNews.titleJa,

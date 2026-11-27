@@ -140,26 +140,6 @@ export interface LiveCommentBatch {
   maxId: number | null;
 }
 
-export interface YoutubeLiveBroadcast {
-  broadcastId: string;
-  url: string;
-  title: string | null;
-  scheduledStartAt: Date;
-  scheduledEndAt: Date;
-}
-
-export function isYoutubeWatchUrl(value: string): boolean {
-  try {
-    const url = new URL(value);
-    return url.protocol === 'https:'
-      && (url.hostname === 'www.youtube.com' || url.hostname === 'youtube.com')
-      && url.pathname === '/watch'
-      && Boolean(url.searchParams.get('v'));
-  } catch {
-    return false;
-  }
-}
-
 export type RepoWriteAction = 'create' | 'update' | 'delete';
 
 export interface RepoWritePointUsage {
@@ -231,48 +211,6 @@ export class MemoryService {
   }
 
   /** 次の配信機会。配信中の枠は終了10分前まで優先する。 */
-  static async getNextYoutubeLiveBroadcast(
-    now = new Date(),
-  ): Promise<YoutubeLiveBroadcast | null> {
-    // bottan_live は Drizzle のスキーマ定義外なので、Date を raw sql へ直接渡さない。
-    // postgres.js が型を推論できず ERR_INVALID_ARG_TYPE になるため、ISO 文字列を
-    // timestamptz として明示する（詳細はリポジトリ直下の AGENTS.md を参照）。
-    const currentTime = now.toISOString();
-    try {
-      const rows = await db.execute<{
-        broadcast_id: string;
-        url: string;
-        title: string | null;
-        scheduled_start_at: Date;
-        scheduled_end_at: Date;
-      }>(sql`
-        SELECT broadcast_id, url, title, scheduled_start_at, scheduled_end_at
-        FROM bottan_live.broadcasts
-        WHERE scheduled_start_at IS NOT NULL
-          AND scheduled_end_at IS NOT NULL
-          AND ${currentTime}::timestamptz < scheduled_end_at - interval '10 minutes'
-          AND ended_at IS NULL
-        ORDER BY scheduled_start_at ASC, prepared_at DESC NULLS LAST, created_at DESC
-        LIMIT 20
-      `);
-      for (const row of rows) {
-        if (!isYoutubeWatchUrl(row.url)) continue;
-        return {
-          broadcastId: row.broadcast_id,
-          url: row.url,
-          title: row.title,
-          scheduledStartAt: new Date(row.scheduled_start_at),
-          scheduledEndAt: new Date(row.scheduled_end_at),
-        };
-      }
-      return null;
-    } catch (error) {
-      // youtuber側の先行デプロイ前やLAN DB障害でも、通常の定期投稿は継続する。
-      console.error('[WARN][YOUTUBE_LIVE] Failed to get next broadcast:', error);
-      return null;
-    }
-  }
-
   static async updateBiorhythmState(state: any) {
     const currentState = await this.getBiorhythmState();
     const newState = { ...currentState, ...state };
