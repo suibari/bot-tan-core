@@ -20,6 +20,18 @@ const workspaceRoot = findWorkspaceRoot(process.cwd());
 // フォント設定
 const FONT_PATH = path.resolve(workspaceRoot, 'fonts/JK-Maru-Gothic-M.otf');
 GlobalFonts.registerFromPath(FONT_PATH, 'JK-Maru-Gothic');
+// 拡張ラテン文字や装飾文字はシステムフォントで補う。
+const FONT_FAMILIES = [
+  '"JK-Maru-Gothic"',
+  '"DejaVu Sans"',
+  '"FreeSerif"',
+  '"Noto Sans Math"',
+  '"Noto Sans CJK JP"',
+  '"Droid Sans Fallback"',
+  '"Noto Color Emoji"',
+  'sans-serif',
+].join(', ');
+const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 
 /**
  * テキストと背景画像を合成し、PNGバッファとして返す
@@ -49,7 +61,7 @@ export async function textToImageBufferWithBackground(
   const lineHeight = fontSize * 1.25;
 
   ctx.fillStyle = 'black';
-  ctx.font = `${fontSize}px JK-Maru-Gothic`;
+  ctx.font = `${fontSize}px ${FONT_FAMILIES}`;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
 
@@ -88,17 +100,17 @@ function wrapLinesWithNewlines(ctx: CanvasRenderingContext2D, text: string, maxW
   const paragraphs = text.split('\n');
 
   paragraphs.forEach(paragraph => {
-    let currentLine = paragraph[0] || '';
+    let currentLine = '';
 
     if (isJapanese(paragraph)) {
-      for (let i = 1; i < paragraph.length; i++) {
-        const testLine = currentLine + paragraph[i];
+      for (const { segment } of graphemeSegmenter.segment(paragraph)) {
+        const testLine = currentLine + segment;
         const { width } = ctx.measureText(testLine);
-        if (width < maxWidth) {
-          currentLine = testLine;
-        } else {
+        if (currentLine && width >= maxWidth) {
           lines.push(currentLine);
-          currentLine = paragraph[i];
+          currentLine = segment;
+        } else {
+          currentLine = testLine;
         }
       }
     } else {
@@ -131,9 +143,7 @@ async function drawTextWithLocalEmoji(
   fontSize: number
 ) {
   let cursorX = x;
-  const graphemes = Array.from(text);
-
-  for (const char of graphemes) {
+  for (const { segment: char } of graphemeSegmenter.segment(text)) {
     if (isEmoji(char)) {
       const imgPath = getTwemojiImagePath(char);
       if (fs.existsSync(imgPath)) {
@@ -144,7 +154,6 @@ async function drawTextWithLocalEmoji(
       }
     }
 
-    ctx.font = `${fontSize}px JK-Maru-Gothic`;
     ctx.fillText(char, cursorX, y);
     cursorX += ctx.measureText(char).width;
   }
@@ -161,7 +170,9 @@ function isEmoji(char: string): boolean {
 }
 
 function getTwemojiImagePath(char: string): string {
-  const codePoints = Array.from(char).map(c => c.codePointAt(0)!.toString(16));
+  // Twemoji のファイル名では ZWJ を含まない絵文字の異体字セレクタを省く。
+  const emoji = char.includes('\u200d') ? char : char.replace(/\ufe0f/g, '');
+  const codePoints = Array.from(emoji).map(c => c.codePointAt(0)!.toString(16));
   const filename = codePoints.join('-') + '.png';
   const imagePath = path.join(process.cwd(), 'src', 'util', 'twemoji', '72x72', filename);
   return fs.existsSync(imagePath) ? imagePath : '';
