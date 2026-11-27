@@ -1,0 +1,887 @@
+{
+  "createdAt": "2026-10-31T02:42:16.915Z",
+  "labelVersion": "three-way-v1",
+  "embeddingModel": "qwen3-embedding:0.6b",
+  "counts": {
+    "train": 12612,
+    "eval": 3166,
+    "byLanguage": {
+      "all": 3166,
+      "日本語": 788,
+      "English": 2109,
+      "other": 269
+    }
+  },
+  "l2Scores": [
+    {
+      "l2": 0.001,
+      "validationAccuracy": 0.7152911068458093
+    },
+    {
+      "l2": 0.01,
+      "validationAccuracy": 0.7376839411388356
+    },
+    {
+      "l2": 0.03,
+      "validationAccuracy": 0.7428023032629558
+    },
+    {
+      "l2": 0.1,
+      "validationAccuracy": 0.7492002559181062
+    }
+  ],
+  "l2": 0.1,
+  "curve": [
+    {
+      "size": 1000,
+      "accuracy": 0.6655085281111813,
+      "japaneseAccuracy": 0.7030456852791879,
+      "japaneseNegativeRecall": 0.528,
+      "englishAccuracy": 0.6567093409198672
+    },
+    {
+      "size": 2000,
+      "accuracy": 0.6857233101705622,
+      "japaneseAccuracy": 0.699238578680203,
+      "japaneseNegativeRecall": 0.512,
+      "englishAccuracy": 0.680891417733523
+    },
+    {
+      "size": 4000,
+      "accuracy": 0.7100442198357549,
+      "japaneseAccuracy": 0.7157360406091371,
+      "japaneseNegativeRecall": 0.536,
+      "englishAccuracy": 0.7107633949739213
+    },
+    {
+      "size": 8000,
+      "accuracy": 0.7255211623499684,
+      "japaneseAccuracy": 0.7170050761421319,
+      "japaneseNegativeRecall": 0.504,
+      "englishAccuracy": 0.7302038880986249
+    },
+    {
+      "size": 12612,
+      "accuracy": 0.7327858496525584,
+      "japaneseAccuracy": 0.7258883248730964,
+      "japaneseNegativeRecall": 0.488,
+      "englishAccuracy": 0.7358937885253675
+    }
+  ],
+  "evaluation": {
+    "all": {
+      "report": {
+        "n": 3166,
+        "accuracy": 0.7327858496525584,
+        "macroF1": 0.7282143013618386,
+        "perClass": {
+          "negative": {
+            "precision": 0.736,
+            "recall": 0.6814814814814815,
+            "support": 810
+          },
+          "neutral": {
+            "precision": 0.730820995962315,
+            "recall": 0.7707594038325053,
+            "support": 1409
+          },
+          "positive": {
+            "precision": 0.7333333333333333,
+            "recall": 0.720168954593453,
+            "support": 947
+          }
+        },
+        "confusion": [
+          [
+            552,
+            181,
+            77
+          ],
+          [
+            152,
+            1086,
+            171
+          ],
+          [
+            46,
+            219,
+            682
+          ]
+        ]
+      },
+      "thresholds": [
+        {
+          "threshold": 0,
+          "classifierShare": 1,
+          "llmShare": 0,
+          "coveredAccuracy": 0.7327858496525584,
+          "overallAgreement": 0.7327858496525584,
+          "negativeMissRate": 0.31851851851851853
+        },
+        {
+          "threshold": 0.5,
+          "classifierShare": 0.8900821225521163,
+          "llmShare": 0.10991787744788373,
+          "coveredAccuracy": 0.7711142654364798,
+          "overallAgreement": 0.7962728995578017,
+          "negativeMissRate": 0.2271604938271605
+        },
+        {
+          "threshold": 0.6,
+          "classifierShare": 0.6996209728363866,
+          "llmShare": 0.3003790271636134,
+          "coveredAccuracy": 0.8275395033860045,
+          "overallAgreement": 0.8793430195830702,
+          "negativeMissRate": 0.14320987654320988
+        },
+        {
+          "threshold": 0.7,
+          "classifierShare": 0.5240050536955149,
+          "llmShare": 0.47599494630448513,
+          "coveredAccuracy": 0.8806509945750453,
+          "overallAgreement": 0.9374605180037903,
+          "negativeMissRate": 0.07037037037037037
+        },
+        {
+          "threshold": 0.8,
+          "classifierShare": 0.3452305748578648,
+          "llmShare": 0.6547694251421352,
+          "coveredAccuracy": 0.9231473010064044,
+          "overallAgreement": 0.9734680985470625,
+          "negativeMissRate": 0.03209876543209877
+        },
+        {
+          "threshold": 0.85,
+          "classifierShare": 0.26121288692356287,
+          "llmShare": 0.7387871130764372,
+          "coveredAccuracy": 0.9383313180169287,
+          "overallAgreement": 0.9838913455464309,
+          "negativeMissRate": 0.018518518518518517
+        },
+        {
+          "threshold": 0.9,
+          "classifierShare": 0.16392924826279218,
+          "llmShare": 0.8360707517372078,
+          "coveredAccuracy": 0.9576107899807321,
+          "overallAgreement": 0.9930511686670878,
+          "negativeMissRate": 0.007407407407407408
+        },
+        {
+          "threshold": 0.95,
+          "classifierShare": 0.07359444093493367,
+          "llmShare": 0.9264055590650664,
+          "coveredAccuracy": 0.9828326180257511,
+          "overallAgreement": 0.9987365761212887,
+          "negativeMissRate": 0.0012345679012345679
+        }
+      ]
+    },
+    "日本語": {
+      "report": {
+        "n": 788,
+        "accuracy": 0.7258883248730964,
+        "macroF1": 0.687452370827621,
+        "perClass": {
+          "negative": {
+            "precision": 0.648936170212766,
+            "recall": 0.488,
+            "support": 125
+          },
+          "neutral": {
+            "precision": 0.7142857142857143,
+            "recall": 0.7207207207207207,
+            "support": 333
+          },
+          "positive": {
+            "precision": 0.7569832402234636,
+            "recall": 0.8212121212121212,
+            "support": 330
+          }
+        },
+        "confusion": [
+          [
+            61,
+            44,
+            20
+          ],
+          [
+            26,
+            240,
+            67
+          ],
+          [
+            7,
+            52,
+            271
+          ]
+        ]
+      },
+      "thresholds": [
+        {
+          "threshold": 0,
+          "classifierShare": 1,
+          "llmShare": 0,
+          "coveredAccuracy": 0.7258883248730964,
+          "overallAgreement": 0.7258883248730964,
+          "negativeMissRate": 0.512
+        },
+        {
+          "threshold": 0.5,
+          "classifierShare": 0.8972081218274112,
+          "llmShare": 0.10279187817258884,
+          "coveredAccuracy": 0.7538896746817539,
+          "overallAgreement": 0.7791878172588832,
+          "negativeMissRate": 0.4
+        },
+        {
+          "threshold": 0.6,
+          "classifierShare": 0.6979695431472082,
+          "llmShare": 0.30203045685279184,
+          "coveredAccuracy": 0.8145454545454546,
+          "overallAgreement": 0.8705583756345178,
+          "negativeMissRate": 0.288
+        },
+        {
+          "threshold": 0.7,
+          "classifierShare": 0.5063451776649747,
+          "llmShare": 0.49365482233502533,
+          "coveredAccuracy": 0.8897243107769424,
+          "overallAgreement": 0.9441624365482234,
+          "negativeMissRate": 0.104
+        },
+        {
+          "threshold": 0.8,
+          "classifierShare": 0.3413705583756345,
+          "llmShare": 0.6586294416243654,
+          "coveredAccuracy": 0.929368029739777,
+          "overallAgreement": 0.9758883248730964,
+          "negativeMissRate": 0.064
+        },
+        {
+          "threshold": 0.85,
+          "classifierShare": 0.25253807106598986,
+          "llmShare": 0.7474619289340101,
+          "coveredAccuracy": 0.949748743718593,
+          "overallAgreement": 0.9873096446700508,
+          "negativeMissRate": 0.024
+        },
+        {
+          "threshold": 0.9,
+          "classifierShare": 0.15101522842639595,
+          "llmShare": 0.8489847715736041,
+          "coveredAccuracy": 0.9831932773109243,
+          "overallAgreement": 0.9974619289340102,
+          "negativeMissRate": 0.008
+        },
+        {
+          "threshold": 0.95,
+          "classifierShare": 0.0583756345177665,
+          "llmShare": 0.9416243654822335,
+          "coveredAccuracy": 1,
+          "overallAgreement": 1,
+          "negativeMissRate": 0
+        }
+      ]
+    },
+    "English": {
+      "report": {
+        "n": 2109,
+        "accuracy": 0.7358937885253675,
+        "macroF1": 0.7291721041981308,
+        "perClass": {
+          "negative": {
+            "precision": 0.7495854063018242,
+            "recall": 0.7255216693418941,
+            "support": 623
+          },
+          "neutral": {
+            "precision": 0.7387836490528414,
+            "recall": 0.7791798107255521,
+            "support": 951
+          },
+          "positive": {
+            "precision": 0.7137176938369781,
+            "recall": 0.6710280373831776,
+            "support": 535
+          }
+        },
+        "confusion": [
+          [
+            452,
+            121,
+            50
+          ],
+          [
+            116,
+            741,
+            94
+          ],
+          [
+            35,
+            141,
+            359
+          ]
+        ]
+      },
+      "thresholds": [
+        {
+          "threshold": 0,
+          "classifierShare": 1,
+          "llmShare": 0,
+          "coveredAccuracy": 0.7358937885253675,
+          "overallAgreement": 0.7358937885253675,
+          "negativeMissRate": 0.27447833065810595
+        },
+        {
+          "threshold": 0.5,
+          "classifierShare": 0.8914177335229967,
+          "llmShare": 0.10858226647700331,
+          "coveredAccuracy": 0.777127659574468,
+          "overallAgreement": 0.8013276434329066,
+          "negativeMissRate": 0.18940609951845908
+        },
+        {
+          "threshold": 0.6,
+          "classifierShare": 0.6993835941204363,
+          "llmShare": 0.30061640587956373,
+          "coveredAccuracy": 0.8332203389830508,
+          "overallAgreement": 0.883357041251778,
+          "negativeMissRate": 0.11235955056179775
+        },
+        {
+          "threshold": 0.7,
+          "classifierShare": 0.5310573731626363,
+          "llmShare": 0.46894262683736365,
+          "coveredAccuracy": 0.88125,
+          "overallAgreement": 0.9369369369369369,
+          "negativeMissRate": 0.060995184590690206
+        },
+        {
+          "threshold": 0.8,
+          "classifierShare": 0.34755808440018965,
+          "llmShare": 0.6524419155998104,
+          "coveredAccuracy": 0.9236016371077762,
+          "overallAgreement": 0.9734471313418682,
+          "negativeMissRate": 0.024077046548956663
+        },
+        {
+          "threshold": 0.85,
+          "classifierShare": 0.26363205310573734,
+          "llmShare": 0.7363679468942627,
+          "coveredAccuracy": 0.9388489208633094,
+          "overallAgreement": 0.9838786154575628,
+          "negativeMissRate": 0.016051364365971106
+        },
+        {
+          "threshold": 0.9,
+          "classifierShare": 0.16642958748221906,
+          "llmShare": 0.833570412517781,
+          "coveredAccuracy": 0.9544159544159544,
+          "overallAgreement": 0.9924134660976767,
+          "negativeMissRate": 0.006420545746388443
+        },
+        {
+          "threshold": 0.95,
+          "classifierShare": 0.07871028923660503,
+          "llmShare": 0.9212897107633949,
+          "coveredAccuracy": 0.9819277108433735,
+          "overallAgreement": 0.9985775248933144,
+          "negativeMissRate": 0.0016051364365971107
+        }
+      ]
+    },
+    "other": {
+      "report": {
+        "n": 269,
+        "accuracy": 0.7286245353159851,
+        "macroF1": 0.7130204716496445,
+        "perClass": {
+          "negative": {
+            "precision": 0.7358490566037735,
+            "recall": 0.6290322580645161,
+            "support": 62
+          },
+          "neutral": {
+            "precision": 0.7142857142857143,
+            "recall": 0.84,
+            "support": 125
+          },
+          "positive": {
+            "precision": 0.7536231884057971,
+            "recall": 0.6341463414634146,
+            "support": 82
+          }
+        },
+        "confusion": [
+          [
+            39,
+            16,
+            7
+          ],
+          [
+            10,
+            105,
+            10
+          ],
+          [
+            4,
+            26,
+            52
+          ]
+        ]
+      },
+      "thresholds": [
+        {
+          "threshold": 0,
+          "classifierShare": 1,
+          "llmShare": 0,
+          "coveredAccuracy": 0.7286245353159851,
+          "overallAgreement": 0.7286245353159851,
+          "negativeMissRate": 0.3709677419354839
+        },
+        {
+          "threshold": 0.5,
+          "classifierShare": 0.8587360594795539,
+          "llmShare": 0.1412639405204461,
+          "coveredAccuracy": 0.7748917748917749,
+          "overallAgreement": 0.8066914498141264,
+          "negativeMissRate": 0.25806451612903225
+        },
+        {
+          "threshold": 0.6,
+          "classifierShare": 0.7063197026022305,
+          "llmShare": 0.29368029739776946,
+          "coveredAccuracy": 0.8210526315789474,
+          "overallAgreement": 0.8736059479553904,
+          "negativeMissRate": 0.16129032258064516
+        },
+        {
+          "threshold": 0.7,
+          "classifierShare": 0.5204460966542751,
+          "llmShare": 0.4795539033457249,
+          "coveredAccuracy": 0.85,
+          "overallAgreement": 0.9219330855018587,
+          "negativeMissRate": 0.0967741935483871
+        },
+        {
+          "threshold": 0.8,
+          "classifierShare": 0.3382899628252788,
+          "llmShare": 0.6617100371747212,
+          "coveredAccuracy": 0.9010989010989011,
+          "overallAgreement": 0.966542750929368,
+          "negativeMissRate": 0.04838709677419355
+        },
+        {
+          "threshold": 0.85,
+          "classifierShare": 0.26765799256505574,
+          "llmShare": 0.7323420074349443,
+          "coveredAccuracy": 0.9027777777777778,
+          "overallAgreement": 0.9739776951672863,
+          "negativeMissRate": 0.03225806451612903
+        },
+        {
+          "threshold": 0.9,
+          "classifierShare": 0.1821561338289963,
+          "llmShare": 0.8178438661710037,
+          "coveredAccuracy": 0.9183673469387755,
+          "overallAgreement": 0.9851301115241635,
+          "negativeMissRate": 0.016129032258064516
+        },
+        {
+          "threshold": 0.95,
+          "classifierShare": 0.07806691449814127,
+          "llmShare": 0.9219330855018587,
+          "coveredAccuracy": 0.9523809523809523,
+          "overallAgreement": 0.9962825278810409,
+          "negativeMissRate": 0
+        }
+      ]
+    }
+  },
+  "fixtures": [
+    {
+      "id": "ja-negative-01",
+      "language": "日本語",
+      "expected": "negative",
+      "classifier": "negative",
+      "confidence": 0.9635219495437723,
+      "llm": "negative"
+    },
+    {
+      "id": "ja-negative-02",
+      "language": "日本語",
+      "expected": "negative",
+      "classifier": "negative",
+      "confidence": 0.8773970293253779,
+      "llm": "negative"
+    },
+    {
+      "id": "ja-negative-03",
+      "language": "日本語",
+      "expected": "negative",
+      "classifier": "negative",
+      "confidence": 0.8127141929246192,
+      "llm": "negative"
+    },
+    {
+      "id": "ja-negative-04",
+      "language": "日本語",
+      "expected": "negative",
+      "classifier": "negative",
+      "confidence": 0.9418508256659538,
+      "llm": "negative"
+    },
+    {
+      "id": "ja-negative-05",
+      "language": "日本語",
+      "expected": "negative",
+      "classifier": "negative",
+      "confidence": 0.9596880765887091,
+      "llm": "negative"
+    },
+    {
+      "id": "ja-negative-06",
+      "language": "日本語",
+      "expected": "negative",
+      "classifier": "negative",
+      "confidence": 0.4305905877290498,
+      "llm": "negative"
+    },
+    {
+      "id": "ja-negative-07",
+      "language": "日本語",
+      "expected": "negative",
+      "classifier": "negative",
+      "confidence": 0.6155760137174818,
+      "llm": "negative"
+    },
+    {
+      "id": "ja-negative-08",
+      "language": "日本語",
+      "expected": "negative",
+      "classifier": "negative",
+      "confidence": 0.5130919201202329,
+      "llm": "negative"
+    },
+    {
+      "id": "ja-negative-09",
+      "language": "日本語",
+      "expected": "negative",
+      "classifier": "negative",
+      "confidence": 0.9936515344111179,
+      "llm": "negative"
+    },
+    {
+      "id": "ja-negative-10",
+      "language": "日本語",
+      "expected": "negative",
+      "classifier": "positive",
+      "confidence": 0.8094357221616686,
+      "llm": "negative"
+    },
+    {
+      "id": "ja-neutral-01",
+      "language": "日本語",
+      "expected": "neutral",
+      "classifier": "neutral",
+      "confidence": 0.910564955605444,
+      "llm": "neutral"
+    },
+    {
+      "id": "ja-neutral-02",
+      "language": "日本語",
+      "expected": "neutral",
+      "classifier": "neutral",
+      "confidence": 0.7964056501913631,
+      "llm": "neutral"
+    },
+    {
+      "id": "ja-neutral-03",
+      "language": "日本語",
+      "expected": "neutral",
+      "classifier": "neutral",
+      "confidence": 0.5570544524215298,
+      "llm": "neutral"
+    },
+    {
+      "id": "ja-neutral-04",
+      "language": "日本語",
+      "expected": "neutral",
+      "classifier": "neutral",
+      "confidence": 0.4976673700938399,
+      "llm": "neutral"
+    },
+    {
+      "id": "ja-neutral-05",
+      "language": "日本語",
+      "expected": "neutral",
+      "classifier": "neutral",
+      "confidence": 0.969998798864076,
+      "llm": "neutral"
+    },
+    {
+      "id": "ja-neutral-06",
+      "language": "日本語",
+      "expected": "neutral",
+      "classifier": "neutral",
+      "confidence": 0.9079729086781338,
+      "llm": "neutral"
+    },
+    {
+      "id": "ja-neutral-07",
+      "language": "日本語",
+      "expected": "neutral",
+      "classifier": "neutral",
+      "confidence": 0.5535041448022299,
+      "llm": "neutral"
+    },
+    {
+      "id": "ja-neutral-08",
+      "language": "日本語",
+      "expected": "neutral",
+      "classifier": "neutral",
+      "confidence": 0.8464977460542671,
+      "llm": "neutral"
+    },
+    {
+      "id": "ja-neutral-09",
+      "language": "日本語",
+      "expected": "neutral",
+      "classifier": "neutral",
+      "confidence": 0.5797776500011762,
+      "llm": "positive"
+    },
+    {
+      "id": "ja-neutral-10",
+      "language": "日本語",
+      "expected": "neutral",
+      "classifier": "neutral",
+      "confidence": 0.6061682123073797,
+      "llm": "neutral"
+    },
+    {
+      "id": "ja-positive-01",
+      "language": "日本語",
+      "expected": "positive",
+      "classifier": "positive",
+      "confidence": 0.9948905748788608,
+      "llm": "positive"
+    },
+    {
+      "id": "ja-positive-02",
+      "language": "日本語",
+      "expected": "positive",
+      "classifier": "positive",
+      "confidence": 0.9989655521693765,
+      "llm": "positive"
+    },
+    {
+      "id": "ja-positive-03",
+      "language": "日本語",
+      "expected": "positive",
+      "classifier": "negative",
+      "confidence": 0.7002042427225307,
+      "llm": "positive"
+    },
+    {
+      "id": "ja-positive-04",
+      "language": "日本語",
+      "expected": "positive",
+      "classifier": "positive",
+      "confidence": 0.9601596041178083,
+      "llm": "positive"
+    },
+    {
+      "id": "ja-positive-05",
+      "language": "日本語",
+      "expected": "positive",
+      "classifier": "positive",
+      "confidence": 0.9976380428039912,
+      "llm": "positive"
+    },
+    {
+      "id": "ja-positive-06",
+      "language": "日本語",
+      "expected": "positive",
+      "classifier": "positive",
+      "confidence": 0.9496671524603896,
+      "llm": "positive"
+    },
+    {
+      "id": "ja-positive-07",
+      "language": "日本語",
+      "expected": "positive",
+      "classifier": "positive",
+      "confidence": 0.8515862817293122,
+      "llm": "positive"
+    },
+    {
+      "id": "ja-positive-08",
+      "language": "日本語",
+      "expected": "positive",
+      "classifier": "positive",
+      "confidence": 0.6073280674622051,
+      "llm": "positive"
+    },
+    {
+      "id": "ja-positive-09",
+      "language": "日本語",
+      "expected": "positive",
+      "classifier": "neutral",
+      "confidence": 0.6273802623380259,
+      "llm": "positive"
+    },
+    {
+      "id": "ja-positive-10",
+      "language": "日本語",
+      "expected": "positive",
+      "classifier": "positive",
+      "confidence": 0.848707949486623,
+      "llm": "positive"
+    },
+    {
+      "id": "en-negative-01",
+      "language": "English",
+      "expected": "negative",
+      "classifier": "negative",
+      "confidence": 0.9644624915147435,
+      "llm": "negative"
+    },
+    {
+      "id": "en-negative-02",
+      "language": "English",
+      "expected": "negative",
+      "classifier": "negative",
+      "confidence": 0.7143962664197997,
+      "llm": "negative"
+    },
+    {
+      "id": "en-negative-03",
+      "language": "English",
+      "expected": "negative",
+      "classifier": "negative",
+      "confidence": 0.8521333775084221,
+      "llm": "negative"
+    },
+    {
+      "id": "en-negative-04",
+      "language": "English",
+      "expected": "negative",
+      "classifier": "negative",
+      "confidence": 0.7178877110207108,
+      "llm": "negative"
+    },
+    {
+      "id": "en-negative-05",
+      "language": "English",
+      "expected": "negative",
+      "classifier": "negative",
+      "confidence": 0.6738981483100205,
+      "llm": "negative"
+    },
+    {
+      "id": "en-negative-06",
+      "language": "English",
+      "expected": "negative",
+      "classifier": "negative",
+      "confidence": 0.7745150722439456,
+      "llm": "negative"
+    },
+    {
+      "id": "en-neutral-01",
+      "language": "English",
+      "expected": "neutral",
+      "classifier": "neutral",
+      "confidence": 0.9677827159830873,
+      "llm": "neutral"
+    },
+    {
+      "id": "en-neutral-02",
+      "language": "English",
+      "expected": "neutral",
+      "classifier": "neutral",
+      "confidence": 0.7529070819621707,
+      "llm": "neutral"
+    },
+    {
+      "id": "en-neutral-03",
+      "language": "English",
+      "expected": "neutral",
+      "classifier": "negative",
+      "confidence": 0.8482266671701555,
+      "llm": "neutral"
+    },
+    {
+      "id": "en-neutral-04",
+      "language": "English",
+      "expected": "neutral",
+      "classifier": "neutral",
+      "confidence": 0.42875403762287423,
+      "llm": "neutral"
+    },
+    {
+      "id": "en-neutral-05",
+      "language": "English",
+      "expected": "neutral",
+      "classifier": "neutral",
+      "confidence": 0.7605839638447331,
+      "llm": "neutral"
+    },
+    {
+      "id": "en-neutral-06",
+      "language": "English",
+      "expected": "neutral",
+      "classifier": "neutral",
+      "confidence": 0.8689276685906916,
+      "llm": "neutral"
+    },
+    {
+      "id": "en-positive-01",
+      "language": "English",
+      "expected": "positive",
+      "classifier": "positive",
+      "confidence": 0.9987056267165326,
+      "llm": "positive"
+    },
+    {
+      "id": "en-positive-02",
+      "language": "English",
+      "expected": "positive",
+      "classifier": "positive",
+      "confidence": 0.9400262224684915,
+      "llm": "positive"
+    },
+    {
+      "id": "en-positive-03",
+      "language": "English",
+      "expected": "positive",
+      "classifier": "positive",
+      "confidence": 0.9312826301702896,
+      "llm": "positive"
+    },
+    {
+      "id": "en-positive-04",
+      "language": "English",
+      "expected": "positive",
+      "classifier": "positive",
+      "confidence": 0.9427737212558166,
+      "llm": "positive"
+    },
+    {
+      "id": "en-positive-05",
+      "language": "English",
+      "expected": "positive",
+      "classifier": "positive",
+      "confidence": 0.978151190210314,
+      "llm": "positive"
+    },
+    {
+      "id": "en-positive-06",
+      "language": "English",
+      "expected": "positive",
+      "classifier": "positive",
+      "confidence": 0.9788548343770774,
+      "llm": "positive"
+    }
+  ]
+}
