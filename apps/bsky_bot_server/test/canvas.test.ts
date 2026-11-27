@@ -12,3 +12,20 @@ test('diary images render accented and stylized display names with fallback font
   assert.deepEqual(combining, accented);
   assert.ok(!stylized.equals(missing), 'the stylized letter should have a glyph');
 });
+
+test('image rendering rejects oversized text before opening the background', async () => {
+  const text = 'An ordinary diary sentence.\n'.repeat(320);
+  await assert.rejects(
+    textToImageBufferWithBackground(text, './img/missing-test-background.png'),
+    { name: 'RangeError', message: 'Image text exceeds the rendering limit' },
+  );
+});
+
+test('image rendering replaces an oversized grapheme and keeps adjacent text', async () => {
+  const largeGrapheme = 'e' + '\u0301'.repeat(48);
+  const [bounded, expected] = await Promise.all(
+    [`日記: ${largeGrapheme} と名前\n\n2026/11/27`, '日記: \uFFFD と名前\n\n2026/11/27']
+      .map(text => textToImageBufferWithBackground(text)),
+  );
+  assert.deepEqual(bounded, expected);
+});

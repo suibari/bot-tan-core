@@ -32,6 +32,19 @@ const FONT_FAMILIES = [
   'sans-serif',
 ].join(', ');
 const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+const MAX_TEXT_CODE_UNITS = 8_192;
+// 48 UTF-16 コード単位なら、16進表記と区切りを含む絵文字のファイル名は最大243バイト。
+const MAX_GRAPHEME_CODE_UNITS = 48;
+
+function boundGraphemes(text: string): string {
+  if (text.length > MAX_TEXT_CODE_UNITS) {
+    throw new RangeError('Image text exceeds the rendering limit');
+  }
+  return Array.from(
+    graphemeSegmenter.segment(text),
+    ({ segment }) => segment.length <= MAX_GRAPHEME_CODE_UNITS ? segment : '\uFFFD',
+  ).join('');
+}
 
 /**
  * テキストと背景画像を合成し、PNGバッファとして返す
@@ -40,6 +53,7 @@ export async function textToImageBufferWithBackground(
   text: string,
   backgroundPath: string = './img/bot-tan.png'
 ): Promise<Buffer> {
+  const boundedText = boundGraphemes(text);
   const resolvedPath = path.resolve(workspaceRoot, backgroundPath.replace(/^\.\//, ''));
   const bgImage = await loadImage(pathToFileURL(resolvedPath));
   const originalWidth = bgImage.width;
@@ -66,7 +80,7 @@ export async function textToImageBufferWithBackground(
   ctx.textBaseline = 'top';
 
   const maxWidth = width - margin * 2;
-  const lines = wrapLinesWithNewlines(ctx, text, maxWidth);
+  const lines = wrapLinesWithNewlines(ctx, boundedText, maxWidth);
 
   let y = margin;
   for (const line of lines) {
@@ -174,6 +188,5 @@ function getTwemojiImagePath(char: string): string {
   const emoji = char.includes('\u200d') ? char : char.replace(/\ufe0f/g, '');
   const codePoints = Array.from(emoji).map(c => c.codePointAt(0)!.toString(16));
   const filename = codePoints.join('-') + '.png';
-  const imagePath = path.join(process.cwd(), 'src', 'util', 'twemoji', '72x72', filename);
-  return fs.existsSync(imagePath) ? imagePath : '';
+  return path.join(process.cwd(), 'src', 'util', 'twemoji', '72x72', filename);
 }
