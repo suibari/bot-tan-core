@@ -21,11 +21,6 @@ test("migration-backed upsert, backfill, and reaction purge are idempotent", {
     await setup`create schema if not exists bottan_live`;
     await setup`create table if not exists bottan_live.comments
       (id serial primary key, broadcast_id text, author_channel_id text, comment text, reply text, energy_at integer, created_at timestamptz default now())`;
-    await setup`create table if not exists bottan_live.broadcasts
-      (id serial primary key, broadcast_id text unique, url text, title text,
-       started_at timestamptz, ended_at timestamptz, comment_count integer default 0,
-       created_at timestamptz default now(), scheduled_start_at timestamptz,
-       scheduled_end_at timestamptz, prepared_at timestamptz)`;
     await setup`truncate
       affirmative_bot.bot_memory_usages,
       affirmative_bot.bot_memory_documents,
@@ -39,7 +34,6 @@ test("migration-backed upsert, backfill, and reaction purge are idempotent", {
       nagi.emojis
       restart identity cascade`;
     await setup`truncate bottan_live.comments restart identity`;
-    await setup`truncate bottan_live.broadcasts restart identity`;
 
     const original = await memory.upsertBotMemoryDocument({
       sourceType: "bsky_received_reply",
@@ -124,43 +118,6 @@ test("migration-backed upsert, backfill, and reaction purge are idempotent", {
       values ('at://did:plc:reactor/com.suibari.nagi.reaction/one', 'reaction-cid', 'did:plc:reactor', ${botPost}, ':party_blob:', ${emojiUri}, ${emojiUri}, now())`;
     await setup`insert into bottan_live.comments (broadcast_id, author_channel_id, comment, reply, energy_at)
       values ('broadcast', 'youtube-author', 'YouTubeのコメント', 'ありがとう', 50)`;
-    await setup`insert into bottan_live.broadcasts
-      (broadcast_id, url, title, scheduled_start_at, scheduled_end_at, prepared_at)
-      values
-      ('valid-live', 'https://www.youtube.com/watch?v=valid-live', '今日の配信',
-       '2026-08-22T12:00:00Z', '2026-08-22T13:00:00Z', '2026-08-21T19:00:00Z'),
-      ('invalid-live', 'https://example.com/watch?v=invalid', '不正URL',
-       '2026-08-22T12:00:00Z', '2026-08-22T13:00:00Z', '2026-08-21T20:00:00Z'),
-      ('ended-live', 'https://www.youtube.com/watch?v=ended-live', '終了済み',
-       '2026-08-22T12:00:00Z', '2026-08-22T13:00:00Z', '2026-08-21T21:00:00Z'),
-      ('next-live', 'https://www.youtube.com/watch?v=next-live', '次の土曜の配信',
-       '2026-08-29T12:00:00Z', '2026-08-29T13:00:00Z', '2026-08-21T19:00:00Z')`;
-    await setup`update bottan_live.broadcasts set ended_at = '2026-08-22T13:00:00Z'
-      where broadcast_id = 'ended-live'`;
-
-    const currentLive = await memory.MemoryService.getNextYoutubeLiveBroadcast(
-      new Date("2026-08-22T10:00:00Z"),
-    );
-    assert.equal(currentLive?.broadcastId, "valid-live");
-    assert.equal(
-      (await memory.MemoryService.getNextYoutubeLiveBroadcast(
-        new Date("2026-08-22T12:30:00Z"),
-      ))?.broadcastId,
-      "valid-live",
-    );
-    assert.equal(
-      (await memory.MemoryService.getNextYoutubeLiveBroadcast(
-        new Date("2026-08-22T12:50:00Z"),
-      ))?.broadcastId,
-      "next-live",
-    );
-    assert.equal(
-      (await memory.MemoryService.getNextYoutubeLiveBroadcast(
-        new Date("2026-08-24T03:00:00Z"),
-      ))?.broadcastId,
-      "next-live",
-    );
-
     const first = await backfill.runBotMemoryBackfill(true);
     const afterFirst = await setup`select count(*)::int as count from affirmative_bot.bot_memory_documents`;
     const second = await backfill.runBotMemoryBackfill(true);

@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildNagiNewsWriteRules,
-  buildYoutubeLiveFeature,
   buildWhimsicalPlanPrompt,
   ensureSelectedFeatureUrl,
   NAGI_FEATURE_INTRO_EN,
@@ -109,59 +108,15 @@ test("企画プロンプトはJSTの正しい曜日を明示する", () => {
   assert.doesNotMatch(prompt, /プレミアムフライデー/);
 });
 
-const youtubeLive = {
-  url: "https://www.youtube.com/watch?v=today-live",
-  scheduledStartAt: new Date("2026-08-22T12:00:00.000Z"), // JST 21:00
-  scheduledEndAt: new Date("2026-08-22T13:00:00.000Z"),
-};
-
-test("YouTube Live候補は未来の配信日時を示し、配信中は21:50まで有効", () => {
-  const featureAt = (iso: string) => buildYoutubeLiveFeature({
-    langStr: "日本語",
-    live: youtubeLive,
-    now: new Date(iso),
-  });
-  assert.match(featureAt("2026-08-17T03:00:00.000Z")!, /次のYouTubeライブは2026年8月22日\(土\) 21:00〜22:00/);
-  assert.match(featureAt("2026-08-22T11:59:59.999Z")!, /2026年8月22日\(土\) 21:00〜22:00/);
-  assert.match(featureAt("2026-08-22T12:00:00.000Z")!, /いまYouTubeでライブ配信中/);
-  assert.match(featureAt("2026-08-22T12:49:59.999Z")!, /22:00まで/);
-  assert.equal(featureAt("2026-08-22T12:50:00.000Z"), undefined);
-  assert.match(buildYoutubeLiveFeature({
-    langStr: "English", live: youtubeLive, now: new Date("2026-08-17T03:00:00.000Z"),
-  })!, /next YouTube Live on Sat, Aug 22, 2026, 21:00–22:00 JST/);
-});
-
-test("YouTube Liveは通常プールへ1候補だけ入り、同日でも再選出できる", () => {
-  const generator = new WhimsicalPostGenerator();
-  const poolSizes: number[] = [];
-  const selectLive = (pool: string[]) => {
-    poolSizes.push(pool.length);
-    assert.equal(pool.filter((item) => item.includes(youtubeLive.url)).length, 1);
-    return pool.find((item) => item.includes(youtubeLive.url))!;
-  };
-  const params = {
-    langStr: "日本語" as const,
-    youtubeLive,
-    now: new Date("2026-08-22T03:00:00.000Z"),
-  };
-  let basePoolSize = 0;
-  generator.getBotFunctions({ ...params, youtubeLive: undefined }, (pool) => {
-    basePoolSize = pool.length;
-    return pool[0];
-  });
-  assert.equal(generator.getBotFunctions(params, selectLive).usedYoutubeLive, true);
-  assert.equal(generator.getBotFunctions(params, selectLive).usedYoutubeLive, true);
-  assert.deepEqual(poolSizes, [basePoolSize + 1, basePoolSize + 1]);
-});
-
-test("選出されたLive・Shorts URLをLLMが省略しても本文末尾へ1回だけ補う", () => {
+test("選出されたShorts URLをLLMが省略しても本文末尾へ1回だけ補う", () => {
+  const url = "https://www.youtube.com/shorts/example";
   assert.equal(
-    ensureSelectedFeatureUrl("遊びに来てね", youtubeLive.url),
-    `遊びに来てね\n\n${youtubeLive.url}`,
+    ensureSelectedFeatureUrl("見てね", url),
+    `見てね\n\n${url}`,
   );
   assert.equal(
-    ensureSelectedFeatureUrl(`遊びに来てね ${youtubeLive.url}`, youtubeLive.url),
-    `遊びに来てね ${youtubeLive.url}`,
+    ensureSelectedFeatureUrl(`見てね ${url}`, url),
+    `見てね ${url}`,
   );
 });
 

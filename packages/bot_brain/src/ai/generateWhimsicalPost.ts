@@ -83,11 +83,6 @@ export interface WhimsicalPostGenerateParams {
   giftContext?: { content: string; displayName: string; type: "used" };
   youtubeShortUrl?: string;
   youtubeShortTitle?: string;
-  youtubeLive?: {
-    url: string;
-    scheduledStartAt: Date;
-    scheduledEndAt: Date;
-  };
   /** 時刻境界テスト用。通常は現在時刻。 */
   now?: Date;
   /** 締めに紹介する Nagi のニュース。紹介できる記事が無い回は無い。 */
@@ -149,7 +144,6 @@ export interface WhimsicalPostGenerateResult {
   textJa: string;
   textEn: string;
   usedYoutubeShort: boolean;
-  usedYoutubeLive: boolean;
   /** 渡した Nagi ニュースを本文に入れたか（渡していれば必ず入れる）。 */
   usedNagiNews: boolean;
   selectedMemoryDocumentIds: number[];
@@ -180,45 +174,6 @@ export function stripStructureLabels(text: string): string {
     .replace(/^[ \t]*nagi_?news[ \t]*[:：][ \t]*/gim, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
-}
-
-const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
-
-function jstHourMinute(date: Date): [number, number] {
-  const shifted = new Date(date.getTime() + JST_OFFSET_MS);
-  return [shifted.getUTCHours(), shifted.getUTCMinutes()];
-}
-
-export function buildYoutubeLiveFeature(params: {
-  langStr: LanguageName;
-  live?: WhimsicalPostGenerateParams["youtubeLive"];
-  now: Date;
-}): string | undefined {
-  if (!params.live) return undefined;
-  const start = params.live.scheduledStartAt;
-  const end = params.live.scheduledEndAt;
-  const promotionEnd = new Date(end.getTime() - 10 * 60 * 1000);
-  if (params.now >= promotionEnd) return undefined;
-
-  const shiftedStart = new Date(start.getTime() + JST_OFFSET_MS);
-  const [startHour, startMinute] = jstHourMinute(start);
-  const [endHour, endMinute] = jstHourMinute(end);
-  const startText = `${startHour}:${String(startMinute).padStart(2, "0")}`;
-  const endText = `${endHour}:${String(endMinute).padStart(2, "0")}`;
-  const weekdayJa = ["日", "月", "火", "水", "木", "金", "土"][shiftedStart.getUTCDay()];
-  const dateJa = `${shiftedStart.getUTCFullYear()}年${shiftedStart.getUTCMonth() + 1}月${shiftedStart.getUTCDate()}日(${weekdayJa})`;
-  const dateEn = new Intl.DateTimeFormat("en-US", {
-    timeZone: "Asia/Tokyo", weekday: "short", year: "numeric", month: "short", day: "numeric",
-  }).format(start);
-  const isLive = params.now >= start;
-  if (params.langStr === "日本語") {
-    return isLive
-      ? `botたんがいまYouTubeでライブ配信中で、${endText}までコメントに全部お返事していることの紹介。URLは ${params.live.url}`
-      : `botたんの次のYouTubeライブは${dateJa} ${startText}〜${endText}。コメントに全部お返事することの紹介。URLは ${params.live.url}`;
-  }
-  return isLive
-    ? `Introducing bot-tan's YouTube Live, streaming now until ${endText} JST and replying to every comment! URL: ${params.live.url}`
-    : `Introducing bot-tan's next YouTube Live on ${dateEn}, ${startText}–${endText} JST, replying to every comment! URL: ${params.live.url}`;
 }
 
 export function ensureSelectedFeatureUrl(text: string, url?: string): string {
@@ -259,7 +214,6 @@ export class WhimsicalPostGenerator {
     const {
       feature: botFunction,
       usedYoutubeShort,
-      usedYoutubeLive,
       selectedUrl,
     } = this.getBotFunctions(generationParams);
 
@@ -364,7 +318,6 @@ Structure: ${JSON.stringify(structure)}`
       textJa,
       textEn,
       usedYoutubeShort,
-      usedYoutubeLive,
       usedNagiNews: Boolean(params.nagiNews),
       selectedMemoryDocumentIds,
     };
@@ -393,14 +346,11 @@ Structure: ${JSON.stringify(structure)}`
       langStr: LanguageName;
       youtubeShortUrl?: string;
       youtubeShortTitle?: string;
-      youtubeLive?: WhimsicalPostGenerateParams["youtubeLive"];
-      now?: Date;
     },
     select: (pool: string[]) => string = (pool) => getRandomItems(pool, 1)[0],
   ): {
     feature: string;
     usedYoutubeShort: boolean;
-    usedYoutubeLive: boolean;
     selectedUrl?: string;
   } {
     const features = params.langStr === "日本語" ? [
@@ -444,26 +394,13 @@ Structure: ${JSON.stringify(structure)}`
       );
     }
 
-    const youtubeLiveFeature = buildYoutubeLiveFeature({
-      langStr: params.langStr,
-      live: params.youtubeLive,
-      now: params.now ?? new Date(),
-    });
-    if (youtubeLiveFeature) features.push(youtubeLiveFeature);
-
     const pool = [...features, ...crossSells];
     const selected = select(pool);
     const usedYoutubeShort = !!(params.youtubeShortUrl && selected.includes(params.youtubeShortUrl));
-    const usedYoutubeLive = !!(params.youtubeLive?.url && selected.includes(params.youtubeLive.url));
     return {
       feature: selected,
       usedYoutubeShort,
-      usedYoutubeLive,
-      selectedUrl: usedYoutubeShort
-        ? params.youtubeShortUrl
-        : usedYoutubeLive
-          ? params.youtubeLive?.url
-          : undefined,
+      selectedUrl: usedYoutubeShort ? params.youtubeShortUrl : undefined,
     };
   }
 
