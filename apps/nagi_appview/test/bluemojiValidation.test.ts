@@ -37,10 +37,36 @@ test("accepts every pinned formats_v0 media representation", () => {
   }
 });
 
-test("rejects the former Nagi formats_v1 and invalid fallback text", () => {
-  const formatsV1 = record({ png_128: blob("image/png") });
-  formatsV1.formats.$type = `${BLUEMOJI_ITEM}#formats_v1`;
-  assert.equal(validateRecord(BLUEMOJI_ITEM, formatsV1), false);
+test("indexes v1 renditions as PDS blobs with the v1 size limit", () => {
+  for (const [slot, mediaType] of [
+    ["lottie", "application/lottie+zip"],
+    ["apng_128", "image/apng"],
+    ["gif_128", "image/gif"],
+    ["webp_128", "image/webp"],
+    ["png_128", "image/png"],
+  ] as const) {
+    const v1 = (asset: unknown) =>
+      record({ $type: `${BLUEMOJI_ITEM}#formats_v1`, [slot]: asset });
+    const valid = v1(blob(mediaType, 128_000));
+    assert.equal(validateRecord(BLUEMOJI_ITEM, valid), true);
+    assert.deepEqual(normalizeBluemojiFormats(valid.formats)?.asset, {
+      kind: "blob",
+      mediaType,
+      value: "bafyvalidcid",
+    });
+    assert.equal(validateRecord(BLUEMOJI_ITEM, v1(blob(mediaType, 128_001))), false);
+    assert.equal(validateRecord(BLUEMOJI_ITEM, v1({ $bytes: "YQ==" })), false);
+  }
+  const mixed = record({
+    $type: `${BLUEMOJI_ITEM}#formats_v1`,
+    apng_128: blob("image/apng", 128_001),
+    original: blob("image/apng", 1_000_000),
+  });
+  assert.equal(normalizeBluemojiFormats(mixed.formats)?.asset.mediaType, "image/apng");
+  assert.equal(validateRecord(BLUEMOJI_ITEM, record({ gif_128: blob("image/gif", 262_144) })), true);
+});
+
+test("rejects invalid fallback text and copy URIs", () => {
   assert.equal(
     validateRecord(
       BLUEMOJI_ITEM,

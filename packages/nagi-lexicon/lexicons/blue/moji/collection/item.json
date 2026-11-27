@@ -1,7 +1,7 @@
 {
   "lexicon": 1,
   "id": "blue.moji.collection.item",
-  "description": "Pinned from aendra-rininsland/bluemoji commit 25d5e0e8e5af0fbb36d6e2106b8f823a2c1cea90.",
+  "description": "Bluemoji item formats supported by Nagi. formats_v0 is retained for existing records.",
   "defs": {
     "main": {
       "type": "record",
@@ -20,7 +20,7 @@
           "formats": {
             "type": "union",
             "description": "Open union to allow for future formats",
-            "refs": ["#formats_v0"],
+            "refs": ["#formats_v0", "#formats_v1"],
             "closed": false
           },
           "adultOnly": { "type": "boolean", "default": false },
@@ -53,6 +53,22 @@
         "lottie": { "type": "ref", "ref": "#bytes_v0" }
       }
     },
+    "formats_v1": {
+      "type": "object",
+      "properties": {
+        "original": {
+          "type": "blob",
+          "accept": ["image/*", "application/lottie+zip"],
+          "maxSize": 1000000
+        },
+        "png_128": { "type": "ref", "ref": "#blob_v1" },
+        "apng_128": { "type": "ref", "ref": "#blob_v1" },
+        "gif_128": { "type": "ref", "ref": "#blob_v1" },
+        "webp_128": { "type": "ref", "ref": "#blob_v1" },
+        "lottie": { "type": "ref", "ref": "#blob_v1" }
+      }
+    },
+    "blob_v1": { "type": "blob", "maxSize": 128000 },
     "blob_v0": { "type": "blob", "maxSize": 262144 },
     "bytes_v0": { "type": "bytes", "maxLength": 65536 }
   }

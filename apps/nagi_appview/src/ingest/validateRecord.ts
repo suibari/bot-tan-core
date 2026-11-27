@@ -173,6 +173,7 @@ const linkCard = (value: any) => {
   );
 };
 const FORMATS_V0 = `${BLUEMOJI_ITEM}#formats_v0`;
+const FORMATS_V1 = `${BLUEMOJI_ITEM}#formats_v1`;
 const CID = /^[a-zA-Z0-9]+$/;
 const blobAsset = (
   value: any,
@@ -240,20 +241,27 @@ const normalizedBytes = (
   asset: { kind: "bytes", mediaType, value: value.$bytes },
 });
 
-/** 固定した Bluemoji formats_v0 から、Nagi が描画する最優先の資産を選ぶ。 */
+/** Bluemoji のレコードから、Nagi が描画する最優先の資産を選ぶ。 */
 export function normalizeBluemojiFormats(formats: any): BluemojiFormats | null {
-  if (!formats || typeof formats !== "object" || formats.$type !== FORMATS_V0)
-    return null;
-  if (inlineBytes(formats.lottie))
+  if (!formats || typeof formats !== "object") return null;
+  const legacy = formats.$type === FORMATS_V0;
+  if (!legacy && formats.$type !== FORMATS_V1) return null;
+  if (legacy && inlineBytes(formats.lottie))
     return normalizedBytes(formats.lottie, "application/lottie+zip");
-  if (inlineBytes(formats.apng_128))
+  if (legacy && inlineBytes(formats.apng_128))
     return normalizedBytes(formats.apng_128, "image/apng");
-  if (blobAsset(formats.gif_128, 262_144, (type) => type.length > 0))
-    return normalizedBlob(formats.gif_128, "image/gif");
-  if (blobAsset(formats.webp_128, 262_144, (type) => type.length > 0))
-    return normalizedBlob(formats.webp_128, "image/webp");
-  if (blobAsset(formats.png_128, 262_144, (type) => type.length > 0))
-    return normalizedBlob(formats.png_128, "image/png");
+  const blobLimit = legacy ? 262_144 : 128_000;
+  const slots = [
+    ["lottie", "application/lottie+zip"],
+    ["apng_128", "image/apng"],
+    ["gif_128", "image/gif"],
+    ["webp_128", "image/webp"],
+    ["png_128", "image/png"],
+  ] as const;
+  for (const [slot, mediaType] of legacy ? slots.slice(2) : slots) {
+    if (blobAsset(formats[slot], blobLimit, (type) => type.length > 0))
+      return normalizedBlob(formats[slot], mediaType);
+  }
   if (
     blobAsset(
       formats.original,
