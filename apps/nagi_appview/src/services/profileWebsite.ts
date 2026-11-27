@@ -1,3 +1,4 @@
+import { safeFetch } from "@bsky-affirmative-bot/shared-configs/ssrf";
 import { db, nagiActors } from "@bsky-affirmative-bot/database";
 import { getLinkMetadata, safeUrl } from "@bsky-affirmative-bot/nagi-linkcard";
 import { eq } from "drizzle-orm";
@@ -58,14 +59,16 @@ async function fetchWebsiteCard(did: string): Promise<WebsiteCard | undefined> {
     collection: "com.suibari.nagi.profile",
     rkey: "self",
   }).toString();
-  const response = await fetch(endpoint, {
+  const response = await safeFetch(endpoint, {
     redirect: "error",
     headers: { accept: "application/json" },
     signal: AbortSignal.timeout(5_000),
   });
-  if (response.status === 404) return undefined;
-  if (!response.ok)
+  if (!response.ok) {
+    await response.body?.cancel();
+    if (response.status === 404) return undefined;
     throw new Error(`Profile record fetch failed (${response.status})`);
+  }
   const body = (await readJson(response)) as { value?: { website?: unknown } };
   if (typeof body.value?.website !== "string") return undefined;
 

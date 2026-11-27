@@ -14,5 +14,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "tsx --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@bsky-affirmative-bot/shared-configs": "workspace:*"
   }
 }

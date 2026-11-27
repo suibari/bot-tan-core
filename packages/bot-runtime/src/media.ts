@@ -1,40 +1,5 @@
-import { lookup } from "node:dns/promises";
-import { isIP } from "node:net";
+import { safeFetch } from "@bsky-affirmative-bot/shared-configs/ssrf";
 import { blueskyVideoUrls } from "@bsky-affirmative-bot/shared-configs/blueskyVideo";
-
-// ホストがプライベート/ループバックアドレスに解決される URL を拒否し、DID 解決が
-// 内部サービスへ向けられる（SSRF）のを防ぐ。bot-runtime は余分なワークスペース依存を
-// 増やさないよう、この処理を自己完結で持つ。
-const isBlockedAddress = (address: string): boolean => {
-  if (address === "::1" || address === "::" || address.startsWith("fe80:") || address.startsWith("fc") || address.startsWith("fd")) return true;
-  const parts = address.split(".").map(Number);
-  if (parts.length !== 4 || parts.some((part) => Number.isNaN(part))) return false;
-  return (
-    parts[0] === 0 ||
-    parts[0] === 10 ||
-    parts[0] === 127 ||
-    (parts[0] === 169 && parts[1] === 254) ||
-    (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) ||
-    (parts[0] === 192 && parts[1] === 168) ||
-    parts[0] >= 224
-  );
-};
-
-async function assertPublicUrl(raw: string): Promise<void> {
-  let url: URL;
-  try {
-    url = new URL(raw);
-  } catch {
-    throw new Error(`Invalid URL: ${raw}`);
-  }
-  if (!["http:", "https:"].includes(url.protocol) || url.username || url.password)
-    throw new Error(`Only public HTTP(S) URLs are allowed (got ${url.protocol})`);
-  const addresses = isIP(url.hostname)
-    ? [{ address: url.hostname }]
-    : await lookup(url.hostname, { all: true }).catch(() => []);
-  if (!addresses.length || addresses.some(({ address }) => isBlockedAddress(address)))
-    throw new Error(`Refusing request to private or unresolvable host: ${url.hostname}`);
-}
 
 export type BlobImage = {
   image?: {
@@ -49,7 +14,7 @@ export type RuntimeImageRef = {
 };
 
 export async function resolvePdsUrl(did: string): Promise<string> {
-  const decoded = decodeURIComponent(did);
+  const decoded = did.startsWith("did:") ? did : decodeURIComponent(did);
   let didUrl: string;
   if (decoded.startsWith("did:plc:")) {
     didUrl = `https://plc.directory/${decoded}`;
@@ -61,13 +26,14 @@ export async function resolvePdsUrl(did: string): Promise<string> {
   } else {
     throw new Error(`Unsupported DID method: ${decoded}`);
   }
-  await assertPublicUrl(didUrl);
-  const response = await fetch(didUrl, {
+  const response = await safeFetch(didUrl, {
     headers: { "Cache-Control": "no-cache" },
     signal: AbortSignal.timeout(10_000),
   });
-  if (!response.ok)
+  if (!response.ok) {
+    await response.body?.cancel();
     throw new Error(`Failed to resolve DID: HTTP ${response.status}`);
+  }
   const document = (await response.json()) as {
     service?: Array<{ type?: string; serviceEndpoint?: string }>;
   };

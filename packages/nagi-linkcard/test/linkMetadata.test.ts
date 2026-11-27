@@ -87,3 +87,20 @@ test("revalidates redirect targets and blocks redirects to private hosts", async
     (error: unknown) => error instanceof LinkMetadataError && error.code === "invalid_request",
   );
 });
+
+test("resolves relative metadata against the final fetched page", async () => {
+  globalThis.fetch = async (input) => {
+    const url = new URL(input.toString());
+    if (url.pathname === "/article")
+      return new Response(null, { status: 302, headers: { location: "/news/current.html" } });
+    assert.equal(url.pathname, "/news/current.html");
+    return new Response(
+      '<title>Example News</title><meta property="og:image" content="cover.jpg">',
+      { headers: { "content-type": "text/html" } },
+    );
+  };
+
+  const value = await getNewsMetadata("https://192.0.2.10/article");
+  assert.equal(value.uri, "https://192.0.2.10/news/current.html");
+  assert.equal(value.image, "https://192.0.2.10/news/cover.jpg");
+});

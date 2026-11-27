@@ -1,3 +1,4 @@
+import { safeFetch } from "@bsky-affirmative-bot/shared-configs/ssrf";
 import type { RequestHandler } from "express";
 import { nagiStandardSitePublicationUrl } from "@bsky-affirmative-bot/nagi-lexicon";
 import { ApiError } from "../middleware/errors.js";
@@ -30,12 +31,14 @@ async function findPublication(did: string): Promise<string | null> {
       limit: "100",
       ...(cursor ? { cursor } : {}),
     }).toString();
-    const response = await fetch(endpoint, {
+    const response = await safeFetch(endpoint, {
       headers: { accept: "application/json" },
       signal: AbortSignal.timeout(10_000),
     });
-    if (!response.ok)
+    if (!response.ok) {
+      await response.body?.cancel();
       throw new ApiError(502, "upstream_unavailable", "Repository unavailable");
+    }
     const data = (await response.json()) as {
       records?: Array<{ uri?: unknown; value?: { url?: unknown } }>;
       cursor?: unknown;

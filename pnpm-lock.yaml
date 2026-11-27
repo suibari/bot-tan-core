@@ -534,7 +534,11 @@ importers:
 
   packages/nagi-lexicon: {}
 
-  packages/nagi-linkcard: {}
+  packages/nagi-linkcard:
+    dependencies:
+      '@bsky-affirmative-bot/shared-configs':
+        specifier: workspace:*
+        version: link:../shared-configs
 
   packages/shared-configs:
     dependencies:
@@ -550,6 +554,9 @@ importers:
       dotenv:
         specifier: ^16.6.1
         version: 16.6.1
+      undici:
+        specifier: 7.30.1
+        version: 7.30.1
     devDependencies:
       '@types/node':
         specifier: ^25.2.3

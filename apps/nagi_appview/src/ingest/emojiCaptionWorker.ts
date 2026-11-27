@@ -1,3 +1,4 @@
+import { safeFetch } from "@bsky-affirmative-bot/shared-configs/ssrf";
 import { startWorkerLoop } from "@bsky-affirmative-bot/bot-runtime";
 import {
   captionEmoji,
@@ -62,11 +63,14 @@ async function loadEmojiImage(
   url.pathname = "/xrpc/com.atproto.sync.getBlob";
   url.searchParams.set("did", row.did);
   url.searchParams.set("cid", asset.value);
-  const response = await fetch(url, {
+  const response = await safeFetch(url, {
     signal: AbortSignal.timeout(ASSET_FETCH_TIMEOUT_MS),
   });
   // PDS の一時的な不調で名前だけの読み取りを確定させない。失敗として後で再試行する。
-  if (!response.ok) throw new Error(`emoji asset HTTP ${response.status}`);
+  if (!response.ok) {
+    await response.body?.cancel();
+    throw new Error(`emoji asset HTTP ${response.status}`);
+  }
   const buffer = Buffer.from(await response.arrayBuffer());
   return buffer.byteLength <= MAX_ASSET_BYTES
     ? { buffer, mimeType: asset.mediaType }
