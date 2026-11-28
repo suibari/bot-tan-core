@@ -247,10 +247,10 @@ AppView 側の作業の半分以上を占める。
 
 | 時期 | 内容 | マージ |
 |---|---|---|
-| 11/28〜11/30 | プロトコルに依らない部分：lexicon、DB マイグレーション、保存先の判定と書き込み API のガード、エクスポート API、レコード ⇄ テーブルの対応付けと検証（単体テスト付き）。フラグ off で PR を出す | しない |
+| 11/28〜11/30 | プロトコルに依らない部分：lexicon、DB マイグレーション、保存先の判定と書き込み API のガード、エクスポート API、レコード ⇄ テーブルの対応付けと検証（単体テスト付き）。ブランチに積むだけで PR は出さない | — |
 | 12/1〜12/3 | β の実機確認（5章）。開発機に Spaces 対応 PDS を立て、curl で一連の流れを通す。結果で計画を直す | しない |
-| 12/3〜12/8 | PDS と話す部分：space XRPC クライアント、credential 管理、LtHash、取り込みワーカー、通知の受け口。開発機の PDS と結合テストして、同じ PR に積む | β で問題が無ければ、オーナー判断で AppView PR をマージ（フラグ off のまま） |
-| 12/8〜12/12 | クライアントのオプトインと移行画面。開発環境で移行と戻しを通す | クライアント PR を出す |
+| 12/3〜12/8 | PDS と話す部分：space XRPC クライアント、credential 管理、LtHash、取り込みワーカー、通知の受け口。開発機の PDS と結合テストする | — |
+| 12/8〜12/12 | クライアントのオプトインと移行画面。開発環境で移行と戻しを通す。**全部そろったら AppView とクライアントの PR を出す** | オーナー判断でマージ（AppView はフラグ off のまま） |
 | 12/13〜 | 本番でフラグを on。最初はオーナーのアカウントだけ、次に希望者へ案内 | — |
 | 全員が移れるまで | AppView 保存の経路は残す。Bluesky の PDS が未対応なら、ここが延びる | — |
 
@@ -260,11 +260,12 @@ AppView 側の作業の半分以上を占める。
 
 ## 8. 進み具合
 
-### 11/28 の PR（β 前に作れる部分、フラグ off）
+### 11/28 にブランチへ積んだもの（β 前に作れる部分、フラグ off、PR は未提出）
 
 - lexicon：space type 宣言 `com.suibari.nagi.private`、レコード13本、XRPC 4本
   （`getPrivateSpaceStatus` / `beginPrivateSpaceMigration` / `abortPrivateSpaceMigration` / `exportPrivateData`）。
   XRPC は permission-set の rpc に追加した。**再公開（`pnpm lex:publish`）はマージ時にオーナーが行う。**
+  β 後にすべて実装してから PR を出す（途中の PR は出さない）。
 - DB：`nagi.private_spaces`（保存先。行が無ければ appview）。
 - AppView：
   - `privateSpace/guard.ts`：従来の書き込み API の門番。ミュート・非公開リスト・ブックマーク・下書き・
