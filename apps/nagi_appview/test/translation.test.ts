@@ -17,6 +17,9 @@ const {
   shouldPrewarmEnglish,
   shouldStartEnglishPrewarm,
   SingleFlight,
+  splitTranslationChunks,
+  TRANSLATION_CHUNK_MAX_CHARS,
+  translateInChunks,
   startEnglishPrewarm,
   TRANSLATION_CACHE_VERSION,
   TranslationMissQuota,
@@ -431,4 +434,80 @@ test("判定待ち・却下・削除済みの作者の意図は、キャッシ�
     "Date を raw SQL に渡さない",
   );
   assert.deepEqual(rendered.params, [zenkatsuUri]);
+});
+
+test("短い原文は分割せず、1回の呼び出しで訳す", async () => {
+  const calls: string[] = [];
+  const result = await translateInChunks("  Hello.\n\nWorld.  ", async (chunk) => {
+    calls.push(chunk);
+    return "こんにちは。\n\n世界。";
+  });
+  assert.deepEqual(calls, ["Hello.\n\nWorld."]);
+  assert.equal(result, "こんにちは。\n\n世界。");
+});
+
+test("長い原文は段落単位で上限以下に分け、区切りの空行を保ってつなぎ直す", async () => {
+  const paragraphs = Array.from(
+    { length: 30 },
+    (_, index) => `Paragraph ${index}. ${"word ".repeat(80).trim()}`,
+  );
+  const text = paragraphs.join("\n\n");
+  assert.ok(text.length > TRANSLATION_CHUNK_MAX_CHARS * 3);
+
+  const chunks = splitTranslationChunks(text);
+  assert.ok(chunks.length > 1);
+  for (const chunk of chunks) {
+    assert.ok(chunk.text.length <= TRANSLATION_CHUNK_MAX_CHARS);
+    // 段落の途中では切らない。
+    assert.match(chunk.text, /^Paragraph \d+\./);
+  }
+  // 原文はチャンクと区切りから完全に復元できる。
+  assert.equal(chunks.map((chunk) => chunk.text + chunk.separator).join(""), text);
+
+  const result = await translateInChunks(text, async (chunk) => `[${chunk.length}]`);
+  assert.equal(
+    result,
+    chunks.map((chunk) => `[${chunk.text.length}]${chunk.separator}`).join("").trimEnd(),
+  );
+});
+
+test("上限を超える1段落は、文末で割って上限以下にする", () => {
+  const sentence = "This sentence is exactly about fifty chars long. ";
+  const text = sentence.repeat(100).trim();
+  const chunks = splitTranslationChunks(text, 500);
+  assert.ok(chunks.length >= 10);
+  for (const chunk of chunks) {
+    assert.ok(chunk.text.length <= 500);
+    assert.match(chunk.text, /\.$/);
+  }
+  assert.equal(chunks.map((chunk) => chunk.text + chunk.separator).join(""), text);
+});
+
+test("区切りの無い長文も固定長で割り、取りこぼさない", () => {
+  const text = "あ".repeat(1_250);
+  const chunks = splitTranslationChunks(text, 500);
+  assert.deepEqual(
+    chunks.map((chunk) => chunk.text.length),
+    [500, 500, 250],
+  );
+  assert.equal(chunks.map((chunk) => chunk.text).join(""), text);
+});
+
+test("チャンクの1つが失敗したら、部分訳を返さず全体を失敗にする", async () => {
+  const text = ["a".repeat(400), "b".repeat(400), "c".repeat(400)].join("\n\n");
+  let calls = 0;
+  await assert.rejects(
+    translateInChunks(
+      text,
+      async (chunk) => {
+        calls += 1;
+        if (chunk.startsWith("b")) throw new Error("timeout");
+        return "ok";
+      },
+      500,
+    ),
+    /timeout/,
+  );
+  // 失敗したチャンクより後ろは呼ばない。
+  assert.equal(calls, 2);
 });

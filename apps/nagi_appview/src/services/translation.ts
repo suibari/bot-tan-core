@@ -523,15 +523,115 @@ export async function requestTranslationWithRetry(
   );
 }
 
+/**
+ * 1回のモデル呼び出しに渡す原文の上限（文字数）。
+ *
+ * 1回の呼び出しは30秒で打ち切る。gemma-4-12B の実測は約88 tok/s で、英文1,800字の
+ * 和訳が6.5秒（入力474 / 出力514トークン）。ブログ記事（site.standard.document）は
+ * 1万字を超えることがあり、一括で訳すと出力だけで40秒を超えて毎回タイムアウトしていた
+ * （2026-11-28、12,688字の記事が2回とも timeout）。
+ */
+export const TRANSLATION_CHUNK_MAX_CHARS = 1_800;
+
+export type TranslationChunk = {
+  /** 訳す部分。前後の空白は separator 側に寄せてある。 */
+  text: string;
+  /** 次のチャンクとの間に原文どおり挟む空白（最後のチャンクは空）。 */
+  separator: string;
+};
+
+/** 長い1段落を、改行 → 文末 → 空白 → 固定長の順に切れる位置を探して割る。 */
+function splitLongBlock(block: string, maxChars: number): TranslationChunk[] {
+  const chunks: TranslationChunk[] = [];
+  let rest = block;
+  while (rest.length > maxChars) {
+    const window = rest.slice(0, maxChars + 1);
+    const cut =
+      [/\n(?=[^\n]*$)/, /[.!?。！？](?=[^.!?。！？]*$)/, /\s(?=\S*$)/]
+        .map((pattern) => {
+          const index = window.search(pattern);
+          // 先頭近くでしか切れないなら、次の候補か固定長へ回す。
+          return index >= maxChars / 2 ? index + 1 : -1;
+        })
+        .find((index) => index > 0) ?? maxChars;
+    const head = rest.slice(0, cut);
+    const text = head.trimEnd();
+    const afterHead = rest.slice(cut);
+    const leading = afterHead.match(/^\s*/)?.[0] ?? "";
+    chunks.push({ text, separator: head.slice(text.length) + leading });
+    rest = afterHead.slice(leading.length);
+  }
+  chunks.push({ text: rest, separator: "" });
+  return chunks;
+}
+
+/**
+ * 原文を、空行で区切られた段落単位でまとめて maxChars 以下のチャンクに分ける。
+ * 区切りの空白はそのまま残し、訳したあとに同じ並びでつなぎ直す（段落・空行を保つ）。
+ * 短い原文は1チャンクのまま返すので、従来どおり1回の呼び出しで訳す。
+ */
+export function splitTranslationChunks(
+  text: string,
+  maxChars = TRANSLATION_CHUNK_MAX_CHARS,
+): TranslationChunk[] {
+  const body = text.trim();
+  if (body.length <= maxChars) return [{ text: body, separator: "" }];
+
+  // [段落, 区切り, 段落, 区切り, ...] の並び。区切りは2つ以上の改行を含む空白。
+  const parts = body.split(/(\n[^\S\n]*\n\s*)/);
+  const blocks: TranslationChunk[] = [];
+  for (let index = 0; index < parts.length; index += 2) {
+    const separator = parts[index + 1] ?? "";
+    const pieces = splitLongBlock(parts[index]!, maxChars);
+    pieces[pieces.length - 1]!.separator = separator;
+    blocks.push(...pieces);
+  }
+
+  const chunks: TranslationChunk[] = [];
+  for (const block of blocks) {
+    const last = chunks[chunks.length - 1];
+    if (
+      last &&
+      last.text.length + last.separator.length + block.text.length <= maxChars
+    ) {
+      last.text += last.separator + block.text;
+      last.separator = block.separator;
+    } else {
+      chunks.push({ ...block });
+    }
+  }
+  return chunks.filter((chunk) => chunk.text.trim());
+}
+
+/**
+ * チャンクを順に訳してつなぐ。1つでも失敗したら全体を失敗にする（部分訳は保存しない）。
+ * 並列にしないのは、翻訳スロット（TRANSLATION_CONCURRENCY）を1本の長文が埋めて、
+ * 他の投稿の翻訳を記事1本分待たせないため。
+ */
+export async function translateInChunks(
+  text: string,
+  translateChunk: (chunk: string) => Promise<string>,
+  maxChars = TRANSLATION_CHUNK_MAX_CHARS,
+): Promise<string> {
+  const chunks = splitTranslationChunks(text, maxChars);
+  let translated = "";
+  for (const chunk of chunks) {
+    translated += (await translateChunk(chunk.text)).trim() + chunk.separator;
+  }
+  return translated.trimEnd();
+}
+
 async function generateTranslation(post: TranslationSource, target: Language) {
   // botたん本人の投稿だけ、口調を保った翻訳にする。他人の投稿を口調変換すると
   // 発言の捏造になるので、この分岐だけがペルソナ翻訳の適用範囲。
   if (post.did === config.botDid && !isZenkatsuUri(post.uri)) {
     try {
-      return await requestTranslationWithRetry(
-        botTranslationPrompt(sourceLanguage(post), target, post.text),
-        target,
-        { model: config.botTranslationModel, temperature: 0.3 },
+      return await translateInChunks(post.text, (chunk) =>
+        requestTranslationWithRetry(
+          botTranslationPrompt(sourceLanguage(post), target, chunk),
+          target,
+          { model: config.botTranslationModel, temperature: 0.3 },
+        ),
       );
     } catch {
       // 口調より可用性を優先する。ペルソナ用モデルが落ちていても素の翻訳は返す。
@@ -540,9 +640,11 @@ async function generateTranslation(post: TranslationSource, target: Language) {
       );
     }
   }
-  return requestTranslationWithRetry(
-    translationPrompt(sourceLanguage(post), target, post.text),
-    target,
+  return translateInChunks(post.text, (chunk) =>
+    requestTranslationWithRetry(
+      translationPrompt(sourceLanguage(post), target, chunk),
+      target,
+    ),
   );
 }
 
