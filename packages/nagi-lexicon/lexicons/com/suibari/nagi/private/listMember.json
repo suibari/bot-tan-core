@@ -1,0 +1,28 @@
+{
+  "lexicon": 1,
+  "id": "com.suibari.nagi.private.listMember",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "ホームに表示する非公開リストのメンバー。rkey は \"listMember\" + U+0000 + DID の UTF-8 を SHA-256 にかけた小文字16進。",
+      "key": "any",
+      "record": {
+        "type": "object",
+        "required": [
+          "subject",
+          "createdAt"
+        ],
+        "properties": {
+          "subject": {
+            "type": "string",
+            "format": "did"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime"
+          }
+        }
+      }
+    }
+  }
+}

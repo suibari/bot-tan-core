@@ -7,6 +7,7 @@ import type {
 } from "@bsky-affirmative-bot/nagi-lexicon";
 import { and, count, desc, eq, sql } from "drizzle-orm";
 import { ApiError } from "../middleware/errors.js";
+import { assertAppviewWritable } from "../privateSpace/guard.js";
 
 export const DRAFT_LIMIT = 30;
 const UUID_RE =
@@ -230,6 +231,7 @@ export async function putDraft(
   const updatedAt = parseDate(raw.updatedAt, "updatedAt");
   return db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${ownerDid}))`);
+    await assertAppviewWritable(ownerDid, tx);
     const [existing] = await tx
       .select({ ownerDid: nagiDrafts.ownerDid })
       .from(nagiDrafts)
@@ -280,6 +282,7 @@ export async function putDraft(
 export async function deleteDraft(ownerDid: string, id: unknown) {
   if (typeof id !== "string" || !UUID_RE.test(id)) invalid("id");
   const draftId = id as string;
+  await assertAppviewWritable(ownerDid);
   await db
     .delete(nagiDrafts)
     .where(and(eq(nagiDrafts.ownerDid, ownerDid), eq(nagiDrafts.id, draftId)));

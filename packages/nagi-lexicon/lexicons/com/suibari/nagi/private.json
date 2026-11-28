@@ -1,0 +1,30 @@
+{
+  "lexicon": 1,
+  "id": "com.suibari.nagi.private",
+  "defs": {
+    "main": {
+      "type": "space",
+      "description": "Nagi の本人だけのデータ（ミュート・非公開リスト・ブックマーク・下書き・同期設定）を置く personalspace。space key は self の1つだけを使う。読み手は本人が認可した Nagi AppView だけで、公開 repo には書かない。",
+      "key": "literal:self",
+      "title": "Nagi の非公開データ",
+      "title:lang": {
+        "en": "Nagi private data"
+      },
+      "collections": [
+        "com.suibari.nagi.private.mute",
+        "com.suibari.nagi.private.listMember",
+        "com.suibari.nagi.private.bookmarkFolder",
+        "com.suibari.nagi.private.bookmark",
+        "com.suibari.nagi.private.draft",
+        "com.suibari.nagi.private.languagePreferences",
+        "com.suibari.nagi.private.moderationPreferences",
+        "com.suibari.nagi.private.notificationPreferences",
+        "com.suibari.nagi.private.bookmarkPreferences",
+        "com.suibari.nagi.private.diaryDay",
+        "com.suibari.nagi.private.emojiFavorites",
+        "com.suibari.nagi.private.tagFavorites",
+        "com.suibari.nagi.private.feedTabs"
+      ]
+    }
+  }
+}

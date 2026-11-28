@@ -1,0 +1,28 @@
+{
+  "lexicon": 1,
+  "id": "com.suibari.nagi.private.bookmarkPreferences",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "最後に使ったブックマークフォルダ。 rkey は self。updatedAt は端末間の後勝ちの判定に使う。",
+      "key": "literal:self",
+      "record": {
+        "type": "object",
+        "required": [
+          "updatedAt"
+        ],
+        "properties": {
+          "lastFolder": {
+            "type": "string",
+            "format": "record-key",
+            "description": "bookmarkFolder の rkey。無ければ既定フォルダ。"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "datetime"
+          }
+        }
+      }
+    }
+  }
+}

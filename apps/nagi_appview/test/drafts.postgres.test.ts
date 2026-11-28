@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import express from "express";
 import { once } from "node:events";
+import { readFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 
 const testUrl = process.env.NAGI_DRAFT_TEST_DATABASE_URL;
@@ -19,6 +20,13 @@ before(async () => {
     id uuid primary key, owner_did text not null, content jsonb not null,
     created_at timestamptz not null, updated_at timestamptz not null
   )`;
+  // putDraft は書き込み前に非公開データの保存先（space へ移った人か）を確かめる。
+  await client.unsafe(
+    readFileSync(
+      new URL("../../../packages/database/drizzle/0108_nagi_private_spaces.sql", import.meta.url),
+      "utf8",
+    ),
+  );
 });
 after(() => client.end());
 

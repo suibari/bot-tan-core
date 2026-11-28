@@ -1,0 +1,32 @@
+{
+  "lexicon": 1,
+  "id": "com.suibari.nagi.private.tagFavorites",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "お気に入りタグ。# を除いた小文字。順序がそのまま表示順。 rkey は self。updatedAt は端末間の後勝ちの判定に使う。",
+      "key": "literal:self",
+      "record": {
+        "type": "object",
+        "required": [
+          "tags",
+          "updatedAt"
+        ],
+        "properties": {
+          "tags": {
+            "type": "array",
+            "maxLength": 64,
+            "items": {
+              "type": "string",
+              "maxLength": 640
+            }
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "datetime"
+          }
+        }
+      }
+    }
+  }
+}

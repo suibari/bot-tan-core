@@ -51,6 +51,7 @@ import {
 } from "@bsky-affirmative-bot/shared-configs";
 import { eq, inArray, sql } from "drizzle-orm";
 import { ApiError } from "../middleware/errors.js";
+import { assertPreferencesWritable } from "../privateSpace/guard.js";
 import { declareBirthDate, getAgeAssurance } from "../services/ageAssurance.js";
 import { normalizeTag } from "./tags.js";
 import {
@@ -140,7 +141,7 @@ function parseReadPositions(input: unknown): ReadPosition[] {
  * スナップショットで、権威は custom なら uri（クライアントが getEmoji で再解決する）。
  * ここでは「他人のデータで DB を膨らませない」ための最低限の形だけ確認する。
  */
-function parseEmojiFavorites(input: unknown): EmojiFavorite[] {
+export function parseEmojiFavorites(input: unknown): EmojiFavorite[] {
   if (!Array.isArray(input) || input.length > EMOJI_FAVORITES_LIMIT)
     invalid("emojiFavorites");
   return (input as unknown[]).map((raw) => {
@@ -671,6 +672,10 @@ export async function putPreferences(
     : undefined;
 
   const diaryDay = parseDiaryDayInput(input.detectedTimezone, input.diaryDay);
+
+  // space へ移った（移行中の）人からは、space へ移る項目を受け付けない。
+  // 一部だけ書いて残りを弾くと端末ごとに結果が食い違うので、書き込みを始める前に丸ごと止める。
+  await assertPreferencesWritable(did, input);
 
   // 生年月日は他の設定と違って上書きできない。2度目以降は declareBirthDate が 409。
   if (input.birthDate !== undefined)

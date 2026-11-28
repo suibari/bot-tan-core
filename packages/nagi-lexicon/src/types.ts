@@ -1,4 +1,5 @@
 import type { ReplyGate } from "./replyGate.js";
+import type { NagiPrivateCollection } from "./constants.js";
 export type StrongRef = { uri: string; cid: string };
 export type AspectRatio = { width: number; height: number };
 export type BlobRef = {
@@ -1506,3 +1507,21 @@ export type PutAdventReadInput = {
   lastSeenDay?: number;
   openedDay?: number;
 };
+
+/** 本人の非公開データの正本の置き場所。docs/atproto-spaces-migration.md 3.5。 */
+export type PrivateStorageMode = "appview" | "migrating" | "space";
+export type PrivateSpaceStatusView = {
+  /** AppView が移行を受け付けているか（NAGI_PRIVATE_SPACE_ENABLED）。 */
+  enabled: boolean;
+  storage: PrivateStorageMode;
+  space?: string;
+  changedAt?: string;
+};
+export type BeginPrivateSpaceMigrationInput = { space: string };
+/** space へそのまま applyWrites できる1件。 */
+export type PrivateSpaceRecordWrite = {
+  collection: NagiPrivateCollection;
+  rkey: string;
+  value: Record<string, unknown>;
+};
+export type ExportPrivateDataView = { records: PrivateSpaceRecordWrite[] };

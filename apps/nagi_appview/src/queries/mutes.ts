@@ -12,6 +12,7 @@ import {
 } from "@bsky-affirmative-bot/nagi-lexicon";
 import { and, eq, inArray, notInArray, sql, type SQL } from "drizzle-orm";
 import { ApiError } from "../middleware/errors.js";
+import { assertAppviewWritable } from "../privateSpace/guard.js";
 import { normalizeTag, postLacksTags } from "./tags.js";
 
 /**
@@ -151,6 +152,7 @@ export async function setMute(
   } else {
     throw new ApiError(400, "invalid_request", "Unknown subjectType");
   }
+  await assertAppviewWritable(viewerDid);
   if (muted) {
     await db
       .insert(nagiMutes)

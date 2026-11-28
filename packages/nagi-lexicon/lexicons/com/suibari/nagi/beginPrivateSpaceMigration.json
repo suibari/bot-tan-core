@@ -1,0 +1,47 @@
+{
+  "lexicon": 1,
+  "id": "com.suibari.nagi.beginPrivateSpaceMigration",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "非公開データを本人の PDS の space へ移し始める。移行中は AppView 側の書き込みを止める（423）。既に移行中なら同じ space で続ける。",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "space"
+          ],
+          "properties": {
+            "space": {
+              "type": "string",
+              "maxLength": 2048,
+              "description": "本人が作った com.suibari.nagi.private の space（at:space/<本人の DID>/com.suibari.nagi.private/self）。"
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "ref",
+          "ref": "com.suibari.nagi.getPrivateSpaceStatus#status"
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired"
+        },
+        {
+          "name": "InvalidRequest"
+        },
+        {
+          "name": "NotEnabled"
+        },
+        {
+          "name": "AlreadyMigrated"
+        }
+      ]
+    }
+  }
+}

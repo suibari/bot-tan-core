@@ -1,0 +1,37 @@
+{
+  "lexicon": 1,
+  "id": "com.suibari.nagi.private.mute",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "ユーザーまたはハッシュタグのミュート。rkey は「subjectType + U+0000 + subject」の UTF-8 を SHA-256 にかけた小文字16進（64文字）。同じsubjectは同じレコードになる。",
+      "key": "any",
+      "record": {
+        "type": "object",
+        "required": [
+          "subjectType",
+          "subject",
+          "createdAt"
+        ],
+        "properties": {
+          "subjectType": {
+            "type": "string",
+            "knownValues": [
+              "actor",
+              "tag"
+            ]
+          },
+          "subject": {
+            "type": "string",
+            "maxLength": 2048,
+            "description": "actor なら DID、tag なら # を除いて小文字にしたハッシュタグ。"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime"
+          }
+        }
+      }
+    }
+  }
+}

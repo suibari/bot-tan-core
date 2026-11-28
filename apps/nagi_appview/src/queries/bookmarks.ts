@@ -21,6 +21,11 @@ import {
 } from "@bsky-affirmative-bot/nagi-lexicon";
 import { and, count, desc, eq, inArray, lt, or, sql } from "drizzle-orm";
 import { ApiError } from "../middleware/errors.js";
+import {
+  assertAppviewWritable,
+  loadPrivateStorage,
+  storageMode,
+} from "../privateSpace/guard.js";
 import { parseRecordUri } from "../ingest/recordUri.js";
 import { diaryView, fetchDiaryRows } from "./diaries.js";
 import { getApprovedNewsViews } from "./positiveNews.js";
@@ -106,7 +111,10 @@ export async function getBookmarkFolders(
   ownerDid: string,
   lang: "ja" | "en",
 ): Promise<BookmarkFoldersView> {
-  await ensureDefaultFolder(ownerDid, lang);
+  // space へ移った人の既定フォルダは space が正本。AppView が勝手に作ると PDS と分岐する
+  // （既定フォルダはクライアントが移行時・初回に space へ書く）。
+  if (storageMode(await loadPrivateStorage(ownerDid)) === "appview")
+    await ensureDefaultFolder(ownerDid, lang);
   const [rows, preferenceRows] = await Promise.all([
     db
       .select({
@@ -158,6 +166,7 @@ export async function putBookmarkFolder(
   if (input.id) validateUuid(input.id, "id");
   return db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${ownerDid}))`);
+    await assertAppviewWritable(ownerDid, tx);
     await ensureDefaultFolder(ownerDid, input.lang, tx);
     if (input.id) {
       const [updated] = await tx
@@ -209,6 +218,7 @@ export async function deleteBookmarkFolder(ownerDid: string, id: string) {
   validateUuid(id, "id");
   return db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${ownerDid}))`);
+    await assertAppviewWritable(ownerDid, tx);
     const [folder] = await tx
       .select()
       .from(nagiBookmarkFolders)
@@ -363,6 +373,7 @@ export async function putBookmark(
   await assertBookmarkable(ownerDid, subjectUri, subjectType);
   return db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${ownerDid}))`);
+    await assertAppviewWritable(ownerDid, tx);
     const [folder] = await tx
       .select({ id: nagiBookmarkFolders.id })
       .from(nagiBookmarkFolders)
@@ -438,6 +449,7 @@ export async function putBookmark(
 
 export async function deleteBookmark(ownerDid: string, subjectUri: string) {
   bookmarkSubjectType(subjectUri);
+  await assertAppviewWritable(ownerDid);
   await db
     .delete(nagiBookmarks)
     .where(

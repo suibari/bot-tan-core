@@ -1,0 +1,33 @@
+{
+  "lexicon": 1,
+  "id": "com.suibari.nagi.private.draft",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "投稿の下書き。rkey は UUID。画像などのバイナリは持たない。",
+      "key": "any",
+      "record": {
+        "type": "object",
+        "required": [
+          "content",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "content": {
+            "type": "ref",
+            "ref": "com.suibari.nagi.putDraft#draftContent"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "datetime"
+          }
+        }
+      }
+    }
+  }
+}

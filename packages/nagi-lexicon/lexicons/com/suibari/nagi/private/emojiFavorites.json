@@ -1,0 +1,35 @@
+{
+  "lexicon": 1,
+  "id": "com.suibari.nagi.private.emojiFavorites",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "お気に入り絵文字のパレット。順序がそのまま表示順。 rkey は self。updatedAt は端末間の後勝ちの判定に使う。",
+      "key": "literal:self",
+      "record": {
+        "type": "object",
+        "required": [
+          "choices",
+          "updatedAt"
+        ],
+        "properties": {
+          "choices": {
+            "type": "array",
+            "maxLength": 64,
+            "items": {
+              "type": "union",
+              "refs": [
+                "com.suibari.nagi.getPreferences#unicodeFavorite",
+                "com.suibari.nagi.getPreferences#customFavorite"
+              ]
+            }
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "datetime"
+          }
+        }
+      }
+    }
+  }
+}

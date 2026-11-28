@@ -1,0 +1,57 @@
+{
+  "lexicon": 1,
+  "id": "com.suibari.nagi.exportPrivateData",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "AppView が持つ本人の非公開データを、space にそのまま書けるレコードの形で返す。移行中のときだけ使える。",
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "records"
+          ],
+          "properties": {
+            "records": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "#record"
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired"
+        },
+        {
+          "name": "NotMigrating"
+        }
+      ]
+    },
+    "record": {
+      "type": "object",
+      "required": [
+        "collection",
+        "rkey",
+        "value"
+      ],
+      "properties": {
+        "collection": {
+          "type": "string",
+          "format": "nsid"
+        },
+        "rkey": {
+          "type": "string",
+          "format": "record-key"
+        },
+        "value": {
+          "type": "unknown"
+        }
+      }
+    }
+  }
+}

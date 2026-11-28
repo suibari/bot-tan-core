@@ -1,0 +1,28 @@
+{
+  "lexicon": 1,
+  "id": "com.suibari.nagi.private.notificationPreferences",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "通知の種別ごとの list / push。 rkey は self。updatedAt は端末間の後勝ちの判定に使う。",
+      "key": "literal:self",
+      "record": {
+        "type": "object",
+        "required": [
+          "preferences",
+          "updatedAt"
+        ],
+        "properties": {
+          "preferences": {
+            "type": "ref",
+            "ref": "com.suibari.nagi.getPreferences#notificationPreferences"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "datetime"
+          }
+        }
+      }
+    }
+  }
+}

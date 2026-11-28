@@ -203,6 +203,10 @@ export const config = {
   // 危険度が違う。NODE_ENV=development との AND にしてあるので、本番の .env に
   // APPVIEW_DEV_TRUST_VIEWER=true が紛れ込んでも単独では有効にならない。
   devTrustViewer: isDev && process.env.APPVIEW_DEV_TRUST_VIEWER === "true",
+  // 非公開データを本人の PDS の space（ATproto Spaces）へ移す入口を開くか。
+  // off でも、既に移った人の保存先の判定と書き込みの門番は効かせる（off にした途端に
+  // AppView 側だけへ書けるようになると PDS と分岐するため）。docs/atproto-spaces-migration.md
+  privateSpaceEnabled: process.env.NAGI_PRIVATE_SPACE_ENABLED === "true",
   // 内部エンドポイント(/internal)専用のループバックポート。nagi_bot_server と同じく
   // 127.0.0.1 に束縛して OS にアクセス制御させるので、共有シークレットは持たない。
   internalPort: integer("NAGI_APPVIEW_INTERNAL_PORT", 3004, 1, 65_535),

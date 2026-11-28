@@ -47,6 +47,12 @@ import { generateTrilinesAssist } from "../services/trilinesAssist.js";
 import { ApiError } from "../middleware/errors.js";
 import { deleteAccountData } from "../services/deleteAccountData.js";
 import {
+  abortPrivateSpaceMigration,
+  beginPrivateSpaceMigration,
+  exportPrivateData,
+  getPrivateSpaceStatus,
+} from "../privateSpace/storage.js";
+import {
   getAppIcon,
   getLinkMetadata,
   getLinkThumbnail,
@@ -1751,6 +1757,60 @@ xrpc.get(
         .set("Cache-Control", "private, no-store")
         .type(thumbnail.contentType)
         .send(Buffer.from(thumbnail.data));
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+// 非公開データの保存先（ATproto Spaces への移行）。docs/atproto-spaces-migration.md
+// どれも本人の分しか扱わない。space の URI も本人の DID から決め、入力の DID は信じない。
+xrpc.get(
+  `/${NAGI.getPrivateSpaceStatus}`,
+  requiredServiceAuth(NAGI.getPrivateSpaceStatus),
+  async (req, res, next) => {
+    try {
+      res
+        .set("Cache-Control", "private, no-store")
+        .json(await getPrivateSpaceStatus(req.viewerDid!));
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+xrpc.post(
+  `/${NAGI.beginPrivateSpaceMigration}`,
+  requiredServiceAuth(NAGI.beginPrivateSpaceMigration),
+  async (req, res, next) => {
+    try {
+      res
+        .set("Cache-Control", "private, no-store")
+        .json(await beginPrivateSpaceMigration(req.viewerDid!, req.body?.space));
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+xrpc.post(
+  `/${NAGI.abortPrivateSpaceMigration}`,
+  requiredServiceAuth(NAGI.abortPrivateSpaceMigration),
+  async (req, res, next) => {
+    try {
+      res
+        .set("Cache-Control", "private, no-store")
+        .json(await abortPrivateSpaceMigration(req.viewerDid!));
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+xrpc.get(
+  `/${NAGI.exportPrivateData}`,
+  requiredServiceAuth(NAGI.exportPrivateData),
+  async (req, res, next) => {
+    try {
+      res
+        .set("Cache-Control", "private, no-store")
+        .json(await exportPrivateData(req.viewerDid!));
     } catch (e) {
       next(e);
     }

@@ -1,0 +1,38 @@
+{
+  "lexicon": 1,
+  "id": "com.suibari.nagi.private.bookmarkFolder",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "ブックマークのフォルダ。rkey は UUID。既定フォルダは1つだけ（isDefault）。",
+      "key": "any",
+      "record": {
+        "type": "object",
+        "required": [
+          "name",
+          "isDefault",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 320,
+            "maxGraphemes": 80
+          },
+          "isDefault": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "datetime"
+          }
+        }
+      }
+    }
+  }
+}

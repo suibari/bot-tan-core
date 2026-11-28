@@ -46,6 +46,7 @@ import {
   nagiModerationPreferences,
   nagiNotificationPreferences,
   nagiPreferredNames,
+  nagiPrivateSpaces,
   nagiMutes,
   nagiNotifications,
   nagiReactionNoticeLedger,
@@ -368,6 +369,9 @@ export async function deleteAccountData(did: string) {
     await tx.delete(nagiFeedTabs).where(eq(nagiFeedTabs.did, did));
     await tx.delete(nagiTagFavorites).where(eq(nagiTagFavorites.did, did));
     await tx.delete(nagiDrafts).where(eq(nagiDrafts.ownerDid, did));
+    // 非公開データの保存先。本人の PDS の space は本人の持ち物なので AppView からは消さない
+    // （ここで消すのは AppView が持つコピーと保存先の記録だけ）。
+    await tx.delete(nagiPrivateSpaces).where(eq(nagiPrivateSpaces.did, did));
     await tx
       .delete(nagiLanguagePreferences)
       .where(eq(nagiLanguagePreferences.did, did));

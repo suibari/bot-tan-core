@@ -92,7 +92,11 @@
             "com.suibari.nagi.getZenkatsu",
             "com.suibari.nagi.getCardNews",
             "com.suibari.nagi.getZenkatsuDeck",
-            "com.suibari.nagi.resetZenkatsu"
+            "com.suibari.nagi.resetZenkatsu",
+            "com.suibari.nagi.getPrivateSpaceStatus",
+            "com.suibari.nagi.beginPrivateSpaceMigration",
+            "com.suibari.nagi.abortPrivateSpaceMigration",
+            "com.suibari.nagi.exportPrivateData"
           ]
         }
       ]

@@ -175,6 +175,14 @@ export const NAGI = {
    * AppView 側は config.dev が false のときルート自体を登録しない。
    */
   resetZenkatsu: "com.suibari.nagi.resetZenkatsu",
+  /** 本人の非公開データの保存先（AppView / 移行中 / 本人の PDS の space）。docs/atproto-spaces-migration.md */
+  getPrivateSpaceStatus: "com.suibari.nagi.getPrivateSpaceStatus",
+  /** space への移行を始める。移行中は AppView 側の書き込みを 423 で止める。 */
+  beginPrivateSpaceMigration: "com.suibari.nagi.beginPrivateSpaceMigration",
+  /** 移行をやめて AppView 保存に戻す。 */
+  abortPrivateSpaceMigration: "com.suibari.nagi.abortPrivateSpaceMigration",
+  /** 移行中だけ、AppView が持つ非公開データを space のレコードの形で返す。 */
+  exportPrivateData: "com.suibari.nagi.exportPrivateData",
   /**
    * 姉妹アプリ（botたんのお部屋など）へサインイン済みのまま移動するための、
    * 短命・単回使用の署名付きチケットを発行する。チケットは「この利用者は指定の DID
@@ -426,3 +434,41 @@ export const NAGI_OAUTH_SCOPE_FULL = [
   ...NAGI_BLUESKY_VIEW_SCOPES,
   ...NAGI_BLUESKY_INTERACTION_SCOPES,
 ].join(" ");
+
+/**
+ * 非公開データの personalspace（ATproto Spaces）。type 宣言は lexicons/com/suibari/nagi/private.json。
+ * space key は self の1つだけ。ここに置くのは本人だけが見る設定と一覧で、
+ * 公開 repo（com.atproto.repo.*）には決して書かないこと。書き込みは com.atproto.space.*。
+ * 計画と残すデータの線引きは docs/atproto-spaces-migration.md。
+ */
+export const NAGI_PRIVATE_SPACE_TYPE = "com.suibari.nagi.private";
+export const NAGI_PRIVATE_SPACE_KEY = "self";
+export const NAGI_PRIVATE = {
+  mute: "com.suibari.nagi.private.mute",
+  listMember: "com.suibari.nagi.private.listMember",
+  bookmarkFolder: "com.suibari.nagi.private.bookmarkFolder",
+  bookmark: "com.suibari.nagi.private.bookmark",
+  draft: "com.suibari.nagi.private.draft",
+  languagePreferences: "com.suibari.nagi.private.languagePreferences",
+  moderationPreferences: "com.suibari.nagi.private.moderationPreferences",
+  notificationPreferences: "com.suibari.nagi.private.notificationPreferences",
+  bookmarkPreferences: "com.suibari.nagi.private.bookmarkPreferences",
+  diaryDay: "com.suibari.nagi.private.diaryDay",
+  emojiFavorites: "com.suibari.nagi.private.emojiFavorites",
+  tagFavorites: "com.suibari.nagi.private.tagFavorites",
+  feedTabs: "com.suibari.nagi.private.feedTabs",
+} as const;
+export type NagiPrivateCollection = (typeof NAGI_PRIVATE)[keyof typeof NAGI_PRIVATE];
+export const NAGI_PRIVATE_COLLECTIONS = Object.values(NAGI_PRIVATE) as NagiPrivateCollection[];
+
+/** 本人の space の URI。authority は本人の DID。 */
+export const nagiPrivateSpaceUri = (did: string) =>
+  `at:space/${did}/${NAGI_PRIVATE_SPACE_TYPE}/${NAGI_PRIVATE_SPACE_KEY}`;
+
+/**
+ * 移行を選んだ人にだけ追加で求めるスコープ（クロスポストと同じオプトイン）。
+ * permission-set に include すると全員に再同意が要るので入れない。
+ * manage=create は space の作成（createSpace）用。ガイド 8章と 9章で要否が食い違っているので、
+ * β の実装で確かめてから確定させる（docs/atproto-spaces-migration.md 3.6）。
+ */
+export const NAGI_PRIVATE_SPACE_SCOPE = `space:${NAGI_PRIVATE_SPACE_TYPE}?manage=create`;

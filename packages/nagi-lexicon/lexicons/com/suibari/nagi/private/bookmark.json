@@ -1,0 +1,35 @@
+{
+  "lexicon": 1,
+  "id": "com.suibari.nagi.private.bookmark",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "ブックマーク。rkey は \"bookmark\" + U+0000 + subject の UTF-8 を SHA-256 にかけた小文字16進。",
+      "key": "any",
+      "record": {
+        "type": "object",
+        "required": [
+          "folder",
+          "subject",
+          "createdAt"
+        ],
+        "properties": {
+          "folder": {
+            "type": "string",
+            "format": "record-key",
+            "description": "bookmarkFolder の rkey。"
+          },
+          "subject": {
+            "type": "string",
+            "format": "at-uri",
+            "description": "Nagi の投稿・ニュース・日記、standard.site の文書、3行日記。"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "lexicon": 1,
+  "id": "com.suibari.nagi.private.feedTabs",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "フィードのタブ構成。順序がそのまま表示順。 rkey は self。updatedAt は端末間の後勝ちの判定に使う。",
+      "key": "literal:self",
+      "record": {
+        "type": "object",
+        "required": [
+          "tabs",
+          "updatedAt"
+        ],
+        "properties": {
+          "tabs": {
+            "type": "array",
+            "maxLength": 32,
+            "items": {
+              "type": "ref",
+              "ref": "com.suibari.nagi.getPreferences#feedTab"
+            }
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "datetime"
+          }
+        }
+      }
+    }
+  }
+}

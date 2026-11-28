@@ -1,0 +1,34 @@
+{
+  "lexicon": 1,
+  "id": "com.suibari.nagi.private.diaryDay",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "日記の1日の区切りのうち、本人が選んだ値。ブラウザから自動で届くタイムゾーンは AppView が持ち、ここには書かない。 rkey は self。updatedAt は端末間の後勝ちの判定に使う。",
+      "key": "literal:self",
+      "record": {
+        "type": "object",
+        "required": [
+          "updatedAt"
+        ],
+        "properties": {
+          "timezone": {
+            "type": "string",
+            "maxLength": 64,
+            "description": "IANA のタイムゾーン名。無ければ自動検出の値を使う。"
+          },
+          "startHour": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 23,
+            "description": "区切りの時刻（18〜23, 0〜6）。無ければ22時。"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "datetime"
+          }
+        }
+      }
+    }
+  }
+}

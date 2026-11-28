@@ -1332,6 +1332,40 @@ export const nagiNotificationPreferences = nagiSchema.table(
 );
 
 /**
+ * 本人の非公開データ（ミュート・非公開リスト・ブックマーク・下書き・同期設定）の正本の置き場所。
+ * 行が無い＝appview（従来どおり AppView が正本）。docs/atproto-spaces-migration.md。
+ *
+ * storage が migrating / space のあいだ、AppView の従来の書き込み API はその種類の
+ * データを受け付けない（423 / 409）。古いタブが AppView にだけ書いて PDS と分岐するのを防ぐため。
+ * 読み取りは保存先によらず同じテーブル（space から取り込んだコピー）を見る。
+ *
+ * 行は消さずに appview へ戻す。space は本人の PDS の持ち物なので、AppView からは消さない。
+ */
+export const nagiPrivateSpaces = nagiSchema.table(
+  "private_spaces",
+  {
+    did: text("did").primaryKey(),
+    storage: text("storage").notNull(),
+    /** at:space/<did>/com.suibari.nagi.private/self。appview に戻しても残す（次回の再開用）。 */
+    spaceUri: text("space_uri").notNull(),
+    /** storage を最後に変えた時刻。移行が途中で止まった人を見つけるのにも使う。 */
+    changedAt: timestamp("changed_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    check(
+      "nagi_private_spaces_storage_check",
+      sql`${t.storage} IN ('appview', 'migrating', 'space')`,
+    ),
+    index("nagi_private_spaces_storage_idx").on(t.storage, t.changedAt),
+  ],
+);
+
+/**
  * 全肯定カード（1日1回引けるトレカ）の「世界に1枚」の実体。
  *
  * **PDS レコードにはしない**（ミュートと同じ判断だが理由は別）。ガチャ結果をユーザー自身の

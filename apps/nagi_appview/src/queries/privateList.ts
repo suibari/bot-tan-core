@@ -12,6 +12,7 @@ import type {
 import { and, desc, eq, sql } from "drizzle-orm";
 import { config } from "../config.js";
 import { ApiError } from "../middleware/errors.js";
+import { assertAppviewWritable } from "../privateSpace/guard.js";
 
 export const PRIVATE_LIST_LIMIT = 200 as const;
 
@@ -98,6 +99,7 @@ export async function setPrivateListMember(
 
   return db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${ownerDid}))`);
+    await assertAppviewWritable(ownerDid, tx);
     if (!included) {
       await tx
         .delete(nagiPrivateListMembers)

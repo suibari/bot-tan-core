@@ -1,0 +1,52 @@
+{
+  "lexicon": 1,
+  "id": "com.suibari.nagi.getPrivateSpaceStatus",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "本人の非公開データの保存先（AppView / 移行中 / 本人の PDS の space）を返す。",
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "ref",
+          "ref": "#status"
+        }
+      },
+      "errors": [
+        {
+          "name": "AuthRequired"
+        }
+      ]
+    },
+    "status": {
+      "type": "object",
+      "required": [
+        "enabled",
+        "storage"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "AppView が Spaces への移行を受け付けているか。"
+        },
+        "storage": {
+          "type": "string",
+          "knownValues": [
+            "appview",
+            "migrating",
+            "space"
+          ],
+          "description": "本人の非公開データの正本がどこにあるか。"
+        },
+        "space": {
+          "type": "string",
+          "description": "移行先の space（at:space/...）。"
+        },
+        "changedAt": {
+          "type": "string",
+          "format": "datetime"
+        }
+      }
+    }
+  }
+}
