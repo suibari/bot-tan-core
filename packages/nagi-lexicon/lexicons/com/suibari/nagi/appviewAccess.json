@@ -29,6 +29,7 @@
           "aud": "*",
           "lxm": [
             "com.suibari.nagi.getTimeline",
+            "com.suibari.nagi.listIndexableBlogs",
             "com.suibari.nagi.getHomeTimeline",
             "com.suibari.nagi.getAffirmation",
             "com.suibari.nagi.getRecommended",

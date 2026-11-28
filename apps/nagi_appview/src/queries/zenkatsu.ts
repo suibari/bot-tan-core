@@ -52,7 +52,8 @@ import type {
   ZenkatsuThemeView,
   ZenkatsuViewerState,
 } from "@bsky-affirmative-bot/nagi-lexicon";
-import { and, asc, desc, eq, gte, inArray, isNull, lt, or } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lt, notInArray, or } from "drizzle-orm";
+import { loadMutes, type MuteSet } from "./mutes.js";
 import { getReactionViews } from "./reactions.js";
 import { zenkatsuPlayInventory } from "./zenkatsuPlayInventory.js";
 import { config } from "../config.js";
@@ -601,6 +602,12 @@ const submissionCardView = (def: CardDefinition): CardView => ({
   owned: true,
 });
 
+/** ゼンカツの回答にタグは無いので、作者のミュートだけを見る。 */
+export const zenkatsuMuteFilter = (mutes: MuteSet) =>
+  mutes.actors.length
+    ? notInArray(nagiZenkatsuSubmissions.did, mutes.actors)
+    : undefined;
+
 /**
  * ある1日のお題と全回答。**新着順（indexedAt 降順）**。
  *
@@ -623,7 +630,10 @@ export async function getZenkatsu(opts: {
   if (themeDate > today)
     throw new ApiError(400, "invalid_request", "Future date");
 
-  const theme = await resolveThemeForDate(themeDate);
+  const [theme, mutes] = await Promise.all([
+    resolveThemeForDate(themeDate),
+    loadMutes(opts.viewerDid),
+  ]);
 
   const after = opts.cursor ? decodeCursor(opts.cursor) : undefined;
   if (opts.cursor && !after)
@@ -636,6 +646,7 @@ export async function getZenkatsu(opts: {
       and(
         eq(nagiZenkatsuSubmissions.themeDate, themeDate),
         isNull(nagiZenkatsuSubmissions.deletedAt),
+        zenkatsuMuteFilter(mutes),
         after
           ? or(
               lt(nagiZenkatsuSubmissions.indexedAt, after.indexedAt),
