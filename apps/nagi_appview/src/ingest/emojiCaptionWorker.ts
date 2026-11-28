@@ -13,6 +13,7 @@ import {
 import { and, desc, eq, sql } from "drizzle-orm";
 import { isNormalizedBluemojiFormats } from "./validateRecord.js";
 import { formatEmojiSearchText } from "../services/emojiSearchText.js";
+import { readEmojiBlob } from "../util/emojiBlob.js";
 import { resolvePdsUrl } from "../util/pds.js";
 
 /**
@@ -71,10 +72,8 @@ async function loadEmojiImage(
     await response.body?.cancel();
     throw new Error(`emoji asset HTTP ${response.status}`);
   }
-  const buffer = Buffer.from(await response.arrayBuffer());
-  return buffer.byteLength <= MAX_ASSET_BYTES
-    ? { buffer, mimeType: asset.mediaType }
-    : undefined;
+  const body = await readEmojiBlob(response, asset);
+  return { buffer: Buffer.from(body), mimeType: asset.mediaType };
 }
 
 export async function captionPendingEmojis(): Promise<number> {

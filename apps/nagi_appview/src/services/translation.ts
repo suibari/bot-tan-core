@@ -1,3 +1,4 @@
+import { setTimeout as delay } from "node:timers/promises";
 import {
   MemoryService,
   db,
@@ -28,6 +29,8 @@ import { hasContentWarning } from "../util/contentWarning.js";
 
 export const TRANSLATION_CACHE_VERSION = 4;
 export const MAX_TRANSLATION_BATCH_SIZE = 50;
+export const TRANSLATION_MAX_CHUNKS = 16;
+const TRANSLATION_DEADLINE_MS = 180_000;
 
 type Language = (typeof NAGI_LANGUAGES)[number];
 /**
@@ -279,6 +282,10 @@ export class TranslationMissQuota {
 export class SingleFlight<T> {
   readonly #requests = new Map<string, Promise<T>>();
 
+  get size() {
+    return this.#requests.size;
+  }
+
   has(key: string) {
     return this.#requests.has(key);
   }
@@ -300,16 +307,31 @@ class Semaphore {
 
   constructor(readonly concurrency: number) {}
 
-  async run<T>(task: () => Promise<T>): Promise<T> {
-    if (this.#active >= this.concurrency) {
-      await new Promise<void>((resolve) => this.#waiting.push(resolve));
+  async run<T>(signal: AbortSignal, task: () => Promise<T>): Promise<T> {
+    signal.throwIfAborted();
+    if (this.#active < this.concurrency) {
+      this.#active += 1;
+    } else {
+      await new Promise<void>((resolve, reject) => {
+        const acquire = () => {
+          signal.removeEventListener("abort", abort);
+          resolve();
+        };
+        const abort = () => {
+          this.#waiting.splice(this.#waiting.indexOf(acquire), 1);
+          reject(signal.reason);
+        };
+        this.#waiting.push(acquire);
+        signal.addEventListener("abort", abort, { once: true });
+      });
     }
-    this.#active += 1;
     try {
+      signal.throwIfAborted();
       return await task();
     } finally {
-      this.#active -= 1;
-      this.#waiting.shift()?.();
+      const next = this.#waiting.shift();
+      if (next) next();
+      else this.#active -= 1;
     }
   }
 }
@@ -379,6 +401,7 @@ type TranslationRequestDependencies = {
   /** 素の翻訳は 0。instruct系モデルは 0 だと硬直した直訳になるので少し上げる。 */
   temperature?: number;
   fetcher?: typeof fetch;
+  signal?: AbortSignal;
   sleep?: (milliseconds: number) => Promise<void>;
   now?: () => number;
   log?: (message: string) => void;
@@ -397,8 +420,12 @@ const defaultReportCall = (outcome: "ok" | "error") => {
   ).catch(() => {});
 };
 
-const wait = (milliseconds: number) =>
-  new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
+const deadlineExceeded = () =>
+  new TranslationGenerationError("upstream_unavailable", "deadline", false);
+
+function checkDeadline(signal: AbortSignal) {
+  if (signal.aborted) throw deadlineExceeded();
+}
 
 export async function requestTranslationWithRetry(
   prompt: string,
@@ -408,7 +435,7 @@ export async function requestTranslationWithRetry(
   const model = dependencies.model ?? config.translationModel;
   const temperature = dependencies.temperature ?? 0;
   const fetcher = dependencies.fetcher ?? fetch;
-  const sleep = dependencies.sleep ?? wait;
+  const signal = dependencies.signal ?? AbortSignal.timeout(TRANSLATION_DEADLINE_MS);
   const now = dependencies.now ?? Date.now;
   const log = dependencies.log ?? console.warn;
   const reportAiCall = dependencies.reportCall ?? defaultReportCall;
@@ -435,7 +462,7 @@ export async function requestTranslationWithRetry(
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     const startedAt = now();
     try {
-      return await translationSlots.run(async () => {
+      return await translationSlots.run(signal, async () => {
         let response: Response;
         try {
           // OpenAI互換ではなくネイティブ /api/chat を使う。think を切らないと訳文の前に
@@ -455,7 +482,7 @@ export async function requestTranslationWithRetry(
                 temperature,
               },
             }),
-            signal: AbortSignal.timeout(30_000),
+            signal: AbortSignal.any([signal, AbortSignal.timeout(30_000)]),
           });
         } catch (error) {
           reportAiCall("error");
@@ -471,6 +498,7 @@ export async function requestTranslationWithRetry(
           );
         }
         if (!response.ok) {
+          void response.body?.cancel().catch(() => {});
           reportAiCall("error");
           const isClientError = response.status >= 400 && response.status < 500;
           throw new TranslationGenerationError(
@@ -493,6 +521,14 @@ export async function requestTranslationWithRetry(
           );
         }
         const text = String(data?.message?.content ?? "").trim();
+        checkDeadline(signal);
+        if (data?.done_reason === "length") {
+          throw new TranslationGenerationError(
+            "invalid_output",
+            "truncated_output",
+            false,
+          );
+        }
         if (hasTranslationText(text)) return text;
         throw new TranslationGenerationError(
           "invalid_output",
@@ -501,6 +537,7 @@ export async function requestTranslationWithRetry(
         );
       });
     } catch (error) {
+      checkDeadline(signal);
       const failure =
         error instanceof TranslationGenerationError
           ? error
@@ -513,7 +550,12 @@ export async function requestTranslationWithRetry(
         `[translation] model=${model} target=${target.code} attempt=${attempt}/2 elapsed_ms=${Math.max(0, now() - startedAt)} failure=${failure.reason}`,
       );
       if (!failure.retryable || attempt === 2) throw failure;
-      await sleep(1_000);
+      try {
+        await (dependencies.sleep?.(1_000) ?? delay(1_000, undefined, { signal }));
+      } catch (error) {
+        checkDeadline(signal);
+        throw error;
+      }
     }
   }
   throw new TranslationGenerationError(
@@ -546,14 +588,18 @@ function splitLongBlock(block: string, maxChars: number): TranslationChunk[] {
   let rest = block;
   while (rest.length > maxChars) {
     const window = rest.slice(0, maxChars + 1);
-    const cut =
+    let cut =
       [/\n(?=[^\n]*$)/, /[.!?。！？](?=[^.!?。！？]*$)/, /\s(?=\S*$)/]
         .map((pattern) => {
           const index = window.search(pattern);
           // 先頭近くでしか切れないなら、次の候補か固定長へ回す。
-          return index >= maxChars / 2 ? index + 1 : -1;
+          return index >= maxChars / 2 ? Math.min(index + 1, maxChars) : -1;
         })
         .find((index) => index > 0) ?? maxChars;
+    // 固定長の境界でサロゲートペアを分けない。
+    if (/^[\uD800-\uDBFF][\uDC00-\uDFFF]$/.test(rest.slice(cut - 1, cut + 1))) {
+      cut -= 1;
+    }
     const head = rest.slice(0, cut);
     const text = head.trimEnd();
     const afterHead = rest.slice(cut);
@@ -574,6 +620,9 @@ export function splitTranslationChunks(
   text: string,
   maxChars = TRANSLATION_CHUNK_MAX_CHARS,
 ): TranslationChunk[] {
+  if (!Number.isSafeInteger(maxChars) || maxChars < 2) {
+    throw new RangeError("Translation chunks require at least two code units");
+  }
   const body = text.trim();
   if (body.length <= maxChars) return [{ text: body, separator: "" }];
 
@@ -612,27 +661,46 @@ export async function translateInChunks(
   text: string,
   translateChunk: (chunk: string) => Promise<string>,
   maxChars = TRANSLATION_CHUNK_MAX_CHARS,
+  signal = AbortSignal.timeout(TRANSLATION_DEADLINE_MS),
 ): Promise<string> {
+  checkDeadline(signal);
+  if (text.length > maxChars * TRANSLATION_MAX_CHUNKS) {
+    throw new TranslationGenerationError("invalid_output", "source_too_long", false);
+  }
   const chunks = splitTranslationChunks(text, maxChars);
+  if (chunks.length > TRANSLATION_MAX_CHUNKS) {
+    throw new TranslationGenerationError("invalid_output", "too_many_chunks", false);
+  }
   let translated = "";
   for (const chunk of chunks) {
+    checkDeadline(signal);
     translated += (await translateChunk(chunk.text)).trim() + chunk.separator;
   }
+  checkDeadline(signal);
   return translated.trimEnd();
 }
 
 async function generateTranslation(post: TranslationSource, target: Language) {
+  // キュー待ち、再試行、ペルソナからのフォールバックで同じ期限を共有する。
+  const signal = AbortSignal.timeout(TRANSLATION_DEADLINE_MS);
+  const source = sourceLanguage(post);
+  const translate = (persona: boolean) => {
+    const prompt = persona ? botTranslationPrompt : translationPrompt;
+    const options = persona
+      ? { model: config.botTranslationModel, temperature: 0.3, signal }
+      : { signal };
+    return translateInChunks(
+      post.text,
+      (chunk) => requestTranslationWithRetry(prompt(source, target, chunk), target, options),
+      TRANSLATION_CHUNK_MAX_CHARS,
+      signal,
+    );
+  };
   // botたん本人の投稿だけ、口調を保った翻訳にする。他人の投稿を口調変換すると
   // 発言の捏造になるので、この分岐だけがペルソナ翻訳の適用範囲。
   if (post.did === config.botDid && !isZenkatsuUri(post.uri)) {
     try {
-      return await translateInChunks(post.text, (chunk) =>
-        requestTranslationWithRetry(
-          botTranslationPrompt(sourceLanguage(post), target, chunk),
-          target,
-          { model: config.botTranslationModel, temperature: 0.3 },
-        ),
-      );
+      return await translate(true);
     } catch {
       // 口調より可用性を優先する。ペルソナ用モデルが落ちていても素の翻訳は返す。
       console.warn(
@@ -640,19 +708,18 @@ async function generateTranslation(post: TranslationSource, target: Language) {
       );
     }
   }
-  return translateInChunks(post.text, (chunk) =>
-    requestTranslationWithRetry(
-      translationPrompt(sourceLanguage(post), target, chunk),
-      target,
-    ),
-  );
+  return translate(false);
 }
 
-function generateAndCache(
+async function generateAndCache(
   post: TranslationSource,
   target: Language,
 ): Promise<string> {
   const key = requestKey(post.uri, target);
+  // 1バッチ分まで保留できる。事前英訳と公開リクエストで同じ上限を共有する。
+  if (!generationRequests.has(key) && generationRequests.size >= MAX_TRANSLATION_BATCH_SIZE) {
+    throw new TranslationGenerationError("rate_limited", "queue_full", false);
+  }
   return generationRequests.run(key, async () => {
     const text = await generateTranslation(post, target);
     // 本人が生成した対訳（authored）は機械翻訳より優れているので上書きしない。

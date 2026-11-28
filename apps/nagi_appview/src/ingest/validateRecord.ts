@@ -174,6 +174,7 @@ const linkCard = (value: any) => {
 };
 const FORMATS_V0 = `${BLUEMOJI_ITEM}#formats_v0`;
 const FORMATS_V1 = `${BLUEMOJI_ITEM}#formats_v1`;
+export const BLUEMOJI_ORIGINAL_MAX_BYTES = 1_000_000;
 const CID = /^[a-zA-Z0-9]+$/;
 const blobAsset = (
   value: any,
@@ -228,10 +229,11 @@ const atUri = (value: unknown) =>
   typeof value === "string" && /^at:\/\/[^/\s]+\/[^/\s]+\/[^/\s]+$/.test(value);
 const normalizedBlob = (
   value: any,
-  mediaType = value?.mimeType,
+  mediaType: BluemojiMediaType,
+  maxBytes: number,
 ): BluemojiFormats => ({
   version: 1,
-  asset: { kind: "blob", mediaType, value: value.ref.$link },
+  asset: { kind: "blob", mediaType, value: value.ref.$link, maxBytes },
 });
 const normalizedBytes = (
   value: any,
@@ -259,17 +261,25 @@ export function normalizeBluemojiFormats(formats: any): BluemojiFormats | null {
     ["png_128", "image/png"],
   ] as const;
   for (const [slot, mediaType] of legacy ? slots.slice(2) : slots) {
-    if (blobAsset(formats[slot], blobLimit, (type) => type.length > 0))
-      return normalizedBlob(formats[slot], mediaType);
+    if (
+      (legacy || formats[slot]?.$type === "blob") &&
+      blobAsset(formats[slot], blobLimit, (type) => type.length > 0)
+    )
+      return normalizedBlob(formats[slot], mediaType, blobLimit);
   }
   if (
+    (legacy || formats.original?.$type === "blob") &&
     blobAsset(
       formats.original,
-      1_000_000,
+      BLUEMOJI_ORIGINAL_MAX_BYTES,
       (type) => type.startsWith("image/") || type === "application/lottie+zip",
     )
   )
-    return normalizedBlob(formats.original);
+    return normalizedBlob(
+      formats.original,
+      formats.original.mimeType,
+      BLUEMOJI_ORIGINAL_MAX_BYTES,
+    );
   return null;
 }
 
