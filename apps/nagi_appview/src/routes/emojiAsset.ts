@@ -6,6 +6,7 @@ import { isNormalizedBluemojiFormats } from "../ingest/validateRecord.js";
 import { ApiError } from "../middleware/errors.js";
 import { DID, resolvePdsUrl } from "../util/pds.js";
 import { emojiAssetHeaders } from "../util/emojiAssetHeaders.js";
+import { readEmojiBlob } from "../util/emojiBlob.js";
 import { resolveEmojiAsset } from "../services/emoji.js";
 
 const RKEY = /^[A-Za-z0-9._:~-]{1,512}$/;
@@ -63,20 +64,9 @@ export const getEmojiAsset: RequestHandler = async (req, res, next) => {
           "Emoji asset unavailable",
         );
       }
-      setSuccessHeaders(res, asset.mediaType);
-      await upstream.body.pipeTo(
-        new WritableStream({
-          write(chunk) {
-            res.write(Buffer.from(chunk));
-          },
-          close() {
-            res.end();
-          },
-          abort() {
-            res.end();
-          },
-        }),
-      );
+      const body = await readEmojiBlob(upstream, asset);
+      setSuccessHeaders(res, asset.mediaType, body.byteLength);
+      res.end(body);
       return;
     }
     const bytes = Buffer.from(asset.value, "base64");

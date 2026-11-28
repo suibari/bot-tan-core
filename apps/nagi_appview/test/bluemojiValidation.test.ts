@@ -53,9 +53,11 @@ test("indexes v1 renditions as PDS blobs with the v1 size limit", () => {
       kind: "blob",
       mediaType,
       value: "bafyvalidcid",
+      maxBytes: 128_000,
     });
     assert.equal(validateRecord(BLUEMOJI_ITEM, v1(blob(mediaType, 128_001))), false);
     assert.equal(validateRecord(BLUEMOJI_ITEM, v1({ $bytes: "YQ==" })), false);
+    assert.equal(validateRecord(BLUEMOJI_ITEM, v1({ ...blob(mediaType), $type: undefined })), false);
   }
   const mixed = record({
     $type: `${BLUEMOJI_ITEM}#formats_v1`,

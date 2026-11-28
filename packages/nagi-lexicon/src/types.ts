@@ -221,6 +221,8 @@ export type BluemojiFormats = {
     kind: "blob" | "bytes";
     mediaType: BluemojiMediaType;
     value: string;
+    /** サイズ制限を保持していない既存 DB 行も読み込める。 */
+    maxBytes?: number;
   };
 };
 export type BluemojiItem = {
