@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import holidays from "../src/json/holidays.json" with { type: "json" };
 import {
+  anniversaryArtName,
   ANNIVERSARY_SLOTS,
   CARD_VOLUME_ANNIVERSARY,
   anniversaryCardNumber,
@@ -71,8 +72,24 @@ test("記念日カードは UR 相当。演出とコメントの深掘りをそ�
 test("art はパスになりうる文字を含まない（そのまま URL に埋まるため）", () => {
   for (const slot of Object.values(ANNIVERSARY_SLOTS)) {
     const art = buildAnniversaryCardDef(slot, 2026)?.art;
-    if (art !== undefined) assert.match(art, CARD_ART_PATTERN);
+    assert.ok(art);
+    assert.match(art, CARD_ART_PATTERN);
   }
+});
+
+test("art は記念日 id から決まり、クライアントに画像を置くだけで出る", () => {
+  // 画像の有無は AppView が知らない。全記念日に名前を配り、無ければクライアントが文字だけにする。
+  assert.equal(anniversaryArtName("christmas"), "anniv-christmas");
+  assert.equal(anniversaryArtName("new_years_eve"), "anniv-new-years-eve");
+  assert.equal(anniversaryArtName("user_anniversary"), "anniv-user-anniversary");
+  // 規則より前に配った名前は JSON の上書きで保つ。
+  assert.equal(anniversaryArtName("birthday"), "anniv-hbd");
+  assert.equal(
+    buildAnniversaryCardDef(ANNIVERSARY_SLOTS.christmas, 2026)?.art,
+    "anniv-christmas",
+  );
+  const [christmas] = resolveTodayAnniversaries("2026-12-25");
+  assert.equal(christmas?.art, "anniv-christmas");
 });
 
 test("resolveCardDef は通常段と記念日段のどちらも引ける", () => {

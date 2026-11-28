@@ -68,7 +68,21 @@ export interface AnniversaryCardArt {
   def: number;
   textJa: string;
   textEn: string;
+  /**
+   * 背景画像名の上書き。省略時は anniversaryArtName(id)（`anniv-{id の _ を - に}`）。
+   * 既に配った画像の名前が規則と違うもの（誕生日 = anniv-hbd）だけに書く。
+   */
   art?: string;
+}
+
+/**
+ * 記念日カードの背景画像名。画像の有無はクライアントの static/card-art だけが知っていて、
+ * 無ければクライアントが文字だけのカードに戻す。新しいイラストはクライアントへ
+ * `anniv-{id}.webp` を置くだけで出る（AppView の変更もデプロイも要らず、
+ * どの記念日に絵が付くかもこのリポジトリからは読めない）。
+ */
+export function anniversaryArtName(id: string): string {
+  return ART_BY_ID.get(id)?.art ?? `anniv-${id.replaceAll("_", "-")}`;
 }
 
 /** 合成された記念日カード。CardDefinition として通常カードの経路に流せる。 */
@@ -103,8 +117,8 @@ function assertAnniversaryDefs(): Map<number, string> {
     const art = ART_BY_ID.get(id);
     if (!art)
       throw new Error(`anniversary: ${id} has no entry in anniversary_cards.json`);
-    if (art.art !== undefined && !CARD_ART_PATTERN.test(art.art))
-      throw new Error(`anniversary: invalid art "${art.art}" (${id})`);
+    if (!CARD_ART_PATTERN.test(anniversaryArtName(id)))
+      throw new Error(`anniversary: invalid art "${anniversaryArtName(id)}" (${id})`);
     for (const field of ["textJa", "textEn"] as const) {
       if (!art[field]?.trim())
         throw new Error(`anniversary: empty ${field} (${id})`);
@@ -195,7 +209,7 @@ export function buildAnniversaryCardDef(
     raceEn: "Anniversary",
     textJa: art.textJa,
     textEn: art.textEn,
-    ...(art.art ? { art: art.art } : {}),
+    art: anniversaryArtName(id),
     anniversary: true,
     year,
     slot,
@@ -226,7 +240,8 @@ export interface TodayAnniversary {
   nameEn: string;
   /** ユーザー記念日のみ。card_instances に焼き付けて名前を不変にする。 */
   label?: string;
-  art?: string;
+  /** 背景画像名。常に入るが、実体が無ければクライアントで文字だけになる。 */
+  art: string;
 }
 
 export interface AnniversaryContext {
@@ -279,7 +294,6 @@ export function resolveTodayAnniversaries(
     const id = ID_BY_SLOT.get(slot);
     const names = anniversaryNames(slot, label);
     if (!id || !names) return;
-    const art = ART_BY_ID.get(id)?.art;
     found.push({
       year: cardYear,
       slot,
@@ -287,7 +301,7 @@ export function resolveTodayAnniversaries(
       nameJa: names.ja,
       nameEn: names.en,
       ...(label ? { label } : {}),
-      ...(art ? { art } : {}),
+      art: anniversaryArtName(id),
     });
   };
 

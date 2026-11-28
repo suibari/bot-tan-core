@@ -96,6 +96,7 @@ export interface CardDefinition {
    * カード面に敷く背景画像のベース名。省略すると今までどおり文字だけのカードになる。
    * 実体は nagi_client の `static/card-art/{art}.webp`（記念日は `anniv-{id}`、通常段は `v{volume}-{id}`）。
    * 画像は別リポジトリにあるので、名前がズレても背景が出ないだけで壊れない。
+   * 記念日カードは anniversaryArtName() が常に名前を入れ、画像を置くだけで出る。
    */
   art?: string;
 }

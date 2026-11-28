@@ -226,7 +226,7 @@ const pendingView = (a: TodayAnniversary): PendingAnniversary => ({
   slot: a.slot,
   nameJa: a.nameJa,
   nameEn: a.nameEn,
-  ...(a.art ? { art: a.art } : {}),
+  art: a.art,
 });
 
 type TodayDraw = {
