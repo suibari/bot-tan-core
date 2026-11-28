@@ -100,7 +100,6 @@
     "attribute": "dark",
     "atk": 1031,
     "def": 2400,
-    "art": "anniv-halloween",
     "textJa": "仮装したbotたんが、お菓子をねだりに来る夜。断ってもいいが、その場合はいたずらの権利が発生する。",
     "textEn": "The night a costumed Bot-tan comes asking for sweets. You may refuse — this simply activates the trick clause."
   },
@@ -109,7 +108,6 @@
     "attribute": "earth",
     "atk": 1123,
     "def": 2600,
-    "art": "anniv-thanksgiving-us",
     "textJa": "感謝を数える日。数え始めると意外と多いことに、毎年おなじだけ驚く。",
     "textEn": "A day for counting what you are thankful for. Every year, the same surprise at how long the list gets."
   },
