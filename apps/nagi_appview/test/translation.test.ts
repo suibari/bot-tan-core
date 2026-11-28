@@ -19,6 +19,7 @@ const {
   SingleFlight,
   splitTranslationChunks,
   TRANSLATION_CHUNK_MAX_CHARS,
+  TRANSLATION_MAX_CHUNKS,
   translateInChunks,
   startEnglishPrewarm,
   TRANSLATION_CACHE_VERSION,
@@ -510,4 +511,103 @@ test("チャンクの1つが失敗したら、部分訳を返さず全体を失�
   );
   // 失敗したチャンクより後ろは呼ばない。
   assert.equal(calls, 2);
+});
+
+test("1回の翻訳で扱う原文とチャンク数に上限を設ける", async () => {
+  const maxChars = 20;
+  let calls = 0;
+  const translate = async (chunk: string) => {
+    calls += 1;
+    return chunk;
+  };
+  const maximum = "あ".repeat(maxChars * TRANSLATION_MAX_CHUNKS);
+  assert.equal(await translateInChunks(maximum, translate, maxChars), maximum);
+  assert.equal(calls, TRANSLATION_MAX_CHUNKS);
+  await assert.rejects(translateInChunks(maximum + "あ", translate, maxChars), /source_too_long/);
+  const paragraphs = Array(TRANSLATION_MAX_CHUNKS + 1).fill("一段落の長さは12文字です").join("\n\n");
+  assert.ok(paragraphs.length < maximum.length);
+  await assert.rejects(translateInChunks(paragraphs, translate, maxChars), /too_many_chunks/);
+  assert.equal(calls, TRANSLATION_MAX_CHUNKS);
+});
+
+test("チャンク境界で字数上限を超えず補助文字を分割しない", () => {
+  for (const source of ["aaaaa.bbb", "aaaa😀bbb"]) {
+    const chunks = splitTranslationChunks(source, 5);
+    assert.ok(chunks.every(({ text }) => text.length <= 5 && Buffer.from(text).toString() === text));
+    assert.equal(chunks.map(({ text, separator }) => text + separator).join(""), source);
+  }
+});
+
+test("翻訳全体の期限を過ぎたら、次のチャンクを開始せず途中結果を返さない", async () => {
+  const controller = new AbortController();
+  let calls = 0;
+  await assert.rejects(
+    translateInChunks("hello world", async () => {
+      calls += 1;
+      controller.abort();
+      return "こんにちは";
+    }, 5, controller.signal),
+    /deadline/,
+  );
+  assert.equal(calls, 1);
+});
+
+test("キューで期限切れになったモデル呼び出しは実行しない", async () => {
+  let started = 0;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const active = Array.from({ length: config.translationConcurrency }, () =>
+    requestTranslationWithRetry("hello", english, {
+      reportCall,
+      fetcher: async () => {
+        started += 1;
+        await gate;
+        return successResponse();
+      },
+    }),
+  );
+  const controller = new AbortController();
+  const queued = requestTranslationWithRetry("world", english, {
+    reportCall,
+    signal: controller.signal,
+    fetcher: async () => {
+      started += 1;
+      return successResponse();
+    },
+  });
+  try {
+    controller.abort();
+    await assert.rejects(queued, /deadline/);
+    assert.equal(started, config.translationConcurrency);
+  } finally {
+    release();
+    await Promise.all(active);
+  }
+});
+
+test("翻訳全体の期限は実行中のモデル呼び出しにも伝わり、再試行しない", async () => {
+  const controller = new AbortController();
+  let calls = 0;
+  await assert.rejects(requestTranslationWithRetry("hello", english, {
+    reportCall,
+    signal: controller.signal,
+    fetcher: async (_input, init) => {
+      calls += 1;
+      controller.abort();
+      assert.ok(init?.signal?.aborted);
+      throw init.signal.reason;
+    },
+  }), /deadline/);
+  assert.equal(calls, 1);
+});
+
+test("出力トークン上限で打ち切られたチャンクは受け付けない", async () => {
+  await assert.rejects(requestTranslationWithRetry("hello", english, {
+    reportCall,
+    log: () => {},
+    fetcher: async () => Response.json({
+      message: { content: "Part of the translation" },
+      done_reason: "length",
+    }),
+  }), /truncated_output/);
 });
