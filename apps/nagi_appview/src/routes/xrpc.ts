@@ -445,17 +445,25 @@ xrpc.get(
     }
   },
 );
-xrpc.get(`/${NAGI.listIndexableBlogs}`, async (req, res, next) => {
-  try {
-    const page = await listIndexableBlogs({
-      limit: Math.min(200, Math.max(1, Number(req.query.limit ?? 200) || 200)),
-      cursor: String(req.query.cursor ?? "") || undefined,
-    });
-    res.set("Cache-Control", "public, max-age=60").json(page);
-  } catch (e) {
-    next(e);
-  }
-});
+xrpc.get(
+  `/${NAGI.listIndexableBlogs}`,
+  optionalServiceAuth(NAGI.listIndexableBlogs),
+  async (req, res, next) => {
+    try {
+      const page = await listIndexableBlogs({
+        limit: Math.min(200, Math.max(1, Number(req.query.limit ?? 200) || 200)),
+        cursor: String(req.query.cursor ?? "") || undefined,
+        ...(req.viewerDid ? { viewerDid: req.viewerDid } : {}),
+      });
+      // 閲覧者付きはミュートで絞った本人専用の一覧なので、共有キャッシュに載せない。
+      res
+        .set("Cache-Control", req.viewerDid ? "private, no-store" : "public, max-age=60")
+        .json(page);
+    } catch (e) {
+      next(e);
+    }
+  },
+);
 xrpc.get(
   `/${NAGI.getProfile}`,
   optionalServiceAuth(NAGI.getProfile),
