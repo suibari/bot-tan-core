@@ -5,6 +5,7 @@ import {
   KnowledgeCardNotFoundError,
   researchKnowledgeCardSelfHosted,
   researchSelfHosted,
+  salvageTruncatedItems,
   subjectCoverage,
 } from "../src/ai/grounding.js";
 import { MemoryService } from "@bsky-affirmative-bot/database";
@@ -60,7 +61,11 @@ function stubFetch(routes: Routes) {
       return new Response(
         JSON.stringify({
           model: "local-test",
-          message: { content: JSON.stringify(routes.summary ?? { items: [] }) },
+          message: {
+            content: typeof routes.summary === "string"
+              ? routes.summary
+              : JSON.stringify(routes.summary ?? { items: [] }),
+          },
           prompt_eval_count: 10,
           eval_count: 5,
         }),
@@ -442,4 +447,43 @@ test("Wikipedia の記事が対象の話でなければ Web 検索へ進む", as
     },
   });
   assert.deepEqual(gathered.map((item) => item.queries), [[], ["超融合"]]);
+});
+
+test("要約が num_predict で途中切れしても、閉じた項目までで調査ブロックを作る", async () => {
+  // 2026-11-24〜28 の今期作品一覧と同じ形: 最後の項目の detail の途中で切れている。
+  const truncated = `{"items":[
+  {"name":"薬屋のひとりごと 第3期","detail":"10月2日放送開始。\\"猫猫\\"が主人公 {仮}","source":"https://93.184.216.34/summer"},
+  {"name":"チェンソーマン","detail":"劇場版が公開中","source":"https://93.184.216.34/summer"},
+  {"name":"途中で切れた作品","detail":"この説明は最後まで書かれ`;
+  stubFetch({
+    search: SEARCH_HIT,
+    page: { body: "<html><body><p>本文</p></body></html>" },
+    summary: truncated,
+  });
+
+  const research = await researchSelfHosted({ queries: ["今期アニメ"], urls: [] });
+
+  assert.match(research, /薬屋のひとりごと 第3期 — 10月2日放送開始。"猫猫"が主人公 \{仮\}/);
+  assert.match(research, /チェンソーマン — 劇場版が公開中/);
+  assert.doesNotMatch(research, /途中で切れた作品/);
+});
+
+test("閉じた項目が1つも無い途中切れは従来どおり JSON 崩れとして throw する", async () => {
+  stubFetch({
+    search: SEARCH_HIT,
+    page: { body: "<html><body><p>本文</p></body></html>" },
+    summary: `{"items":[{"name":"途中`,
+  });
+
+  await assert.rejects(
+    researchSelfHosted({ queries: ["今期アニメ"], urls: [] }),
+    /not valid JSON/,
+  );
+});
+
+test("salvageTruncatedItems は items の外の括弧や閉じた配列の後ろを拾わない", () => {
+  assert.deepEqual(salvageTruncatedItems(`{"note":{"x":1},"items":[{"name":"a"}],"extra":{"name":"b"}`), [
+    { name: "a" },
+  ]);
+  assert.deepEqual(salvageTruncatedItems("not json"), []);
 });

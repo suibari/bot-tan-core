@@ -602,6 +602,52 @@ function renderSummary(parsed: unknown, sources: ResearchSource[]): string {
 }
 
 /**
+ * num_predict で途中切れした `{"items":[{...},{...},{"name":"…` から、閉じきった項目だけを拾う。
+ *
+ * 今期の作品一覧の調査は、20項目の日本語の detail が SUMMARY_OUTPUT_TOKENS を使い切り、
+ * 2026-11-24〜28 の毎日、末尾の1項目が閉じないまま返って JSON.parse が落ちていた。
+ * 手前の十数項目は完全なので、一覧ごと捨てずにそこまでを使う。
+ */
+export function salvageTruncatedItems(text: string): unknown[] {
+  const start = text.search(/"items"\s*:\s*\[/);
+  if (start < 0) return [];
+  const items: unknown[] = [];
+  let index = text.indexOf("[", start) + 1;
+  let depth = 0;
+  let objectStart = -1;
+  let inString = false;
+  let escaped = false;
+  for (; index < text.length; index++) {
+    const char = text[index];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === '"') inString = false;
+      continue;
+    }
+    if (char === '"') {
+      inString = true;
+    } else if (char === "{") {
+      if (depth === 0) objectStart = index;
+      depth++;
+    } else if (char === "}") {
+      depth--;
+      if (depth === 0 && objectStart >= 0) {
+        try {
+          items.push(JSON.parse(text.slice(objectStart, index + 1)));
+        } catch {
+          // 1項目だけ壊れていても、ほかの項目は使う。
+        }
+        objectStart = -1;
+      }
+    } else if (char === "]" && depth === 0) {
+      break;
+    }
+  }
+  return items;
+}
+
+/**
  * renderSummary が作った調査テキストの項目数。ログ用。
  *
  * 要約器は JSON としては正しいまま途中で切れた1項目を返すことがある（実測: note 記事で
@@ -685,7 +731,14 @@ export async function researchSelfHosted(input: {
   try {
     parsed = JSON.parse(response.text || "{}");
   } catch (error) {
-    throw new Error("Self-hosted research summary was not valid JSON", { cause: error });
+    const salvaged = salvageTruncatedItems(response.text ?? "");
+    if (!salvaged.length) {
+      throw new Error("Self-hosted research summary was not valid JSON", { cause: error });
+    }
+    console.warn(
+      `[WARN][AI_GROUNDING] summary JSON was truncated; salvaged ${salvaged.length} complete items`,
+    );
+    parsed = { items: salvaged };
   }
   const text = renderSummary(parsed, sources);
   if (!text) throw new Error("Self-hosted research summary contained no items");
